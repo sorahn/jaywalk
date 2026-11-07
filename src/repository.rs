@@ -17,7 +17,7 @@ pub struct Comparison {
     pub files: Vec<ChangedFile>,
 }
 
-fn query(root: &Path, operation: &str, arguments: &[&str]) -> Result<String, String> {
+pub(crate) fn query(root: &Path, operation: &str, arguments: &[&str]) -> Result<String, String> {
     let result = Command::new("jj")
         .current_dir(root)
         .args([
@@ -81,6 +81,37 @@ pub fn parse_changed_files(output: &str) -> Result<Vec<ChangedFile>, String> {
 }
 
 impl Comparison {
+    pub fn current_operation(directory: &Path) -> Result<String, String> {
+        query(
+            directory,
+            "@",
+            &["op", "log", "--no-graph", "-n", "1", "-T", "id"],
+        )
+        .map(|id| id.trim().to_owned())
+    }
+
+    /// Resolve visible versions only. Ambiguity is an error, never a newest-time guess.
+    pub fn revision(&self, expression: &str) -> Result<crate::history::Revision, String> {
+        let commit = single_revision(&self.root, &self.operation, expression)?;
+        let output = query(
+            &self.root,
+            &self.operation,
+            &[
+                "log",
+                "--no-graph",
+                "-r",
+                &commit,
+                "-T",
+                crate::history::TEMPLATE,
+            ],
+        )?;
+        crate::history::History::parse(&output)?
+            .revisions
+            .into_iter()
+            .next()
+            .ok_or_else(|| "Selected change is unavailable".into())
+    }
+
     pub fn load(directory: &Path, base: Option<&str>, tip: &str) -> Result<Self, String> {
         let root = PathBuf::from(query(directory, "@", &["root"])?.trim());
         let operation = query(
@@ -92,13 +123,23 @@ impl Comparison {
         let tip = single_revision(&root, &operation, tip)?;
         let default_base = format!("heads(::{tip} & immutable())");
         let base = single_revision(&root, &operation, base.unwrap_or(&default_base))?;
+        Self::between(root, operation, base, tip)
+    }
+
+    fn between(
+        root: PathBuf,
+        operation: String,
+        base: String,
+        tip: String,
+    ) -> Result<Self, String> {
         let template = "\"[\" ++ json(self.status()) ++ \",\" ++ json(self.source().path()) ++ \",\" ++ json(self.target().path()) ++ \"]\\n\"";
         let output = query(
             &root,
             &operation,
             &["diff", "--from", &base, "--to", &tip, "-T", template],
         )?;
-        let files = parse_changed_files(&output)?;
+        let files = parse_changed_files(&output)
+            .map_err(|error| format!("Could not read changed files: {error}"))?;
 
         Ok(Self {
             root,
@@ -107,6 +148,41 @@ impl Comparison {
             tip,
             files,
         })
+    }
+
+    /// Compare a recorded revision against its first parent. Merge revisions
+    /// deliberately use the first parent, and the UI labels this choice.
+    pub fn for_revision(&self, revision: &crate::history::Revision) -> Result<Self, String> {
+        let base = revision
+            .parents
+            .first()
+            .unwrap_or(&revision.commit_id)
+            .clone();
+        Self::between(
+            self.root.clone(),
+            self.operation.clone(),
+            base,
+            revision.commit_id.clone(),
+        )
+    }
+
+    pub fn history(&self) -> Result<crate::history::History, String> {
+        let revset = format!("ancestors(visible_heads() | {}, 200)", self.tip);
+        let output = query(
+            &self.root,
+            &self.operation,
+            &[
+                "log",
+                "--no-graph",
+                "-n",
+                "200",
+                "-r",
+                &revset,
+                "-T",
+                crate::history::TEMPLATE,
+            ],
+        )?;
+        crate::history::History::parse(&output)
     }
 
     pub fn contents(&self, file: &ChangedFile) -> Result<(String, String), String> {
@@ -133,7 +209,13 @@ impl Comparison {
             &self.root,
             &self.operation,
             &["file", "show", "-r", revision, "--", &fileset],
-        )?;
+        )
+        .map_err(|error| {
+            format!(
+                "Could not read {path:?} at {}: {error}",
+                &revision[..revision.len().min(8)]
+            )
+        })?;
 
         if text.contains('\0') {
             return Err("Binary file: text comparison is unavailable.".into());
@@ -206,6 +288,15 @@ mod tests {
 
         let comparison = Comparison::load(&root, Some("main"), "@").unwrap();
         let operation_before = comparison.operation.clone();
+        let history = comparison.history().unwrap();
+        let selected = history
+            .revisions
+            .iter()
+            .find(|revision| revision.commit_id == comparison.tip)
+            .unwrap();
+        let revision_comparison = comparison.for_revision(selected).unwrap();
+        assert_eq!(revision_comparison.base, comparison.base);
+        assert_eq!(revision_comparison.operation, comparison.operation);
         std::fs::write(root.join("added.ts"), "unsnapshotted\n").unwrap();
         let added = comparison
             .files
@@ -240,6 +331,40 @@ mod tests {
                 .unwrap()
                 .operation,
             operation_before
+        );
+        // A merge comparison follows first-parent review semantics, while
+        // history still exposes both edges of the recorded DAG.
+        run(&["new", &comparison.tip, "-m", "left branch"]);
+        std::fs::write(root.join("left.rs"), "left\n").unwrap();
+        run(&["bookmark", "create", "left"]);
+        run(&["new", &comparison.tip, "-m", "right branch"]);
+        std::fs::write(root.join("right.rs"), "right\n").unwrap();
+        run(&["bookmark", "create", "right"]);
+        run(&["new", "left", "right", "-m", "merge branches"]);
+        let merge = Comparison::load(&root, Some(&comparison.tip), "@").unwrap();
+        let history = merge.history().unwrap();
+        let revision = history
+            .revisions
+            .iter()
+            .find(|revision| revision.commit_id == merge.tip)
+            .unwrap();
+        assert_eq!(revision.parents.len(), 2);
+        let reviewed = merge.for_revision(revision).unwrap();
+        assert_eq!(reviewed.base, revision.parents[0]);
+        assert!(
+            !reviewed
+                .files
+                .iter()
+                .any(|file| file.after_path == "left.rs")
+        );
+        let added = reviewed
+            .files
+            .iter()
+            .find(|file| file.after_path == "right.rs")
+            .unwrap();
+        assert_eq!(
+            reviewed.contents(added).unwrap(),
+            (String::new(), "right\n".into())
         );
         std::fs::remove_dir_all(root).unwrap();
     }
