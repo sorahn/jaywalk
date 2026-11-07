@@ -1,6 +1,10 @@
 [package]
-name = "jj-viewer"
+name = "jaywalk"
 version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+gpui-kit = { version = "=0.8.0", features = ["tree-sitter-typescript", "tree-sitter-tsx", "tree-sitter-javascript"] }
+
+[profile.dev]
+debug = 0
