@@ -70,7 +70,7 @@ impl History {
             .map_or(1, |lane| lane + 1)
     }
 
-    fn new(revisions: Vec<Revision>) -> Self {
+    pub(crate) fn new(revisions: Vec<Revision>) -> Self {
         let mut pending: Vec<String> = Vec::new();
         let mut graph = Vec::new();
         let mut lane_count = 1;

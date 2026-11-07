@@ -1,4 +1,5 @@
 pub mod diff_model;
+pub mod evolution;
 pub mod file_browser;
 pub mod fluid;
 pub mod history;

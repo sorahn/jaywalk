@@ -77,7 +77,7 @@ impl Directory {
     }
 }
 
-fn display_component(value: &str) -> String {
+pub(crate) fn display_component(value: &str) -> String {
     value
         .replace('\n', "\\n")
         .replace('\r', "\\r")

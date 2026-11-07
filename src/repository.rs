@@ -16,6 +16,13 @@ pub struct Comparison {
     pub base: String,
     pub tip: String,
     pub files: Arc<[ChangedFile]>,
+    pub(crate) content: ContentSource,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) enum ContentSource {
+    Recorded,
+    Evolution(crate::evolution::EvolutionContents),
 }
 
 pub(crate) fn query(root: &Path, operation: &str, arguments: &[&str]) -> Result<String, String> {
@@ -127,7 +134,7 @@ impl Comparison {
         Self::between(root, operation, base, tip)
     }
 
-    fn between(
+    pub(crate) fn between(
         root: PathBuf,
         operation: String,
         base: String,
@@ -148,6 +155,7 @@ impl Comparison {
             base,
             tip,
             files: files.into(),
+            content: ContentSource::Recorded,
         })
     }
 
@@ -187,6 +195,9 @@ impl Comparison {
     }
 
     pub fn contents(&self, file: &ChangedFile) -> Result<(String, String), String> {
+        if let ContentSource::Evolution(contents) = &self.content {
+            return contents.read(file);
+        }
         let before = if file.status == "added" {
             String::new()
         } else {
