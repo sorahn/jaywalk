@@ -11,3 +11,6 @@ gpui-kit = { version = "=0.8.0", features = ["tree-sitter-typescript", "tree-sit
 
 [profile.dev]
 debug = 0
+
+[patch.crates-io]
+gpui-component = { path = "vendor/gpui-component" }
