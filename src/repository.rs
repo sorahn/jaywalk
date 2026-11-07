@@ -1,5 +1,6 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::Arc;
 
 #[derive(Clone, Debug)]
 pub struct ChangedFile {
@@ -14,7 +15,7 @@ pub struct Comparison {
     pub operation: String,
     pub base: String,
     pub tip: String,
-    pub files: Vec<ChangedFile>,
+    pub files: Arc<[ChangedFile]>,
 }
 
 pub(crate) fn query(root: &Path, operation: &str, arguments: &[&str]) -> Result<String, String> {
@@ -146,7 +147,7 @@ impl Comparison {
             operation,
             base,
             tip,
-            files,
+            files: files.into(),
         })
     }
 
