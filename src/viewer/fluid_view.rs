@@ -212,6 +212,23 @@ impl Viewer {
                 });
                 let _ = viewer.update(cx, |viewer, cx| {
                     viewer.horizontal_position = resolved_horizontal;
+                    if let Some((left_line, right_line, horizontal)) =
+                        viewer.live.pending_position.take()
+                    {
+                        viewer.fluid.position = geometry.position_for_line(&model, left_line, true);
+                        for (state, positions, line) in [
+                            (&before, &geometry.before, left_line),
+                            (&after, &geometry.after, right_line),
+                        ] {
+                            let y = positions[line.min(positions.len() - 1)];
+                            state.update(cx, |editor, cx| {
+                                editor.set_scroll_offset(point(px(-horizontal), px(-y)), cx)
+                            });
+                        }
+                        viewer.horizontal_position = horizontal;
+                        viewer.reveal_after_layout = false;
+                        cx.notify();
+                    }
                     if viewer.reveal_after_layout {
                         viewer.reveal_after_layout = false;
                         viewer.navigate_change(0, cx);

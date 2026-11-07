@@ -98,11 +98,26 @@ fn history_row(
 
 impl Viewer {
     pub(super) fn render_history(&self, cx: &mut Context<Self>) -> AnyElement {
-        let mut panel = div()
-            .v_flex()
-            .size_full()
-            .bg(rgb(0x242b30))
-            .child(div().px_3().py_3().text_sm().child("JJ HISTORY"));
+        let mut panel = div().v_flex().size_full().bg(rgb(0x242b30)).child(
+            div()
+                .h_flex()
+                .items_center()
+                .justify_between()
+                .px_3()
+                .py_2()
+                .child(div().text_sm().child("JJ HISTORY"))
+                .child(
+                    Button::new("toggle-evolution")
+                        .ghost()
+                        .compact()
+                        .label("Evolution")
+                        .selected(self.evolution.visible)
+                        .tooltip("Show change evolution")
+                        .on_click(
+                            cx.listener(|this, _, window, cx| this.toggle_evolution(window, cx)),
+                        ),
+                ),
+        );
         let session = match &self.repository {
             LoadState::Loaded(session) => session,
             LoadState::Loading => {
@@ -127,6 +142,7 @@ impl Viewer {
         let selected_commit = match &session.scope {
             ComparisonScope::WholeBranch => None,
             ComparisonScope::Revision { commit_id, .. } => Some(commit_id.clone()),
+            ComparisonScope::Evolution { anchor, .. } => Some(anchor.clone()),
         };
         let count = history.revisions.len();
         let viewer = cx.entity().downgrade();

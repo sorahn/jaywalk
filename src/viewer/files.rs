@@ -214,11 +214,26 @@ impl Viewer {
                     .justify_between()
                     .px_3()
                     .py_2()
-                    .child(div().text_sm().child("CHANGED FILES"))
+                    .child(div().text_xs().child("CHANGED FILES"))
                     .child(
                         div()
                             .h_flex()
                             .gap_1()
+                            .child(
+                                Button::new("file-evolution-toggle")
+                                    .ghost()
+                                    .compact()
+                                    .icon(IconName::GitCompareArrows)
+                                    .tooltip("File evolution")
+                                    .selected(self.file_evolution.visible)
+                                    .on_click(cx.listener(|this, _, window, cx| {
+                                        this.toggle_evolution_panel(
+                                            evolution::EvolutionKind::File,
+                                            window,
+                                            cx,
+                                        )
+                                    })),
+                            )
                             .child(
                                 Button::new("file-list-mode")
                                     .ghost()

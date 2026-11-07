@@ -1,6 +1,68 @@
 use super::*;
 
 impl Viewer {
+    pub(super) fn unchanged_file_summary(&self) -> &'static str {
+        let status = self
+            .selected_index()
+            .and_then(|index| self.comparison()?.files.get(index))
+            .map(|file| file.status.as_str());
+        match status {
+            Some("renamed") => "Renamed · contents unchanged",
+            Some("copied") => "Copied · contents unchanged",
+            Some("added") => "Added empty file",
+            Some("removed") => "Deleted empty file",
+            _ => "No text changes",
+        }
+    }
+
+    fn render_file_header(&self) -> AnyElement {
+        let file = &self
+            .comparison()
+            .expect("loaded file has a recorded comparison")
+            .files[self.selected_index().expect("loaded file has an index")];
+        let text_changed = self
+            .code()
+            .is_some_and(|code| code.model.blocks.iter().any(|block| block.changed));
+        let mut header = div()
+            .v_flex()
+            .px_3()
+            .py_2()
+            .bg(rgb(0x302b3d))
+            .child(file.after_path.clone());
+        let detail = match file.status.as_str() {
+            "renamed" => Some(format!(
+                "Renamed from {}{}",
+                file.before_path,
+                if text_changed {
+                    ""
+                } else {
+                    " · contents unchanged"
+                }
+            )),
+            "copied" => Some(format!(
+                "Copied from {}{}",
+                file.before_path,
+                if text_changed {
+                    ""
+                } else {
+                    " · contents unchanged"
+                }
+            )),
+            _ if !text_changed => Some(self.unchanged_file_summary().to_owned()),
+            _ => None,
+        };
+        if let Some(detail) = detail {
+            header = header.child(
+                div()
+                    .text_sm()
+                    .text_color(rgb(0xb6c4d8))
+                    .whitespace_normal()
+                    .child(detail),
+            );
+        }
+        header.into_any_element()
+    }
+
     pub(super) fn render_standard_input(&self, cx: &mut Context<Self>) -> AnyElement {
         let viewer = cx.entity().downgrade();
         canvas(
@@ -81,12 +143,6 @@ impl Viewer {
         }) = self.code()
         {
             if self.view_mode != ViewMode::Fluid {
-                let heading = self
-                    .comparison()
-                    .expect("loaded file has a recorded comparison")
-                    .files[self.selected_index().expect("loaded file has an index")]
-                .after_path
-                .clone();
                 let body = if let Err(error) = standard {
                     div().p_6().child(error.clone()).into_any_element()
                 } else if let Some(Ok(Some(state))) = self.code().map(|code| &code.standard) {
@@ -106,7 +162,7 @@ impl Viewer {
                 return div()
                     .v_flex()
                     .size_full()
-                    .child(div().px_3().py_2().bg(rgb(0x302b3d)).child(heading))
+                    .child(self.render_file_header())
                     .child(
                         div().relative().flex_1().min_h_0().child(body).child(
                             div()
@@ -122,15 +178,7 @@ impl Viewer {
             return div()
                 .v_flex()
                 .size_full()
-                .child(
-                    div().px_3().py_2().bg(rgb(0x302b3d)).child(
-                        self.comparison()
-                            .expect("loaded file has a recorded comparison")
-                            .files[self.selected_index().expect("loaded file has an index")]
-                        .after_path
-                        .clone(),
-                    ),
-                )
+                .child(self.render_file_header())
                 .child(
                     div()
                         .relative()
@@ -140,6 +188,7 @@ impl Viewer {
                             self.diff_group(cx)
                                 .child(
                                     resizable_panel()
+                                        .size(self.initial_code_width(true))
                                         .size_range(
                                             px(self.settings.panels.diff.min_code_width)
                                                 ..Pixels::MAX,
@@ -148,7 +197,13 @@ impl Viewer {
                                             div()
                                                 .v_flex()
                                                 .size_full()
-                                                .child(div().px_3().py_1().child("BEFORE"))
+                                                .child(div().px_3().py_1().child(
+                                                    if self.is_interdiff() {
+                                                        "PREVIOUS (rebased)"
+                                                    } else {
+                                                        "BEFORE"
+                                                    },
+                                                ))
                                                 .child(
                                                     Editor::new(left)
                                                         .readonly(true)
@@ -177,6 +232,7 @@ impl Viewer {
                                 )
                                 .child(
                                     resizable_panel()
+                                        .size(self.initial_code_width(false))
                                         .size_range(
                                             px(self.settings.panels.diff.min_code_width)
                                                 ..Pixels::MAX,
@@ -185,7 +241,13 @@ impl Viewer {
                                             div()
                                                 .v_flex()
                                                 .size_full()
-                                                .child(div().px_3().py_1().child("AFTER"))
+                                                .child(div().px_3().py_1().child(
+                                                    if self.is_interdiff() {
+                                                        "SELECTED VERSION"
+                                                    } else {
+                                                        "AFTER"
+                                                    },
+                                                ))
                                                 .child(
                                                     Editor::new(right)
                                                         .readonly(true)
@@ -214,7 +276,7 @@ impl Viewer {
                     .unwrap_or_else(|| "Changeset overview".into());
                 div().v_flex().size_full().bg(rgb(0x302b3d)).gap_4().p_6()
                     .child(div().text_xl().child(heading))
-                    .child(format!("{} changed files", comparison.files.len()))
+                    .child(if self.is_interdiff() && comparison.files.is_empty() { "No patch changes between these versions.".to_owned() } else { format!("{} changed files", comparison.files.len()) })
                     .child(format!("Base: {}", comparison.base))
                     .child(format!("Tip: {}", comparison.tip))
                     .child(format!("Operation: {}", &comparison.operation[..12]))

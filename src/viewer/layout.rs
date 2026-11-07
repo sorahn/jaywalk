@@ -9,6 +9,30 @@ impl Render for Viewer {
             .on_action(cx.listener(|this, _: &ShowWholeBranch, window, cx| {
                 this.show_whole_branch(window, cx)
             }))
+            .on_action(cx.listener(|this, _: &FindFile, window, cx| {
+                this.open_palette(palette::PaletteKind::Files, window, cx)
+            }))
+            .on_action(cx.listener(|this, _: &ShowCommands, window, cx| {
+                this.open_palette(palette::PaletteKind::Commands, window, cx)
+            }))
+            .on_action(cx.listener(|this, _: &RefreshView, window, cx| this.refresh(window, cx)))
+            .on_action(
+                cx.listener(|this, _: &NextFile, window, cx| this.navigate_file(1, window, cx)),
+            )
+            .on_action(
+                cx.listener(|this, _: &PreviousFile, window, cx| {
+                    this.navigate_file(-1, window, cx)
+                }),
+            )
+            .on_action(cx.listener(|this, _: &NextChange, _, cx| this.navigate_change(1, cx)))
+            .on_action(cx.listener(|this, _: &PreviousChange, _, cx| this.navigate_change(-1, cx)))
+            .on_action(cx.listener(|this, _: &NextRevision, window, cx| {
+                this.navigate_revision(1, window, cx)
+            }))
+            .on_action(cx.listener(|this, _: &PreviousRevision, window, cx| {
+                this.navigate_revision(-1, window, cx)
+            }))
+            .relative()
             .v_flex()
             .size_full()
             .bg(rgb(0x1f1f1f))
@@ -28,6 +52,17 @@ impl Render for Viewer {
                         div()
                             .h_flex()
                             .gap_2()
+                            .child(self.render_panel_toggles(cx))
+                            .child(
+                                Button::new("find-file")
+                                    .ghost()
+                                    .compact()
+                                    .icon(IconName::Search)
+                                    .tooltip("Find changed file (Cmd+P)")
+                                    .on_click(cx.listener(|this, _, window, cx| {
+                                        this.open_palette(palette::PaletteKind::Files, window, cx)
+                                    })),
+                            )
                             .child(
                                 Button::new("whole-branch")
                                     .ghost()
@@ -45,6 +80,7 @@ impl Render for Viewer {
                             .child(Button::new("overview").ghost().label("Overview").on_click(
                                 cx.listener(|this, _, _, cx| {
                                     this.clear_file();
+                                    this.focus_evolution_file(None);
                                     cx.notify();
                                 }),
                             ))
@@ -62,23 +98,38 @@ impl Render for Viewer {
                         self.sidebar_group(cx)
                             .child(
                                 resizable_panel()
-                                    .size(px(self.settings.panels.history.default_width))
+                                    .visible(!self.layout.saved.history_hidden)
+                                    .size(px(self.sidebar_width(true)))
                                     .size_range(
                                         px(self.settings.panels.history.min_width)
                                             ..px(self.settings.panels.history.max_width),
                                     )
-                                    .child(self.render_history(cx)),
+                                    .child(self.render_history_sidebar(cx)),
                             )
                             .child(
                                 resizable_panel()
-                                    .size(px(self.settings.panels.files.default_width))
+                                    .visible(!self.layout.saved.files_hidden)
+                                    .size(px(self.sidebar_width(false)))
                                     .size_range(
                                         px(self.settings.panels.files.min_width)
                                             ..px(self.settings.panels.files.max_width),
                                     )
-                                    .child(self.render_files(cx)),
+                                    .child(self.render_file_sidebar(cx)),
                             )
-                            .child(resizable_panel().child(self.render_comparison(cx))),
+                            .child(
+                                resizable_panel().child(
+                                    div()
+                                        .v_flex()
+                                        .size_full()
+                                        .child(self.render_evolution_comparison(cx))
+                                        .child(
+                                            div()
+                                                .flex_1()
+                                                .min_h_0()
+                                                .child(self.render_comparison(cx)),
+                                        ),
+                                ),
+                            ),
                     )
                     .child(self.sidebar_bounds_marker()),
             )
@@ -113,7 +164,9 @@ impl Render for Viewer {
                             )
                             .child(self.render_view_toggle(cx))
                             .child(if self.code().is_some() {
-                                if self.view_mode == ViewMode::Fluid {
+                                if total == 0 {
+                                    self.unchanged_file_summary().to_owned()
+                                } else if self.view_mode == ViewMode::Fluid {
                                     format!(
                                         "Change {} of {}",
                                         self.active_change.map_or(0, |index| index + 1),
@@ -165,5 +218,14 @@ impl Render for Viewer {
                             )
                     }),
             )
+            .children(self.live.message.as_ref().map(|message| {
+                div()
+                    .px_3()
+                    .py_1()
+                    .text_xs()
+                    .bg(rgb(0x3b3426))
+                    .child(message.clone())
+            }))
+            .children(self.render_palette(cx))
     }
 }

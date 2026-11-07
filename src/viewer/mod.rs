@@ -15,13 +15,17 @@ use std::rc::Rc;
 use crate::Arguments;
 
 mod comparison;
+mod evolution;
 mod files;
 mod fluid_view;
 mod geometry;
 mod history;
 mod layout;
+mod live;
 mod loading;
+mod palette;
 mod panels;
+mod session_layout;
 use geometry::{comparison_geometry, horizontal_wheel};
 
 fn standard_mode(view: ViewMode) -> DiffMode {
@@ -93,7 +97,16 @@ impl<T> LoadState<T> {
 #[derive(Clone, PartialEq, Eq)]
 enum ComparisonScope {
     WholeBranch,
-    Revision { commit_id: String, merge: bool },
+    Revision {
+        commit_id: String,
+        merge: bool,
+    },
+    Evolution {
+        anchor: String,
+        version: String,
+        label: String,
+        mode: evolution::ReviewMode,
+    },
 }
 
 struct RepositorySession {
@@ -101,6 +114,7 @@ struct RepositorySession {
     history: Result<Rc<jaywalk::history::History>, String>,
     scope: ComparisonScope,
     comparison: LoadState<Rc<Comparison>>,
+    revision_comparison: Option<Rc<Comparison>>,
 }
 
 struct CodeComparison {
@@ -140,14 +154,35 @@ impl PreparedFile {
     }
 }
 
-gpui::actions!(jaywalk, [ShowWholeBranch]);
+gpui::actions!(
+    jaywalk,
+    [
+        ShowWholeBranch,
+        FindFile,
+        ShowCommands,
+        RefreshView,
+        NextFile,
+        PreviousFile,
+        NextChange,
+        PreviousChange,
+        NextRevision,
+        PreviousRevision
+    ]
+);
 
 pub(crate) fn init(cx: &mut App) {
-    cx.bind_keys([KeyBinding::new(
-        "secondary-shift-b",
-        ShowWholeBranch,
-        Some("Jaywalk"),
-    )]);
+    cx.bind_keys([
+        KeyBinding::new("secondary-shift-b", ShowWholeBranch, Some("Jaywalk")),
+        KeyBinding::new("secondary-p", FindFile, Some("Jaywalk")),
+        KeyBinding::new("secondary-shift-p", ShowCommands, Some("Jaywalk")),
+        KeyBinding::new("secondary-r", RefreshView, Some("Jaywalk")),
+        KeyBinding::new("secondary-alt-down", NextRevision, Some("Jaywalk")),
+        KeyBinding::new("secondary-alt-up", PreviousRevision, Some("Jaywalk")),
+        KeyBinding::new("alt-down", NextFile, Some("Jaywalk")),
+        KeyBinding::new("alt-up", PreviousFile, Some("Jaywalk")),
+        KeyBinding::new("f7", NextChange, Some("Jaywalk")),
+        KeyBinding::new("shift-f7", PreviousChange, Some("Jaywalk")),
+    ]);
 }
 
 pub(crate) struct Viewer {
@@ -156,6 +191,9 @@ pub(crate) struct Viewer {
     focus: FocusHandle,
     panels: panels::PanelLayout,
     history_scroll: UniformListScrollHandle,
+    evolution: evolution::EvolutionPanel,
+    file_evolution: evolution::EvolutionPanel,
+    active_evolution: evolution::EvolutionKind,
     repository: LoadState<RepositorySession>,
     selected_file: Option<SelectedFile>,
     browser: files::FileBrowser,
@@ -171,6 +209,9 @@ pub(crate) struct Viewer {
     reveal_after_layout: bool,
     fluid: FluidScroll,
     editor_observers: Vec<Subscription>,
+    live: live::LiveState,
+    palette: palette::PaletteState,
+    layout: session_layout::SessionLayout,
 }
 
 impl Viewer {
@@ -202,9 +243,20 @@ impl Viewer {
         self.file_generation += 1;
         self.file_task = None;
         self.selected_file = None;
+        self.live.pending_position = None;
         self.active_change = None;
         self.navigation_target = None;
         self.editor_observers.clear();
+    }
+
+    fn is_interdiff(&self) -> bool {
+        matches!(
+            self.repository.ready().map(|session| &session.scope),
+            Some(ComparisonScope::Evolution {
+                mode: evolution::ReviewMode::SincePrevious,
+                ..
+            })
+        )
     }
 
     fn scope_label(&self) -> String {
@@ -215,6 +267,9 @@ impl Viewer {
                 &commit_id[..commit_id.len().min(8)],
                 if *merge { " · first parent" } else { "" }
             ),
+            Some(ComparisonScope::Evolution { label, version, .. }) => {
+                format!("{label} · {}", &version[..version.len().min(8)])
+            }
             None => "Repository".into(),
         }
     }
@@ -246,9 +301,10 @@ impl Viewer {
     }
 
     fn toggle_wrap(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.preserve_reflow_position(cx);
         self.wrapping.toggle(self.view_mode);
         self.horizontal_position = 0.;
-        self.reveal_after_layout = self.code().is_some();
+        self.reveal_after_layout = false;
         if let Some(CodeComparison { before, after, .. }) = self.code() {
             for (state, wrap) in [(before, self.wrapping.before), (after, self.wrapping.after)] {
                 state.update(cx, |state, cx| {
@@ -291,9 +347,49 @@ impl Viewer {
     }
 
     fn set_view_mode(&mut self, mode: ViewMode, cx: &mut Context<Self>) {
+        if self.view_mode == mode {
+            return;
+        }
+        let line = self.code().map(|code| {
+            if self.view_mode != ViewMode::Fluid
+                && let Ok(Some(state)) = &code.standard
+                && let Some(position) = state.read(cx).viewport_position()
+            {
+                return position.line().saturating_sub(1);
+            }
+            let state = code.after.read(cx);
+            state.display_map().display_row_to_buffer_line(
+                state.visible_row_range().map_or(0, |range| range.start),
+            )
+        });
         self.view_mode = mode;
         if let Some(Ok(Some(state))) = self.code().map(|code| &code.standard) {
-            state.update(cx, |state, cx| state.set_mode(standard_mode(mode), cx));
+            state.update(cx, |state, cx| {
+                state.set_mode(standard_mode(mode), cx);
+                if let Some(line) = line
+                    && mode != ViewMode::Fluid
+                {
+                    let path = state.files().first().map(|file| file.path().clone());
+                    if let Some(path) = path {
+                        state.scroll_to_line(
+                            gpui::component::diff::DiffLinePosition::new(
+                                path,
+                                gpui::component::diff::DiffSide::Modified,
+                                line + 1,
+                            ),
+                            cx,
+                        );
+                    }
+                }
+            });
+        }
+        if mode == ViewMode::Fluid
+            && let Some(line) = line
+        {
+            let before_line = self
+                .code()
+                .map_or(line, |code| code.model.corresponding_line(line, false));
+            self.live.pending_position = Some((before_line, line, self.horizontal_position));
         }
         cx.notify();
     }
