@@ -1,8 +1,7 @@
 # Jaywalk
 
 A native Rust/GPUI Jujutsu comparison viewer. The prototype uses GPUI Kit's
-existing text and panel components. Plans and research live in Homelab in the
-Obsidian vault.
+existing text and panel components.
 
 ## Build
 
@@ -33,7 +32,21 @@ holds the evolving native implementation. Use jj for history operations.
 ./target/debug/jaywalk /path/to/jj/repository --inspect
 ```
 
-The default view is a changeset overview. Pick one file from the left panel.
+The default view is the whole-branch overview. The outer left pane shows up to
+200 recorded jj revisions with graph lanes, descriptions, and bookmarks.
+Selecting a revision updates the inner file pane to that commit's changes.
+Merge revisions compare against their first parent, as indicated in the view.
+The Whole branch button (Cmd+Shift+B on macOS) returns to the original
+branch comparison. Overview clears the selected file within the current
+comparison; Refresh records a new read-only snapshot and returns to the branch.
+
+The file pane defaults to a single-line list. Directory prefixes shorten
+when space is tight, remaining distinct among the displayed changed paths;
+filenames stay intact, with horizontal scrolling for long names. Its list/tree
+buttons switch to a collapsible directory tree of changed files. File colors
+indicate additions, modifications, renames, and deletions. Pick a file to load
+its comparison. Both left panes resize independently.
+
 The bottom-right three-way toggle selects inline, aligned side-by-side, or
 Fluid diff (the default). The standard views use GPUI Kit's existing diff
 widget with full context and syntax highlighting. The separate word-wrap
@@ -46,12 +59,13 @@ Each pane stops at its own horizontal end.
 Drag the panel separators to resize. Scroll either code pane to exercise the
 experimental centre-anchored Fluid mapping and live connectors. Each change
 has one thin midpoint-to-midpoint connector. Oversized blocks let attachments
-slide into view along their edges, using Kaleidoscope as the visual reference while scrolling is refined. Overview
-returns to the summary; Refresh reloads a coherent recorded jj operation.
+slide into view along their edges, using Kaleidoscope as the visual reference
+while scrolling is refined.
 
 The change nearest the viewport center gets stronger emphasis, including its
 line-number area. In Fluid mode, the footer shows its position in the file
-and provides previous/next change navigation. Added/deleted blocks have a full-width marker
+and provides previous/next change navigation. Added/deleted blocks have a
+full-width marker
 on the empty side. Scrolling resumes automatic active-change selection after
 using the navigation controls. The standard modes show the total change count
 and use the built-in widget's previous/next navigation.
@@ -63,11 +77,12 @@ endpoints require an explicit --base/--tip. Renames read their original path
 on the left and new path on the right. Binary/non-UTF-8 and oversized files
 show an explanation instead of a text comparison.
 
-This first prototype has a flat file list, manual refresh, line-level diff
-emphasis, and optional word wrapping. The Fluid mapping is an experiment, not an
-exact reproduction of Kaleidoscope. Graph/evolution browsing, a command
-palette, word-level emphasis, saved layouts, and automatic refresh remain in
-the Homelab plan. The default-style syntax palette maps selected VS Code
+This prototype has history selection, list/tree file browsing, manual refresh,
+line-level diff emphasis, and optional word wrapping. Repository reads and
+file/diff preparation run in background tasks; superseded requests cannot
+replace the current selection. The Fluid mapping remains experimental.
+Change-evolution browsing, a command palette, word-level emphasis, saved
+layouts, and automatic refresh remain planned. The default-style syntax palette maps selected VS Code
 colors; it is not a complete VS Code theme importer.
 
 ## Checks

@@ -5,6 +5,7 @@ impl Render for Viewer {
         div()
             .id("viewer-root")
             .key_context("Jaywalk")
+            .track_focus(&self.focus)
             .on_action(cx.listener(|this, _: &ShowWholeBranch, window, cx| {
                 this.show_whole_branch(window, cx)
             }))
@@ -31,6 +32,7 @@ impl Render for Viewer {
                                 Button::new("whole-branch")
                                     .ghost()
                                     .label("Whole branch")
+                                    .disabled(self.repository.ready().is_none())
                                     .selected(matches!(
                                         self.repository.ready().map(|session| &session.scope),
                                         Some(ComparisonScope::WholeBranch)
