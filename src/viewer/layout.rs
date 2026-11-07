@@ -54,28 +54,33 @@ impl Render for Viewer {
                     ),
             )
             .child(
-                div().flex_1().min_h_0().child(
-                    h_resizable("viewer-layout")
-                        .child(
-                            resizable_panel()
-                                .size(px(self.settings.panels.history.default_width))
-                                .size_range(
-                                    px(self.settings.panels.history.min_width)
-                                        ..px(self.settings.panels.history.max_width),
-                                )
-                                .child(self.render_history(cx)),
-                        )
-                        .child(
-                            resizable_panel()
-                                .size(px(self.settings.panels.files.default_width))
-                                .size_range(
-                                    px(self.settings.panels.files.min_width)
-                                        ..px(self.settings.panels.files.max_width),
-                                )
-                                .child(self.render_files(cx)),
-                        )
-                        .child(resizable_panel().child(self.render_comparison(cx))),
-                ),
+                div()
+                    .relative()
+                    .flex_1()
+                    .min_h_0()
+                    .child(
+                        self.sidebar_group(cx)
+                            .child(
+                                resizable_panel()
+                                    .size(px(self.settings.panels.history.default_width))
+                                    .size_range(
+                                        px(self.settings.panels.history.min_width)
+                                            ..px(self.settings.panels.history.max_width),
+                                    )
+                                    .child(self.render_history(cx)),
+                            )
+                            .child(
+                                resizable_panel()
+                                    .size(px(self.settings.panels.files.default_width))
+                                    .size_range(
+                                        px(self.settings.panels.files.min_width)
+                                            ..px(self.settings.panels.files.max_width),
+                                    )
+                                    .child(self.render_files(cx)),
+                            )
+                            .child(resizable_panel().child(self.render_comparison(cx))),
+                    )
+                    .child(self.sidebar_bounds_marker()),
             )
             .child(
                 div()

@@ -137,7 +137,7 @@ impl Viewer {
                         .flex_1()
                         .min_h_0()
                         .child(
-                            h_resizable("code-panes")
+                            self.diff_group(cx)
                                 .child(
                                     resizable_panel()
                                         .size_range(

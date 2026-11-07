@@ -17,6 +17,8 @@ impl Viewer {
             arguments,
             settings,
             focus,
+            panels: panels::PanelLayout::new(cx),
+            history_scroll: UniformListScrollHandle::new(),
             repository: LoadState::Loading,
             selected_file: None,
             browser: files::FileBrowser::new(file_width, cx),

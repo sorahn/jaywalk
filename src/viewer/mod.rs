@@ -21,6 +21,7 @@ mod geometry;
 mod history;
 mod layout;
 mod loading;
+mod panels;
 use geometry::{comparison_geometry, horizontal_wheel};
 
 fn standard_mode(view: ViewMode) -> DiffMode {
@@ -153,6 +154,8 @@ pub(crate) struct Viewer {
     arguments: Arguments,
     settings: Settings,
     focus: FocusHandle,
+    panels: panels::PanelLayout,
+    history_scroll: UniformListScrollHandle,
     repository: LoadState<RepositorySession>,
     selected_file: Option<SelectedFile>,
     browser: files::FileBrowser,

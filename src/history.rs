@@ -55,6 +55,21 @@ impl History {
         Ok(Self::new(revisions))
     }
 
+    /// Space only for lanes drawn in the current visible row range. Edges
+    /// count as well as nodes so partially visible branch sprawl is retained.
+    pub fn visible_lane_count(&self, rows: std::ops::Range<usize>) -> usize {
+        let end = rows.end.min(self.graph.len());
+        let start = rows.start.min(end);
+        self.graph[start..end]
+            .iter()
+            .flat_map(|row| {
+                std::iter::once(row.lane)
+                    .chain(row.edges.iter().flat_map(|(from, to)| [*from, *to]))
+            })
+            .max()
+            .map_or(1, |lane| lane + 1)
+    }
+
     fn new(revisions: Vec<Revision>) -> Self {
         let mut pending: Vec<String> = Vec::new();
         let mut graph = Vec::new();
@@ -116,6 +131,9 @@ mod tests {
         ))
         .unwrap();
         assert_eq!(history.lane_count, 2);
+        assert_eq!(history.visible_lane_count(0..1), 2);
+        assert_eq!(history.visible_lane_count(3..4), 1);
+        assert_eq!(history.visible_lane_count(20..30), 1);
         assert_eq!(history.graph[0].edges, vec![(0, 0), (0, 1)]);
         assert_eq!(history.graph[1].edges, vec![(0, 0), (1, 1)]);
         assert_eq!(history.graph[2].edges, vec![(0, 0), (1, 0)]);

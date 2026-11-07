@@ -15,8 +15,8 @@ cargo run -- /path/to/jj/repository
 
 GPUI Kit is pinned to 0.8.0: its 0.9.0 macOS backend currently uses an unstable
 Rust API that fails on the installed stable compiler. The lockfile records the
-verified dependency set. The existing diff component is vendored for a scoped horizontal-scrolling extension;
-see `vendor/README.md`.
+verified dependency set. The existing diff component is vendored for scoped scrolling, wrapping, and
+font-size extensions; see `vendor/README.md`.
 
 ## Settings
 
@@ -49,7 +49,8 @@ holds the evolving native implementation. Use jj for history operations.
 ```
 
 The default view is the whole-branch overview. The outer left pane shows up to
-200 recorded jj revisions with graph lanes, descriptions, and bookmarks.
+200 recorded jj revisions, one message per line. The graph column reserves
+space only for lanes in the visible rows, expanding and shrinking as you scroll.
 Selecting a revision updates the inner file pane to that commit's changes.
 Merge revisions compare against their first parent, as indicated in the view.
 The Whole branch button (Cmd+Shift+B on macOS) returns to the original
@@ -61,7 +62,9 @@ when space is tight, remaining distinct among the displayed changed paths;
 filenames stay intact, with horizontal scrolling for long names. Its list/tree
 buttons switch to a collapsible directory tree of changed files. File colors
 indicate additions, modifications, renames, and deletions. Pick a file to load
-its comparison. Both left panes resize independently.
+its comparison. Both left panes resize independently. Double-click a sidebar
+separator to restore that pane's configured default width. Double-click either
+Fluid separator to restore an even code split with the configured gutter width.
 
 The bottom-right three-way toggle selects inline, aligned side-by-side, or
 Fluid diff (the default). The standard views use GPUI Kit's existing diff
