@@ -1,6 +1,12 @@
-# jj viewer
+# Jaywalk
 
 This is a personal native Rust/GPUI application, not a work service.
+
+## Rust coding standards
+
+Read and follow `CONTRIBUTING.md` before implementing or reviewing Rust code.
+Apply the standards to the scope being changed; keep unrelated prototype
+cleanup in separate, reviewable changes.
 
 ## Development history
 

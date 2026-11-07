@@ -1,4 +1,4 @@
-# jj viewer
+# Jaywalk
 
 A native Jujutsu comparison viewer. Development plan and research live in the
 Homelab Obsidian vault.
