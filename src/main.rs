@@ -1,10 +1,12 @@
 extern crate gpui_kit as gpui;
 
 use clap::Parser;
+use gpui::assets::IconName;
 use gpui::component::button::{Button, ButtonVariants};
+use gpui::component::diff::{Diff, DiffFile, DiffMode, DiffState};
 use gpui::component::input::{Editor, EditorState};
 use gpui::component::resizable::{h_resizable, resizable_panel};
-use gpui::component::{Disableable, StyledExt, Theme, ThemeMode};
+use gpui::component::{Disableable, Selectable, StyledExt, Theme, ThemeMode};
 use gpui::*;
 use jaywalk::diff_model::FileDiff;
 use jaywalk::fluid::FluidScroll;
@@ -28,6 +30,31 @@ struct Arguments {
     file: Option<String>,
 }
 
+#[derive(Clone, Copy, Default, PartialEq, Eq)]
+enum ViewMode {
+    Inline,
+    SideBySide,
+    #[default]
+    Fluid,
+}
+
+impl ViewMode {
+    fn standard(self) -> DiffMode {
+        match self {
+            Self::Inline => DiffMode::Unified,
+            Self::SideBySide | Self::Fluid => DiffMode::Split,
+        }
+    }
+}
+
+fn standard_patch(before: &str, after: &str) -> String {
+    similar::TextDiff::from_lines(before, after)
+        .unified_diff()
+        .context_radius(before.lines().count().max(after.lines().count()))
+        .header("a/source", "b/source")
+        .to_string()
+}
+
 type CodeComparison = (Entity<EditorState>, Entity<EditorState>, FileDiff);
 
 struct Viewer {
@@ -37,6 +64,9 @@ struct Viewer {
     active_change: Option<usize>,
     navigation_target: Option<usize>,
     code: Option<CodeComparison>,
+    view_mode: ViewMode,
+    standard_diff: Option<Entity<DiffState>>,
+    standard_error: Option<String>,
     file_error: Option<String>,
     fluid: FluidScroll,
     editor_observers: Vec<Subscription>,
@@ -56,6 +86,9 @@ impl Viewer {
             active_change: None,
             navigation_target: None,
             code: None,
+            view_mode: ViewMode::default(),
+            standard_diff: None,
+            standard_error: None,
             file_error: None,
             fluid: FluidScroll::default(),
             editor_observers: Vec::new(),
@@ -83,6 +116,8 @@ impl Viewer {
         self.editor_observers.clear();
         self.code = None;
         self.file_error = None;
+        self.standard_diff = None;
+        self.standard_error = None;
         if let Ok(comparison) = &self.comparison {
             let file = &comparison.files[index];
             match comparison.contents(file) {
@@ -98,6 +133,19 @@ impl Viewer {
                         "js" | "jsx" => "javascript",
                         _ => "plain",
                     };
+                    match DiffFile::parse(&standard_patch(&before, &after)) {
+                        Ok(files) if !files.is_empty() => {
+                            let mode = self.view_mode.standard();
+                            let files = files.into_iter().map(|file| file.with_language(language));
+                            self.standard_diff = Some(cx.new(|cx| {
+                                DiffState::new(files, cx)
+                                    .with_context_lines(None)
+                                    .with_mode(mode)
+                            }));
+                        }
+                        Ok(_) => {}
+                        Err(error) => self.standard_error = Some(error.to_string()),
+                    }
                     let make_editor =
                         |text: String, window: &mut Window, cx: &mut Context<Self>| {
                             cx.new(|cx| {
@@ -164,7 +212,68 @@ impl Viewer {
         cx.notify();
     }
 
+    fn set_view_mode(&mut self, mode: ViewMode, cx: &mut Context<Self>) {
+        self.view_mode = mode;
+        if let Some(state) = &self.standard_diff {
+            state.update(cx, |state, cx| state.set_mode(mode.standard(), cx));
+        }
+        cx.notify();
+    }
+
+    fn render_view_toggle(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let mut group = div()
+            .h_flex()
+            .items_center()
+            .gap_1()
+            .p_1()
+            .rounded_md()
+            .bg(rgb(0x292929));
+        for (id, mode, icon, label) in [
+            (
+                "view-inline",
+                ViewMode::Inline,
+                IconName::List,
+                "Inline diff",
+            ),
+            (
+                "view-side-by-side",
+                ViewMode::SideBySide,
+                IconName::Columns2,
+                "Side-by-side diff",
+            ),
+            (
+                "view-fluid",
+                ViewMode::Fluid,
+                IconName::GitCompareArrows,
+                "Fluid diff",
+            ),
+        ] {
+            group = group.child(
+                Button::new(id)
+                    .ghost()
+                    .compact()
+                    .icon(icon)
+                    .tooltip(label)
+                    .selected(self.view_mode == mode)
+                    .on_click(cx.listener(move |this, _, _, cx| this.set_view_mode(mode, cx))),
+            );
+        }
+        group
+    }
+
     fn navigate_change(&mut self, direction: i32, cx: &mut Context<Self>) {
+        if self.view_mode != ViewMode::Fluid {
+            if let Some(state) = &self.standard_diff {
+                state.update(cx, |state, cx| {
+                    if direction < 0 {
+                        state.previous_change(cx);
+                    } else {
+                        state.next_change(cx);
+                    }
+                });
+            }
+            return;
+        }
         let Some((before, _, model)) = &self.code else {
             return;
         };
@@ -474,6 +583,32 @@ impl Viewer {
             return div().p_6().child(error.clone()).into_any_element();
         }
         if let Some((left, right, _)) = &self.code {
+            if self.view_mode != ViewMode::Fluid {
+                let heading = self.comparison.as_ref().unwrap().files[self.selected.unwrap()]
+                    .after_path
+                    .clone();
+                let body = if let Some(error) = &self.standard_error {
+                    div().p_6().child(error.clone()).into_any_element()
+                } else if let Some(state) = &self.standard_diff {
+                    Diff::new(state)
+                        .header_visible(false)
+                        .soft_wrap(true)
+                        .size_full()
+                        .into_any_element()
+                } else {
+                    Editor::new(left)
+                        .readonly(true)
+                        .bordered(false)
+                        .h_full()
+                        .into_any_element()
+                };
+                return div()
+                    .v_flex()
+                    .size_full()
+                    .child(div().px_3().py_2().bg(rgb(0x302b3d)).child(heading))
+                    .child(div().flex_1().min_h_0().child(body))
+                    .into_any_element();
+            }
             let gutter_bounds = Rc::new(Cell::new(None));
             let measured_gutter = gutter_bounds.clone();
             return div()
@@ -631,12 +766,17 @@ impl Render for Viewer {
                             .h_flex()
                             .items_center()
                             .gap_2()
+                            .child(self.render_view_toggle(cx))
                             .child(if self.code.is_some() {
-                                format!(
-                                    "Change {} of {}",
-                                    self.active_change.map_or(0, |index| index + 1),
-                                    total
-                                )
+                                if self.view_mode == ViewMode::Fluid {
+                                    format!(
+                                        "Change {} of {}",
+                                        self.active_change.map_or(0, |index| index + 1),
+                                        total
+                                    )
+                                } else {
+                                    format!("{total} changes")
+                                }
                             } else {
                                 String::new()
                             })
@@ -646,7 +786,12 @@ impl Render for Viewer {
                                     .label("↑")
                                     .disabled(
                                         self.code.is_none()
-                                            || self.active_change.is_none_or(|index| index == 0),
+                                            || (self.view_mode == ViewMode::Fluid
+                                                && self
+                                                    .active_change
+                                                    .is_none_or(|index| index == 0))
+                                            || (self.view_mode != ViewMode::Fluid
+                                                && self.standard_diff.is_none()),
                                     )
                                     .on_click(
                                         cx.listener(|this, _, _, cx| this.navigate_change(-1, cx)),
@@ -658,9 +803,12 @@ impl Render for Viewer {
                                     .label("↓")
                                     .disabled(
                                         self.code.is_none()
-                                            || self
-                                                .active_change
-                                                .is_none_or(|index| index + 1 >= total),
+                                            || (self.view_mode == ViewMode::Fluid
+                                                && self
+                                                    .active_change
+                                                    .is_none_or(|index| index + 1 >= total))
+                                            || (self.view_mode != ViewMode::Fluid
+                                                && self.standard_diff.is_none()),
                                     )
                                     .on_click(
                                         cx.listener(|this, _, _, cx| this.navigate_change(1, cx)),
@@ -694,28 +842,30 @@ fn main() {
         return;
     }
 
-    gpui::application().run(move |cx| {
-        gpui::init(cx);
-        Theme::change(ThemeMode::Dark, None, cx);
-        configure_code_theme(cx);
-        let options = WindowOptions {
-            titlebar: Some(TitlebarOptions {
-                title: Some("Jaywalk".into()),
+    gpui::application()
+        .with_assets(gpui::assets::AllAssets)
+        .run(move |cx| {
+            gpui::init(cx);
+            Theme::change(ThemeMode::Dark, None, cx);
+            configure_code_theme(cx);
+            let options = WindowOptions {
+                titlebar: Some(TitlebarOptions {
+                    title: Some("Jaywalk".into()),
+                    ..Default::default()
+                }),
+                window_bounds: Some(WindowBounds::Windowed(Bounds::centered(
+                    None,
+                    size(px(1500.), px(950.)),
+                    cx,
+                ))),
                 ..Default::default()
-            }),
-            window_bounds: Some(WindowBounds::Windowed(Bounds::centered(
-                None,
-                size(px(1500.), px(950.)),
-                cx,
-            ))),
-            ..Default::default()
-        };
-        gpui::open_window(options, cx, |window, cx| {
-            cx.new(|cx| Viewer::new(arguments, window, cx))
-        })
-        .expect("could not open viewer window");
-        cx.activate(true);
-    });
+            };
+            gpui::open_window(options, cx, |window, cx| {
+                cx.new(|cx| Viewer::new(arguments, window, cx))
+            })
+            .expect("could not open viewer window");
+            cx.activate(true);
+        });
 }
 
 fn configure_code_theme(cx: &mut App) {
@@ -736,4 +886,23 @@ fn configure_code_theme(cx: &mut App) {
     highlight.style.syntax.function = token("#dcdcaa");
     highlight.style.syntax.type_ = token("#4ec9b0");
     Theme::global_mut(cx).highlight_theme = std::sync::Arc::new(highlight);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{DiffFile, standard_patch};
+
+    #[test]
+    fn standard_widget_parses_full_context_and_unterminated_unicode_changes() {
+        for (before, after, additions, deletions) in [
+            ("same\nhéllo", "same\nworld", 1, 1),
+            ("", "added", 1, 0),
+            ("removed", "", 0, 1),
+        ] {
+            let files = DiffFile::parse(&standard_patch(before, after)).unwrap();
+            assert_eq!(files.len(), 1);
+            assert_eq!(files[0].additions(), additions);
+            assert_eq!(files[0].deletions(), deletions);
+        }
+    }
 }

@@ -33,6 +33,11 @@ holds the evolving native implementation. Use jj for history operations.
 ```
 
 The default view is a changeset overview. Pick one file from the left panel.
+The bottom-right three-way toggle selects inline, aligned side-by-side, or
+Fluid diff (the default). The standard views use GPUI Kit's existing diff
+widget with full context, syntax highlighting, and wrapped long lines. Fluid
+retains independent document heights and its unwrapped code panes. Switching
+modes retains the selected file and the Fluid scroll position.
 Drag the panel separators to resize. Scroll either code pane to exercise the
 experimental centre-anchored Fluid mapping and live connectors. Each change
 has one thin midpoint-to-midpoint connector. Oversized blocks let attachments
@@ -41,10 +46,11 @@ Kaleidoscope as the visual reference while scrolling is refined. Overview
 returns to the summary; Refresh reloads a coherent recorded jj operation.
 
 The change nearest the viewport center gets stronger emphasis, including its
-line-number area. The footer shows its position in the file and provides
+line-number area. In Fluid mode, the footer shows its position in the file and provides
 previous/next change navigation. Added/deleted blocks have a full-width marker
 on the empty side. Scrolling resumes automatic active-change selection after
-using the navigation controls.
+using the navigation controls. The standard modes show the total change count
+and use the built-in widget's previous/next navigation.
 
 All repository commands ignore the working copy and pin reads to an operation.
 Unsnapshotted working-file edits are intentionally not captured. By default,
