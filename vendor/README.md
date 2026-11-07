@@ -1,8 +1,9 @@
 # native component source
 
-`gpui-component` is the unchanged published 0.8.0 crate, retained with its
-Apache-2.0 license. Cargo registry metadata and the upstream lockfile are
-omitted. Cargo uses this local copy through its crates.io patch entry.
+`gpui-component` is the published 0.8.0 crate, retained with its Apache-2.0
+license. Cargo registry metadata and the upstream lockfile are omitted.
 
-Viewer-specific extensions are isolated in the following change so their diff
-can be reviewed separately from this upstream snapshot.
+The viewer needs fixed split columns with coordinated horizontal scrolling;
+the upstream widget scrolls the entire split canvas. Local changes are limited
+to that behavior and a public scroll entry point. Keep them isolated in
+`src/diff/mod.rs` and `src/diff/state.rs` when refreshing the dependency.

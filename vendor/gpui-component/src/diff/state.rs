@@ -516,6 +516,11 @@ impl DiffState {
     pub(crate) fn rows(&self) -> &Rc<Vec<DisplayRow>> {
         &self.rows
     }
+    /// Source line at the viewport top, for a host preserving reading position.
+    pub fn viewport_position(&self) -> Option<DiffLinePosition> {
+        self.row_position(self.list.logical_scroll_top().item_ix)
+    }
+
     pub(crate) fn list(&self) -> &ListState {
         &self.list
     }
