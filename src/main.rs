@@ -1,7 +1,10 @@
 extern crate gpui_kit as gpui;
 
+use clap::Parser;
 use gpui::component::{StyledExt, Theme, ThemeMode};
 use gpui::*;
+use jaywalk::repository::Comparison;
+use std::path::PathBuf;
 
 struct Viewer {
     repository: String,
@@ -29,8 +32,42 @@ impl Render for Viewer {
     }
 }
 
+#[derive(Parser)]
+#[command(about = "Jaywalk: a native Jujutsu diff viewer")]
+struct Arguments {
+    #[arg(default_value = ".")]
+    directory: PathBuf,
+    #[arg(long)]
+    base: Option<String>,
+    #[arg(long, default_value = "@")]
+    tip: String,
+    #[arg(long)]
+    inspect: bool,
+}
+
 fn main() {
-    let repository = std::env::args().nth(1).unwrap_or_else(|| ".".into());
+    let arguments = Arguments::parse();
+    if arguments.inspect {
+        match Comparison::load(
+            &arguments.directory,
+            arguments.base.as_deref(),
+            &arguments.tip,
+        ) {
+            Ok(comparison) => println!(
+                "{} changed files\nbase {}\ntip {}\noperation {}",
+                comparison.files.len(),
+                comparison.base,
+                comparison.tip,
+                comparison.operation
+            ),
+            Err(error) => {
+                eprintln!("{error}");
+                std::process::exit(1);
+            }
+        }
+        return;
+    }
+    let repository = arguments.directory.display().to_string();
     gpui::application().run(move |cx| {
         gpui::init(cx);
         Theme::change(ThemeMode::Dark, None, cx);
