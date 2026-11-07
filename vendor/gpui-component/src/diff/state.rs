@@ -217,6 +217,8 @@ pub struct DiffState {
     change_rows: Vec<usize>,
     list: ListState,
     horizontal_scroll: ScrollHandle,
+    pub(crate) linked_horizontal_offset: Pixels,
+    pub(crate) split_source_widths: [Pixels; 2],
     focus: FocusHandle,
     selection: TextSelectionHandle,
     geometry: Rc<RefCell<SelectionGeometry>>,
@@ -347,6 +349,8 @@ impl DiffState {
             change_rows: Vec::new(),
             list: ListState::new(0, ListAlignment::Top, px(0.)),
             horizontal_scroll: ScrollHandle::new(),
+            linked_horizontal_offset: px(0.),
+            split_source_widths: [px(0.); 2],
             focus,
             selection,
             geometry,
@@ -524,6 +528,21 @@ impl DiffState {
     pub(crate) fn list(&self) -> &ListState {
         &self.list
     }
+    /// Scroll source text horizontally while keeping split columns fixed.
+    /// Positive delta moves toward the right-hand end of each source line.
+    pub fn scroll_horizontal(&mut self, delta: Pixels, cx: &mut Context<Self>) {
+        let limit = (self.content_width - self.viewport.width).max(px(0.));
+        if self.mode == DiffMode::Split {
+            self.linked_horizontal_offset =
+                (self.linked_horizontal_offset + delta).clamp(px(0.), limit / 2.);
+        } else {
+            let offset = self.horizontal_scroll.offset();
+            self.horizontal_scroll
+                .set_offset(point((offset.x - delta).clamp(-limit, px(0.)), offset.y));
+        }
+        cx.notify();
+    }
+
     pub(crate) fn horizontal_scroll(&self) -> &ScrollHandle {
         &self.horizontal_scroll
     }
@@ -585,6 +604,7 @@ impl DiffState {
         self.geometry.borrow_mut().clear();
         self.rebuild(true);
         self.horizontal_scroll.set_offset(point(px(0.), px(0.)));
+        self.linked_horizontal_offset = px(0.);
         self.ensure_presentation(cx);
         cx.notify();
     }
@@ -598,6 +618,7 @@ impl DiffState {
         self.mode = mode;
         self.rebuild_at_anchor();
         self.horizontal_scroll.set_offset(point(px(0.), px(0.)));
+        self.linked_horizontal_offset = px(0.);
         cx.notify();
     }
 

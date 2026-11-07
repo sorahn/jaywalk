@@ -488,14 +488,35 @@ fn render_diff(
                 &font_family,
                 gutter_width,
                 mode,
+                None,
                 window,
                 cx,
             )
         };
+        if !soft_wrap && mode == DiffMode::Split {
+            state.split_source_widths = [DiffSide::Original, DiffSide::Modified].map(|side| {
+                measure_code_width(
+                    state.files(),
+                    font_size,
+                    &font_family,
+                    gutter_width,
+                    mode,
+                    Some(side),
+                    window,
+                    cx,
+                ) / 2.
+            });
+        }
         state.set_content_width(width);
     }
     state.sync_annotations(&props.annotations.items);
-    let content_width = state.content_width().max(state.viewport().width);
+    // Keep split pane boundaries fixed. Long source text is translated inside
+    // each cell rather than translating the entire two-column canvas.
+    let content_width = if mode == DiffMode::Split {
+        state.viewport().width
+    } else {
+        state.content_width().max(state.viewport().width)
+    };
     let column_width = if mode == DiffMode::Split {
         content_width / 2.
     } else {
@@ -507,6 +528,12 @@ fn render_diff(
         mode,
         content_width,
         column_width,
+        split_source_widths: state.split_source_widths,
+        horizontal_offset: if soft_wrap {
+            px(0.)
+        } else {
+            state.linked_horizontal_offset
+        },
         font_size,
         row_height,
         gutter_width,
@@ -552,7 +579,9 @@ fn render_diff(
                 .size_full()
                 // Preserve offset tracking and clipping without GPUI's
                 // single-axis wheel remapping. The sibling mask owns X input.
-                .when(!soft_wrap, |this| this.overflow_x_hidden())
+                .when(!soft_wrap && mode != DiffMode::Split, |this| {
+                    this.overflow_x_hidden()
+                })
                 .track_scroll(&horizontal)
                 .child(gpui_base::ScrollBounce::new(
                     "diff-bounce",
@@ -574,14 +603,14 @@ fn render_diff(
             state.selection().clone(),
             state.geometry().clone(),
         ))
-        .when(has_rows && !soft_wrap, |this| {
+        .when(has_rows && !soft_wrap && mode != DiffMode::Split, |this| {
             this.child(
                 ScrollableMask::new(Axis::Horizontal, &horizontal).id("diff-horizontal-wheel"),
             )
         })
         .when(has_rows, |this| {
             this.child(Scrollbar::vertical(&scrollbar))
-                .when(!soft_wrap, |this| {
+                .when(!soft_wrap && mode != DiffMode::Split, |this| {
                     this.child(Scrollbar::horizontal(&horizontal))
                 })
         })
@@ -745,6 +774,8 @@ struct CodePresentation {
     mode: DiffMode,
     content_width: Pixels,
     column_width: Pixels,
+    horizontal_offset: Pixels,
+    split_source_widths: [Pixels; 2],
     font_size: Pixels,
     row_height: Pixels,
     gutter_width: Pixels,
@@ -805,6 +836,7 @@ fn measure_code_width(
     family: &SharedString,
     gutter_width: Pixels,
     mode: DiffMode,
+    side_filter: Option<DiffSide>,
     window: &mut Window,
     cx: &App,
 ) -> Pixels {
@@ -814,6 +846,9 @@ fn measure_code_width(
     let mut candidates: Vec<(usize, &SharedString)> = Vec::with_capacity(CANDIDATES + 1);
     for file in files {
         for side in [DiffSide::Original, DiffSide::Modified] {
+            if side_filter.is_some_and(|filter| filter != side) {
+                continue;
+            }
             for line in file.lines(side) {
                 let cells = unicode_width::UnicodeWidthStr::width(line.display().as_str());
                 if candidates.len() == CANDIDATES
@@ -1358,6 +1393,7 @@ fn render_cell(
 ) -> AnyElement {
     let cell = v_flex()
         .w(code.column_width)
+        .overflow_hidden()
         .min_w_0()
         .flex_shrink_0()
         .when(side == DiffSide::Original, |this| {
@@ -1710,8 +1746,8 @@ fn code_line(
                 .id("source")
                 .test_support()
                 .map(|this| {
-                    if code.soft_wrap {
-                        this.flex_1().min_w_0()
+                    if code.soft_wrap || code.mode == DiffMode::Split {
+                        this.flex_1().min_w_0().overflow_hidden()
                     } else {
                         this.flex_shrink_0()
                     }
@@ -1747,7 +1783,14 @@ fn code_line(
                         handler(&position, event, window, cx)
                     })
                 })
-                .child(text),
+                .child(
+                    text.when(code.mode == DiffMode::Split && !code.soft_wrap, |this| {
+                        let side_index = usize::from(side == DiffSide::Modified);
+                        let limit =
+                            (code.split_source_widths[side_index] - code.column_width).max(px(0.));
+                        this.relative().left(-code.horizontal_offset.min(limit))
+                    }),
+                ),
         )
         .children(add_button)
         .into_any_element()

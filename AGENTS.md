@@ -1,6 +1,6 @@
 # Jaywalk
 
-This is a personal native Rust/GPUI application, not a work service.
+This is a personal native Rust/GPUI application.
 
 ## Rust coding standards
 
@@ -28,10 +28,10 @@ viewer product scope.
 Use GPUI Kit's existing text and panel components. Do not build a new UI
 framework. The app is native, not a browser, Electron, or Tauri application.
 
-The man-site checkout may be used only as read-only local test data. Do not
-snapshot or change its working copy/history. Use operation-pinned jj queries
-and synthetic committed test fixtures. Never copy its private source into this
-repository.
+External checkouts may be used only as read-only local test data. Do not
+snapshot or change their working copies or history. Use operation-pinned jj
+queries and synthetic committed test fixtures. Never copy private source or
+project-specific details into this repository or its documentation.
 
 Personal plans and research belong in Homelab/Bases/plans and
 Homelab/Bases/notes in the Obsidian vault, not this repository.

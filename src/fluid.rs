@@ -7,18 +7,103 @@ pub struct FluidScroll {
     pub position: f32,
 }
 
+/// Pixel positions of source-line boundaries after editor layout, including
+/// soft-wrapped continuation rows. Empty sides retain a single zero boundary.
+pub struct DiffGeometry {
+    pub before: Vec<f32>,
+    pub after: Vec<f32>,
+}
+
+impl DiffGeometry {
+    fn segments(&self, diff: &FileDiff) -> Vec<(f32, f32)> {
+        let mut result = Vec::new();
+        for block in &diff.blocks {
+            if block.changed {
+                result.push((
+                    self.before[block.before.end] - self.before[block.before.start],
+                    self.after[block.after.end] - self.after[block.after.start],
+                ));
+            } else {
+                // Corresponding unchanged lines can wrap to different heights.
+                for (before, after) in block.before.clone().zip(block.after.clone()) {
+                    result.push((
+                        self.before[before + 1] - self.before[before],
+                        self.after[after + 1] - self.after[after],
+                    ));
+                }
+            }
+        }
+        result
+    }
+
+    /// Virtual coordinate at a source line, used when restoring a reading anchor.
+    pub fn position_for_line(&self, diff: &FileDiff, line: usize, before: bool) -> f32 {
+        let mut position = 0.;
+        for block in &diff.blocks {
+            let range = if before { &block.before } else { &block.after };
+            if block.changed {
+                let height = (self.before[block.before.end] - self.before[block.before.start])
+                    .max(self.after[block.after.end] - self.after[block.after.start]);
+                if range.contains(&line) {
+                    return position
+                        + height * (line - range.start) as f32 / range.len().max(1) as f32;
+                }
+                position += height;
+            } else {
+                for (left, right) in block.before.clone().zip(block.after.clone()) {
+                    if (if before { left } else { right }) >= line {
+                        return position;
+                    }
+                    position += (self.before[left + 1] - self.before[left])
+                        .max(self.after[right + 1] - self.after[right]);
+                }
+            }
+        }
+        position
+    }
+
+    pub fn change_position(&self, diff: &FileDiff, target: usize) -> f32 {
+        let mut position = 0.;
+        let mut change = 0;
+        for block in &diff.blocks {
+            let height = if block.changed {
+                (self.before[block.before.end] - self.before[block.before.start])
+                    .max(self.after[block.after.end] - self.after[block.after.start])
+            } else {
+                block
+                    .before
+                    .clone()
+                    .zip(block.after.clone())
+                    .map(|(before, after)| {
+                        (self.before[before + 1] - self.before[before])
+                            .max(self.after[after + 1] - self.after[after])
+                    })
+                    .sum()
+            };
+            if block.changed {
+                if change == target {
+                    return position + height / 2.;
+                }
+                change += 1;
+            }
+            position += height;
+        }
+        position
+    }
+}
+
 impl FluidScroll {
     pub fn advance(
         &mut self,
         delta: f32,
         diff: &FileDiff,
-        line_height: f32,
+        geometry: &DiffGeometry,
         viewport: f32,
     ) -> (f32, f32) {
-        let extent: f32 = diff
-            .blocks
+        let segments = geometry.segments(diff);
+        let extent: f32 = segments
             .iter()
-            .map(|block| block.before.len().max(block.after.len()) as f32 * line_height)
+            .map(|(before, after)| before.max(*after))
             .sum();
         let limit = (extent - viewport).max(0.0);
         self.position = (self.position + delta).clamp(0.0, limit);
@@ -26,10 +111,7 @@ impl FluidScroll {
         let mut traversed = 0.0;
         let mut before_y = 0.0;
         let mut after_y = 0.0;
-
-        for block in &diff.blocks {
-            let before_height = block.before.len() as f32 * line_height;
-            let after_height = block.after.len() as f32 * line_height;
+        for (before_height, after_height) in segments {
             let virtual_height = before_height.max(after_height);
             if anchor <= traversed + virtual_height && virtual_height > 0.0 {
                 let fraction = ((anchor - traversed) / virtual_height).clamp(0.0, 1.0);
@@ -41,12 +123,8 @@ impl FluidScroll {
             before_y += before_height;
             after_y += after_height;
         }
-
-        let before_limit = ((diff.before_offsets.len().saturating_sub(1)) as f32 * line_height
-            - viewport)
-            .max(0.0);
-        let after_limit =
-            ((diff.after_offsets.len().saturating_sub(1)) as f32 * line_height - viewport).max(0.0);
+        let before_limit = (geometry.before.last().copied().unwrap_or(0.) - viewport).max(0.);
+        let after_limit = (geometry.after.last().copied().unwrap_or(0.) - viewport).max(0.);
         if self.position == 0.0 {
             return (0.0, 0.0);
         }
@@ -54,8 +132,8 @@ impl FluidScroll {
             return (before_limit, after_limit);
         }
         (
-            (before_y - viewport / 2.0).clamp(0.0, before_limit),
-            (after_y - viewport / 2.0).clamp(0.0, after_limit),
+            (before_y - viewport / 2.).clamp(0., before_limit),
+            (after_y - viewport / 2.).clamp(0., after_limit),
         )
     }
 }
@@ -64,13 +142,24 @@ impl FluidScroll {
 mod tests {
     use super::*;
 
+    fn geometry(diff: &FileDiff) -> DiffGeometry {
+        DiffGeometry {
+            before: (0..diff.before_offsets.len())
+                .map(|line| line as f32 * 20.)
+                .collect(),
+            after: (0..diff.after_offsets.len())
+                .map(|line| line as f32 * 20.)
+                .collect(),
+        }
+    }
+
     #[test]
     fn continues_when_one_document_cannot_scroll() {
         let diff = FileDiff::new("short\n", &"added\n".repeat(100));
         let mut scroll = FluidScroll::default();
 
-        let first = scroll.advance(100.0, &diff, 20.0, 400.0);
-        let next = scroll.advance(100.0, &diff, 20.0, 400.0);
+        let first = scroll.advance(100.0, &diff, &geometry(&diff), 400.0);
+        let next = scroll.advance(100.0, &diff, &geometry(&diff), 400.0);
 
         assert_eq!(first.0, 0.0);
         assert_eq!(next.0, 0.0);
@@ -82,13 +171,31 @@ mod tests {
         let diff = FileDiff::new(&"before\n".repeat(60), &"after\n".repeat(100));
         let mut scroll = FluidScroll::default();
 
-        let bottom = scroll.advance(100_000.0, &diff, 20.0, 400.0);
-        let reversed = scroll.advance(-100.0, &diff, 20.0, 400.0);
-        let top = scroll.advance(-100_000.0, &diff, 20.0, 400.0);
+        let bottom = scroll.advance(100_000.0, &diff, &geometry(&diff), 400.0);
+        let reversed = scroll.advance(-100.0, &diff, &geometry(&diff), 400.0);
+        let top = scroll.advance(-100_000.0, &diff, &geometry(&diff), 400.0);
 
         assert_eq!(bottom, (800.0, 1600.0));
         assert!(reversed.0 <= bottom.0);
         assert!(reversed.1 < bottom.1);
         assert_eq!(top, (0.0, 0.0));
+    }
+}
+
+#[cfg(test)]
+mod wrapped_tests {
+    use super::*;
+
+    #[test]
+    fn unchanged_wrapped_lines_keep_their_correspondence() {
+        let diff = FileDiff::new("one\ntwo\nthree", "one\ntwo\nthree");
+        let geometry = DiffGeometry {
+            before: vec![0., 100., 120., 140.],
+            after: vec![0., 20., 80., 100.],
+        };
+        let mut scroll = FluidScroll::default();
+        // At virtual row 100 the first source line ends on both sides.
+        assert_eq!(scroll.advance(90., &diff, &geometry, 20.), (90., 10.));
+        assert_eq!(scroll.advance(10000., &diff, &geometry, 20.), (120., 80.));
     }
 }

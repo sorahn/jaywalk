@@ -9,7 +9,7 @@ use gpui::component::resizable::{h_resizable, resizable_panel};
 use gpui::component::{Disableable, Selectable, StyledExt, Theme, ThemeMode};
 use gpui::*;
 use jaywalk::diff_model::FileDiff;
-use jaywalk::fluid::FluidScroll;
+use jaywalk::fluid::{DiffGeometry, FluidScroll};
 use jaywalk::repository::Comparison;
 use std::cell::Cell;
 use std::path::PathBuf;
@@ -55,6 +55,48 @@ fn standard_patch(before: &str, after: &str) -> String {
         .to_string()
 }
 
+fn line_positions(state: &EditorState, boundary_count: usize) -> Vec<f32> {
+    let map = state.display_map();
+    let height = f32::from(state.line_height().unwrap_or(px(20.)));
+    (0..boundary_count)
+        .map(|line| {
+            let row = if line < map.buffer_line_count() {
+                map.buffer_line_to_display_row(line)
+            } else {
+                map.display_row_count()
+            };
+            row as f32 * height
+        })
+        .collect()
+}
+
+fn comparison_geometry(
+    before: &EditorState,
+    after: &EditorState,
+    model: &FileDiff,
+) -> DiffGeometry {
+    DiffGeometry {
+        before: line_positions(before, model.before_offsets.len()),
+        after: line_positions(after, model.after_offsets.len()),
+    }
+}
+
+fn horizontal_wheel(event: &ScrollWheelEvent, line_height: Pixels) -> Option<f32> {
+    let delta = event.delta.pixel_delta(line_height);
+    if event.modifiers.shift {
+        // macOS may already have moved Shift+wheel input to the X axis.
+        Some(-f32::from(if delta.x.abs() > delta.y.abs() {
+            delta.x
+        } else {
+            delta.y
+        }))
+    } else if delta.x.abs() > delta.y.abs() {
+        Some(-f32::from(delta.x))
+    } else {
+        None
+    }
+}
+
 type CodeComparison = (Entity<EditorState>, Entity<EditorState>, FileDiff);
 
 struct Viewer {
@@ -65,6 +107,9 @@ struct Viewer {
     navigation_target: Option<usize>,
     code: Option<CodeComparison>,
     view_mode: ViewMode,
+    wrap: bool,
+    horizontal_position: f32,
+    reveal_after_layout: bool,
     standard_diff: Option<Entity<DiffState>>,
     standard_error: Option<String>,
     file_error: Option<String>,
@@ -87,6 +132,9 @@ impl Viewer {
             navigation_target: None,
             code: None,
             view_mode: ViewMode::default(),
+            wrap: false,
+            horizontal_position: 0.,
+            reveal_after_layout: false,
             standard_diff: None,
             standard_error: None,
             file_error: None,
@@ -113,6 +161,8 @@ impl Viewer {
         self.active_change = None;
         self.navigation_target = None;
         self.fluid = FluidScroll::default();
+        self.horizontal_position = 0.;
+        self.reveal_after_layout = false;
         self.editor_observers.clear();
         self.code = None;
         self.file_error = None;
@@ -146,12 +196,13 @@ impl Viewer {
                         Ok(_) => {}
                         Err(error) => self.standard_error = Some(error.to_string()),
                     }
+                    let wrap = self.wrap;
                     let make_editor =
                         |text: String, window: &mut Window, cx: &mut Context<Self>| {
                             cx.new(|cx| {
                                 EditorState::new(window, cx)
                                     .language(language)
-                                    .soft_wrap(false)
+                                    .soft_wrap(wrap)
                                     .folding(false)
                                     .default_value(text)
                             })
@@ -197,9 +248,9 @@ impl Viewer {
 
     fn scroll_comparison(&mut self, delta: f32, cx: &mut Context<Self>) {
         if let Some((before, after, model)) = &self.code {
-            let line_height = f32::from(before.read(cx).line_height().unwrap_or(px(20.)));
+            let geometry = comparison_geometry(before.read(cx), after.read(cx), model);
             let viewport = f32::from(before.read(cx).input_bounds().size.height);
-            let (before_y, after_y) = self.fluid.advance(delta, model, line_height, viewport);
+            let (before_y, after_y) = self.fluid.advance(delta, model, &geometry, viewport);
             before.update(cx, |editor, cx| {
                 let offset = editor.scroll_offset();
                 editor.set_scroll_offset(point(offset.x, px(-before_y)), cx);
@@ -210,6 +261,66 @@ impl Viewer {
             });
         }
         cx.notify();
+    }
+
+    fn toggle_wrap(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.wrap = !self.wrap;
+        self.horizontal_position = 0.;
+        self.reveal_after_layout = self.code.is_some();
+        if let Some((before, after, _)) = &self.code {
+            for state in [before, after] {
+                state.update(cx, |state, cx| {
+                    state.set_soft_wrap(self.wrap, window, cx);
+                    let offset = state.scroll_offset();
+                    state.set_scroll_offset(point(px(0.), offset.y), cx);
+                });
+            }
+        }
+        if let Some(state) = &self.standard_diff {
+            state.update(cx, |state, cx| state.scroll_horizontal(px(-1e9), cx));
+        }
+        cx.notify();
+    }
+
+    fn scroll_horizontal(&mut self, delta: f32, cx: &mut Context<Self>) {
+        if self.wrap {
+            return;
+        }
+        if self.view_mode == ViewMode::Fluid {
+            self.horizontal_position = (self.horizontal_position + delta).max(0.);
+            if let Some((before, after, _)) = &self.code {
+                for state in [before, after] {
+                    state.update(cx, |state, cx| {
+                        let offset = state.scroll_offset();
+                        state.set_scroll_offset(point(px(-self.horizontal_position), offset.y), cx);
+                    });
+                }
+            }
+        } else if let Some(state) = &self.standard_diff {
+            state.update(cx, |state, cx| state.scroll_horizontal(px(delta), cx));
+        }
+        cx.notify();
+    }
+
+    fn render_standard_input(&self, cx: &mut Context<Self>) -> AnyElement {
+        let viewer = cx.entity().downgrade();
+        canvas(
+            |_, _, _| (),
+            move |bounds, _, window, _| {
+                let viewer = viewer.clone();
+                window.on_mouse_event(move |event: &ScrollWheelEvent, phase, _, cx| {
+                    if phase != DispatchPhase::Capture || !bounds.contains(&event.position) {
+                        return;
+                    }
+                    if let Some(delta) = horizontal_wheel(event, px(20.)) {
+                        let _ = viewer.update(cx, |viewer, cx| viewer.scroll_horizontal(delta, cx));
+                        cx.stop_propagation();
+                    }
+                });
+            },
+        )
+        .size_full()
+        .into_any_element()
     }
 
     fn set_view_mode(&mut self, mode: ViewMode, cx: &mut Context<Self>) {
@@ -274,7 +385,7 @@ impl Viewer {
             }
             return;
         }
-        let Some((before, _, model)) = &self.code else {
+        let Some((before, after, model)) = &self.code else {
             return;
         };
         let count = model.blocks.iter().filter(|block| block.changed).count();
@@ -283,21 +394,9 @@ impl Viewer {
         }
         let target = (self.active_change.unwrap_or(0) as i32 + direction).clamp(0, count as i32 - 1)
             as usize;
-        let line_height = f32::from(before.read(cx).line_height().unwrap_or(px(20.)));
         let viewport = f32::from(before.read(cx).input_bounds().size.height);
-        let mut position = 0.;
-        let mut change = 0;
-        for block in &model.blocks {
-            let height = block.before.len().max(block.after.len()) as f32 * line_height;
-            if block.changed {
-                if change == target {
-                    position += height / 2.;
-                    break;
-                }
-                change += 1;
-            }
-            position += height;
-        }
+        let geometry = comparison_geometry(before.read(cx), after.read(cx), model);
+        let position = geometry.change_position(model, target);
         let delta = position - viewport / 2. - self.fluid.position;
         self.navigation_target = Some(target);
         self.active_change = Some(target);
@@ -328,6 +427,13 @@ impl Viewer {
                 let line_height = before_state.line_height().unwrap_or(px(20.));
                 let before_origin = before_state.text_bounds().unwrap_or(before_bounds).origin.y;
                 let after_origin = after_state.text_bounds().unwrap_or(after_bounds).origin.y;
+                let geometry = comparison_geometry(before_state, after_state, &model);
+                let resolved_horizontal = -f32::from(
+                    before_state
+                        .scroll_offset()
+                        .x
+                        .min(after_state.scroll_offset().x),
+                );
                 // text_bounds already includes the editor's resolved scroll.
                 // This canvas paints after both editors so both geometries are
                 // from this frame, including deferred/clamped scroll updates.
@@ -340,18 +446,19 @@ impl Viewer {
                 );
                 let changes: Vec<_> = model.blocks.iter().filter(|block| block.changed).collect();
                 let focus = clip.center().y;
-                let distance = |origin: Pixels, lines: &std::ops::Range<usize>| {
-                    let top = origin + line_height * lines.start as f32;
-                    let bottom = origin + line_height * lines.end as f32;
-                    (focus - focus.clamp(top, bottom)).abs()
-                };
+                let distance =
+                    |origin: Pixels, positions: &[f32], lines: &std::ops::Range<usize>| {
+                        let top = origin + px(positions[lines.start]);
+                        let bottom = origin + px(positions[lines.end]);
+                        (focus - focus.clamp(top, bottom)).abs()
+                    };
                 let active = changes
                     .iter()
                     .enumerate()
                     .min_by(|(_, a), (_, b)| {
                         let score = |block: &&jaywalk::diff_model::Correspondence| {
-                            distance(before_origin, &block.before)
-                                + distance(after_origin, &block.after)
+                            distance(before_origin, &geometry.before, &block.before)
+                                + distance(after_origin, &geometry.after, &block.after)
                         };
                         score(a)
                             .partial_cmp(&score(b))
@@ -360,7 +467,9 @@ impl Viewer {
                     .map(|(index, _)| index);
                 let active = navigation_target.or(active);
                 let text_start = |state: &EditorState, offsets: &[usize]| {
-                    let row = state.visible_row_range()?.start;
+                    let row = state
+                        .display_map()
+                        .display_row_to_buffer_line(state.visible_row_range()?.start);
                     let offset = *offsets.get(row)?;
                     Some(state.range_to_bounds(&(offset..offset))?.left() - state.scroll_offset().x)
                 };
@@ -368,7 +477,7 @@ impl Viewer {
                 let after_text = text_start(after_state, &model.after_offsets);
                 // Full-row tint shares the connector geometry, including the
                 // empty space after short lines and the line-number gutter.
-                for (viewport, origin, before_side, text_start) in [
+                for (viewport, origin, before_side, text_start, positions) in [
                     (
                         Bounds::from_corners(
                             point(overlay_bounds.left(), before_bounds.top()),
@@ -377,6 +486,7 @@ impl Viewer {
                         before_origin,
                         true,
                         before_text,
+                        &geometry.before,
                     ),
                     (
                         Bounds::from_corners(
@@ -386,6 +496,7 @@ impl Viewer {
                         after_origin,
                         false,
                         after_text,
+                        &geometry.after,
                     ),
                 ] {
                     window.with_content_mask(Some(ContentMask { bounds: viewport }), |window| {
@@ -404,24 +515,19 @@ impl Viewer {
                                 0x3794ff00
                             };
                             if lines.is_empty() {
-                                let y = origin + line_height * lines.start as f32;
+                                let y = origin + px(positions[lines.start]);
                                 window.paint_quad(fill(
                                     Bounds::new(
                                         point(viewport.left(), y - px(0.5)),
-                                        size(
-                                            viewport.size.width,
-                                            px(if selected { 2. } else { 1. }),
-                                        ),
+                                        size(viewport.size.width, px(1.)),
                                     ),
                                     rgba(rgb | if selected { 0xc0 } else { 0x70 }),
                                 ));
                                 continue;
                             }
                             let color = rgba(rgb | if selected { 0x30 } else { 0x20 });
-                            let top =
-                                (origin + line_height * lines.start as f32).max(viewport.top());
-                            let bottom =
-                                (origin + line_height * lines.end as f32).min(viewport.bottom());
+                            let top = (origin + px(positions[lines.start])).max(viewport.top());
+                            let bottom = (origin + px(positions[lines.end])).min(viewport.bottom());
                             if bottom > top {
                                 window.paint_quad(fill(
                                     Bounds::from_corners(
@@ -457,10 +563,10 @@ impl Viewer {
                             0x3794ff00
                         };
                         let color = rgba(rgb | if selected { 0xb0 } else { 0x70 });
-                        let before_top = before_origin + line_height * block.before.start as f32;
-                        let before_bottom = before_origin + line_height * block.before.end as f32;
-                        let after_top = after_origin + line_height * block.after.start as f32;
-                        let after_bottom = after_origin + line_height * block.after.end as f32;
+                        let before_top = before_origin + px(geometry.before[block.before.start]);
+                        let before_bottom = before_origin + px(geometry.before[block.before.end]);
+                        let after_top = after_origin + px(geometry.after[block.after.start]);
+                        let after_bottom = after_origin + px(geometry.after[block.after.end]);
                         if before_bottom.max(after_bottom) < clip.top()
                             || before_top.min(after_top) > clip.bottom()
                         {
@@ -483,7 +589,7 @@ impl Viewer {
                         let after_y = attachment(after_top, after_bottom);
                         let left = bounds.left() + px(1.);
                         let right = bounds.right() - px(1.);
-                        let mut path = PathBuilder::stroke(px(if selected { 1.5 } else { 1. }));
+                        let mut path = PathBuilder::stroke(px(1.));
                         path.move_to(point(left, before_top));
                         path.line_to(point(left, before_bottom));
                         path.move_to(point(right, after_top));
@@ -500,6 +606,11 @@ impl Viewer {
                     }
                 });
                 let _ = viewer.update(cx, |viewer, cx| {
+                    viewer.horizontal_position = resolved_horizontal;
+                    if viewer.reveal_after_layout {
+                        viewer.reveal_after_layout = false;
+                        viewer.navigate_change(0, cx);
+                    }
                     if viewer.active_change != active {
                         viewer.active_change = active;
                         cx.notify();
@@ -514,7 +625,9 @@ impl Viewer {
                         return;
                     }
                     let delta = event.delta.pixel_delta(line_height);
-                    if delta.x.abs() > delta.y.abs() {
+                    if let Some(delta) = horizontal_wheel(event, line_height) {
+                        let _ = viewer.update(cx, |viewer, cx| viewer.scroll_horizontal(delta, cx));
+                        cx.stop_propagation();
                         return;
                     }
                     let _ = viewer.update(cx, |viewer, cx| {
@@ -592,7 +705,7 @@ impl Viewer {
                 } else if let Some(state) = &self.standard_diff {
                     Diff::new(state)
                         .header_visible(false)
-                        .soft_wrap(true)
+                        .soft_wrap(self.wrap)
                         .size_full()
                         .into_any_element()
                 } else {
@@ -606,7 +719,14 @@ impl Viewer {
                     .v_flex()
                     .size_full()
                     .child(div().px_3().py_2().bg(rgb(0x302b3d)).child(heading))
-                    .child(div().flex_1().min_h_0().child(body))
+                    .child(
+                        div().relative().flex_1().min_h_0().child(body).child(
+                            div()
+                                .absolute()
+                                .inset_0()
+                                .child(self.render_standard_input(cx)),
+                        ),
+                    )
                     .into_any_element();
             }
             let gutter_bounds = Rc::new(Cell::new(None));
@@ -766,6 +886,17 @@ impl Render for Viewer {
                             .h_flex()
                             .items_center()
                             .gap_2()
+                            .child(
+                                Button::new("word-wrap")
+                                    .ghost()
+                                    .compact()
+                                    .icon(IconName::TextWrap)
+                                    .tooltip("Word wrap")
+                                    .selected(self.wrap)
+                                    .on_click(cx.listener(|this, _, window, cx| {
+                                        this.toggle_wrap(window, cx)
+                                    })),
+                            )
                             .child(self.render_view_toggle(cx))
                             .child(if self.code.is_some() {
                                 if self.view_mode == ViewMode::Fluid {
@@ -890,7 +1021,26 @@ fn configure_code_theme(cx: &mut App) {
 
 #[cfg(test)]
 mod tests {
-    use super::{DiffFile, standard_patch};
+    use super::{DiffFile, horizontal_wheel, standard_patch};
+    use gpui::{Modifiers, ScrollDelta, ScrollWheelEvent, point, px};
+
+    #[test]
+    fn shift_wheel_handles_native_axis_remapping_without_doubling() {
+        let mut event = ScrollWheelEvent {
+            modifiers: Modifiers {
+                shift: true,
+                ..Default::default()
+            },
+            delta: ScrollDelta::Pixels(point(px(0.), px(-60.))),
+            ..Default::default()
+        };
+        assert_eq!(horizontal_wheel(&event, px(20.)), Some(60.));
+        event.delta = ScrollDelta::Pixels(point(px(-60.), px(0.)));
+        assert_eq!(horizontal_wheel(&event, px(20.)), Some(60.));
+        event.modifiers.shift = false;
+        event.delta = ScrollDelta::Pixels(point(px(0.), px(-60.)));
+        assert_eq!(horizontal_wheel(&event, px(20.)), None);
+    }
 
     #[test]
     fn standard_widget_parses_full_context_and_unterminated_unicode_changes() {
