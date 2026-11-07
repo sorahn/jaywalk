@@ -8,6 +8,7 @@ use gpui::*;
 use jaywalk::diff_model::FileDiff;
 use jaywalk::fluid::{DiffGeometry, FluidScroll};
 use jaywalk::repository::Comparison;
+use jaywalk::settings::{DiffSettings, DiffView as ViewMode, Settings};
 use std::cell::Cell;
 use std::rc::Rc;
 
@@ -22,19 +23,44 @@ mod layout;
 mod loading;
 use geometry::{comparison_geometry, horizontal_wheel};
 
-#[derive(Clone, Copy, Default, PartialEq, Eq)]
-enum ViewMode {
-    Inline,
-    SideBySide,
-    #[default]
-    Fluid,
+fn standard_mode(view: ViewMode) -> DiffMode {
+    match view {
+        ViewMode::Inline => DiffMode::Unified,
+        ViewMode::SideBySide | ViewMode::Fluid => DiffMode::Split,
+    }
 }
 
-impl ViewMode {
-    fn standard(self) -> DiffMode {
-        match self {
-            Self::Inline => DiffMode::Unified,
-            Self::SideBySide | Self::Fluid => DiffMode::Split,
+#[derive(Clone, Copy)]
+struct Wrapping {
+    before: bool,
+    after: bool,
+    inline: bool,
+}
+
+impl Wrapping {
+    fn from_settings(settings: &DiffSettings) -> Self {
+        Self {
+            before: settings.before.word_wrap,
+            after: settings.after.word_wrap,
+            inline: settings.inline.word_wrap,
+        }
+    }
+
+    fn enabled(self, view: ViewMode) -> bool {
+        match view {
+            ViewMode::Inline => self.inline,
+            ViewMode::SideBySide | ViewMode::Fluid => self.before && self.after,
+        }
+    }
+
+    fn toggle(&mut self, view: ViewMode) {
+        let enabled = !self.enabled(view);
+        match view {
+            ViewMode::Inline => self.inline = enabled,
+            ViewMode::SideBySide | ViewMode::Fluid => {
+                self.before = enabled;
+                self.after = enabled;
+            }
         }
     }
 }
@@ -125,6 +151,7 @@ pub(crate) fn init(cx: &mut App) {
 
 pub(crate) struct Viewer {
     arguments: Arguments,
+    settings: Settings,
     focus: FocusHandle,
     repository: LoadState<RepositorySession>,
     selected_file: Option<SelectedFile>,
@@ -136,7 +163,7 @@ pub(crate) struct Viewer {
     active_change: Option<usize>,
     navigation_target: Option<usize>,
     view_mode: ViewMode,
-    wrap: bool,
+    wrapping: Wrapping,
     horizontal_position: f32,
     reveal_after_layout: bool,
     fluid: FluidScroll,
@@ -216,13 +243,13 @@ impl Viewer {
     }
 
     fn toggle_wrap(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        self.wrap = !self.wrap;
+        self.wrapping.toggle(self.view_mode);
         self.horizontal_position = 0.;
         self.reveal_after_layout = self.code().is_some();
         if let Some(CodeComparison { before, after, .. }) = self.code() {
-            for state in [before, after] {
+            for (state, wrap) in [(before, self.wrapping.before), (after, self.wrapping.after)] {
                 state.update(cx, |state, cx| {
-                    state.set_soft_wrap(self.wrap, window, cx);
+                    state.set_soft_wrap(wrap, window, cx);
                     let offset = state.scroll_offset();
                     state.set_scroll_offset(point(px(0.), offset.y), cx);
                 });
@@ -235,16 +262,22 @@ impl Viewer {
     }
 
     fn scroll_horizontal(&mut self, delta: f32, cx: &mut Context<Self>) {
-        if self.wrap {
+        if self.wrapping.enabled(self.view_mode) {
             return;
         }
         if self.view_mode == ViewMode::Fluid {
             self.horizontal_position = (self.horizontal_position + delta).max(0.);
             if let Some(CodeComparison { before, after, .. }) = self.code() {
-                for state in [before, after] {
+                for (state, wrap) in [(before, self.wrapping.before), (after, self.wrapping.after)]
+                {
                     state.update(cx, |state, cx| {
                         let offset = state.scroll_offset();
-                        state.set_scroll_offset(point(px(-self.horizontal_position), offset.y), cx);
+                        let x = if wrap {
+                            px(0.)
+                        } else {
+                            px(-self.horizontal_position)
+                        };
+                        state.set_scroll_offset(point(x, offset.y), cx);
                     });
                 }
             }
@@ -257,7 +290,7 @@ impl Viewer {
     fn set_view_mode(&mut self, mode: ViewMode, cx: &mut Context<Self>) {
         self.view_mode = mode;
         if let Some(Ok(Some(state))) = self.code().map(|code| &code.standard) {
-            state.update(cx, |state, cx| state.set_mode(mode.standard(), cx));
+            state.update(cx, |state, cx| state.set_mode(standard_mode(mode), cx));
         }
         cx.notify();
     }

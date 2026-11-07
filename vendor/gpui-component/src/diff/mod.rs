@@ -211,6 +211,7 @@ pub struct Diff {
     change_indicator: DiffChangeIndicator,
     change_background: bool,
     soft_wrap: bool,
+    soft_wrap_sides: Option<[bool; 2]>,
     header: HeaderSlots,
     annotations: Rc<Annotations>,
     annotation_content: Option<AnnotationRenderer>,
@@ -240,6 +241,7 @@ impl Diff {
             change_indicator: DiffChangeIndicator::default(),
             change_background: true,
             soft_wrap: false,
+            soft_wrap_sides: None,
             header: HeaderSlots::default(),
             annotations: Rc::default(),
             annotation_content: None,
@@ -283,6 +285,13 @@ impl Diff {
         self.change_background = value;
         self
     }
+    /// Override wrapping for the original/modified panes in split mode.
+    /// Unified mode continues to use `soft_wrap`.
+    pub fn soft_wrap_sides(mut self, before: bool, after: bool) -> Self {
+        self.soft_wrap_sides = Some([before, after]);
+        self
+    }
+
     /// Wraps long lines at the column width instead of scrolling horizontally.
     /// Default is false.
     pub fn soft_wrap(mut self, value: bool) -> Self {
@@ -453,7 +462,8 @@ fn render_diff(
     state.set_window(window.window_handle().window_id());
     state.ensure_presentation(cx);
     let rem = window.rem_size();
-    let font_size = rem * (f32::from(cx.theme().mono_font_size) / 16.);
+    // Monospace font size is already expressed in pixels, independently of UI rem size.
+    let font_size = cx.theme().mono_font_size;
     let font_family = cx.theme().mono_font_family.clone();
     let row_height = font_size * 1.6;
     let digits = state
@@ -468,7 +478,13 @@ fn render_diff(
         px(0.)
     };
     let mode = state.mode();
-    let soft_wrap = props.soft_wrap;
+    let side_wrap = if mode == DiffMode::Split {
+        props.soft_wrap_sides.unwrap_or([props.soft_wrap; 2])
+    } else {
+        [props.soft_wrap; 2]
+    };
+    let soft_wrap = side_wrap.iter().any(|wrap| *wrap);
+    let horizontal_enabled = side_wrap.iter().any(|wrap| !*wrap);
     let layout = LayoutKey::new(
         rem,
         font_size,
@@ -476,10 +492,11 @@ fn render_diff(
         mode,
         props.line_number,
         soft_wrap,
+        side_wrap,
     );
     if state.update_layout(layout, row_height) {
         // Wrapped rows take the viewport width instead of their longest line.
-        let width = if soft_wrap {
+        let mut width = if !horizontal_enabled {
             px(0.)
         } else {
             measure_code_width(
@@ -493,7 +510,7 @@ fn render_diff(
                 cx,
             )
         };
-        if !soft_wrap && mode == DiffMode::Split {
+        if horizontal_enabled && mode == DiffMode::Split {
             state.split_source_widths = [DiffSide::Original, DiffSide::Modified].map(|side| {
                 measure_code_width(
                     state.files(),
@@ -506,6 +523,16 @@ fn render_diff(
                     cx,
                 ) / 2.
             });
+        }
+        if mode == DiffMode::Split && horizontal_enabled {
+            width = state
+                .split_source_widths
+                .iter()
+                .zip(side_wrap)
+                .filter(|(_, wrap)| !wrap)
+                .map(|(width, _)| *width)
+                .fold(px(0.), Pixels::max)
+                * 2.;
         }
         state.set_content_width(width);
     }
@@ -529,7 +556,7 @@ fn render_diff(
         content_width,
         column_width,
         split_source_widths: state.split_source_widths,
-        horizontal_offset: if soft_wrap {
+        horizontal_offset: if !horizontal_enabled {
             px(0.)
         } else {
             state.linked_horizontal_offset
@@ -547,6 +574,7 @@ fn render_diff(
         change_indicator: props.change_indicator,
         change_background: props.change_background,
         soft_wrap,
+        side_wrap,
         header: props.header,
         annotations: props.annotations.clone(),
         annotation_content: props.annotation_content,
@@ -722,7 +750,7 @@ fn render_diff(
                             let rehinted = state.keep_row_height_hint();
                             // The estimate shapes the widest candidates only;
                             // grow to fit any wider line once it is painted.
-                            let painted = if soft_wrap {
+                            let painted = if !horizontal_enabled {
                                 px(0.)
                             } else {
                                 let painted = state.geometry().borrow().painted_width();
@@ -789,6 +817,7 @@ struct CodePresentation {
     change_indicator: DiffChangeIndicator,
     change_background: bool,
     soft_wrap: bool,
+    side_wrap: [bool; 2],
     header: HeaderSlots,
     annotations: Rc<Annotations>,
     annotation_content: Option<AnnotationRenderer>,
@@ -1600,6 +1629,11 @@ fn code_line(
     gutters: [Option<(DiffSide, Option<usize>)>; 2],
     cx: &mut App,
 ) -> AnyElement {
+    let soft_wrap = if code.mode == DiffMode::Split {
+        code.side_wrap[usize::from(side == DiffSide::Modified)]
+    } else {
+        code.soft_wrap
+    };
     let document = &code.files[file];
     let line = &document.lines(side)[ix];
     let conflict_part = (document.status() == DiffFileStatus::Conflicted && changed)
@@ -1644,7 +1678,7 @@ fn code_line(
     let source_line = &document.lines(text_side)[text_ix];
     // Wrapped text must be one run to break across the column; unwrapped
     // long lines stay chunked to bound shaping and selection projection.
-    let ranges: Vec<_> = if code.soft_wrap {
+    let ranges: Vec<_> = if soft_wrap {
         vec![0..source_line.display().len()]
     } else {
         source_line.chunk_ranges().collect()
@@ -1652,7 +1686,7 @@ fn code_line(
     // A block container gives wrapped text a definite width to break at.
     let text = div()
         .map(|this| {
-            if code.soft_wrap {
+            if soft_wrap {
                 this.w_full()
             } else {
                 this.flex().flex_row().flex_shrink_0()
@@ -1708,7 +1742,7 @@ fn code_line(
         .w_full()
         .px_2()
         .map(|this| {
-            if code.soft_wrap {
+            if soft_wrap {
                 this.min_h(code.row_height)
                     .items_start()
                     .whitespace_normal()
@@ -1746,7 +1780,7 @@ fn code_line(
                 .id("source")
                 .test_support()
                 .map(|this| {
-                    if code.soft_wrap || code.mode == DiffMode::Split {
+                    if soft_wrap || code.mode == DiffMode::Split {
                         this.flex_1().min_w_0().overflow_hidden()
                     } else {
                         this.flex_shrink_0()
@@ -1784,7 +1818,7 @@ fn code_line(
                     })
                 })
                 .child(
-                    text.when(code.mode == DiffMode::Split && !code.soft_wrap, |this| {
+                    text.when(code.mode == DiffMode::Split && !soft_wrap, |this| {
                         let side_index = usize::from(side == DiffSide::Modified);
                         let limit =
                             (code.split_source_widths[side_index] - code.column_width).max(px(0.));

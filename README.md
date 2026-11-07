@@ -18,6 +18,22 @@ Rust API that fails on the installed stable compiler. The lockfile records the
 verified dependency set. The existing diff component is vendored for a scoped horizontal-scrolling extension;
 see `vendor/README.md`.
 
+## Settings
+
+Edit `~/.config/jaywalk/config.toml` directly. When `XDG_CONFIG_HOME` is set,
+the path is `$XDG_CONFIG_HOME/jaywalk/config.toml`. Use `--config PATH` for a
+separate settings file. Restart the app to reload changes.
+
+`config/default.toml` documents the shipped defaults and available keys. A user
+file can override only the values it needs; omitted values inherit defaults.
+Unknown keys, malformed TOML, and invalid sizes produce an error with the
+config path. An explicitly supplied config file must exist.
+
+Settings cover window size, UI/code fonts, panel default widths and limits,
+history density, compact file paths, file-list wrapping, default diff view,
+and separate before/after/inline code wrapping. The toolbar wrap button
+changes the current view for the running session; it does not rewrite TOML.
+
 ## Development history
 
 `main` is the minimal Rust baseline. The mutable `viewer-prototype` bookmark

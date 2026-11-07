@@ -92,7 +92,8 @@ impl Viewer {
                 } else if let Some(Ok(Some(state))) = self.code().map(|code| &code.standard) {
                     Diff::new(state)
                         .header_visible(false)
-                        .soft_wrap(self.wrap)
+                        .soft_wrap(self.wrapping.inline)
+                        .soft_wrap_sides(self.wrapping.before, self.wrapping.after)
                         .size_full()
                         .into_any_element()
                 } else {
@@ -138,23 +139,31 @@ impl Viewer {
                         .child(
                             h_resizable("code-panes")
                                 .child(
-                                    resizable_panel().child(
-                                        div()
-                                            .v_flex()
-                                            .size_full()
-                                            .child(div().px_3().py_1().child("BEFORE"))
-                                            .child(
-                                                Editor::new(left)
-                                                    .readonly(true)
-                                                    .bordered(false)
-                                                    .h_full(),
-                                            ),
-                                    ),
+                                    resizable_panel()
+                                        .size_range(
+                                            px(self.settings.panels.diff.min_code_width)
+                                                ..Pixels::MAX,
+                                        )
+                                        .child(
+                                            div()
+                                                .v_flex()
+                                                .size_full()
+                                                .child(div().px_3().py_1().child("BEFORE"))
+                                                .child(
+                                                    Editor::new(left)
+                                                        .readonly(true)
+                                                        .bordered(false)
+                                                        .h_full(),
+                                                ),
+                                        ),
                                 )
                                 .child(
                                     resizable_panel()
-                                        .size(px(48.))
-                                        .size_range(px(48.)..px(49.))
+                                        .size(px(self.settings.panels.diff.gutter_width))
+                                        .size_range(
+                                            px(self.settings.panels.diff.gutter_width)
+                                                ..px(self.settings.panels.diff.gutter_width + 1.),
+                                        )
                                         .fixed()
                                         .child(
                                             canvas(
@@ -167,18 +176,23 @@ impl Viewer {
                                         ),
                                 )
                                 .child(
-                                    resizable_panel().child(
-                                        div()
-                                            .v_flex()
-                                            .size_full()
-                                            .child(div().px_3().py_1().child("AFTER"))
-                                            .child(
-                                                Editor::new(right)
-                                                    .readonly(true)
-                                                    .bordered(false)
-                                                    .h_full(),
-                                            ),
-                                    ),
+                                    resizable_panel()
+                                        .size_range(
+                                            px(self.settings.panels.diff.min_code_width)
+                                                ..Pixels::MAX,
+                                        )
+                                        .child(
+                                            div()
+                                                .v_flex()
+                                                .size_full()
+                                                .child(div().px_3().py_1().child("AFTER"))
+                                                .child(
+                                                    Editor::new(right)
+                                                        .readonly(true)
+                                                        .bordered(false)
+                                                        .h_full(),
+                                                ),
+                                        ),
                                 ),
                         )
                         .child(

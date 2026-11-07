@@ -1,0 +1,78 @@
+# Copy this file to ~/.config/jaywalk/config.toml and edit it directly.
+# Unspecified values inherit these defaults. Restart the app after editing.
+
+[window]
+width = 1500
+height = 950
+
+[ui]
+font_size = 16
+
+[editor]
+font_size = 13
+# Omit font_family to keep the platform's default monospace font.
+# font_family = "Menlo"
+
+[panels.history]
+default_width = 280
+min_width = 180
+max_width = 700
+
+[panels.files]
+default_width = 260
+min_width = 200
+max_width = 700
+
+[panels.diff]
+gutter_width = 48
+min_code_width = 100
+# The before/after panes default to an even split of the remaining width.
+
+[history]
+# Minimum row height; larger UI fonts can require more space.
+row_height = 26
+lane_spacing = 12
+
+[files]
+tree_row_height = 30
+indent_width = 12
+compact_paths = true
+list_word_wrap = false
+# Tree rows stay single-line and scroll horizontally.
+
+[diff]
+# "inline", "side_by_side", or "fluid"
+default_view = "fluid"
+
+[diff.before]
+word_wrap = false
+
+[diff.after]
+word_wrap = false
+
+[diff.inline]
+word_wrap = false
+
+[evolution]
+visible = false
+# Current and selected versions remain visible.
+show_unchanged_rebases = false
+collapse_repeats = true
+default_height = 320
+min_height = 180
+max_height = 700
+min_history_height = 120
+row_height = 48
+limit = 100
+
+# Independent dock below Changed files. Shares the recorded change timeline.
+[file_evolution]
+visible = true
+default_height = 320
+min_height = 180
+max_height = 700
+min_files_height = 120
+
+[live]
+enabled = true
+poll_interval_ms = 1500

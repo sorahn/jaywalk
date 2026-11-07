@@ -1,24 +1,33 @@
 use super::*;
 
 impl Viewer {
-    pub(crate) fn new(arguments: Arguments, window: &mut Window, cx: &mut Context<Self>) -> Self {
+    pub(crate) fn new(
+        arguments: Arguments,
+        settings: Settings,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Self {
         let preferred_path = arguments.file.clone();
+        let view_mode = settings.diff.default_view;
+        let wrapping = Wrapping::from_settings(&settings.diff);
+        let file_width = settings.panels.files.default_width;
         let focus = cx.focus_handle();
         window.focus(&focus, cx);
         let mut viewer = Self {
             arguments,
+            settings,
             focus,
             repository: LoadState::Loading,
             selected_file: None,
-            browser: files::FileBrowser::new(cx),
+            browser: files::FileBrowser::new(file_width, cx),
             repository_generation: 0,
             file_generation: 0,
             repository_task: None,
             file_task: None,
             active_change: None,
             navigation_target: None,
-            view_mode: ViewMode::default(),
-            wrap: false,
+            view_mode,
+            wrapping,
             horizontal_position: 0.,
             reveal_after_layout: false,
             fluid: FluidScroll::default(),
@@ -136,7 +145,7 @@ impl Viewer {
                             if files.is_empty() {
                                 return None;
                             }
-                            let mode = viewer.view_mode.standard();
+                            let mode = standard_mode(viewer.view_mode);
                             Some(cx.new(|cx| {
                                 DiffState::new(
                                     files.into_iter().map(|file| file.with_language(language)),
@@ -146,17 +155,17 @@ impl Viewer {
                                 .with_mode(mode)
                             }))
                         });
-                        let mut make_editor = |text, cx: &mut Context<Self>| {
+                        let mut make_editor = |text, wrap, cx: &mut Context<Self>| {
                             cx.new(|cx| {
                                 EditorState::new(window, cx)
                                     .language(language)
-                                    .soft_wrap(viewer.wrap)
+                                    .soft_wrap(wrap)
                                     .folding(false)
                                     .default_value(text)
                             })
                         };
-                        let before = make_editor(prepared.before, cx);
-                        let after = make_editor(prepared.after, cx);
+                        let before = make_editor(prepared.before, viewer.wrapping.before, cx);
+                        let after = make_editor(prepared.after, viewer.wrapping.after, cx);
                         viewer.editor_observers = vec![
                             cx.observe(&before, |_, _, cx| cx.notify()),
                             cx.observe(&after, |_, _, cx| cx.notify()),

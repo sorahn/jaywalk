@@ -4,8 +4,10 @@ use clap::Parser;
 use gpui::component::{Theme, ThemeMode};
 use gpui::*;
 use jaywalk::repository::Comparison;
+use jaywalk::settings::Settings;
 use std::path::PathBuf;
 
+mod launcher;
 mod viewer;
 use viewer::Viewer;
 
@@ -20,8 +22,14 @@ struct Arguments {
     tip: String,
     #[arg(long)]
     inspect: bool,
+    /// Keep the GUI attached to this terminal (useful for debugging).
+    #[arg(long)]
+    foreground: bool,
     #[arg(long)]
     file: Option<String>,
+    /// Read settings from this TOML file instead of the default config path.
+    #[arg(long)]
+    config: Option<PathBuf>,
 }
 
 fn main() {
@@ -47,6 +55,24 @@ fn main() {
         return;
     }
 
+    let settings = match arguments
+        .config
+        .as_deref()
+        .map_or_else(Settings::load_default, Settings::read)
+    {
+        Ok(settings) => settings,
+        Err(error) => {
+            eprintln!("{error}");
+            std::process::exit(1);
+        }
+    };
+    if !arguments.foreground {
+        if let Err(error) = launcher::launch(arguments.config.as_deref()) {
+            eprintln!("{error}");
+            std::process::exit(1);
+        }
+        return;
+    }
     gpui::application()
         .with_assets(gpui::assets::AllAssets)
         .run(move |cx| {
@@ -54,6 +80,12 @@ fn main() {
             viewer::init(cx);
             Theme::change(ThemeMode::Dark, None, cx);
             configure_code_theme(cx);
+            let theme = Theme::global_mut(cx);
+            theme.font_size = px(settings.ui.font_size);
+            theme.mono_font_size = px(settings.editor.font_size);
+            if let Some(family) = &settings.editor.font_family {
+                theme.mono_font_family = family.clone().into();
+            }
             let options = WindowOptions {
                 titlebar: Some(TitlebarOptions {
                     title: Some("Jaywalk".into()),
@@ -61,13 +93,13 @@ fn main() {
                 }),
                 window_bounds: Some(WindowBounds::Windowed(Bounds::centered(
                     None,
-                    size(px(1500.), px(950.)),
+                    size(px(settings.window.width), px(settings.window.height)),
                     cx,
                 ))),
                 ..Default::default()
             };
             if let Err(error) = gpui::open_window(options, cx, |window, cx| {
-                cx.new(|cx| Viewer::new(arguments, window, cx))
+                cx.new(|cx| Viewer::new(arguments, settings, window, cx))
             }) {
                 eprintln!("Could not open the viewer window: {error}");
                 cx.quit();

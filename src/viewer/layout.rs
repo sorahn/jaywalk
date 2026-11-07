@@ -58,14 +58,20 @@ impl Render for Viewer {
                     h_resizable("viewer-layout")
                         .child(
                             resizable_panel()
-                                .size(px(280.))
-                                .size_range(px(180.)..px(700.))
+                                .size(px(self.settings.panels.history.default_width))
+                                .size_range(
+                                    px(self.settings.panels.history.min_width)
+                                        ..px(self.settings.panels.history.max_width),
+                                )
                                 .child(self.render_history(cx)),
                         )
                         .child(
                             resizable_panel()
-                                .size(px(260.))
-                                .size_range(px(200.)..px(700.))
+                                .size(px(self.settings.panels.files.default_width))
+                                .size_range(
+                                    px(self.settings.panels.files.min_width)
+                                        ..px(self.settings.panels.files.max_width),
+                                )
                                 .child(self.render_files(cx)),
                         )
                         .child(resizable_panel().child(self.render_comparison(cx))),
@@ -95,7 +101,7 @@ impl Render for Viewer {
                                     .compact()
                                     .icon(IconName::TextWrap)
                                     .tooltip("Word wrap")
-                                    .selected(self.wrap)
+                                    .selected(self.wrapping.enabled(self.view_mode))
                                     .on_click(cx.listener(|this, _, window, cx| {
                                         this.toggle_wrap(window, cx)
                                     })),

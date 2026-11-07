@@ -2,6 +2,7 @@ use super::*;
 use gpui::component::list::ListItem;
 use gpui::component::scroll::ScrollableMask;
 use gpui::component::tree::{Tree, TreeItem, TreeState};
+use gpui::prelude::FluentBuilder;
 use jaywalk::file_browser::{CompactPath, FileNode, present_paths};
 use std::collections::HashMap;
 
@@ -24,7 +25,7 @@ pub(super) struct FileBrowser {
 }
 
 impl FileBrowser {
-    pub(super) fn new(cx: &mut App) -> Self {
+    pub(super) fn new(default_width: f32, cx: &mut App) -> Self {
         Self {
             mode: FileListMode::default(),
             labels: Vec::new(),
@@ -32,8 +33,8 @@ impl FileBrowser {
             tree_indices: HashMap::new(),
             observer: None,
             horizontal: ScrollHandle::new(),
-            width: 260.,
-            tree_width: 260.,
+            width: default_width,
+            tree_width: default_width,
         }
     }
 }
@@ -53,6 +54,8 @@ fn tree_items(
     depth: usize,
     indices: &mut HashMap<SharedString, usize>,
     width: &mut f32,
+    glyph_width: f32,
+    indent_width: f32,
 ) -> Vec<TreeItem> {
     nodes
         .into_iter()
@@ -63,7 +66,14 @@ fn tree_items(
                     name,
                     children,
                 } => {
-                    let children = tree_items(children, depth + 1, indices, width);
+                    let children = tree_items(
+                        children,
+                        depth + 1,
+                        indices,
+                        width,
+                        glyph_width,
+                        indent_width,
+                    );
                     (
                         name.clone(),
                         TreeItem::new(format!("dir:{path}"), name)
@@ -77,7 +87,8 @@ fn tree_items(
                     (name.clone(), TreeItem::new(id, name))
                 }
             };
-            *width = width.max(name.chars().count() as f32 * 8. + depth as f32 * 12. + 64.);
+            *width = width
+                .max(name.chars().count() as f32 * glyph_width + depth as f32 * indent_width + 64.);
             item
         })
         .collect()
@@ -117,6 +128,8 @@ impl Viewer {
             0,
             &mut self.browser.tree_indices,
             &mut self.browser.tree_width,
+            self.settings.ui.font_size * 0.5,
+            self.settings.files.indent_width,
         );
         self.browser.horizontal.set_offset(point(px(0.), px(0.)));
         self.browser
@@ -135,6 +148,12 @@ impl Viewer {
 
     fn render_tree(&self, comparison: &Comparison) -> AnyElement {
         let files = comparison.files.clone();
+        let row_height = self
+            .settings
+            .files
+            .tree_row_height
+            .max(self.settings.ui.font_size * 1.25 + 8.);
+        let indent_width = self.settings.files.indent_width;
         let tree = Tree::new(&self.browser.tree, move |index, entry, _, _, _| {
             let file_index = entry.item().id.strip_prefix("file:").map(|id| {
                 id.parse::<usize>()
@@ -160,9 +179,9 @@ impl Viewer {
                     .child(entry.item().label.clone()),
             );
             ListItem::new(("file-tree", index))
-                .h(px(30.))
+                .h(px(row_height))
                 .text_sm()
-                .pl(px(entry.depth() as f32 * 12. + 8.))
+                .pl(px(entry.depth() as f32 * indent_width + 8.))
                 .text_color(rgb(color))
                 .child(content)
         })
@@ -236,17 +255,27 @@ impl Viewer {
                 panel = panel.child(div().flex_1().min_h_0().child(self.render_tree(comparison)));
             }
             LoadState::Loaded(comparison) => {
+                let wrap = self.settings.files.list_word_wrap;
                 let mut list = div()
                     .id("changed-files")
                     .flex_1()
                     .min_h_0()
-                    .overflow_scroll();
-                let columns = ((self.browser.width - 52.) / 7.).max(1.) as usize;
+                    .when(wrap, |list| list.overflow_y_scroll())
+                    .when(!wrap, |list| list.overflow_scroll());
+                let columns = ((self.browser.width - 52.) / (self.settings.ui.font_size * 0.4375))
+                    .max(1.) as usize;
                 for (index, file) in comparison.files.iter().enumerate() {
                     let (marker, color) = file_style(&file.status);
                     let label = self.browser.labels.get(index).map_or_else(
                         || file.after_path.clone(),
-                        |path| path.label(columns).to_owned(),
+                        |path| {
+                            path.label(if self.settings.files.compact_paths && !wrap {
+                                columns
+                            } else {
+                                usize::MAX
+                            })
+                            .to_owned()
+                        },
                     );
                     list = list.child(
                         div()
@@ -257,7 +286,8 @@ impl Viewer {
                             .px_3()
                             .py_2()
                             .w_full()
-                            .whitespace_nowrap()
+                            .when(wrap, |row| row.items_start())
+                            .when(!wrap, |row| row.whitespace_nowrap())
                             .bg(rgb(if self.selected_index() == Some(index) {
                                 0x345577
                             } else {
@@ -267,7 +297,14 @@ impl Viewer {
                             .cursor_pointer()
                             .text_color(rgb(color))
                             .child(div().w(px(14.)).flex_shrink_0().child(marker))
-                            .child(div().whitespace_nowrap().flex_shrink_0().child(label))
+                            .child(
+                                div()
+                                    .when(wrap, |label| {
+                                        label.whitespace_normal().flex_1().min_w_0()
+                                    })
+                                    .when(!wrap, |label| label.whitespace_nowrap().flex_shrink_0())
+                                    .child(label),
+                            )
                             .on_click(cx.listener(move |this, _, window, cx| {
                                 this.select_file(index, window, cx)
                             })),

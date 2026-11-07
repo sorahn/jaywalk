@@ -101,6 +101,7 @@ pub(crate) struct LayoutKey {
     mode: DiffMode,
     line_number: bool,
     soft_wrap: bool,
+    side_wrap: [bool; 2],
 }
 
 impl LayoutKey {
@@ -111,6 +112,7 @@ impl LayoutKey {
         mode: DiffMode,
         line_number: bool,
         soft_wrap: bool,
+        side_wrap: [bool; 2],
     ) -> Self {
         Self {
             rem,
@@ -119,6 +121,7 @@ impl LayoutKey {
             mode,
             line_number,
             soft_wrap,
+            side_wrap,
         }
     }
 }
