@@ -118,7 +118,7 @@ impl DiffLineRange {
 }
 
 /// One supplied source line and its display form.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub(crate) struct SourceLine {
     line_number: usize,
     text: SharedString,
@@ -132,13 +132,13 @@ pub(crate) struct SourceLine {
     content_end: usize,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 struct DisplayChunk {
     range: Range<usize>,
     text: SharedString,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 struct DisplayTab {
     source_offset: usize,
     display_offset: usize,
@@ -303,6 +303,7 @@ impl Hunk {
 /// One side of a file: its path, unless the side is missing such as
 /// `/dev/null`, and the source fragments the patch supplies.
 #[derive(Default)]
+#[derive(Clone)]
 pub(crate) struct FileSide {
     path: Option<SharedString>,
     source: SharedString,
@@ -361,6 +362,7 @@ impl PatchLine {
     }
 }
 
+#[derive(Clone)]
 struct DocumentInner {
     path: SharedString,
     status: DiffFileStatus,
@@ -391,6 +393,19 @@ pub struct DiffFile {
 }
 
 impl DiffFile {
+    /// Change display tab stops without modifying source text or byte mappings.
+    pub fn with_tab_size(mut self, tab_size: usize) -> Self {
+        let inner = Arc::make_mut(&mut self.inner);
+        for side in [&mut inner.original, &mut inner.modified] {
+            for line in &mut side.lines {
+                let counterpart = line.counterpart;
+                *line = source_line_with_tab_size(&side.source, line.source.clone(), line.line_number, tab_size.max(1));
+                line.counterpart = counterpart;
+            }
+        }
+        self
+    }
+
     /// Parses every file in a unified or Git diff, in patch order, without
     /// computing differences. Syntax emphasis is prepared later by
     /// [`super::DiffState`] on a background thread.
@@ -658,6 +673,10 @@ fn patch_order(
 
 /// Builds the display form of one source line from its range in `source`.
 fn source_line(source: &str, range: Range<usize>, line_number: usize) -> SourceLine {
+    source_line_with_tab_size(source, range, line_number, 4)
+}
+
+fn source_line_with_tab_size(source: &str, range: Range<usize>, line_number: usize, tab_size: usize) -> SourceLine {
     let raw = &source[range.clone()];
     let content = match raw.strip_suffix('\n') {
         Some(content) => content.strip_suffix('\r').unwrap_or(content),
@@ -670,7 +689,7 @@ fn source_line(source: &str, range: Range<usize>, line_number: usize) -> SourceL
         let mut column = 0;
         for (ix, ch) in content.char_indices() {
             if ch == '\t' {
-                let spaces = 4 - column % 4;
+                let spaces = tab_size - column % tab_size;
                 display_tabs.push(DisplayTab {
                     source_offset: ix,
                     display_offset: display.len(),
@@ -955,6 +974,30 @@ mod tests {
         assert!(!bare_cr.has_changes());
         assert_eq!(bare_cr.lines_count(DiffSide::Original), 1);
         assert_eq!(bare_cr.inner.pairs.len(), 1);
+    }
+
+    #[test]
+    fn custom_tab_stops_keep_source_and_copy_mapping_unchanged() {
+        let patch = "--- a/file.ts\n+++ b/file.ts\n@@ -1 +1 @@\n-\té\told\n+\té\tnew\n";
+        let original = DiffFile::parse(patch).unwrap().remove(0);
+        let narrow = original.clone().with_tab_size(2);
+        let wide = original.clone().with_tab_size(8);
+        for side in [DiffSide::Original, DiffSide::Modified] {
+            let source = original.lines(side)[0].text();
+            let narrow = &narrow.lines(side)[0];
+            let wide = &wide.lines(side)[0];
+            assert_eq!(narrow.text(), source);
+            assert_eq!(wide.text(), source);
+            assert!(narrow.display().starts_with("  é "));
+            assert!(wide.display().starts_with("        é       "));
+            assert_eq!(narrow.source_offset(2), 1);
+            assert_eq!(wide.source_offset(8), 1);
+            assert_eq!(narrow.display_range(1..3), 2..4);
+            assert_eq!(wide.display_range(1..3), 8..10);
+            assert_eq!(narrow.source(), original.lines(side)[0].source());
+            assert_eq!(narrow.counterpart(), original.lines(side)[0].counterpart());
+        }
+        assert!(original.lines(DiffSide::Original)[0].display().starts_with("    é"));
     }
 
     #[test]
