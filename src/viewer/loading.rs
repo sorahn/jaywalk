@@ -675,6 +675,35 @@ mod tests {
     }
 
     #[test]
+    fn document_and_build_files_have_prepared_syntax_styles() {
+        for (path, text) in [
+            (
+                "README.md",
+                "# Heading\n\nA **bold** [link](https://example.invalid).\n\n```rust\npub fn main() {}\n```\n",
+            ),
+            (
+                "Cargo.toml",
+                "[package]\nname = \"example\"\nenabled = true\ncount = 42\n",
+            ),
+            (
+                "Makefile",
+                "# Build the project\nBIN := example\n.PHONY: build\nbuild:\n\tcargo build --release\n",
+            ),
+        ] {
+            let language = super::file_language(path);
+            let factory = PreparedInputHighlighter::new(language, text).into_factory();
+            let highlighter = factory(language).expect("bundled file grammar initializes");
+            let spans = highlighter.styles(&(0..text.len()), &TestStyles);
+            assert!(
+                spans.iter().any(|(_, style)| style.color.is_some()),
+                "{path}"
+            );
+            assert_eq!(spans.first().unwrap().0.start, 0, "{path}");
+            assert_eq!(spans.last().unwrap().0.end, text.len(), "{path}");
+        }
+    }
+
+    #[test]
     fn large_comparisons_have_syntax_colors_before_any_editor_update() {
         // Above the live editor's synchronous parse budget. No window, timer,
         // or first paint is needed to obtain complete styles for either text.

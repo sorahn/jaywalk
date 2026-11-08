@@ -401,9 +401,11 @@ Fluid separator to restore an even code split with the configured gutter width.
 
 The bottom-right three-way toggle selects inline, aligned side-by-side, or
 Fluid diff (the default). The standard views use GPUI Kit's existing diff
-widget with full context and syntax highlighting. Rust (`.rs`), TypeScript,
-TSX and JavaScript/JSX use the bundled tree-sitter grammars in all three diff
-views. The separate word-wrap button to the left of the mode toggle applies to all views. Fluid retains
+widget with full context and syntax highlighting. The complete GPUI Kit
+Tree-sitter language bundle is enabled in all three diff views, including
+Markdown, TOML, Make, Rust, JavaScript/TypeScript, JSON, YAML, Python, Go, C/C++,
+and the other grammars shipped by the provider. The separate word-wrap button
+to the left of the mode toggle applies to all views. Fluid retains
 independent document heights, with connectors following wrapped rows.
 Switching modes retains the selected file and anchors the view to its source
 line. Wrapping/reflow and returning to previously inspected files preserve
@@ -556,3 +558,21 @@ The full-window footer uses `ui.footer_height` (28 pixels),
 only when those configured metrics require it, never in response to status or
 error text. Notices truncate in place and expose their full text on hover.
 The word-wrap control remains immediately left of the three diff-view buttons.
+
+### Adding syntax languages
+
+GPUI Kit supplies the Tree-sitter grammars and highlight queries through
+`gpui-component`; Jaywalk enables its complete `tree-sitter-languages` bundle.
+Language detection is shared by Fluid and standard/inline views in `src/syntax.rs`.
+It uses the provider's language names and aliases, with a small central table
+for extra extensions and conventional filenames such as `Makefile`,
+`GNUmakefile`, `CMakeLists.txt`, `Cargo.lock`, and shell startup files. Unknown
+files remain plain text. Markdown code fences can use other bundled grammars.
+Highlight coverage follows the provider's queries; a grammar alone does not
+imply rich coloring for every language.
+
+For another provider-supported extension, add its alias in that module if the
+provider does not already recognize it. New bundled grammars become available
+through the same bundle feature when the pinned provider is upgraded. A grammar
+outside that bundle still needs a dependency and provider registration; custom
+grammar loading and user-defined file associations are future work.

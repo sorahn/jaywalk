@@ -13,6 +13,7 @@ pub mod reading;
 pub mod repository;
 pub mod settings;
 pub mod settings_reload;
+pub mod syntax;
 pub mod version;
 
 pub mod panel_layout;

@@ -9,6 +9,7 @@ use jaywalk::diff_model::FileDiff;
 use jaywalk::fluid::{DiffGeometry, FluidScroll};
 use jaywalk::repository::Comparison;
 use jaywalk::settings::{DiffSettings, DiffView as ViewMode, Settings};
+use jaywalk::syntax::file_language;
 use std::cell::Cell;
 use std::rc::Rc;
 
@@ -143,19 +144,6 @@ struct PreparedFile {
     model: FileDiff,
     syntax: [gpui::component::highlighter::PreparedInputHighlighter; 2],
     standard: Result<Vec<DiffFile>, String>,
-}
-
-fn file_language(path: &str) -> &'static str {
-    match std::path::Path::new(path)
-        .extension()
-        .and_then(|value| value.to_str())
-    {
-        Some("rs") => "rust",
-        Some("ts") => "typescript",
-        Some("tsx") => "tsx",
-        Some("js" | "jsx") => "javascript",
-        _ => "plain",
-    }
 }
 
 impl PreparedFile {
