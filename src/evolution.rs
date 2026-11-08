@@ -186,6 +186,8 @@ impl Version {
             author: String::new(),
             bookmarks: Vec::new(),
             parents: self.parents.clone(),
+            working_copy: false,
+            empty: false,
         }
     }
 }

@@ -46,6 +46,15 @@ fn follows_stable_changes_without_following_the_checkout_or_snapshotting_files()
     let latest = Comparison::load(&root, Some("main"), "feature").unwrap();
     let rewritten = latest.revision(&change).unwrap();
     assert_ne!(rewritten.commit_id, recorded.tip);
+    assert!(rewritten.working_copy);
+    assert!(!rewritten.empty);
+    assert!(!latest.revision(&latest.tip).unwrap().working_copy);
+    let original = recorded.revision(&recorded.tip).unwrap();
+    assert!(
+        original.working_copy,
+        "working-copy state belongs to the pinned operation"
+    );
+    assert_eq!(original.description, "first change");
     assert_ne!(
         latest.tip, rewritten.commit_id,
         "feature tip must not become the edited ancestor"

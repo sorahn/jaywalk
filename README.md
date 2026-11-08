@@ -167,6 +167,10 @@ on the empty side. Scrolling resumes automatic active-change selection after
 using the navigation controls. The standard modes show the total change count
 and use the built-in widget's previous/next navigation.
 
+The history graph labels the recorded working-copy revision explicitly, with
+`no changes` or `changes`. This marker is independent of the selected row; an
+empty working copy above the latest saved change is normal jj state.
+
 All repository commands ignore the working copy and pin reads to an operation.
 Unsnapshotted working-file edits are intentionally not captured. By default,
 the base is the nearest immutable ancestor of the selected tip; ambiguous

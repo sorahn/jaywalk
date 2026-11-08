@@ -15,12 +15,7 @@ fn history_row(
 ) -> AnyElement {
     let revision = &history.revisions[index];
     let commit_id = revision.commit_id.clone();
-    let description = if revision.description.is_empty() {
-        "(no description)"
-    } else {
-        &revision.description
-    }
-    .to_owned();
+    let description = revision.summary();
     div()
         .id(("revision", index))
         .h(px(height))
