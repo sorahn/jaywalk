@@ -160,8 +160,9 @@ The bundle is `target/debug/Jaywalk.app` (or `target/release/Jaywalk.app`).
 It runs directly without the terminal-detachment re-exec used by the CLI.
 Opening the app from Finder can start without a repository; use File > Open
 repository. This is a local build, without release notarization or an installer.
-Routing a second terminal launch to the existing application and global tabs
-remain future work.
+Terminal launches route to the running application. Reopening the same
+repository focuses its window; other repositories open additional windows in
+the same process. Global tabs remain future work.
 
 ## Development history
 
@@ -189,8 +190,24 @@ jw . --base REV --tip REV                  # explicit revision endpoints
 jw . --file src/main.rs                    # select a changed file
 jw diff before.txt after.txt               # standalone files
 jw diff /path/to/before /path/to/after      # directory trees
-jw --wait diff before.txt after.txt        # wait until all launched windows close
+jw --wait diff before.txt after.txt        # wait until this review window closes
 ```
+
+`jw .` reuses a repository's existing window, including launches through a
+symlink or from a subdirectory. The current file/review selection stays intact
+unless `--file` requests another file. Different explicit comparison endpoints
+or config files can use separate windows. All windows share one application
+process, including concurrent cold launches and File > Open repository.
+
+`--wait` belongs to the requested window: closing another window does not
+release it, and reusing an existing window waits for that window to close.
+Quitting the application releases waiting clients as well. On macOS the app
+remains available after its last window closes. Stale launch endpoints from a
+crash are recovered automatically. The local transport currently supports
+macOS and Linux; a Windows transport remains future work.
+
+After installing a new build, quit any older running Jaywalk instances once
+to load it. Subsequent launches use the new shared process.
 
 In a colocated checkout Jaywalk prefers jj. In plain Git, the default compares
 HEAD with staged and unstaged worktree changes, including untracked files.

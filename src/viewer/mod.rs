@@ -179,6 +179,7 @@ pub(crate) struct Viewer {
     active_evolution: evolution::EvolutionKind,
     repository: LoadState<RepositorySession>,
     selected_file: Option<SelectedFile>,
+    pending_file: Option<String>,
     browser: files::FileBrowser,
     repository_generation: u64,
     file_generation: u64,

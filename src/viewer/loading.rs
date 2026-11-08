@@ -43,6 +43,7 @@ impl Viewer {
             active_evolution: evolution::EvolutionKind::Change,
             repository: LoadState::Loading,
             selected_file: None,
+            pending_file: None,
             browser: files::FileBrowser::new(file_width, file_mode, cx),
             repository_generation: 0,
             file_generation: 0,
@@ -135,7 +136,7 @@ impl Viewer {
                 };
                 viewer.start_live(window, cx);
                 viewer.rebuild_browser(cx);
-                let preferred_path = preferred_path.or_else(|| {
+                let preferred_path = viewer.pending_file.take().or(preferred_path).or_else(|| {
                     (viewer.arguments.diff.is_some())
                         .then(|| {
                             viewer
@@ -152,6 +153,14 @@ impl Viewer {
             });
         }));
         cx.notify();
+    }
+
+    pub(crate) fn reveal_file(&mut self, path: &str, window: &mut Window, cx: &mut Context<Self>) {
+        if matches!(self.repository, LoadState::Loading) {
+            self.pending_file = Some(path.to_owned());
+        } else {
+            self.select_path(path, window, cx);
+        }
     }
 
     pub(super) fn select_path(&mut self, path: &str, window: &mut Window, cx: &mut Context<Self>) {

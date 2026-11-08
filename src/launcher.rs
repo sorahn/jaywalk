@@ -34,11 +34,13 @@ pub(crate) fn launch(config: Option<&Path>) -> Result<(), String> {
         .try_clone()
         .map_err(|error| format!("Could not attach viewer diagnostics: {error}"))?;
     let mut command = Command::new(executable);
-    // Put this flag before user arguments so an explicit `--` cannot swallow it.
-    // Inherit cwd and OsStrings unchanged, including relative/non-UTF-8 paths.
+    // The server starts without an initial window. The invoking CLI sends
+    // its normalized request after startup, including its own wait lifetime.
+    command.arg("--foreground").arg("--instance-server");
+    if let Some(config) = config {
+        command.arg("--config").arg(config);
+    }
     command
-        .arg("--foreground")
-        .args(std::env::args_os().skip(1))
         .stdin(Stdio::null())
         .stdout(Stdio::from(log))
         .stderr(Stdio::from(errors));
