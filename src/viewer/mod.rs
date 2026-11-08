@@ -14,8 +14,10 @@ use std::rc::Rc;
 
 use crate::Arguments;
 
+pub(crate) mod commands;
 mod comparison;
 mod evolution;
+mod feedback;
 mod files;
 mod fluid_view;
 mod geometry;
@@ -26,7 +28,10 @@ mod loading;
 mod palette;
 mod panels;
 mod session_layout;
+mod settings;
+mod typography;
 use geometry::{comparison_geometry, horizontal_wheel};
+use jaywalk::loading_feedback::LoadingKind;
 
 fn standard_mode(view: ViewMode) -> DiffMode {
     match view {
@@ -121,11 +126,13 @@ struct CodeComparison {
     before: Entity<EditorState>,
     after: Entity<EditorState>,
     model: Rc<FileDiff>,
+    decorations: [gpui::base::input::TextDecorationCollection; 2],
     standard: Result<Option<Entity<DiffState>>, String>,
 }
 
 struct SelectedFile {
-    index: usize,
+    file: jaywalk::repository::ChangedFile,
+    source: Comparison,
     content: LoadState<CodeComparison>,
 }
 
@@ -133,56 +140,54 @@ struct PreparedFile {
     before: String,
     after: String,
     model: FileDiff,
+    syntax: [gpui::component::highlighter::PreparedInputHighlighter; 2],
     standard: Result<Vec<DiffFile>, String>,
+}
+
+fn file_language(path: &str) -> &'static str {
+    match std::path::Path::new(path)
+        .extension()
+        .and_then(|value| value.to_str())
+    {
+        Some("ts") => "typescript",
+        Some("tsx") => "tsx",
+        Some("js" | "jsx") => "javascript",
+        _ => "plain",
+    }
 }
 
 impl PreparedFile {
     fn load(
         comparison: &Comparison,
         file: &jaywalk::repository::ChangedFile,
+        tab_size: usize,
     ) -> Result<Self, String> {
         let (before, after) = comparison.contents(file)?;
         let model = FileDiff::new(&before, &after);
-        let standard =
-            DiffFile::parse(&standard_patch(&before, &after)).map_err(|error| error.to_string());
+        let language = file_language(&file.after_path);
+        let syntax = [&before, &after].map(|text| {
+            gpui::component::highlighter::PreparedInputHighlighter::new(language, text)
+        });
+        let standard = DiffFile::parse(&standard_patch(&before, &after))
+            .map(|files| {
+                files
+                    .into_iter()
+                    .map(|file| file.with_tab_size(tab_size))
+                    .collect()
+            })
+            .map_err(|error| error.to_string());
         Ok(Self {
             before,
             after,
             model,
+            syntax,
             standard,
         })
     }
 }
 
-gpui::actions!(
-    jaywalk,
-    [
-        ShowWholeBranch,
-        FindFile,
-        ShowCommands,
-        RefreshView,
-        NextFile,
-        PreviousFile,
-        NextChange,
-        PreviousChange,
-        NextRevision,
-        PreviousRevision
-    ]
-);
-
-pub(crate) fn init(cx: &mut App) {
-    cx.bind_keys([
-        KeyBinding::new("secondary-shift-b", ShowWholeBranch, Some("Jaywalk")),
-        KeyBinding::new("secondary-p", FindFile, Some("Jaywalk")),
-        KeyBinding::new("secondary-shift-p", ShowCommands, Some("Jaywalk")),
-        KeyBinding::new("secondary-r", RefreshView, Some("Jaywalk")),
-        KeyBinding::new("secondary-alt-down", NextRevision, Some("Jaywalk")),
-        KeyBinding::new("secondary-alt-up", PreviousRevision, Some("Jaywalk")),
-        KeyBinding::new("alt-down", NextFile, Some("Jaywalk")),
-        KeyBinding::new("alt-up", PreviousFile, Some("Jaywalk")),
-        KeyBinding::new("f7", NextChange, Some("Jaywalk")),
-        KeyBinding::new("shift-f7", PreviousChange, Some("Jaywalk")),
-    ]);
+pub(crate) fn init(arguments: &Arguments, settings: &Settings, cx: &mut App) {
+    commands::init(arguments, settings, cx);
 }
 
 pub(crate) struct Viewer {
@@ -192,10 +197,12 @@ pub(crate) struct Viewer {
     panels: panels::PanelLayout,
     history_scroll: UniformListScrollHandle,
     evolution: evolution::EvolutionPanel,
+    evolution_header: Option<evolution::HeaderPresentation>,
     file_evolution: evolution::EvolutionPanel,
     active_evolution: evolution::EvolutionKind,
     repository: LoadState<RepositorySession>,
     selected_file: Option<SelectedFile>,
+    pending_file: Option<String>,
     browser: files::FileBrowser,
     repository_generation: u64,
     file_generation: u64,
@@ -204,14 +211,18 @@ pub(crate) struct Viewer {
     active_change: Option<usize>,
     navigation_target: Option<usize>,
     view_mode: ViewMode,
+    code_font_size: f32,
+    line_numbers: bool,
     wrapping: Wrapping,
     horizontal_position: f32,
     reveal_after_layout: bool,
     fluid: FluidScroll,
     editor_observers: Vec<Subscription>,
     live: live::LiveState,
+    feedback: feedback::Feedback,
     palette: palette::PaletteState,
     layout: session_layout::SessionLayout,
+    config: settings::ConfigState,
 }
 
 impl Viewer {
@@ -232,7 +243,19 @@ impl Viewer {
     }
 
     fn selected_index(&self) -> Option<usize> {
-        self.selected_file.as_ref().map(|file| file.index)
+        let file = &self.selected_file.as_ref()?.file;
+        jaywalk::file_browser::find_file(&self.browser.files, &file.after_path)
+    }
+
+    fn selected_changed_index(&self) -> Option<usize> {
+        let file = &self.selected_file.as_ref()?.file;
+        jaywalk::file_browser::find_file(&self.comparison()?.files, &file.after_path)
+    }
+
+    fn selected_path(&self) -> Option<String> {
+        self.selected_file
+            .as_ref()
+            .map(|selected| selected.file.after_path.clone())
     }
 
     fn code(&self) -> Option<&CodeComparison> {
@@ -240,10 +263,14 @@ impl Viewer {
     }
 
     fn clear_file(&mut self) {
+        self.config.pending_standard = None;
+        self.config.pending_horizontal = None;
         self.file_generation += 1;
         self.file_task = None;
+        self.finish_loading(LoadingKind::File);
         self.selected_file = None;
         self.live.pending_position = None;
+        self.live.restore = None;
         self.active_change = None;
         self.navigation_target = None;
         self.editor_observers.clear();
@@ -259,8 +286,20 @@ impl Viewer {
         )
     }
 
+    fn supports_evolution(&self) -> bool {
+        self.repository
+            .ready()
+            .is_some_and(|session| session.branch.supports_evolution())
+    }
+
     fn scope_label(&self) -> String {
+        if self.arguments.diff.is_some() {
+            return "External diff".into();
+        }
         match self.repository.ready().map(|session| &session.scope) {
+            Some(ComparisonScope::WholeBranch) if !self.supports_evolution() => {
+                "Git comparison".into()
+            }
             Some(ComparisonScope::WholeBranch) => "Whole branch".into(),
             Some(ComparisonScope::Revision { commit_id, merge }) => format!(
                 "Commit {}{}",
@@ -358,9 +397,7 @@ impl Viewer {
                 return position.line().saturating_sub(1);
             }
             let state = code.after.read(cx);
-            state.display_map().display_row_to_buffer_line(
-                state.visible_row_range().map_or(0, |range| range.start),
-            )
+            state.visible_row_range().map_or(0, |range| range.start)
         });
         self.view_mode = mode;
         if let Some(Ok(Some(state))) = self.code().map(|code| &code.standard) {

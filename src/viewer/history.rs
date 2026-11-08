@@ -1,26 +1,34 @@
 use super::*;
+use gpui::prelude::FluentBuilder;
 use jaywalk::history::History;
 
 const GRAPH_MARGIN: f32 = 10.;
 const NODE_RADIUS: f32 = 3.5;
 
-fn history_row(
-    history: Rc<History>,
-    index: usize,
+#[derive(Clone, Copy)]
+struct RowMetrics {
     width: f32,
     height: f32,
     spacing: f32,
+    font_size: f32,
+}
+
+fn history_row(
+    history: Rc<History>,
+    index: usize,
+    metrics: RowMetrics,
     selected: bool,
     viewer: WeakEntity<Viewer>,
 ) -> AnyElement {
+    let RowMetrics {
+        width,
+        height,
+        spacing,
+        font_size,
+    } = metrics;
     let revision = &history.revisions[index];
     let commit_id = revision.commit_id.clone();
-    let description = if revision.description.is_empty() {
-        "(no description)"
-    } else {
-        &revision.description
-    }
-    .to_owned();
+    let description = revision.summary();
     div()
         .id(("revision", index))
         .h(px(height))
@@ -84,7 +92,7 @@ fn history_row(
                 .flex_1()
                 .min_w_0()
                 .pr_2()
-                .text_sm()
+                .text_size(px(font_size))
                 .truncate()
                 .child(description),
         )
@@ -105,12 +113,21 @@ impl Viewer {
                 .justify_between()
                 .px_3()
                 .py_2()
-                .child(div().text_sm().child("JJ HISTORY"))
+                .child(
+                    div()
+                        .text_size(px(self.settings.panels.history.font.size))
+                        .child(if self.supports_evolution() {
+                            "JJ HISTORY"
+                        } else {
+                            "GIT HISTORY"
+                        }),
+                )
                 .child(
                     Button::new("toggle-evolution")
                         .ghost()
                         .compact()
                         .label("Evolution")
+                        .when(!self.supports_evolution(), |button| button.hidden())
                         .selected(self.evolution.visible)
                         .tooltip("Show change evolution")
                         .on_click(
@@ -118,19 +135,26 @@ impl Viewer {
                         ),
                 ),
         );
-        let session = match &self.repository {
-            LoadState::Loaded(session) => session,
-            LoadState::Loading => {
-                return panel
-                    .child(div().p_3().child("Loading repository…"))
-                    .into_any_element();
-            }
-            LoadState::Failed(error) => {
-                return panel
-                    .child(div().p_3().child(error.clone()))
-                    .into_any_element();
-            }
-        };
+        let session =
+            match &self.repository {
+                LoadState::Loaded(session) => session,
+                LoadState::Loading => {
+                    return panel
+                        .child(div().p_3().child(
+                            if self.loading_visible(LoadingKind::Comparison) {
+                                "Loading repository…"
+                            } else {
+                                ""
+                            },
+                        ))
+                        .into_any_element();
+                }
+                LoadState::Failed(error) => {
+                    return panel
+                        .child(div().p_3().child(error.clone()))
+                        .into_any_element();
+                }
+            };
         let history = match &session.history {
             Ok(history) => history.clone(),
             Err(error) => {
@@ -150,8 +174,9 @@ impl Viewer {
             .settings
             .history
             .row_height
-            .max(self.settings.ui.font_size * 1.25);
+            .max(self.settings.panels.history.font.size * 1.25);
         let spacing = self.settings.history.lane_spacing;
+        let font_size = self.settings.panels.history.font.size;
         let rows = uniform_list("history-rows", count, move |visible, _, _| {
             let width = GRAPH_MARGIN * 2.
                 + (history.visible_lane_count(visible.clone()) - 1) as f32 * spacing;
@@ -162,9 +187,12 @@ impl Viewer {
                     history_row(
                         history.clone(),
                         index,
-                        width,
-                        height,
-                        spacing,
+                        RowMetrics {
+                            width,
+                            height,
+                            spacing,
+                            font_size,
+                        },
                         selected,
                         viewer.clone(),
                     )
@@ -177,7 +205,7 @@ impl Viewer {
             div()
                 .px_3()
                 .py_1()
-                .text_xs()
+                .text_size(px(self.settings.panels.history.font.size * 0.85))
                 .text_color(rgb(0x9baab4))
                 .child(format!("{count} recorded revisions")),
         );

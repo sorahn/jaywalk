@@ -1,4 +1,5 @@
 use super::*;
+use gpui::component::tooltip::Tooltip;
 
 impl Render for Viewer {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
@@ -6,35 +7,23 @@ impl Render for Viewer {
             .id("viewer-root")
             .key_context("Jaywalk")
             .track_focus(&self.focus)
-            .on_action(cx.listener(|this, _: &ShowWholeBranch, window, cx| {
-                this.show_whole_branch(window, cx)
-            }))
-            .on_action(cx.listener(|this, _: &FindFile, window, cx| {
-                this.open_palette(palette::PaletteKind::Files, window, cx)
-            }))
-            .on_action(cx.listener(|this, _: &ShowCommands, window, cx| {
-                this.open_palette(palette::PaletteKind::Commands, window, cx)
-            }))
-            .on_action(cx.listener(|this, _: &RefreshView, window, cx| this.refresh(window, cx)))
             .on_action(
-                cx.listener(|this, _: &NextFile, window, cx| this.navigate_file(1, window, cx)),
-            )
-            .on_action(
-                cx.listener(|this, _: &PreviousFile, window, cx| {
-                    this.navigate_file(-1, window, cx)
+                cx.listener(|this, action: &commands::ExecuteCommand, window, cx| {
+                    match action.command {
+                        jaywalk::commands::CommandId::About
+                        | jaywalk::commands::CommandId::OpenRepository
+                        | jaywalk::commands::CommandId::Quit
+                        | jaywalk::commands::CommandId::Hide
+                        | jaywalk::commands::CommandId::HideOthers
+                        | jaywalk::commands::CommandId::ShowAll => cx.propagate(),
+                        _ => this.execute_command(action.command, window, cx),
+                    }
                 }),
             )
-            .on_action(cx.listener(|this, _: &NextChange, _, cx| this.navigate_change(1, cx)))
-            .on_action(cx.listener(|this, _: &PreviousChange, _, cx| this.navigate_change(-1, cx)))
-            .on_action(cx.listener(|this, _: &NextRevision, window, cx| {
-                this.navigate_revision(1, window, cx)
-            }))
-            .on_action(cx.listener(|this, _: &PreviousRevision, window, cx| {
-                this.navigate_revision(-1, window, cx)
-            }))
             .relative()
             .v_flex()
             .size_full()
+            .font_features(typography::features(self.settings.ui.ligatures))
             .bg(rgb(0x1f1f1f))
             .text_color(rgb(0xcccccc))
             .child(
@@ -46,7 +35,10 @@ impl Render for Viewer {
                     .bg(rgb(0x263d35))
                     .child(format!(
                         "Jaywalk  /  {}",
-                        self.arguments.directory.display()
+                        self.arguments.diff.as_ref().map_or_else(
+                            || self.arguments.directory.display().to_string(),
+                            |paths| format!("{} ↔ {}", paths[0].display(), paths[1].display())
+                        )
                     ))
                     .child(
                         div()
@@ -66,7 +58,13 @@ impl Render for Viewer {
                             .child(
                                 Button::new("whole-branch")
                                     .ghost()
-                                    .label("Whole branch")
+                                    .label(if self.arguments.diff.is_some() {
+                                        "All files"
+                                    } else if !self.supports_evolution() {
+                                        "All changes"
+                                    } else {
+                                        "Whole branch"
+                                    })
                                     .disabled(self.repository.ready().is_none())
                                     .selected(matches!(
                                         self.repository.ready().map(|session| &session.scope),
@@ -79,7 +77,9 @@ impl Render for Viewer {
                             )
                             .child(Button::new("overview").ghost().label("Overview").on_click(
                                 cx.listener(|this, _, _, cx| {
+                                    this.remember_reading(cx);
                                     this.clear_file();
+                                    this.rebuild_browser(cx);
                                     this.focus_evolution_file(None);
                                     cx.notify();
                                 }),
@@ -104,7 +104,15 @@ impl Render for Viewer {
                                         px(self.settings.panels.history.min_width)
                                             ..px(self.settings.panels.history.max_width),
                                     )
-                                    .child(self.render_history_sidebar(cx)),
+                                    .child(
+                                        div()
+                                            .size_full()
+                                            .font(typography::panel_font(
+                                                &self.settings.panels.history.font,
+                                                cx,
+                                            ))
+                                            .child(self.render_history_sidebar(cx)),
+                                    ),
                             )
                             .child(
                                 resizable_panel()
@@ -114,7 +122,15 @@ impl Render for Viewer {
                                         px(self.settings.panels.files.min_width)
                                             ..px(self.settings.panels.files.max_width),
                                     )
-                                    .child(self.render_file_sidebar(cx)),
+                                    .child(
+                                        div()
+                                            .size_full()
+                                            .font(typography::panel_font(
+                                                &self.settings.panels.files.font,
+                                                cx,
+                                            ))
+                                            .child(self.render_file_sidebar(cx)),
+                                    ),
                             )
                             .child(
                                 resizable_panel().child(
@@ -142,7 +158,28 @@ impl Render for Viewer {
                     .py_2()
                     .bg(rgb(0x3d3226))
                     .text_sm()
-                    .child(format!("Read-only jj snapshot  |  {}", self.scope_label()))
+                    .gap_3()
+                    .flex_shrink_0()
+                    .child(
+                        div()
+                            .h_flex()
+                            .items_center()
+                            .gap_3()
+                            .flex_1()
+                            .min_w_0()
+                            .child(div().min_w_0().truncate().child(format!(
+                                "{}  |  {}",
+                                if self.arguments.diff.is_some() {
+                                    "Read-only comparison"
+                                } else if !self.supports_evolution() {
+                                    "Read-only Git snapshot"
+                                } else {
+                                    "Read-only jj snapshot"
+                                },
+                                self.scope_label()
+                            )))
+                            .children(self.status_notice()),
+                    )
                     .child({
                         let total = self.code().map_or(0, |CodeComparison { model, .. }| {
                             model.blocks.iter().filter(|block| block.changed).count()
@@ -150,6 +187,7 @@ impl Render for Viewer {
                         div()
                             .h_flex()
                             .items_center()
+                            .flex_shrink_0()
                             .gap_2()
                             .child(
                                 Button::new("word-wrap")
@@ -218,14 +256,34 @@ impl Render for Viewer {
                             )
                     }),
             )
-            .children(self.live.message.as_ref().map(|message| {
-                div()
-                    .px_3()
-                    .py_1()
-                    .text_xs()
-                    .bg(rgb(0x3b3426))
-                    .child(message.clone())
-            }))
             .children(self.render_palette(cx))
+    }
+}
+
+impl Viewer {
+    fn status_notice(&self) -> Option<AnyElement> {
+        let (message, color) = if let Some(message) = &self.config.error {
+            (message, 0xf48771)
+        } else {
+            let message = self.live.message.as_ref()?;
+            if message == "Updating recorded changes…" && !self.loading_visible(LoadingKind::Live)
+            {
+                return None;
+            }
+            (message, 0xe5c07b)
+        };
+        let tooltip = message.clone();
+        Some(
+            div()
+                .id("status-notice")
+                .flex_1()
+                .min_w_0()
+                .text_xs()
+                .text_color(rgb(color))
+                .truncate()
+                .child(message.clone())
+                .tooltip(move |window, cx| Tooltip::new(tooltip.clone()).build(window, cx))
+                .into_any_element(),
+        )
     }
 }

@@ -3,110 +3,136 @@ extern crate gpui_kit as gpui;
 use clap::Parser;
 use gpui::component::{Theme, ThemeMode};
 use gpui::*;
-use jaywalk::repository::Comparison;
-use jaywalk::settings::Settings;
-use std::path::PathBuf;
+use jaywalk::settings_reload::SettingsSource;
 
+mod about;
+mod cli;
+mod instance;
+mod windows;
+use cli::Arguments;
 mod launcher;
+mod platform;
 mod viewer;
 use viewer::Viewer;
 
-#[derive(Clone, Parser)]
-#[command(about = "Jaywalk: a native Jujutsu diff viewer")]
-struct Arguments {
-    #[arg(default_value = ".")]
-    directory: PathBuf,
-    #[arg(long)]
-    base: Option<String>,
-    #[arg(long, default_value = "@")]
-    tip: String,
-    #[arg(long)]
-    inspect: bool,
-    /// Keep the GUI attached to this terminal (useful for debugging).
-    #[arg(long)]
-    foreground: bool,
-    #[arg(long)]
-    file: Option<String>,
-    /// Read settings from this TOML file instead of the default config path.
-    #[arg(long)]
-    config: Option<PathBuf>,
+fn main() {
+    if let Err(error) = run() {
+        eprintln!("{error}");
+        std::process::exit(1);
+    }
 }
 
-fn main() {
-    let arguments = Arguments::parse();
+fn run() -> std::result::Result<(), String> {
+    let mut arguments = Arguments::parse();
+    if arguments.package_version {
+        println!("{}", jaywalk::version::PACKAGE);
+        return Ok(());
+    }
     if arguments.inspect {
-        match Comparison::load(
-            &arguments.directory,
-            arguments.base.as_deref(),
-            &arguments.tip,
-        ) {
-            Ok(comparison) => println!(
-                "{} changed files\nbase {}\ntip {}\noperation {}",
-                comparison.files.len(),
-                comparison.base,
-                comparison.tip,
-                comparison.operation
-            ),
-            Err(error) => {
-                eprintln!("{error}");
-                std::process::exit(1);
-            }
-        }
-        return;
+        let comparison = arguments.comparison()?;
+        println!(
+            "{} changed files\nbase {}\ntip {}\noperation {}",
+            comparison.files.len(),
+            comparison.base,
+            comparison.tip,
+            comparison.operation
+        );
+        return Ok(());
     }
-
-    let settings = match arguments
-        .config
-        .as_deref()
-        .map_or_else(Settings::load_default, Settings::read)
-    {
-        Ok(settings) => settings,
-        Err(error) => {
-            eprintln!("{error}");
-            std::process::exit(1);
+    arguments.normalize()?;
+    let settings = SettingsSource::resolve(arguments.config.as_deref())?.read()?;
+    let directory = instance::directory()?;
+    if !arguments.instance_server {
+        if instance::forward(&directory, &arguments)? {
+            return Ok(());
         }
+        if !arguments.foreground
+            && (arguments.wait || arguments.terminal_launch || !platform::is_app_bundle())
+        {
+            launcher::launch(arguments.config.as_deref())?;
+            return instance::wait_for_server(&directory, &arguments);
+        }
+    }
+    let Some(server) = instance::Server::claim(&directory)? else {
+        // Concurrent CLI launchers can race to spawn a server. Only the lock
+        // winner owns a GUI; every original launcher forwards its own request.
+        return if arguments.instance_server {
+            Ok(())
+        } else {
+            instance::wait_for_server(&directory, &arguments)
+        };
     };
-    if !arguments.foreground {
-        if let Err(error) = launcher::launch(arguments.config.as_deref()) {
-            eprintln!("{error}");
-            std::process::exit(1);
-        }
-        return;
-    }
+    let receiver = server.start();
+    let initial = (!arguments.instance_server).then(|| arguments.clone());
     gpui::application()
         .with_assets(gpui::assets::AllAssets)
         .run(move |cx| {
             gpui::init(cx);
-            viewer::init(cx);
+            windows::init(cx);
+            viewer::init(&arguments, &settings, cx);
             Theme::change(ThemeMode::Dark, None, cx);
             configure_code_theme(cx);
-            let theme = Theme::global_mut(cx);
-            theme.font_size = px(settings.ui.font_size);
-            theme.mono_font_size = px(settings.editor.font_size);
-            if let Some(family) = &settings.editor.font_family {
-                theme.mono_font_family = family.clone().into();
-            }
-            let options = WindowOptions {
-                titlebar: Some(TitlebarOptions {
-                    title: Some("Jaywalk".into()),
-                    ..Default::default()
-                }),
-                window_bounds: Some(WindowBounds::Windowed(Bounds::centered(
-                    None,
-                    size(px(settings.window.width), px(settings.window.height)),
-                    cx,
-                ))),
-                ..Default::default()
-            };
-            if let Err(error) = gpui::open_window(options, cx, |window, cx| {
-                cx.new(|cx| Viewer::new(arguments, settings, window, cx))
-            }) {
-                eprintln!("Could not open the viewer window: {error}");
+            Theme::update(cx, |theme| {
+                if let Some(family) = &settings.ui.font_family {
+                    theme.font_family = family.clone().into();
+                }
+                theme.font_size = px(settings.ui.font_size);
+                theme.mono_font_size = px(settings.editor.font_size);
+                if let Some(family) = &settings.editor.font_family {
+                    theme.mono_font_family = family.clone().into();
+                }
+            });
+            windows::listen(receiver, cx);
+            if let Some(arguments) = initial
+                && let Err(error) = windows::open(arguments, settings, None, cx)
+            {
+                eprintln!("{error}");
                 cx.quit();
-                return;
             }
-            cx.activate(true);
         });
+    Ok(())
+}
+
+// Keep File > Open Repository usable after the last native window closes.
+fn choose_repository(mut arguments: Arguments, cx: &mut App) {
+    let receiver = cx.prompt_for_paths(PathPromptOptions {
+        files: false,
+        directories: true,
+        multiple: false,
+        prompt: Some("Open repository".into()),
+    });
+    cx.spawn(async move |cx| match receiver.await {
+        Ok(Ok(Some(paths))) => {
+            if let Some(path) = paths.into_iter().next() {
+                arguments.directory = path;
+                arguments.diff = None;
+                arguments.base = None;
+                arguments.tip = "@".into();
+                arguments.file = None;
+                let config = arguments.config.clone();
+                let settings = cx
+                    .background_spawn(async move {
+                        arguments.normalize()?;
+                        let settings = SettingsSource::resolve(config.as_deref())?.read()?;
+                        Ok::<_, String>((arguments, settings))
+                    })
+                    .await;
+                match settings {
+                    Ok((arguments, settings)) => {
+                        cx.update(|cx| {
+                            if let Err(error) = windows::open(arguments, settings, None, cx) {
+                                eprintln!("Could not open repository: {error}");
+                            }
+                        });
+                    }
+                    Err(error) => eprintln!("Could not open repository: {error}"),
+                }
+            }
+        }
+        Ok(Ok(None)) => {}
+        result => eprintln!("Could not select repository: {result:?}"),
+    })
+    .detach();
 }
 
 fn configure_code_theme(cx: &mut App) {

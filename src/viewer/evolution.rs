@@ -6,6 +6,39 @@ use jaywalk::evolution::{Evolution, EvolutionView};
 use jaywalk::history::Revision;
 use std::collections::HashSet;
 
+#[derive(Clone, PartialEq, Eq)]
+pub(super) struct HeaderPresentation {
+    label: String,
+    controls: Option<HeaderControls>,
+}
+
+#[derive(Clone, PartialEq, Eq)]
+struct HeaderControls {
+    kind: EvolutionKind,
+    index: usize,
+    version: String,
+    mode: ReviewMode,
+    has_predecessors: bool,
+}
+
+impl HeaderPresentation {
+    fn label(label: String) -> Self {
+        Self {
+            label,
+            controls: None,
+        }
+    }
+    fn pending(previous: Option<&Self>, show_loading: bool) -> Self {
+        if show_loading {
+            Self::label("Loading evolution…".into())
+        } else {
+            previous
+                .cloned()
+                .unwrap_or_else(|| Self::label(String::new()))
+        }
+    }
+}
+
 #[derive(Clone)]
 pub(super) struct EvolutionSession {
     anchor: Revision,
@@ -16,9 +49,19 @@ pub(super) struct EvolutionSession {
     mode: ReviewMode,
 }
 
+#[derive(Clone)]
+struct TimelinePresentation {
+    session: EvolutionSession,
+    file_path: Option<String>,
+    scroll: UniformListScrollHandle,
+}
+
 enum TimelineState {
     Unselected,
-    Loading { anchor: String },
+    Loading {
+        anchor: String,
+        previous: Option<TimelinePresentation>,
+    },
     Failed(String),
     Loaded(EvolutionSession),
 }
@@ -62,6 +105,18 @@ impl EvolutionPanel {
             generation: 0,
             task: None,
             scroll: UniformListScrollHandle::new(),
+        }
+    }
+
+    fn presentation(&self) -> Option<TimelinePresentation> {
+        match &self.state {
+            TimelineState::Loaded(session) => Some(TimelinePresentation {
+                session: session.clone(),
+                file_path: self.file_path.clone(),
+                scroll: self.scroll.clone(),
+            }),
+            TimelineState::Loading { previous, .. } => previous.clone(),
+            _ => None,
         }
     }
 
@@ -160,8 +215,9 @@ impl Viewer {
                     }
                     TimelineState::Loaded(session)
                 }
-                TimelineState::Loading { anchor } => TimelineState::Loading {
+                TimelineState::Loading { anchor, .. } => TimelineState::Loading {
                     anchor: anchor.clone(),
+                    previous: self.file_evolution.presentation(),
                 },
                 TimelineState::Failed(error) => TimelineState::Failed(error.clone()),
                 TimelineState::Unselected => TimelineState::Unselected,
@@ -181,6 +237,9 @@ impl Viewer {
 
     fn toggle_repeated_group(&mut self, kind: EvolutionKind, head: &str, cx: &mut Context<Self>) {
         let panel = self.evolution_panel_mut(kind);
+        if !matches!(panel.state, TimelineState::Loaded(_)) {
+            return;
+        }
         if !panel.expanded_groups.insert(head.to_owned()) {
             panel.expanded_groups.remove(head);
         }
@@ -207,6 +266,10 @@ impl Viewer {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if !self.supports_evolution() {
+            return;
+        }
+        self.remember_evolution_header();
         let panel = self.evolution_panel_mut(kind);
         panel.visible = !panel.visible;
         if panel.visible && matches!(self.evolution.state, TimelineState::Unselected) {
@@ -234,12 +297,113 @@ impl Viewer {
         cx.notify();
     }
 
+    pub(super) fn apply_evolution_settings(
+        &mut self,
+        previous: &Settings,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        for panel in [&mut self.evolution, &mut self.file_evolution] {
+            if previous.evolution.show_unchanged_rebases
+                != self.settings.evolution.show_unchanged_rebases
+            {
+                panel.show_unchanged_rebases = self.settings.evolution.show_unchanged_rebases;
+            }
+            if previous.evolution.collapse_repeats != self.settings.evolution.collapse_repeats {
+                panel.collapse_repeats = self.settings.evolution.collapse_repeats;
+                panel.expanded_groups.clear();
+            }
+            panel.rebuild();
+        }
+        for (kind, old, new) in [
+            (
+                EvolutionKind::Change,
+                previous.evolution.visible,
+                self.settings.evolution.visible,
+            ),
+            (
+                EvolutionKind::File,
+                previous.file_evolution.visible,
+                self.settings.file_evolution.visible,
+            ),
+        ] {
+            if old != new && self.evolution_panel(kind).visible != new {
+                self.toggle_evolution_panel(kind, window, cx);
+            }
+        }
+        if previous.evolution.limit != self.settings.evolution.limit {
+            self.reload_evolution_limit(window, cx);
+        }
+    }
+
+    fn reload_evolution_limit(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let TimelineState::Loaded(session) = &self.evolution.state else {
+            // An initial load checks the current limit on completion below.
+            return;
+        };
+        let commit = session.anchor.commit_id.clone();
+        let Some(repository) = self.repository.ready() else {
+            return;
+        };
+        let branch = repository.branch.as_ref().clone();
+        let limit = self.settings.evolution.limit;
+        self.evolution.generation += 1;
+        let generation = self.evolution.generation;
+        self.begin_loading(LoadingKind::Evolution, window, cx);
+        self.evolution.task = Some(cx.spawn_in(window, async move |this, cx| {
+            let result = cx
+                .background_spawn(async move { branch.evolution(&commit, limit) })
+                .await;
+            let _ = this.update_in(cx, |viewer, _, cx| {
+                if viewer.evolution.generation != generation {
+                    return;
+                }
+                viewer.finish_loading(LoadingKind::Evolution);
+                match result {
+                    Ok(mut timeline) => {
+                        // A smaller limit must not discard either dock's selected
+                        // revision or replace the pinned comparison being reviewed.
+                        for panel in [&viewer.evolution, &viewer.file_evolution] {
+                            if let TimelineState::Loaded(session) = &panel.state {
+                                let selected = &session.timeline.versions[session.selected];
+                                timeline.retain_selected(selected);
+                            }
+                        }
+                        let timeline = Rc::new(timeline);
+                        for panel in [&mut viewer.evolution, &mut viewer.file_evolution] {
+                            if let TimelineState::Loaded(session) = &mut panel.state {
+                                let selected =
+                                    &session.timeline.versions[session.selected].commit_id;
+                                session.selected = timeline
+                                    .versions
+                                    .iter()
+                                    .position(|version| &version.commit_id == selected)
+                                    .expect("the reloaded timeline retains the selected version");
+                                session.timeline = timeline.clone();
+                                panel.rebuild();
+                            }
+                        }
+                    }
+                    Err(error) => {
+                        viewer.live.message = Some(format!(
+                            "Evolution reload failed; keeping the previous timeline: {error}"
+                        ))
+                    }
+                }
+                cx.notify();
+            });
+        }));
+    }
+
     pub(super) fn load_evolution(
         &mut self,
         anchor: Revision,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if !self.supports_evolution() {
+            return;
+        }
         // File focus and evolution-version selection are projections of this
         // same recorded timeline. Returning to its graph row needs no jj read.
         if let TimelineState::Loaded(session) = &mut self.evolution.state
@@ -257,13 +421,14 @@ impl Viewer {
             cx.notify();
             return;
         }
-        if matches!(&self.evolution.state, TimelineState::Loading { anchor: loading } if loading == &anchor.commit_id)
+        if matches!(&self.evolution.state, TimelineState::Loading { anchor: loading, .. } if loading == &anchor.commit_id)
         {
             cx.notify();
             return;
         }
+        let previous = self.evolution.presentation();
         self.evolution.clear();
-        self.file_evolution.state = TimelineState::Unselected;
+        self.finish_loading(LoadingKind::Evolution);
         if !self.evolution.visible && !self.file_evolution.visible {
             return;
         }
@@ -275,16 +440,19 @@ impl Viewer {
         let limit = self.settings.evolution.limit;
         self.evolution.state = TimelineState::Loading {
             anchor: anchor.commit_id.clone(),
+            previous,
         };
+        self.begin_loading(LoadingKind::Evolution, window, cx);
         self.evolution.task = Some(cx.spawn_in(window, async move |this, cx| {
             let commit = anchor.commit_id.clone();
             let result = cx
                 .background_spawn(async move { branch.evolution(&commit, limit) })
                 .await;
-            let _ = this.update_in(cx, |viewer, _, cx| {
+            let _ = this.update_in(cx, |viewer, window, cx| {
                 if viewer.evolution.generation != generation {
                     return;
                 }
+                viewer.finish_loading(LoadingKind::Evolution);
                 viewer.evolution.state = match result {
                     Ok(timeline) if !timeline.versions.is_empty() => {
                         match timeline.versions.iter().position(|version| version.commit_id == anchor.commit_id) {
@@ -302,6 +470,9 @@ impl Viewer {
                     Err(error) => TimelineState::Failed(error),
                 };
                 viewer.sync_file_evolution();
+                if limit != viewer.settings.evolution.limit {
+                    viewer.reload_evolution_limit(window, cx);
+                }
                 cx.notify();
             });
         }));
@@ -329,6 +500,7 @@ impl Viewer {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        self.remember_evolution_header();
         self.active_evolution = kind;
         let panel = self.evolution_panel_mut(kind);
         let TimelineState::Loaded(evolution) = &mut panel.state else {
@@ -379,17 +551,16 @@ impl Viewer {
         };
         let branch = session.branch.as_ref().clone();
         let preferred_path = self
-            .selected_index()
-            .and_then(|index| self.comparison()?.files.get(index))
-            .map(|file| file.after_path.clone())
+            .selected_path()
             .or_else(|| self.file_evolution.file_path.clone());
         self.repository_generation += 1;
         let generation = self.repository_generation;
-        self.clear_file();
+        self.remember_reading(cx);
         if let LoadState::Loaded(session) = &mut self.repository {
             session.scope = scope;
             session.comparison = LoadState::Loading;
         }
+        self.begin_loading(LoadingKind::Comparison, window, cx);
         self.repository_task = Some(cx.spawn_in(window, async move |this, cx| {
             let result = cx
                 .background_spawn(async move {
@@ -403,6 +574,7 @@ impl Viewer {
                 if viewer.repository_generation != generation {
                     return;
                 }
+                viewer.finish_loading(LoadingKind::Comparison);
                 if let LoadState::Loaded(session) = &mut viewer.repository {
                     session.comparison = match result {
                         Ok(comparison) => LoadState::Loaded(Rc::new(comparison)),
@@ -414,7 +586,9 @@ impl Viewer {
                     TimelineState::Loaded(session) => Some((session.selected, session.mode)),
                     _ => None,
                 };
-                if let Some(path) = preferred_path {
+                if viewer.selected_file.is_some() {
+                    viewer.follow_open_file(window, cx);
+                } else if let Some(path) = preferred_path {
                     viewer.select_path(&path, window, cx);
                 }
                 if kind == EvolutionKind::Change
@@ -432,72 +606,126 @@ impl Viewer {
         cx.notify();
     }
 
-    pub(super) fn render_evolution_comparison(&self, cx: &mut Context<Self>) -> AnyElement {
-        let kind = self.active_evolution;
-        let TimelineState::Loaded(evolution) = &self.evolution_panel(kind).state else {
-            return div().into_any_element();
-        };
+    pub(super) fn remember_evolution_header(&mut self) {
+        // Keep the last coherent presentation through rapid replacement requests;
+        // transient loading feedback must never become the next placeholder.
+        if !matches!(
+            self.evolution_panel(self.active_evolution).state,
+            TimelineState::Loading { .. }
+        ) {
+            self.evolution_header = Some(self.evolution_header_presentation());
+        }
+    }
+
+    fn evolution_header_presentation(&self) -> HeaderPresentation {
         if !matches!(
             self.repository.ready().map(|session| &session.scope),
             Some(ComparisonScope::Revision { .. } | ComparisonScope::Evolution { .. })
         ) {
-            return div().into_any_element();
+            return HeaderPresentation::label(self.scope_label());
         }
-        let index = evolution.selected;
-        let version = &evolution.timeline.versions[index];
-        let mut modes = div().h_flex().items_center().gap_1();
-        for (id, mode, label, tooltip) in [
-            (
-                "evolution-patch",
-                ReviewMode::Patch,
-                "Version patch",
-                "The complete patch at this version (first parent for merges)",
+        let kind = self.active_evolution;
+        match &self.evolution_panel(kind).state {
+            TimelineState::Loading { .. } => HeaderPresentation::pending(
+                self.evolution_header.as_ref(),
+                self.loading_visible(LoadingKind::Evolution),
             ),
-            (
-                "evolution-interdiff",
-                ReviewMode::SincePrevious,
-                "Since previous",
-                "Compare to predecessor(s), accounting for rebases",
-            ),
-        ] {
-            modes = modes.child(
-                Button::new(id)
-                    .ghost()
-                    .compact()
-                    .label(label)
-                    .tooltip(tooltip)
-                    .selected(evolution.mode == mode)
-                    .disabled(mode == ReviewMode::SincePrevious && version.predecessors.is_empty())
-                    .on_click(cx.listener(move |this, _, window, cx| {
-                        this.select_evolution_version(kind, index, mode, window, cx)
-                    })),
-            );
+            TimelineState::Loaded(evolution) => {
+                let version = &evolution.timeline.versions[evolution.selected];
+                HeaderPresentation {
+                    label: format!(
+                        "{} · {} · {}",
+                        match kind {
+                            EvolutionKind::Change => "Change evolution",
+                            EvolutionKind::File => "File evolution",
+                        },
+                        version.timestamp,
+                        if version.hidden {
+                            "historical version"
+                        } else if version.divergent {
+                            "current version"
+                        } else {
+                            "latest"
+                        }
+                    ),
+                    controls: Some(HeaderControls {
+                        kind,
+                        index: evolution.selected,
+                        version: version.commit_id.clone(),
+                        mode: evolution.mode,
+                        has_predecessors: !version.predecessors.is_empty(),
+                    }),
+                }
+            }
+            _ => HeaderPresentation::label(self.scope_label()),
         }
-        div()
+    }
+
+    pub(super) fn render_evolution_comparison(&self, cx: &mut Context<Self>) -> AnyElement {
+        let presentation = self.evolution_header_presentation();
+        let mut bar = div()
             .h_flex()
             .items_center()
             .justify_between()
             .gap_2()
             .px_3()
-            .py_1()
+            .h(px(self
+                .settings
+                .ui
+                .comparison_bar_height
+                .max(self.settings.ui.font_size * 1.75 + 8.)))
+            .flex_shrink_0()
+            .overflow_hidden()
             .bg(rgb(0x293342))
-            .child(div().flex_1().min_w_0().text_xs().truncate().child(format!(
-                "{} · {} · {}",
-                match kind {
-                    EvolutionKind::Change => "Change evolution",
-                    EvolutionKind::File => "File evolution",
-                },
-                version.timestamp,
-                if version.hidden {
-                    "historical version"
-                } else if version.divergent {
-                    "current version"
-                } else {
-                    "latest"
-                }
-            )))
-            .child(modes)
-            .into_any_element()
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .text_xs()
+                    .truncate()
+                    .child(presentation.label),
+            );
+        if let Some(controls) = presentation.controls {
+            let kind = controls.kind;
+            let index = controls.index;
+            let mut modes = div().h_flex().items_center().gap_1();
+            for (id, mode, label, tooltip) in [
+                (
+                    "evolution-patch",
+                    ReviewMode::Patch,
+                    "Version patch",
+                    "The complete patch at this version (first parent for merges)",
+                ),
+                (
+                    "evolution-interdiff",
+                    ReviewMode::SincePrevious,
+                    "Since previous",
+                    "Compare to predecessor(s), accounting for rebases",
+                ),
+            ] {
+                let version = controls.version.clone();
+                modes = modes.child(
+                    Button::new(id)
+                        .ghost()
+                        .compact()
+                        .label(label)
+                        .tooltip(tooltip)
+                        .selected(controls.mode == mode)
+                        .disabled(mode == ReviewMode::SincePrevious && !controls.has_predecessors)
+                        .on_click(cx.listener(move |this, _, window, cx| {
+                            // Frozen controls belong to the previous timeline. Keep
+                            // their appearance stable without dispatching old indices.
+                            if matches!(&this.evolution_panel(kind).state,
+                                TimelineState::Loaded(session) if session.timeline.versions.get(index).is_some_and(|current| current.commit_id == version))
+                            {
+                                this.select_evolution_version(kind, index, mode, window, cx);
+                            }
+                        })),
+                );
+            }
+            bar = bar.child(modes);
+        }
+        bar.into_any_element()
     }
 
     pub(super) fn render_evolution(
@@ -505,13 +733,17 @@ impl Viewer {
         kind: EvolutionKind,
         cx: &mut Context<Self>,
     ) -> AnyElement {
+        let font_size = match kind {
+            EvolutionKind::Change => self.settings.panels.history.font.size,
+            EvolutionKind::File => self.settings.panels.files.font.size,
+        };
         let state = self.evolution_panel(kind);
         let mut panel = div()
             .id(("evolution-panel", kind.id()))
             .v_flex().size_full().bg(rgb(0x252c39))
             .child(div().v_flex().px_3().py_1()
                 .child(div().h_flex().items_center().justify_between()
-                    .child(div().text_xs().child(match kind {
+                    .child(div().text_size(px(font_size * 0.85)).child(match kind {
                         EvolutionKind::Change => "CHANGE EVOLUTION",
                         EvolutionKind::File => "FILE EVOLUTION",
                     }))
@@ -527,10 +759,10 @@ impl Viewer {
                         .selected(state.show_unchanged_rebases)
                         .tooltip("Show unchanged rebases (current and selected versions stay visible)")
                         .on_click(cx.listener(move |this, _, _, cx| this.toggle_unchanged_rebases(kind, cx))))));
-        let evolution = match &state.state {
+        let (evolution, file_path, scroll) = match &state.state {
             TimelineState::Unselected => {
                 return panel
-                    .child(div().p_3().text_sm().child(match kind {
+                    .child(div().p_3().text_size(px(font_size)).child(match kind {
                         EvolutionKind::Change => {
                             "Select a change in history to explore its versions."
                         }
@@ -540,21 +772,34 @@ impl Viewer {
                     }))
                     .into_any_element();
             }
-            TimelineState::Loading { .. } => {
+            TimelineState::Loading {
+                previous: Some(previous),
+                ..
+            } => (
+                &previous.session,
+                previous.file_path.clone(),
+                &previous.scroll,
+            ),
+            TimelineState::Loading { previous: None, .. } => {
                 return panel
-                    .child(div().p_3().text_sm().child("Loading recorded versions…"))
+                    .child(div().p_3().text_size(px(font_size)).child(
+                        if self.loading_visible(LoadingKind::Evolution) {
+                            "Loading recorded versions…"
+                        } else {
+                            ""
+                        },
+                    ))
                     .into_any_element();
             }
             TimelineState::Failed(error) => {
                 return panel
-                    .child(div().p_3().text_sm().child(error.clone()))
+                    .child(div().p_3().text_size(px(font_size)).child(error.clone()))
                     .into_any_element();
             }
-            TimelineState::Loaded(evolution) => evolution,
+            TimelineState::Loaded(evolution) => (evolution, state.file_path.clone(), &state.scroll),
         };
         let selected = evolution.selected;
         let mode = evolution.mode;
-        let file_path = state.file_path.clone();
         if let Some(path) = &file_path {
             let name = path
                 .rsplit('/')
@@ -577,7 +822,7 @@ impl Viewer {
                     .id("evolution-file-context")
                     .px_3()
                     .pb_1()
-                    .text_xs()
+                    .text_size(px(font_size * 0.85))
                     .text_color(rgb(0xb8c6d9))
                     .truncate()
                     .child(context)
@@ -588,7 +833,7 @@ impl Viewer {
                 div()
                     .px_3()
                     .pb_1()
-                    .text_xs()
+                    .text_size(px(font_size * 0.85))
                     .text_color(rgb(0xb8c6d9))
                     .child("Timeline · changes since previous"),
             );
@@ -622,11 +867,7 @@ impl Viewer {
         };
         let actual_predecessors = version.predecessors.clone();
         let viewer = cx.entity().downgrade();
-        let height = self
-            .settings
-            .evolution
-            .row_height
-            .max(self.settings.ui.font_size * 2.5);
+        let height = self.settings.evolution.row_height.max(font_size * 2.5);
         let spacing = self.settings.history.lane_spacing;
         let grouping_enabled = state.collapse_repeats;
         let rows = uniform_list(("evolution-rows", kind.id()), presentation.rows.len(), move |visible, _, _| {
@@ -807,10 +1048,10 @@ impl Viewer {
                                 .flex_1()
                                 .min_w_0()
                                 .pr_2()
-                                .child(div().text_sm().truncate().child(title))
+                                .child(div().text_size(px(font_size)).truncate().child(title))
                                 .child(
                                     div()
-                                        .text_xs()
+                                        .text_size(px(font_size * 0.85))
                                         .text_color(rgb(0xa6b5ca))
                                         .truncate()
                                         .child(detail),
@@ -831,11 +1072,11 @@ impl Viewer {
                 .collect()
         })
         .size_full()
-        .track_scroll(&state.scroll);
+        .track_scroll(scroll);
         let mut details = div()
             .px_3()
             .py_2()
-            .text_xs()
+            .text_size(px(font_size * 0.85))
             .text_color(rgb(0xb8c6d9))
             .child(format!(
                 "{} versions · {} {} · {} hidden{}",
@@ -881,5 +1122,119 @@ impl Viewer {
             .child(div().flex_1().min_h_0().child(rows))
             .child(details)
             .into_any_element()
+    }
+}
+
+#[cfg(test)]
+mod header_tests {
+    use super::{EvolutionKind, HeaderControls, HeaderPresentation, ReviewMode};
+    #[test]
+    fn pending_metadata_keeps_the_entire_previous_toolbar_until_feedback_is_due() {
+        let previous = HeaderPresentation {
+            label: "File evolution · previous timestamp · latest".into(),
+            controls: Some(HeaderControls {
+                kind: EvolutionKind::File,
+                index: 3,
+                version: "previous-version".into(),
+                mode: ReviewMode::SincePrevious,
+                has_predecessors: true,
+            }),
+        };
+        let fast = HeaderPresentation::pending(Some(&previous), false);
+        assert!(fast == previous);
+        let slow = HeaderPresentation::pending(Some(&previous), true);
+        assert_eq!(slow.label, "Loading evolution…");
+        assert!(slow.controls.is_none());
+        let first = HeaderPresentation::pending(
+            Some(&HeaderPresentation::label("Whole branch".into())),
+            false,
+        );
+        assert_eq!(first.label, "Whole branch");
+        assert!(first.controls.is_none());
+    }
+}
+
+#[cfg(test)]
+mod timeline_tests {
+    use super::{EvolutionPanel, EvolutionSession, ReviewMode, TimelineState};
+    use jaywalk::{evolution::Evolution, history::Revision};
+    use std::{collections::HashSet, rc::Rc};
+
+    fn loaded_panel(path: &str) -> EvolutionPanel {
+        let version = serde_json::from_value(serde_json::json!({
+            "commit_id": "aaaaaaaa", "change_id": "bbbbbbbb", "description": "edit file",
+            "parents": [], "predecessors": [], "timestamp": "2026-01-01 12:00:00",
+            "operation_id": "cccccccc", "operation": "snapshot", "hidden": false,
+            "divergent": false, "conflict": false, "patch_changed": true,
+            "patch_files": [], "evolution_files": []
+        }))
+        .unwrap();
+        let anchor = Revision {
+            commit_id: "aaaaaaaa".into(),
+            change_id: "bbbbbbbb".into(),
+            description: "edit file".into(),
+            author: String::new(),
+            bookmarks: vec![],
+            parents: vec![],
+            working_copy: false,
+            empty: false,
+        };
+        let timeline = Rc::new(Evolution {
+            versions: vec![version],
+            graph: jaywalk::history::History::parse(
+                r#"["aaaaaaaa","bbbbbbbb","edit file","",[],[],false,false]"#,
+            )
+            .unwrap(),
+            truncated: false,
+        });
+        let view = Rc::new(timeline.view(false, 0));
+        let presentation = Rc::new(view.grouped(
+            &timeline,
+            Some(path),
+            ReviewMode::SincePrevious,
+            true,
+            &HashSet::new(),
+        ));
+        let mut panel = EvolutionPanel::new(true, false, true);
+        panel.file_path = Some(path.into());
+        panel.state = TimelineState::Loaded(EvolutionSession {
+            anchor,
+            timeline,
+            view,
+            presentation,
+            selected: 0,
+            mode: ReviewMode::SincePrevious,
+        });
+        panel
+    }
+
+    #[test]
+    fn interrupted_timeline_loads_preserve_one_coherent_previous_subject() {
+        let mut panel = loaded_panel("old.ts");
+        let original = panel.presentation().unwrap();
+        panel.state = TimelineState::Loading {
+            anchor: "new-version".into(),
+            previous: panel.presentation(),
+        };
+        panel.file_path = Some("new.ts".into());
+        panel.state = TimelineState::Loading {
+            anchor: "newer-version".into(),
+            previous: panel.presentation(),
+        };
+        let retained = panel.presentation().unwrap();
+        assert_eq!(retained.file_path.as_deref(), Some("old.ts"));
+        assert!(Rc::ptr_eq(
+            &retained.session.timeline,
+            &original.session.timeline
+        ));
+        assert!(Rc::ptr_eq(
+            &retained.session.presentation,
+            &original.session.presentation
+        ));
+        assert!(retained.session.mode == ReviewMode::SincePrevious);
+        panel.clear();
+        assert!(panel.presentation().is_none());
+        panel.state = TimelineState::Failed("unavailable".into());
+        assert!(panel.presentation().is_none());
     }
 }

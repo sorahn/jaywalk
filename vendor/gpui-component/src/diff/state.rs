@@ -98,6 +98,7 @@ pub(crate) struct LayoutKey {
     rem: Pixels,
     font_size: Pixels,
     font_family: SharedString,
+    font_features: gpui::FontFeatures,
     mode: DiffMode,
     line_number: bool,
     soft_wrap: bool,
@@ -109,6 +110,7 @@ impl LayoutKey {
         rem: Pixels,
         font_size: Pixels,
         font_family: SharedString,
+        font_features: gpui::FontFeatures,
         mode: DiffMode,
         line_number: bool,
         soft_wrap: bool,
@@ -118,6 +120,7 @@ impl LayoutKey {
             rem,
             font_size,
             font_family,
+            font_features,
             mode,
             line_number,
             soft_wrap,
@@ -531,6 +534,15 @@ impl DiffState {
     pub(crate) fn list(&self) -> &ListState {
         &self.list
     }
+    /// Current source-text offset, independent of the fixed split columns.
+    pub fn horizontal_offset(&self) -> Pixels {
+        if self.mode == DiffMode::Split {
+            self.linked_horizontal_offset
+        } else {
+            -self.horizontal_scroll.offset().x
+        }
+    }
+
     /// Scroll source text horizontally while keeping split columns fixed.
     /// Positive delta moves toward the right-hand end of each source line.
     pub fn scroll_horizontal(&mut self, delta: Pixels, cx: &mut Context<Self>) {

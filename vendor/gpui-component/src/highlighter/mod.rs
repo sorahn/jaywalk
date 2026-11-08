@@ -12,6 +12,8 @@ pub(crate) use diagnostic_styles::*;
 mod input_adapter;
 #[cfg(feature = "tree-sitter")]
 pub(crate) use input_adapter::input_highlighter_factory;
+#[cfg(feature = "tree-sitter")]
+pub use input_adapter::PreparedInputHighlighter;
 
 // The lighter highlighter, used when tree-sitter is not enabled.
 #[cfg(all(feature = "syntect", not(feature = "tree-sitter")))]

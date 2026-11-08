@@ -99,3 +99,22 @@ repository-wide refactor into a feature.
 These are references for reasoning, not a claim that every project needs the
 same architecture, dependencies, compatibility policy, or library-level API
 surface.
+
+## Versions and changelog
+
+`Cargo.toml` is the single source of the release version. Update its version
+and Cargo.lock together. Keep user-visible changes in CHANGELOG.md's Unreleased
+section, grouped into Added, Changed, and Fixed; implementation-only changes do
+not need entries.
+
+Development builds display the upcoming version with `-dev`, a source revision,
+and `-dirty` when applicable. Release-profile builds display the release version.
+The CLI and About window use the same compiled identity; the macOS bundle reads
+its numeric version from the built executable. Source archives without Git
+metadata display unknown provenance rather than inventing a revision.
+
+For the next release, merge this branch, move Unreleased into a dated 0.1.1
+section, add a fresh Unreleased section, and build with
+`scripts/bundle-macos.sh release`. Create the v0.1.1 tag and publish release
+artifacts as separate release actions. Building this branch does not publish a
+release or create a tag.

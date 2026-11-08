@@ -6,14 +6,11 @@ use gpui::prelude::FluentBuilder;
 use jaywalk::file_browser::{CompactPath, FileNode, present_paths};
 use std::collections::HashMap;
 
-#[derive(Default, PartialEq, Eq)]
-enum FileListMode {
-    #[default]
-    List,
-    Tree,
-}
+use jaywalk::settings::FileView as FileListMode;
 
 pub(super) struct FileBrowser {
+    pub(super) files: std::sync::Arc<[jaywalk::repository::ChangedFile]>,
+    retained: Option<usize>,
     mode: FileListMode,
     labels: Vec<CompactPath>,
     tree: Entity<TreeState>,
@@ -25,9 +22,11 @@ pub(super) struct FileBrowser {
 }
 
 impl FileBrowser {
-    pub(super) fn new(default_width: f32, cx: &mut App) -> Self {
+    pub(super) fn new(default_width: f32, mode: FileListMode, cx: &mut App) -> Self {
         Self {
-            mode: FileListMode::default(),
+            files: std::sync::Arc::from([]),
+            retained: None,
+            mode,
             labels: Vec::new(),
             tree: cx.new(|cx| TreeState::new(cx)),
             tree_indices: HashMap::new(),
@@ -107,18 +106,47 @@ impl Viewer {
                     if let Some(index) = index
                         && viewer.selected_index() != Some(index)
                     {
-                        viewer.select_file(index, window, cx);
+                        viewer.select_browser_entry(index, window, cx);
                     }
                 }),
             );
     }
 
+    fn select_browser_entry(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(path) = self
+            .browser
+            .files
+            .get(index)
+            .map(|file| file.after_path.clone())
+        {
+            self.select_path(&path, window, cx);
+        }
+    }
+
+    pub(super) fn is_retained_preview(&self) -> bool {
+        self.browser.retained.is_some() && self.browser.retained == self.selected_index()
+    }
+
     pub(super) fn rebuild_browser(&mut self, cx: &mut Context<Self>) {
-        let files = self.comparison().map(|comparison| comparison.files.clone());
-        let paths: Vec<_> = match &files {
-            Some(files) => files.iter().map(|file| file.after_path.as_str()).collect(),
-            None => Vec::new(), // No displayed comparison while loading or failed.
-        };
+        // Keep the last coherent list until replacement metadata arrives.
+        // Selection callbacks require a loaded current comparison, so stale rows
+        // cannot open a file from a different commit while it is pending.
+        if matches!(self.comparison_state(), LoadState::Loading) {
+            return;
+        }
+        let (files, retained) = jaywalk::file_browser::with_preview(
+            self.comparison()
+                .map_or(&[], |comparison| comparison.files.as_ref()),
+            self.selected_file.as_ref().map(|selected| &selected.file),
+        );
+        self.browser.retained = retained;
+        self.browser.files = files.into();
+        let paths: Vec<_> = self
+            .browser
+            .files
+            .iter()
+            .map(|file| file.after_path.as_str())
+            .collect();
         let (labels, nodes) = present_paths(&paths);
         self.browser.labels = labels;
         self.browser.tree_indices.clear();
@@ -128,13 +156,35 @@ impl Viewer {
             0,
             &mut self.browser.tree_indices,
             &mut self.browser.tree_width,
-            self.settings.ui.font_size * 0.5,
+            self.settings.panels.files.font.size * 0.5,
             self.settings.files.indent_width,
         );
         self.browser.horizontal.set_offset(point(px(0.), px(0.)));
         self.browser
             .tree
             .update(cx, |tree, cx| tree.set_items(items, cx));
+        if let Some(index) = self.selected_index() {
+            self.select_browser_file(index, cx);
+        }
+    }
+
+    pub(super) fn apply_file_view(&mut self) {
+        self.browser.mode = self.settings.files.default_view;
+    }
+
+    pub(super) fn refresh_browser_metrics(&mut self) {
+        let glyph_width = self.settings.panels.files.font.size * 0.5;
+        let indent = self.settings.files.indent_width;
+        self.browser.tree_width = self
+            .browser
+            .files
+            .iter()
+            .flat_map(|file| {
+                file.after_path.split('/').enumerate().map(|(depth, name)| {
+                    name.chars().count() as f32 * glyph_width + depth as f32 * indent + 64.
+                })
+            })
+            .fold(0., f32::max);
     }
 
     pub(super) fn select_browser_file(&self, index: usize, cx: &mut Context<Self>) {
@@ -146,22 +196,29 @@ impl Viewer {
         });
     }
 
-    fn render_tree(&self, comparison: &Comparison) -> AnyElement {
-        let files = comparison.files.clone();
+    fn render_tree(&self) -> AnyElement {
+        let files = self.browser.files.clone();
+        let retained = self.browser.retained;
         let row_height = self
             .settings
             .files
             .tree_row_height
-            .max(self.settings.ui.font_size * 1.25 + 8.);
+            .max(self.settings.panels.files.font.size * 1.25 + 8.);
         let indent_width = self.settings.files.indent_width;
+        let font_size = self.settings.panels.files.font.size;
         let tree = Tree::new(&self.browser.tree, move |index, entry, _, _, _| {
             let file_index = entry.item().id.strip_prefix("file:").map(|id| {
                 id.parse::<usize>()
                     .expect("file tree IDs are built from file indices")
             });
-            let color = file_index
-                .and_then(|index| files.get(index))
-                .map_or(0xa4b4c2, |file| file_style(&file.status).1);
+            let temporary = file_index.is_some() && file_index == retained;
+            let color = if temporary {
+                0xa4b4c2
+            } else {
+                file_index
+                    .and_then(|index| files.get(index))
+                    .map_or(0xa4b4c2, |file| file_style(&file.status).1)
+            };
             let mut content = div().h_flex().items_center().gap_1().whitespace_nowrap();
             if entry.is_folder() {
                 content = content.child(if entry.is_expanded() {
@@ -176,11 +233,12 @@ impl Viewer {
                 div()
                     .whitespace_nowrap()
                     .flex_shrink_0()
+                    .when(temporary, |label| label.italic())
                     .child(entry.item().label.clone()),
             );
             ListItem::new(("file-tree", index))
                 .h(px(row_height))
-                .text_sm()
+                .text_size(px(font_size))
                 .pl(px(entry.depth() as f32 * indent_width + 8.))
                 .text_color(rgb(color))
                 .child(content)
@@ -214,7 +272,22 @@ impl Viewer {
                     .justify_between()
                     .px_3()
                     .py_2()
-                    .child(div().text_xs().child("CHANGED FILES"))
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .truncate()
+                            .text_size(px(self.settings.panels.files.font.size * 0.85))
+                            .child(
+                                if matches!(self.comparison_state(), LoadState::Loading)
+                                    && self.loading_visible(LoadingKind::Comparison)
+                                {
+                                    "CHANGED FILES · Loading…"
+                                } else {
+                                    "CHANGED FILES"
+                                },
+                            ),
+                    )
                     .child(
                         div()
                             .h_flex()
@@ -224,6 +297,7 @@ impl Viewer {
                                     .ghost()
                                     .compact()
                                     .icon(IconName::GitCompareArrows)
+                                    .when(!self.supports_evolution(), |button| button.hidden())
                                     .tooltip("File evolution")
                                     .selected(self.file_evolution.visible)
                                     .on_click(cx.listener(|this, _, window, cx| {
@@ -261,15 +335,16 @@ impl Viewer {
                     ),
             );
         match self.comparison_state() {
-            LoadState::Loading => panel = panel.child(div().p_3().child("Loading comparison…")),
             LoadState::Failed(error) => panel = panel.child(div().p_3().child(error)),
             LoadState::Loaded(comparison) if comparison.files.is_empty() => {
-                panel = panel.child(div().p_3().child("No changed files"))
+                panel = panel.child(div().p_3().child("No changed files"));
             }
-            LoadState::Loaded(comparison) if self.browser.mode == FileListMode::Tree => {
-                panel = panel.child(div().flex_1().min_h_0().child(self.render_tree(comparison)));
-            }
-            LoadState::Loaded(comparison) => {
+            _ => {}
+        }
+        if !self.browser.files.is_empty() {
+            if self.browser.mode == FileListMode::Tree {
+                panel = panel.child(div().flex_1().min_h_0().child(self.render_tree()));
+            } else {
                 let wrap = self.settings.files.list_word_wrap;
                 let mut list = div()
                     .id("changed-files")
@@ -277,10 +352,16 @@ impl Viewer {
                     .min_h_0()
                     .when(wrap, |list| list.overflow_y_scroll())
                     .when(!wrap, |list| list.overflow_scroll());
-                let columns = ((self.browser.width - 52.) / (self.settings.ui.font_size * 0.4375))
+                let columns = ((self.browser.width - 52.)
+                    / (self.settings.panels.files.font.size * 0.5))
                     .max(1.) as usize;
-                for (index, file) in comparison.files.iter().enumerate() {
-                    let (marker, color) = file_style(&file.status);
+                for (index, file) in self.browser.files.iter().enumerate() {
+                    let temporary = self.browser.retained == Some(index);
+                    let (marker, color) = if temporary {
+                        ("·", 0xa4b4c2)
+                    } else {
+                        file_style(&file.status)
+                    };
                     let label = self.browser.labels.get(index).map_or_else(
                         || file.after_path.clone(),
                         |path| {
@@ -308,7 +389,7 @@ impl Viewer {
                             } else {
                                 0x253448
                             }))
-                            .text_sm()
+                            .text_size(px(self.settings.panels.files.font.size))
                             .cursor_pointer()
                             .text_color(rgb(color))
                             .child(div().w(px(14.)).flex_shrink_0().child(marker))
@@ -318,10 +399,11 @@ impl Viewer {
                                         label.whitespace_normal().flex_1().min_w_0()
                                     })
                                     .when(!wrap, |label| label.whitespace_nowrap().flex_shrink_0())
+                                    .when(temporary, |label| label.italic())
                                     .child(label),
                             )
                             .on_click(cx.listener(move |this, _, window, cx| {
-                                this.select_file(index, window, cx)
+                                this.select_browser_entry(index, window, cx)
                             })),
                     );
                 }

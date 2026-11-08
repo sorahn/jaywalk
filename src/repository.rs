@@ -22,6 +22,8 @@ pub struct Comparison {
 #[derive(Clone, Debug)]
 pub(crate) enum ContentSource {
     Recorded,
+    Git(Arc<crate::git::GitContents>),
+    External(Arc<crate::external::ExternalContents>),
     Evolution(crate::evolution::EvolutionContents),
 }
 
@@ -121,17 +123,59 @@ impl Comparison {
     }
 
     pub fn load(directory: &Path, base: Option<&str>, tip: &str) -> Result<Self, String> {
-        let root = PathBuf::from(query(directory, "@", &["root"])?.trim());
+        // Prefer jj in colocated repositories. Inspect metadata rather than
+        // treating an arbitrary jj error as permission to change backends.
+        let directory = std::fs::canonicalize(directory)
+            .map_err(|error| format!("Could not open {}: {error}", directory.display()))?;
+        if !directory.ancestors().any(|path| path.join(".jj").is_dir()) {
+            return crate::git::load(&directory, base, tip);
+        }
+        let root = PathBuf::from(query(&directory, "@", &["root"])?.trim());
         let operation = query(
             &root,
             "@",
             &["op", "log", "--no-graph", "-n", "1", "-T", "id"],
         )?;
         let operation = operation.trim().to_owned();
+        Self::recorded_at(root, operation, base, tip)
+    }
+
+    pub(crate) fn recorded_at(
+        root: PathBuf,
+        operation: String,
+        base: Option<&str>,
+        tip: &str,
+    ) -> Result<Self, String> {
         let tip = single_revision(&root, &operation, tip)?;
         let default_base = format!("heads(::{tip} & immutable())");
         let base = single_revision(&root, &operation, base.unwrap_or(&default_base))?;
         Self::between(root, operation, base, tip)
+    }
+
+    /// Resolve a followed change without confusing absence with a query failure.
+    pub(crate) fn visible_change(
+        &self,
+        change: &str,
+    ) -> Result<Option<crate::history::Revision>, String> {
+        let expression = format!("all() & present({change})");
+        let output = query(
+            &self.root,
+            &self.operation,
+            &[
+                "log",
+                "--no-graph",
+                "-r",
+                &expression,
+                "-T",
+                crate::history::TEMPLATE,
+            ],
+        )?;
+        let mut revisions = crate::history::History::parse(&output)?.revisions;
+        match revisions.len() {
+            0 => Ok(None),
+            1 => Ok(revisions.pop()),
+            _ => Err("The selected change has divergent visible versions; select a specific history row.".into()),
+        }
     }
 
     pub(crate) fn between(
@@ -162,6 +206,9 @@ impl Comparison {
     /// Compare a recorded revision against its first parent. Merge revisions
     /// deliberately use the first parent, and the UI labels this choice.
     pub fn for_revision(&self, revision: &crate::history::Revision) -> Result<Self, String> {
+        if matches!(self.content, ContentSource::Git(_)) {
+            return crate::git::for_revision(self, revision);
+        }
         let base = revision
             .parents
             .first()
@@ -175,7 +222,17 @@ impl Comparison {
         )
     }
 
+    pub fn supports_evolution(&self) -> bool {
+        matches!(
+            self.content,
+            ContentSource::Recorded | ContentSource::Evolution(_)
+        )
+    }
+
     pub fn history(&self) -> Result<crate::history::History, String> {
+        if matches!(self.content, ContentSource::Git(_)) {
+            return crate::git::history(&self.root);
+        }
         let revset = format!("ancestors(visible_heads() | {}, 200)", self.tip);
         let output = query(
             &self.root,
@@ -195,6 +252,12 @@ impl Comparison {
     }
 
     pub fn contents(&self, file: &ChangedFile) -> Result<(String, String), String> {
+        if let ContentSource::Git(contents) = &self.content {
+            return contents.read(file);
+        }
+        if let ContentSource::External(contents) = &self.content {
+            return contents.read(file);
+        }
         if let ContentSource::Evolution(contents) = &self.content {
             return contents.read(file);
         }

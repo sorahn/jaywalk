@@ -186,6 +186,8 @@ impl Version {
             author: String::new(),
             bookmarks: Vec::new(),
             parents: self.parents.clone(),
+            working_copy: false,
+            empty: false,
         }
     }
 }
@@ -233,6 +235,29 @@ fn valid_id(id: &str) -> bool {
 }
 
 impl Evolution {
+    /// Keep an actively reviewed version visible when a smaller fetch limit
+    /// truncates it. The caller retains its existing pinned comparison.
+    pub fn retain_selected(&mut self, selected: &Version) {
+        if self
+            .versions
+            .iter()
+            .any(|version| version.commit_id == selected.commit_id)
+        {
+            return;
+        }
+        self.versions.push(selected.clone());
+        self.graph = History::new(
+            self.versions
+                .iter()
+                .map(|version| {
+                    let mut revision = version.revision();
+                    revision.parents = version.predecessors.clone();
+                    revision
+                })
+                .collect(),
+        );
+    }
+
     fn parse(output: &str, limit: usize) -> Result<Self, String> {
         let mut versions = Vec::<Version>::new();
         let mut seen = HashSet::new();
@@ -689,9 +714,16 @@ mod tests {
                 .operation,
             operation
         );
-        let truncated = current.evolution(&current.tip, 1).unwrap();
+        let mut truncated = current.evolution(&current.tip, 1).unwrap();
         assert!(truncated.truncated);
         assert_eq!(truncated.versions.len(), 1);
+        let selected = &old.versions[old_index];
+        truncated.retain_selected(selected);
+        truncated.retain_selected(selected);
+        assert_eq!(truncated.versions.len(), 2);
+        assert_eq!(truncated.versions[1].commit_id, selected.commit_id);
+        assert!(truncated.view(false, 1).indices.contains(&1));
+        assert_eq!(truncated.graph.revisions.len(), 2);
     }
 
     #[test]

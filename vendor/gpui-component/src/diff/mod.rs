@@ -203,6 +203,8 @@ struct Annotations {
 pub struct Diff {
     state: Entity<DiffState>,
     style: StyleRefinement,
+    code_font: Option<(SharedString, Pixels)>,
+    font_features: gpui::FontFeatures,
     line_number: bool,
     syntax_highlight: bool,
     header_visible: bool,
@@ -233,6 +235,8 @@ impl Diff {
         Self {
             state: state.clone(),
             style: StyleRefinement::default(),
+            code_font: None,
+            font_features: gpui::FontFeatures::default(),
             line_number: true,
             syntax_highlight: true,
             header_visible: true,
@@ -251,6 +255,18 @@ impl Diff {
         }
     }
     /// Shows the original and modified line-number lanes. Default is true.
+    /// Set this viewer's code font without changing application-wide typography.
+    pub fn code_font(mut self, family: SharedString, size: Pixels) -> Self {
+        self.code_font = Some((family, size));
+        self
+    }
+
+    /// OpenType features used consistently for measuring and painting source.
+    pub fn font_features(mut self, features: gpui::FontFeatures) -> Self {
+        self.font_features = features;
+        self
+    }
+
     pub fn line_number(mut self, value: bool) -> Self {
         self.line_number = value;
         self
@@ -463,8 +479,8 @@ fn render_diff(
     state.ensure_presentation(cx);
     let rem = window.rem_size();
     // Monospace font size is already expressed in pixels, independently of UI rem size.
-    let font_size = cx.theme().mono_font_size;
-    let font_family = cx.theme().mono_font_family.clone();
+    let (font_family, font_size) = props.code_font.clone()
+        .unwrap_or_else(|| (cx.theme().mono_font_family.clone(), cx.theme().mono_font_size));
     let row_height = font_size * 1.6;
     let digits = state
         .files()
@@ -489,6 +505,7 @@ fn render_diff(
         rem,
         font_size,
         font_family.clone(),
+        props.font_features.clone(),
         mode,
         props.line_number,
         soft_wrap,
@@ -503,6 +520,7 @@ fn render_diff(
                 state.files(),
                 font_size,
                 &font_family,
+                &props.font_features,
                 gutter_width,
                 mode,
                 None,
@@ -516,6 +534,7 @@ fn render_diff(
                     state.files(),
                     font_size,
                     &font_family,
+                    &props.font_features,
                     gutter_width,
                     mode,
                     Some(side),
@@ -566,6 +585,8 @@ fn render_diff(
         gutter_width,
         rem,
         expansion_lines: state.expansion_lines(),
+        font_family: font_family.clone(),
+        font_features: props.font_features.clone(),
         line_number: props.line_number,
         syntax_highlight: props.syntax_highlight,
         header_visible: props.header_visible,
@@ -805,10 +826,12 @@ struct CodePresentation {
     horizontal_offset: Pixels,
     split_source_widths: [Pixels; 2],
     font_size: Pixels,
+    font_family: SharedString,
     row_height: Pixels,
     gutter_width: Pixels,
     rem: Pixels,
     expansion_lines: usize,
+    font_features: gpui::FontFeatures,
     line_number: bool,
     syntax_highlight: bool,
     header_visible: bool,
@@ -863,6 +886,7 @@ fn measure_code_width(
     files: &[DiffFile],
     font_size: Pixels,
     family: &SharedString,
+    features: &gpui::FontFeatures,
     gutter_width: Pixels,
     mode: DiffMode,
     side_filter: Option<DiffSide>,
@@ -895,6 +919,7 @@ fn measure_code_width(
     }
     let font = gpui::Font {
         family: family.clone(),
+        features: features.clone(),
         ..Default::default()
     };
     let width = candidates
@@ -1750,7 +1775,8 @@ fn code_line(
                 this.h(code.row_height).whitespace_nowrap()
             }
         })
-        .font_family(cx.theme().mono_font_family.clone())
+        .font_family(code.font_family.clone())
+        .font_features(code.font_features.clone())
         .text_size(code.font_size)
         .line_height(code.row_height)
         .when(changed && code.change_background, |this| {

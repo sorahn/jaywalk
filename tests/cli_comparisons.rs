@@ -1,0 +1,176 @@
+use jaywalk::external::ExternalContents;
+use jaywalk::repository::Comparison;
+use std::path::{Path, PathBuf};
+use std::process::Command;
+use std::sync::atomic::{AtomicUsize, Ordering};
+
+static NEXT: AtomicUsize = AtomicUsize::new(0);
+struct Fixture(PathBuf);
+impl Fixture {
+    fn new() -> Self {
+        let path = std::env::temp_dir().join(format!(
+            "jaywalk-cli-{}-{}",
+            std::process::id(),
+            NEXT.fetch_add(1, Ordering::Relaxed)
+        ));
+        std::fs::create_dir_all(&path).unwrap();
+        Self(path)
+    }
+    fn write(&self, path: &str, text: &str) {
+        let path = self.0.join(path);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, text).unwrap();
+    }
+    fn git(&self, args: &[&str]) -> String {
+        let output = Command::new("git")
+            .current_dir(&self.0)
+            .env("GIT_CONFIG_NOSYSTEM", "1")
+            .env("GIT_CONFIG_GLOBAL", "/dev/null")
+            .env("GIT_AUTHOR_NAME", "Fixture")
+            .env("GIT_AUTHOR_EMAIL", "fixture@example.invalid")
+            .env("GIT_COMMITTER_NAME", "Fixture")
+            .env("GIT_COMMITTER_EMAIL", "fixture@example.invalid")
+            .args(args)
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        String::from_utf8(output.stdout).unwrap().trim_end().into()
+    }
+}
+impl Drop for Fixture {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
+}
+fn content(comparison: &Comparison, name: &str) -> (String, String) {
+    comparison
+        .contents(
+            comparison
+                .files
+                .iter()
+                .find(|file| file.after_path == name)
+                .unwrap(),
+        )
+        .unwrap()
+}
+
+#[test]
+fn directory_diff_keeps_paths_empty_additions_and_deletions() {
+    let fixture = Fixture::new();
+    for (path, text) in [
+        ("left/src/a.ts", "old\n"),
+        ("right/src/a.ts", "new\n"),
+        ("left/gone", "gone"),
+        ("right/empty", ""),
+        ("left/same", "same"),
+        ("right/same", "same"),
+    ] {
+        fixture.write(path, text);
+    }
+    let comparison =
+        ExternalContents::comparison(&fixture.0.join("left"), &fixture.0.join("right")).unwrap();
+    assert!(!comparison.supports_evolution());
+    assert_eq!(comparison.files.len(), 3);
+    assert_eq!(
+        content(&comparison, "src/a.ts"),
+        ("old\n".into(), "new\n".into())
+    );
+    assert_eq!(
+        content(&comparison, "empty"),
+        (String::new(), String::new())
+    );
+    assert_eq!(content(&comparison, "gone"), ("gone".into(), String::new()));
+    assert_eq!(
+        std::fs::read_to_string(fixture.0.join("left/src/a.ts")).unwrap(),
+        "old\n"
+    );
+}
+#[test]
+fn file_diff_handles_different_names_unicode_and_binary_errors() {
+    let fixture = Fixture::new();
+    fixture.write("before.txt", "\té\n");
+    fixture.write("after.txt", "\t漢\n");
+    let comparison =
+        ExternalContents::comparison(&fixture.0.join("before.txt"), &fixture.0.join("after.txt"))
+            .unwrap();
+    assert_eq!(
+        content(&comparison, "after.txt"),
+        ("\té\n".into(), "\t漢\n".into())
+    );
+    std::fs::write(fixture.0.join("after.txt"), [0, 1]).unwrap();
+    assert!(
+        comparison
+            .contents(&comparison.files[0])
+            .unwrap_err()
+            .contains("Binary")
+    );
+    assert!(ExternalContents::comparison(&fixture.0, &fixture.0.join("after.txt")).is_err());
+}
+#[test]
+fn git_worktree_and_history_are_read_only_and_use_pinned_contents() {
+    let fixture = Fixture::new();
+    fixture.git(&["init", "-b", "main"]);
+    fixture.write("a file.txt", "original\n");
+    fixture.write("deleted.txt", "deleted\n");
+    fixture.git(&["add", "."]);
+    fixture.git(&["commit", "-m", "initial"]);
+    let initial = fixture.git(&["rev-parse", "HEAD"]);
+    fixture.write("a file.txt", "staged\n");
+    fixture.git(&["add", "."]);
+    fixture.write("a file.txt", "unstaged\n");
+    fixture.write("new file.txt", "new\n");
+    std::fs::remove_file(fixture.0.join("deleted.txt")).unwrap();
+    let status = fixture.git(&["status", "--porcelain=v1"]);
+    let comparison = Comparison::load(&fixture.0, None, "@").unwrap();
+    assert!(!comparison.supports_evolution());
+    assert_eq!(comparison.files.len(), 3);
+    fixture.write("a file.txt", "later\n");
+    assert_eq!(
+        content(&comparison, "a file.txt"),
+        ("original\n".into(), "unstaged\n".into())
+    );
+    fixture.write("a file.txt", "unstaged\n");
+    assert_eq!(fixture.git(&["status", "--porcelain=v1"]), status);
+    assert_eq!(fixture.git(&["rev-parse", "HEAD"]), initial);
+    let history = comparison.history().unwrap();
+    assert_eq!(history.revisions.len(), 1);
+    let patch = comparison.for_revision(&history.revisions[0]).unwrap();
+    assert_eq!(
+        content(&patch, "a file.txt"),
+        (String::new(), "original\n".into())
+    );
+    fixture.git(&["add", "."]);
+    fixture.git(&["commit", "-m", "second"]);
+    let committed = Comparison::load(&fixture.0, Some(&initial), "HEAD").unwrap();
+    assert_eq!(
+        content(&committed, "a file.txt"),
+        ("original\n".into(), "unstaged\n".into())
+    );
+    assert_eq!(committed.history().unwrap().revisions.len(), 2);
+    assert!(!Path::new(&fixture.0.join(".jj")).exists());
+}
+
+#[cfg(unix)]
+#[test]
+fn git_null_device_inputs_represent_additions_and_deletions() {
+    let fixture = Fixture::new();
+    fixture.write("file.txt", "content\n");
+    for (left, right) in [
+        (
+            Path::new("/dev/null").to_path_buf(),
+            fixture.0.join("file.txt"),
+        ),
+        (
+            fixture.0.join("file.txt"),
+            Path::new("/dev/null").to_path_buf(),
+        ),
+    ] {
+        let comparison = ExternalContents::comparison(&left, &right).unwrap();
+        let (before, after) = content(&comparison, "file.txt");
+        assert_eq!(before + &after, "content\n");
+    }
+}
