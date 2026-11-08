@@ -156,6 +156,14 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer scripts/bundle-macos.sh
 open target/debug/Jaywalk.app --args /absolute/path/to/repository
 ```
 
+The editable Icon Composer source is `packaging/macos/jaywalk.icon`.
+The bundle script compiles it with Xcode's `actool`, includes `Assets.car`
+and a legacy `.icns` fallback, and merges the generated icon metadata before
+signing. Generated icon resources stay under `target/`. The script refreshes
+the bundle timestamp and its Launch Services registration so the Dock notices
+icon updates. Rebuild after saving icon changes, then quit and relaunch the app
+to see them.
+
 The bundle is `target/debug/Jaywalk.app` (or `target/release/Jaywalk.app`).
 It runs directly without the terminal-detachment re-exec used by the CLI.
 Opening the app from Finder can start without a repository; use File > Open
