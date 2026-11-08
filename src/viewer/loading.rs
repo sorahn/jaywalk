@@ -662,6 +662,19 @@ mod tests {
     }
 
     #[test]
+    fn rust_file_paths_use_a_real_prepared_parser() {
+        let language = super::file_language("src/lib.rs");
+        assert_eq!(language, "rust");
+        let text = "// Rust syntax\npub fn greeting<'a>(name: &'a str) -> String {\n    format!(\"hello {name} 🦀\")\n}\n";
+        let factory = PreparedInputHighlighter::new(language, text).into_factory();
+        let highlighter = factory(language).expect("Rust source has its compiled parser");
+        let spans = highlighter.styles(&(0..text.len()), &TestStyles);
+        assert!(spans.iter().any(|(_, style)| style.color.is_some()));
+        assert_eq!(spans.first().unwrap().0.start, 0);
+        assert_eq!(spans.last().unwrap().0.end, text.len());
+    }
+
+    #[test]
     fn large_comparisons_have_syntax_colors_before_any_editor_update() {
         // Above the live editor's synchronous parse budget. No window, timer,
         // or first paint is needed to obtain complete styles for either text.

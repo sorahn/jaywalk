@@ -150,6 +150,7 @@ fn file_language(path: &str) -> &'static str {
         .extension()
         .and_then(|value| value.to_str())
     {
+        Some("rs") => "rust",
         Some("ts") => "typescript",
         Some("tsx") => "tsx",
         Some("js" | "jsx") => "javascript",

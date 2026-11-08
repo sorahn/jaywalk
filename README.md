@@ -401,8 +401,9 @@ Fluid separator to restore an even code split with the configured gutter width.
 
 The bottom-right three-way toggle selects inline, aligned side-by-side, or
 Fluid diff (the default). The standard views use GPUI Kit's existing diff
-widget with full context and syntax highlighting. The separate word-wrap
-button to the left of the mode toggle applies to all views. Fluid retains
+widget with full context and syntax highlighting. Rust (`.rs`), TypeScript,
+TSX and JavaScript/JSX use the bundled tree-sitter grammars in all three diff
+views. The separate word-wrap button to the left of the mode toggle applies to all views. Fluid retains
 independent document heights, with connectors following wrapped rows.
 Switching modes retains the selected file and anchors the view to its source
 line. Wrapping/reflow and returning to previously inspected files preserve
