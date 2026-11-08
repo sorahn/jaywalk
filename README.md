@@ -537,3 +537,10 @@ share the central workspace's bottom dock side by side. **Reset panel layout**
 restores configured placement, visibility and sizes; **Reset repository interface
 choices** also restores diff/file modes, wrapping and timeline filters. Separator
 double-click resets only the adjacent panel (or the split) to its configured size.
+
+`ui.row_height` supplies the compact 26-pixel minimum for history rows, flat file
+rows and tree/directory rows. Optional `history.row_height`,
+`files.list_row_height` and `files.tree_row_height` override individual views.
+Larger panel fonts establish a readable minimum; wrapped file paths can grow.
+Evolution cards keep their separate `evolution.row_height` setting. All row
+settings apply live.

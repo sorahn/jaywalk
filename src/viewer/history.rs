@@ -171,11 +171,10 @@ impl Viewer {
         };
         let count = history.revisions.len();
         let viewer = cx.entity().downgrade();
-        let height = self
-            .settings
-            .history
-            .row_height
-            .max(self.settings.panels.history.font.size * 1.25);
+        let height = self.settings.row_height(
+            self.settings.history.row_height,
+            self.settings.panels.history.font.size,
+        );
         let spacing = self.settings.history.lane_spacing;
         let font_size = self.settings.panels.history.font.size;
         let rows = uniform_list("history-rows", count, move |visible, _, _| {

@@ -201,11 +201,10 @@ impl Viewer {
     fn render_tree(&self) -> AnyElement {
         let files = self.browser.files.clone();
         let retained = self.browser.retained;
-        let row_height = self
-            .settings
-            .files
-            .tree_row_height
-            .max(self.settings.panels.files.font.size * 1.25 + 8.);
+        let row_height = self.settings.row_height(
+            self.settings.files.tree_row_height,
+            self.settings.panels.files.font.size,
+        );
         let indent_width = self.settings.files.indent_width;
         let font_size = self.settings.panels.files.font.size;
         let tree = Tree::new(&self.browser.tree, move |index, entry, _, _, _| {
@@ -240,6 +239,7 @@ impl Viewer {
             );
             ListItem::new(("file-tree", index))
                 .h(px(row_height))
+                .py_0()
                 .text_size(px(font_size))
                 .pl(px(entry.depth() as f32 * indent_width + 8.))
                 .text_color(rgb(color))
@@ -386,7 +386,11 @@ impl Viewer {
                             .items_center()
                             .gap_2()
                             .px_3()
-                            .py_2()
+                            .min_h(px(self.settings.row_height(
+                                self.settings.files.list_row_height,
+                                self.settings.panels.files.font.size,
+                            )))
+                            .flex_shrink_0()
                             .w_full()
                             .when(wrap, |row| row.items_start())
                             .when(!wrap, |row| row.whitespace_nowrap())
@@ -435,5 +439,54 @@ impl Viewer {
                 .size_full(),
             )
             .into_any_element()
+    }
+}
+
+impl Viewer {
+    pub(super) fn preserve_row_positions(&self, previous: &Settings, cx: &App) {
+        let old_history = previous.row_height(
+            previous.history.row_height,
+            previous.panels.history.font.size,
+        );
+        let new_history = self.settings.row_height(
+            self.settings.history.row_height,
+            self.settings.panels.history.font.size,
+        );
+        if old_history != new_history {
+            let index = self
+                .history_scroll
+                .0
+                .borrow()
+                .base_handle
+                .logical_scroll_top()
+                .0;
+            self.history_scroll
+                .scroll_to_item_strict(index, ScrollStrategy::Top);
+        }
+        let old_tree = previous.row_height(
+            previous.files.tree_row_height,
+            previous.panels.files.font.size,
+        );
+        let new_tree = self.settings.row_height(
+            self.settings.files.tree_row_height,
+            self.settings.panels.files.font.size,
+        );
+        if old_tree != new_tree {
+            let scroll = self.browser.tree.read(cx).scroll_handle();
+            let index = scroll.0.borrow().base_handle.logical_scroll_top().0;
+            scroll.scroll_to_item_strict(index, ScrollStrategy::Top);
+        }
+        let old_list = previous.row_height(
+            previous.files.list_row_height,
+            previous.panels.files.font.size,
+        );
+        let new_list = self.settings.row_height(
+            self.settings.files.list_row_height,
+            self.settings.panels.files.font.size,
+        );
+        if old_list != new_list {
+            let index = self.browser.list_scroll.logical_scroll_top().0;
+            self.browser.list_scroll.scroll_to_top_of_item(index);
+        }
     }
 }

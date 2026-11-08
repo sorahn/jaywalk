@@ -8,6 +8,8 @@ height = 950
 [ui]
 # Suppress transient loading indicators; 0 shows them immediately.
 loading_delay_ms = 200
+# Shared minimum for history, flat files and directory-tree rows.
+row_height = 26
 # Reserved comparison toolbar height; grows if the UI font needs more space.
 comparison_bar_height = 36
 font_size = 16
@@ -49,12 +51,13 @@ min_code_width = 100
 
 [history]
 # Minimum row height; larger UI fonts can require more space.
-row_height = 26
+# row_height = 30 # Optional override of ui.row_height.
 lane_spacing = 12
 
 [files]
 default_view = "list"
-tree_row_height = 30
+# tree_row_height = 30
+# list_row_height = 30
 indent_width = 12
 compact_paths = true
 list_word_wrap = false

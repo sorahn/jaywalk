@@ -94,6 +94,7 @@ pub struct WindowSettings {
 #[serde(deny_unknown_fields)]
 pub struct UiSettings {
     pub loading_delay_ms: u64,
+    pub row_height: f32,
     pub comparison_bar_height: f32,
     pub font_size: f32,
     #[serde(default)]
@@ -139,7 +140,7 @@ pub struct DiffPanelSettings {
 #[derive(Clone, Debug, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct HistorySettings {
-    pub row_height: f32,
+    pub row_height: Option<f32>,
     pub lane_spacing: f32,
 }
 
@@ -147,7 +148,8 @@ pub struct HistorySettings {
 #[serde(deny_unknown_fields)]
 pub struct FileSettings {
     pub default_view: FileView,
-    pub tree_row_height: f32,
+    pub tree_row_height: Option<f32>,
+    pub list_row_height: Option<f32>,
     pub indent_width: f32,
     pub compact_paths: bool,
     pub list_word_wrap: bool,
@@ -216,6 +218,13 @@ fn merge_defaults(base: &mut toml::Value, overrides: toml::Value) {
 }
 
 impl Settings {
+    /// One row rhythm by default; larger panel fonts establish a readable minimum.
+    pub fn row_height(&self, override_height: Option<f32>, font_size: f32) -> f32 {
+        override_height
+            .unwrap_or(self.ui.row_height)
+            .max(font_size * 1.25)
+    }
+
     pub fn parse(input: &str) -> Result<Self, String> {
         let mut defaults: toml::Value = toml::from_str(DEFAULT_CONFIG)
             .expect("the shipped TOML defaults are validated in tests");
@@ -387,14 +396,17 @@ impl Settings {
             32.,
             2000.,
         )?;
-        bounded("history.row_height", self.history.row_height, 12., 160.)?;
+        bounded("ui.row_height", self.ui.row_height, 12., 160.)?;
+        for (name, value) in [
+            ("history.row_height", self.history.row_height),
+            ("files.tree_row_height", self.files.tree_row_height),
+            ("files.list_row_height", self.files.list_row_height),
+        ] {
+            if let Some(value) = value {
+                bounded(name, value, 12., 200.)?;
+            }
+        }
         bounded("history.lane_spacing", self.history.lane_spacing, 8., 48.)?;
-        bounded(
-            "files.tree_row_height",
-            self.files.tree_row_height,
-            12.,
-            200.,
-        )?;
         if !(250..=60000).contains(&self.live.poll_interval_ms) {
             return Err("live.poll_interval_ms must be between 250 and 60000".into());
         }
@@ -573,6 +585,32 @@ mod editor_tests {
                 Settings::parse(&format!("[settings]\neditor={value}")).is_err(),
                 "{value}"
             );
+        }
+    }
+}
+
+#[cfg(test)]
+mod row_tests {
+    use super::Settings;
+    #[test]
+    fn rows_inherit_common_density_but_allow_independent_overrides_and_large_fonts() {
+        let settings = Settings::parse("[ui]\nrow_height=24\n[files]\nlist_row_height=32").unwrap();
+        assert_eq!(settings.row_height(settings.history.row_height, 14.), 24.);
+        assert_eq!(
+            settings.row_height(settings.files.tree_row_height, 14.),
+            24.
+        );
+        assert_eq!(
+            settings.row_height(settings.files.list_row_height, 14.),
+            32.
+        );
+        assert_eq!(settings.row_height(None, 32.), 40.);
+        for input in [
+            "[ui]\nrow_height=0",
+            "[files]\nlist_row_height=nan",
+            "[history]\nrow_height=-1",
+        ] {
+            assert!(Settings::parse(input).is_err());
         }
     }
 }

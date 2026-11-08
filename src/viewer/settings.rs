@@ -96,6 +96,7 @@ impl Viewer {
         let previous_wrap = self.wrapping;
         let previous = std::mem::replace(&mut self.settings, settings);
         let position = self.prepare_display_reflow(cx);
+        self.preserve_row_positions(&previous, cx);
         // A changed default is an explicit config edit. Unchanged fields leave
         // toolbar overrides and independently resized/hidden panels untouched.
         if previous.diff.default_view != self.settings.diff.default_view {
