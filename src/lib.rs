@@ -1,3 +1,4 @@
+pub mod commands;
 pub mod diff_model;
 pub mod evolution;
 pub mod external;

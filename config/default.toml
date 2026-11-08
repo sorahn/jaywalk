@@ -7,9 +7,14 @@ height = 950
 
 [ui]
 font_size = 16
+ligatures = true
+# font_family = "Helvetica Neue"
 
 [editor]
 font_size = 13
+line_numbers = true
+tab_size = 4
+ligatures = true
 # Omit font_family to keep the platform's default monospace font.
 # font_family = "Menlo"
 
@@ -18,10 +23,20 @@ default_width = 280
 min_width = 180
 max_width = 700
 
+[panels.history.font]
+size = 14
+ligatures = true
+# family = "Helvetica Neue"
+
 [panels.files]
 default_width = 260
 min_width = 200
 max_width = 700
+
+[panels.files.font]
+size = 14
+ligatures = true
+# family = "Helvetica Neue"
 
 [panels.diff]
 gutter_width = 48
@@ -34,6 +49,7 @@ row_height = 26
 lane_spacing = 12
 
 [files]
+default_view = "list"
 tree_row_height = 30
 indent_width = 12
 compact_paths = true
@@ -80,3 +96,48 @@ poll_interval_ms = 1500
 # Configuration reload is independent of recorded repository refresh above.
 [settings]
 poll_interval_ms = 500
+# Omit editor to use the platform's default text editor.
+# On macOS, a string selects an application by name or .app path.
+# editor = "Zed"
+# An array runs an executable with literal arguments; the config path is appended.
+# editor = ["code", "--reuse-window"]
+
+# Keys use GPUI notation: secondary = Cmd on macOS, Ctrl elsewhere.
+# Replace a command's entire array to rebind it; [] removes its shortcuts.
+# Space-separated keystrokes form chords, e.g. "secondary-k secondary-s".
+[keybindings]
+open_repository = ["secondary-o"]
+find_file = ["secondary-p"]
+show_commands = ["secondary-shift-p", "f1"]
+open_settings = ["secondary-,"]
+version_patch = []
+since_previous = []
+refresh = ["secondary-r"]
+whole_branch = ["secondary-shift-b"]
+overview = []
+toggle_history = ["secondary-b"]
+toggle_files = ["secondary-shift-e"]
+toggle_change_evolution = []
+toggle_file_evolution = []
+toggle_wrap = ["alt-z"]
+toggle_line_numbers = []
+view_inline = []
+view_side_by_side = []
+view_fluid = []
+next_change = ["alt-f5", "f7"]
+previous_change = ["alt-shift-f5", "shift-f7"]
+next_file = ["alt-down"]
+previous_file = ["alt-up"]
+next_revision = ["secondary-alt-down"]
+previous_revision = ["secondary-alt-up"]
+zoom_in = ["secondary-="]
+zoom_out = ["secondary--"]
+reset_zoom = ["secondary-0"]
+reset_layout = []
+quit = ["secondary-q"]
+close_window = ["secondary-w"]
+minimize = ["secondary-m"]
+fullscreen = ["ctrl-secondary-f"]
+hide = ["secondary-h"]
+hide_others = ["secondary-alt-h"]
+show_all = []

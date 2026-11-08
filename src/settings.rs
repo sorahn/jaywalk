@@ -1,5 +1,7 @@
 //! Typed reloadable settings. The shipped TOML is the single source of defaults.
+use crate::commands::CommandId;
 use serde::Deserialize;
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 pub const DEFAULT_CONFIG: &str = include_str!("../config/default.toml");
@@ -8,6 +10,16 @@ pub const DEFAULT_CONFIG: &str = include_str!("../config/default.toml");
 #[serde(deny_unknown_fields)]
 pub struct ReloadSettings {
     pub poll_interval_ms: u64,
+    #[serde(default)]
+    pub editor: Option<SettingsEditor>,
+}
+
+/// A native application name, or an executable with literal arguments.
+#[derive(Clone, Debug, Deserialize, PartialEq)]
+#[serde(untagged)]
+pub enum SettingsEditor {
+    App(String),
+    Command(Vec<String>),
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq)]
@@ -20,6 +32,7 @@ pub struct LiveSettings {
 #[derive(Clone, Debug, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct Settings {
+    pub keybindings: BTreeMap<CommandId, Vec<String>>,
     pub settings: ReloadSettings,
     pub live: LiveSettings,
     pub window: WindowSettings,
@@ -68,12 +81,18 @@ pub struct WindowSettings {
 #[serde(deny_unknown_fields)]
 pub struct UiSettings {
     pub font_size: f32,
+    #[serde(default)]
+    pub font_family: Option<String>,
+    pub ligatures: bool,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct EditorSettings {
     pub font_size: f32,
+    pub line_numbers: bool,
+    pub tab_size: usize,
+    pub ligatures: bool,
     #[serde(default)]
     pub font_family: Option<String>,
 }
@@ -89,6 +108,7 @@ pub struct PanelSettings {
 #[derive(Clone, Debug, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct SidebarSettings {
+    pub font: FontSettings,
     pub default_width: f32,
     pub min_width: f32,
     pub max_width: f32,
@@ -111,10 +131,28 @@ pub struct HistorySettings {
 #[derive(Clone, Debug, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct FileSettings {
+    pub default_view: FileView,
     pub tree_row_height: f32,
     pub indent_width: f32,
     pub compact_paths: bool,
     pub list_word_wrap: bool,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct FontSettings {
+    pub size: f32,
+    #[serde(default)]
+    pub family: Option<String>,
+    pub ligatures: bool,
+}
+
+#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum FileView {
+    #[default]
+    List,
+    Tree,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
@@ -202,22 +240,80 @@ impl Settings {
         if !(100..=60000).contains(&self.settings.poll_interval_ms) {
             return Err("settings.poll_interval_ms must be between 100 and 60000".into());
         }
+        if let Some(editor) = &self.settings.editor {
+            let values = match editor {
+                SettingsEditor::App(app) => std::slice::from_ref(app),
+                SettingsEditor::Command(command) => command.as_slice(),
+            };
+            if values.first().is_none_or(|value| value.trim().is_empty())
+                || values.iter().any(|value| value.contains('\0'))
+            {
+                return Err("settings.editor must name an app or a nonempty command array, without NUL characters".into());
+            }
+        }
         bounded("window.width", self.window.width, 320., 10000.)?;
         bounded("window.height", self.window.height, 240., 10000.)?;
         bounded("ui.font_size", self.ui.font_size, 8., 48.)?;
         bounded("editor.font_size", self.editor.font_size, 8., 48.)?;
-        if self
-            .editor
-            .font_family
-            .as_ref()
-            .is_some_and(|family| family.trim().is_empty())
-        {
-            return Err("editor.font_family must name a font, or be omitted".into());
+        if !(1..=16).contains(&self.editor.tab_size) {
+            return Err("editor.tab_size must be between 1 and 16".into());
+        }
+        for (name, family) in [
+            ("ui.font_family", &self.ui.font_family),
+            ("editor.font_family", &self.editor.font_family),
+            (
+                "panels.history.font.family",
+                &self.panels.history.font.family,
+            ),
+            ("panels.files.font.family", &self.panels.files.font.family),
+        ] {
+            if family
+                .as_ref()
+                .is_some_and(|family| family.trim().is_empty())
+            {
+                return Err(format!("{name} must name a font, or be omitted"));
+            }
+        }
+        let mut shortcuts = BTreeMap::new();
+        for (command, bindings) in &self.keybindings {
+            for binding in bindings {
+                if binding.trim().is_empty() {
+                    return Err(format!(
+                        "Empty shortcut for {}; use [] to unbind it",
+                        command.label()
+                    ));
+                }
+                let mut normalized = Vec::new();
+                for stroke in binding.split_whitespace() {
+                    let stroke = gpui_kit::Keystroke::parse(stroke).map_err(|error| {
+                        format!(
+                            "Invalid shortcut {binding:?} for {}: {error}",
+                            command.label()
+                        )
+                    })?;
+                    normalized.push(stroke.unparse());
+                }
+                if let Some(previous) = shortcuts.insert(normalized, command)
+                    && previous != command
+                {
+                    return Err(format!(
+                        "Shortcut {binding:?} is assigned to both {} and {}; unbind or reassign one",
+                        previous.label(),
+                        command.label()
+                    ));
+                }
+            }
         }
         for (name, panel) in [
             ("history", &self.panels.history),
             ("files", &self.panels.files),
         ] {
+            bounded(
+                &format!("panels.{name}.font.size"),
+                panel.font.size,
+                8.,
+                48.,
+            )?;
             bounded(
                 &format!("panels.{name}.min_width"),
                 panel.min_width,
@@ -334,6 +430,47 @@ mod tests {
     }
 
     #[test]
+    fn typography_and_keymap_overrides_inherit_without_losing_other_commands() {
+        use crate::commands::CommandId;
+        let settings = Settings::parse("[editor]\ntab_size=8\nligatures=false\nline_numbers=false\n[panels.history.font]\nfamily='Menlo'\nsize=18\n[files]\ndefault_view='tree'\n[keybindings]\nfind_file=['secondary-k secondary-p']\ntoggle_history=[]").unwrap();
+        assert_eq!(settings.editor.tab_size, 8);
+        assert!(!settings.editor.ligatures);
+        assert_eq!(
+            settings.panels.history.font.family.as_deref(),
+            Some("Menlo")
+        );
+        assert_eq!(settings.panels.files.font.size, 14.);
+        assert!(settings.keybindings[&CommandId::ToggleHistory].is_empty());
+        assert_eq!(
+            settings.keybindings[&CommandId::FindFile],
+            ["secondary-k secondary-p"]
+        );
+        assert_eq!(
+            settings.keybindings[&CommandId::OpenSettings],
+            ["secondary-,"]
+        );
+        assert_eq!(settings.keybindings.len(), CommandId::ALL.len());
+    }
+
+    #[test]
+    fn invalid_fonts_tabs_and_shortcuts_leave_actionable_errors() {
+        for input in [
+            "[editor]\ntab_size=0",
+            "[editor]\ntab_size=17",
+            "[panels.history.font]\nsize=nan",
+            "[panels.files.font]\nfamily=' '",
+            "[ui]\nfont_family=''",
+            "[files]\ndefault_view='invalid'",
+            "[keybindings]\nfind_file=['mystery-p']",
+            "[keybindings]\nfind_file=['']",
+            "[keybindings]\nfind_file=['secondary-b']",
+            "[keybindings]\nunknown_command=['secondary-u']",
+        ] {
+            assert!(Settings::parse(input).is_err(), "accepted {input}");
+        }
+    }
+
+    #[test]
     fn typos_and_invalid_geometry_are_actionable_errors() {
         for input in [
             "[editor]\nfont_szie=14",
@@ -355,5 +492,45 @@ mod tests {
             );
         }
         Settings::parse("").unwrap();
+    }
+}
+
+#[cfg(test)]
+mod editor_tests {
+    use super::{Settings, SettingsEditor};
+    #[test]
+    fn settings_editor_supports_app_names_and_literal_command_arguments() {
+        assert_eq!(Settings::parse("").unwrap().settings.editor, None);
+        assert_eq!(
+            Settings::parse("[settings]\neditor='Example Editor'")
+                .unwrap()
+                .settings
+                .editor,
+            Some(SettingsEditor::App("Example Editor".into()))
+        );
+        assert_eq!(
+            Settings::parse("[settings]\neditor=['code','--reuse-window']")
+                .unwrap()
+                .settings
+                .editor,
+            Some(SettingsEditor::Command(vec![
+                "code".into(),
+                "--reuse-window".into()
+            ]))
+        );
+        for value in [
+            "''",
+            "'   '",
+            "[]",
+            "['']",
+            "['   ', '--wait']",
+            "42",
+            "{app='Zed',typo=true}",
+        ] {
+            assert!(
+                Settings::parse(&format!("[settings]\neditor={value}")).is_err(),
+                "{value}"
+            );
+        }
     }
 }
