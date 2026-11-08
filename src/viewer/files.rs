@@ -11,7 +11,7 @@ use jaywalk::settings::FileView as FileListMode;
 pub(super) struct FileBrowser {
     pub(super) files: std::sync::Arc<[jaywalk::repository::ChangedFile]>,
     retained: Option<usize>,
-    mode: FileListMode,
+    pub(super) mode: FileListMode,
     labels: Vec<CompactPath>,
     tree: Entity<TreeState>,
     tree_indices: HashMap<SharedString, usize>,
@@ -317,6 +317,7 @@ impl Viewer {
                                     .selected(self.browser.mode == FileListMode::List)
                                     .on_click(cx.listener(|this, _, _, cx| {
                                         this.browser.mode = FileListMode::List;
+                                        this.save_layout(cx);
                                         cx.notify();
                                     })),
                             )
@@ -329,6 +330,7 @@ impl Viewer {
                                     .selected(self.browser.mode == FileListMode::Tree)
                                     .on_click(cx.listener(|this, _, _, cx| {
                                         this.browser.mode = FileListMode::Tree;
+                                        this.save_layout(cx);
                                         cx.notify();
                                     })),
                             ),

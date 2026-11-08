@@ -1,6 +1,6 @@
 //! Typed reloadable settings. The shipped TOML is the single source of defaults.
 use crate::commands::CommandId;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
@@ -162,7 +162,7 @@ pub struct FontSettings {
     pub ligatures: bool,
 }
 
-#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum FileView {
     #[default]
@@ -170,7 +170,7 @@ pub enum FileView {
     Tree,
 }
 
-#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum DiffView {
     Inline,

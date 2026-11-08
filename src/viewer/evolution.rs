@@ -83,9 +83,9 @@ impl EvolutionKind {
 
 pub(super) struct EvolutionPanel {
     pub(super) visible: bool,
-    show_unchanged_rebases: bool,
+    pub(super) show_unchanged_rebases: bool,
     file_path: Option<String>,
-    collapse_repeats: bool,
+    pub(super) collapse_repeats: bool,
     expanded_groups: HashSet<String>,
     state: TimelineState,
     generation: u64,
@@ -233,6 +233,7 @@ impl Viewer {
         panel.rebuild();
         panel.scroll = UniformListScrollHandle::new();
         cx.notify();
+        self.save_layout(cx);
     }
 
     fn toggle_repeated_group(&mut self, kind: EvolutionKind, head: &str, cx: &mut Context<Self>) {
@@ -254,6 +255,7 @@ impl Viewer {
         panel.rebuild();
         panel.scroll = UniformListScrollHandle::new();
         cx.notify();
+        self.save_layout(cx);
     }
 
     pub(super) fn toggle_evolution(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -293,7 +295,7 @@ impl Viewer {
             }
         }
         self.sync_file_evolution();
-        self.save_layout(window, cx);
+        self.save_layout(cx);
         cx.notify();
     }
 

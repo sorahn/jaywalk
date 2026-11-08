@@ -125,6 +125,7 @@ impl Viewer {
                     }
                 }
                 self.preserve_reflow_position(cx);
+                self.save_layout(cx);
                 cx.notify();
             }
             CommandId::ZoomIn | CommandId::ZoomOut | CommandId::ResetZoom => {
@@ -206,13 +207,13 @@ impl Viewer {
         .detach();
     }
 
-    fn reset_layout(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    fn reset_layout(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
         self.preserve_reflow_position(cx);
-        self.layout.saved = jaywalk::layout_state::LayoutState::default();
+        self.layout.saved = jaywalk::layout_state::LayoutState::from_settings(&self.settings);
         self.panels = panels::PanelLayout::new(cx);
         self.evolution.visible = self.settings.evolution.visible;
         self.file_evolution.visible = self.settings.file_evolution.visible;
-        self.save_layout(window, cx);
+        self.save_layout(cx);
         cx.notify();
     }
 }

@@ -158,7 +158,7 @@ impl Viewer {
         cx: &Context<Self>,
     ) -> impl Fn(&Entity<ResizableState>, &mut Window, &mut App) + 'static {
         let viewer = cx.entity().downgrade();
-        move |state, window, cx| {
+        move |state, _window, cx| {
             let sizes = state
                 .read(cx)
                 .sizes()
@@ -187,7 +187,7 @@ impl Viewer {
                     }
                 }
                 viewer.preserve_reflow_position(cx);
-                viewer.save_layout(window, cx);
+                viewer.save_layout(cx);
             });
         }
     }
@@ -326,7 +326,7 @@ impl Viewer {
             }
             PanelGroup::Diff => self.layout.saved.before_fraction = None,
         }
-        self.save_layout(window, cx);
+        self.save_layout(cx);
         cx.notify();
     }
 }

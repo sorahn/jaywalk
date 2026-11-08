@@ -32,7 +32,7 @@ impl Viewer {
             settings.evolution.collapse_repeats,
         );
         let palette = palette::PaletteState::new(window, cx);
-        let layout = session_layout::SessionLayout::load(&arguments);
+        let layout = session_layout::SessionLayout::load(&arguments, &settings);
         let mut viewer = Self {
             code_font_size: settings.editor.font_size,
             line_numbers: settings.editor.line_numbers,

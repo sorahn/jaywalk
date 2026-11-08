@@ -357,6 +357,7 @@ impl Viewer {
             state.update(cx, |state, cx| state.scroll_horizontal(px(-1e9), cx));
         }
         cx.notify();
+        self.save_layout(cx);
     }
 
     fn scroll_horizontal(&mut self, delta: f32, cx: &mut Context<Self>) {
@@ -429,6 +430,7 @@ impl Viewer {
             self.live.pending_position = Some((before_line, line, self.horizontal_position));
         }
         cx.notify();
+        self.save_layout(cx);
     }
 
     fn navigate_change(&mut self, direction: i32, cx: &mut Context<Self>) {

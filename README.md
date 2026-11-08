@@ -477,14 +477,13 @@ deletions retain full-row emphasis; unrelated paired lines and lines over
 1000 bytes omit extra word shading. Standard views use the widget's existing
 word emphasis.
 
-The upper-right panel buttons toggle History, Changed files, and the evolution
-docks. Panel widths, evolution heights, the Fluid split ratio, and visibility
-are saved separately in `~/.config/jaywalk/layout.toml`. With `--config PATH`,
-layout uses the adjacent `PATH` with its extension replaced by `layout.toml`.
-Saved sizes are clamped to current settings limits; double-click resets remain
-available. Writes happen off the UI thread, are serialized, and atomically
-replace the state file. Deleting it restores startup defaults; settings TOML is
-never rewritten by runtime controls. Panel rearrangement remains future work.
+Panel buttons toggle History, Changed files and the evolution docks. Interface
+choices are stored per repository in `~/.config/jaywalk/interface.toml`, or a
+sibling `*.interface.toml` for alternate config profiles. Saved sizes are clamped
+to current settings limits; double-click resets remain available. Writes happen
+off the UI thread, are serialized, and atomically replace the state file.
+Settings TOML is never rewritten by runtime controls. Set
+`layout.remember_per_repository = false` to use configured defaults on later opens.
 
 The Fluid mapping remains a prototype, with automated endpoint/wrapping tests
 and native interaction checks. Arbitrary evolution-pair comparison, broader
@@ -521,3 +520,13 @@ interface choices are remembered per repository. `[layout.placement]` selects
 `history_first` or `files_first` in left-to-right order when they share a side.
 The `change_evolution` and `file_evolution` placements accept `sidebar` or
 `bottom`. Panel identity and review content stay independent of placement.
+
+Interface choices are remembered per canonical repository checkout in
+`~/.config/jaywalk/interface.toml`. Alternate `--config` profiles use a sibling
+`*.interface.toml` file. Set `layout.remember_per_repository = false` to stop
+reading and writing remembered choices; later opens start from TOML defaults.
+Standalone file/directory comparisons do not persist temporary input paths.
+The former shared `layout.toml` is left untouched and is not imported into
+unrelated repositories. Configuration edits still apply live to their matching
+controls. Different open comparisons of one repository share its last saved
+interface choices; different repositories keep independent entries.
