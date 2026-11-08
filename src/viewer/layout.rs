@@ -24,25 +24,34 @@ impl Render for Viewer {
             .v_flex()
             .size_full()
             .font_features(typography::features(self.settings.ui.ligatures))
-            .bg(rgb(0x1f1f1f))
-            .text_color(rgb(0xcccccc))
+            .bg(gpui::component::Theme::global(cx).background)
+            .text_color(gpui::component::Theme::global(cx).foreground)
             .child(
                 div()
                     .h_flex()
                     .items_center()
                     .justify_between()
-                    .p_3()
-                    .bg(rgb(0x263d35))
-                    .child(format!(
+                    .px_3()
+                    .h(px(self
+                        .settings
+                        .ui
+                        .toolbar_height
+                        .max(self.settings.ui.font_size * 1.75)))
+                    .flex_shrink_0()
+                    .border_b_1()
+                    .border_color(gpui::component::Theme::global(cx).border)
+                    .bg(gpui::component::Theme::global(cx).muted)
+                    .child(div().flex_1().min_w_0().truncate().child(format!(
                         "Jaywalk  /  {}",
                         self.arguments.diff.as_ref().map_or_else(
                             || self.arguments.directory.display().to_string(),
                             |paths| format!("{} ↔ {}", paths[0].display(), paths[1].display())
                         )
-                    ))
+                    )))
                     .child(
                         div()
                             .h_flex()
+                            .flex_shrink_0()
                             .gap_2()
                             .child(self.render_panel_toggles(cx))
                             .child(

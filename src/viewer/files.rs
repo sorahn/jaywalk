@@ -1,4 +1,5 @@
 use super::*;
+use gpui::component::Sizable;
 use gpui::component::list::ListItem;
 use gpui::component::scroll::ScrollableMask;
 use gpui::component::tree::{Tree, TreeItem, TreeState};
@@ -266,14 +267,9 @@ impl Viewer {
             .relative()
             .v_flex()
             .size_full()
-            .bg(rgb(0x253448))
+            .bg(gpui::component::Theme::global(cx).sidebar)
             .child(
-                div()
-                    .h_flex()
-                    .items_center()
-                    .justify_between()
-                    .px_3()
-                    .py_2()
+                self.panel_header(self.settings.panels.files.font.size, cx)
                     .child(
                         div()
                             .flex_1()
@@ -298,6 +294,7 @@ impl Viewer {
                             .child(
                                 Button::new("file-evolution-toggle")
                                     .ghost()
+                                    .small()
                                     .compact()
                                     .icon(IconName::GitCompareArrows)
                                     .when(!self.supports_evolution(), |button| button.hidden())
@@ -314,6 +311,7 @@ impl Viewer {
                             .child(
                                 Button::new("file-list-mode")
                                     .ghost()
+                                    .small()
                                     .compact()
                                     .icon(IconName::List)
                                     .tooltip("File list")
@@ -327,6 +325,7 @@ impl Viewer {
                             .child(
                                 Button::new("file-tree-mode")
                                     .ghost()
+                                    .small()
                                     .compact()
                                     .icon(IconName::FolderTree)
                                     .tooltip("Directory tree")
@@ -394,11 +393,14 @@ impl Viewer {
                             .w_full()
                             .when(wrap, |row| row.items_start())
                             .when(!wrap, |row| row.whitespace_nowrap())
-                            .bg(rgb(if self.selected_index() == Some(index) {
-                                0x345577
+                            .bg(if self.selected_index() == Some(index) {
+                                gpui::component::Theme::global(cx).list_active
                             } else {
-                                0x253448
-                            }))
+                                gpui::component::Theme::global(cx).sidebar
+                            })
+                            .hover(|style| {
+                                style.bg(gpui::component::Theme::global(cx).secondary_hover)
+                            })
                             .text_size(px(self.settings.panels.files.font.size))
                             .cursor_pointer()
                             .text_color(rgb(color))

@@ -544,3 +544,8 @@ rows and tree/directory rows. Optional `history.row_height`,
 Larger panel fonts establish a readable minimum; wrapped file paths can grow.
 Evolution cards keep their separate `evolution.row_height` setting. All row
 settings apply live.
+
+Panel surfaces, selection states and hairline separators use the active theme.
+`ui.panel_header_height` and `ui.toolbar_height` set compact header geometry;
+large fonts establish readable minimums. Placement controls are available from
+each panel's ellipsis menu.

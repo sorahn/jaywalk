@@ -10,6 +10,8 @@ height = 950
 loading_delay_ms = 200
 # Shared minimum for history, flat files and directory-tree rows.
 row_height = 26
+panel_header_height = 30
+toolbar_height = 36
 # Reserved comparison toolbar height; grows if the UI font needs more space.
 comparison_bar_height = 36
 font_size = 16

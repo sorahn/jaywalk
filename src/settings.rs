@@ -95,6 +95,8 @@ pub struct WindowSettings {
 pub struct UiSettings {
     pub loading_delay_ms: u64,
     pub row_height: f32,
+    pub panel_header_height: f32,
+    pub toolbar_height: f32,
     pub comparison_bar_height: f32,
     pub font_size: f32,
     #[serde(default)]
@@ -397,6 +399,13 @@ impl Settings {
             2000.,
         )?;
         bounded("ui.row_height", self.ui.row_height, 12., 160.)?;
+        bounded(
+            "ui.panel_header_height",
+            self.ui.panel_header_height,
+            24.,
+            120.,
+        )?;
+        bounded("ui.toolbar_height", self.ui.toolbar_height, 28., 120.)?;
         for (name, value) in [
             ("history.row_height", self.history.row_height),
             ("files.tree_row_height", self.files.tree_row_height),

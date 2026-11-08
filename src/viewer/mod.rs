@@ -14,6 +14,7 @@ use std::rc::Rc;
 
 use crate::Arguments;
 
+mod chrome;
 pub(crate) mod commands;
 mod comparison;
 mod evolution;
