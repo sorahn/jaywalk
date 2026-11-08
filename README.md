@@ -512,3 +512,12 @@ Third-party code retains its respective licenses. In particular, the vendored
 `gpui-component` code and its local patches remain under Apache-2.0; its license
 is preserved in [vendor/gpui-component/LICENSE-APACHE](vendor/gpui-component/LICENSE-APACHE).
 See [vendor/README.md](vendor/README.md) for dependency provenance and local changes.
+
+## Panel layout defaults
+
+`[layout]` controls default sidebar visibility, bottom-dock height and whether
+interface choices are remembered per repository. `[layout.placement]` selects
+`left` or `right` for `history_side` and `files_side`, with `sidebar_order` of
+`history_first` or `files_first` in left-to-right order when they share a side.
+The `change_evolution` and `file_evolution` placements accept `sidebar` or
+`bottom`. Panel identity and review content stay independent of placement.

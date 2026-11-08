@@ -39,11 +39,24 @@ pub struct Settings {
     pub ui: UiSettings,
     pub editor: EditorSettings,
     pub panels: PanelSettings,
+    pub layout: LayoutSettings,
     pub history: HistorySettings,
     pub files: FileSettings,
     pub diff: DiffSettings,
     pub evolution: EvolutionSettings,
     pub file_evolution: FileEvolutionSettings,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct LayoutSettings {
+    pub remember_per_repository: bool,
+    pub history_visible: bool,
+    pub files_visible: bool,
+    pub bottom_height: f32,
+    pub min_bottom_height: f32,
+    pub max_bottom_height: f32,
+    pub placement: crate::panel_layout::Placement,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq)]
@@ -253,6 +266,24 @@ impl Settings {
                 return Err("settings.editor must name an app or a nonempty command array, without NUL characters".into());
             }
         }
+        bounded(
+            "layout.min_bottom_height",
+            self.layout.min_bottom_height,
+            40.,
+            2000.,
+        )?;
+        bounded(
+            "layout.max_bottom_height",
+            self.layout.max_bottom_height,
+            self.layout.min_bottom_height,
+            4000.,
+        )?;
+        bounded(
+            "layout.bottom_height",
+            self.layout.bottom_height,
+            self.layout.min_bottom_height,
+            self.layout.max_bottom_height,
+        )?;
         bounded("window.width", self.window.width, 320., 10000.)?;
         bounded("window.height", self.window.height, 240., 10000.)?;
         if self.ui.loading_delay_ms > 5000 {

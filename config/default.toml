@@ -146,3 +146,22 @@ fullscreen = ["ctrl-secondary-f"]
 hide = ["secondary-h"]
 hide_others = ["secondary-alt-h"]
 show_all = []
+
+# Startup defaults; remembered repository choices are stored separately.
+[layout]
+remember_per_repository = true
+history_visible = true
+files_visible = true
+bottom_height = 280
+min_bottom_height = 120
+max_bottom_height = 700
+
+[layout.placement]
+history_side = "left"
+files_side = "left"
+# Left-to-right order when both sidebars share a side.
+sidebar_order = "history_first"
+# "sidebar" keeps each timeline below its associated list; "bottom" docks it
+# under the central workspace. Two bottom timelines appear beside each other.
+change_evolution = "sidebar"
+file_evolution = "sidebar"

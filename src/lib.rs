@@ -14,3 +14,5 @@ pub mod repository;
 pub mod settings;
 pub mod settings_reload;
 pub mod version;
+
+pub mod panel_layout;
