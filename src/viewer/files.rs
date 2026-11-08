@@ -137,6 +137,22 @@ impl Viewer {
             .update(cx, |tree, cx| tree.set_items(items, cx));
     }
 
+    pub(super) fn refresh_browser_metrics(&mut self) {
+        let glyph_width = self.settings.ui.font_size * 0.5;
+        let indent = self.settings.files.indent_width;
+        self.browser.tree_width = self.comparison().map_or(0., |comparison| {
+            comparison
+                .files
+                .iter()
+                .flat_map(|file| {
+                    file.after_path.split('/').enumerate().map(|(depth, name)| {
+                        name.chars().count() as f32 * glyph_width + depth as f32 * indent + 64.
+                    })
+                })
+                .fold(0., f32::max)
+        });
+    }
+
     pub(super) fn select_browser_file(&self, index: usize, cx: &mut Context<Self>) {
         let id: SharedString = format!("file:{index}").into();
         self.browser.tree.update(cx, |tree, cx| {

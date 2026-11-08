@@ -218,6 +218,14 @@ impl Render for Viewer {
                             )
                     }),
             )
+            .children(self.config.error.as_ref().map(|message| {
+                div()
+                    .px_3()
+                    .py_1()
+                    .text_sm()
+                    .bg(rgb(0x542c2c))
+                    .child(message.clone())
+            }))
             .children(self.live.message.as_ref().map(|message| {
                 div()
                     .px_3()

@@ -22,7 +22,26 @@ font-size extensions; see `vendor/README.md`.
 
 Edit `~/.config/jaywalk/config.toml` directly. When `XDG_CONFIG_HOME` is set,
 the path is `$XDG_CONFIG_HOME/jaywalk/config.toml`. Use `--config PATH` for a
-separate settings file. Restart the app to reload changes.
+separate settings file. Saved changes reload automatically, including when the
+file is created after launch or replaced by an editor's atomic save. Configuration
+polling is independent of repository refresh and controlled by
+`settings.poll_interval_ms` (500 ms by default). Two matching reads let saves
+settle, so updates normally appear within about a second.
+
+All current settings apply live; no restart is required. Invalid TOML, unknown
+keys, invalid values, or unreadable explicit files show a settings error while
+the last valid configuration remains in effect. Fixing the file clears the
+error. Removing the optional default config restores shipped defaults; removing
+an explicit `--config` file retains the last valid settings and reports an error.
+
+Only changed settings override runtime choices. For example, changing a font
+preserves toolbar view/wrapping choices and panel visibility. Editing a default
+view, wrap flag, panel visibility, width, or height applies that value immediately;
+unchanged panel sizes retain manual adjustments. Dimension limits clamp the
+current layout. These changes preserve the selected comparison/file and reading
+position. Reducing the evolution limit retains the versions selected in either
+dock even when they fall outside the new limit. Future startup-only settings
+must identify themselves with a restart-required notice.
 
 `config/default.toml` documents the shipped defaults and available keys. A user
 file can override only the values it needs; omitted values inherit defaults.
@@ -36,8 +55,8 @@ changes the current view for the running session; it does not rewrite TOML.
 
 ## Development history
 
-`main` is the minimal Rust baseline. The mutable `viewer-prototype` bookmark
-holds the evolving native implementation. Use jj for history operations.
+`main` contains the merged native prototype. New work starts on feature
+branches; the original prototype remains available as `viewer-prototype`.
 
 ## Prototype usage
 
@@ -110,19 +129,18 @@ active comparison mode. Use its chevron to expand the individual revisions;
 the down chevron collapses them again. Expanding/collapsing
 keeps the selected revision and diff pinned, including when that revision is
 inside a collapsed group. The **Group** toggle shows all entries individually;
-`evolution.collapse_repeats = false` disables grouping at startup. Grouping uses
+`evolution.collapse_repeats = false` disables grouping. Grouping uses
 the focused file and review mode; overview groups must match their affected
 paths and statuses, not just their displayed counts. Branch boundaries,
 divergent versions, and conflicted entries stay separate.
 
 Unchanged rebases are hidden by default. The timeline's **Rebases** toggle
-reveals them; set `evolution.show_unchanged_rebases = true` to show them at
-startup. Current and selected versions stay visible, and hidden nodes are
+reveals them; set `evolution.show_unchanged_rebases = true` to show them. Current and selected versions stay visible, and hidden nodes are
 bridged in the graph without changing the comparison endpoints. Description
 changes remain visible even when the same operation also changes parents.
 
 The `[evolution]` settings control Change evolution visibility and height,
-shared startup filter/grouping defaults, row density, and the version limit.
+shared filter/grouping defaults, row density, and the version limit.
 `[file_evolution]` controls the File evolution dock's visibility and height.
 Double-click either horizontal separator to reset its configured height. Interdiff content currently requires a Git-backed jj
 repository and Git on PATH. jj may synthesize backend objects while calculating

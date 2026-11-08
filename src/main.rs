@@ -4,7 +4,7 @@ use clap::Parser;
 use gpui::component::{Theme, ThemeMode};
 use gpui::*;
 use jaywalk::repository::Comparison;
-use jaywalk::settings::Settings;
+use jaywalk::settings_reload::SettingsSource;
 use std::path::PathBuf;
 
 mod launcher;
@@ -55,10 +55,8 @@ fn main() {
         return;
     }
 
-    let settings = match arguments
-        .config
-        .as_deref()
-        .map_or_else(Settings::load_default, Settings::read)
+    let settings = match SettingsSource::resolve(arguments.config.as_deref())
+        .and_then(|source| source.read())
     {
         Ok(settings) => settings,
         Err(error) => {

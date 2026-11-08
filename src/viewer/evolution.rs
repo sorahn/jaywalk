@@ -234,6 +234,102 @@ impl Viewer {
         cx.notify();
     }
 
+    pub(super) fn apply_evolution_settings(
+        &mut self,
+        previous: &Settings,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        for panel in [&mut self.evolution, &mut self.file_evolution] {
+            if previous.evolution.show_unchanged_rebases
+                != self.settings.evolution.show_unchanged_rebases
+            {
+                panel.show_unchanged_rebases = self.settings.evolution.show_unchanged_rebases;
+            }
+            if previous.evolution.collapse_repeats != self.settings.evolution.collapse_repeats {
+                panel.collapse_repeats = self.settings.evolution.collapse_repeats;
+                panel.expanded_groups.clear();
+            }
+            panel.rebuild();
+        }
+        for (kind, old, new) in [
+            (
+                EvolutionKind::Change,
+                previous.evolution.visible,
+                self.settings.evolution.visible,
+            ),
+            (
+                EvolutionKind::File,
+                previous.file_evolution.visible,
+                self.settings.file_evolution.visible,
+            ),
+        ] {
+            if old != new && self.evolution_panel(kind).visible != new {
+                self.toggle_evolution_panel(kind, window, cx);
+            }
+        }
+        if previous.evolution.limit != self.settings.evolution.limit {
+            self.reload_evolution_limit(window, cx);
+        }
+    }
+
+    fn reload_evolution_limit(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let TimelineState::Loaded(session) = &self.evolution.state else {
+            // An initial load checks the current limit on completion below.
+            return;
+        };
+        let commit = session.anchor.commit_id.clone();
+        let Some(repository) = self.repository.ready() else {
+            return;
+        };
+        let branch = repository.branch.as_ref().clone();
+        let limit = self.settings.evolution.limit;
+        self.evolution.generation += 1;
+        let generation = self.evolution.generation;
+        self.evolution.task = Some(cx.spawn_in(window, async move |this, cx| {
+            let result = cx
+                .background_spawn(async move { branch.evolution(&commit, limit) })
+                .await;
+            let _ = this.update_in(cx, |viewer, _, cx| {
+                if viewer.evolution.generation != generation {
+                    return;
+                }
+                match result {
+                    Ok(mut timeline) => {
+                        // A smaller limit must not discard either dock's selected
+                        // revision or replace the pinned comparison being reviewed.
+                        for panel in [&viewer.evolution, &viewer.file_evolution] {
+                            if let TimelineState::Loaded(session) = &panel.state {
+                                let selected = &session.timeline.versions[session.selected];
+                                timeline.retain_selected(selected);
+                            }
+                        }
+                        let timeline = Rc::new(timeline);
+                        for panel in [&mut viewer.evolution, &mut viewer.file_evolution] {
+                            if let TimelineState::Loaded(session) = &mut panel.state {
+                                let selected =
+                                    &session.timeline.versions[session.selected].commit_id;
+                                session.selected = timeline
+                                    .versions
+                                    .iter()
+                                    .position(|version| &version.commit_id == selected)
+                                    .expect("the reloaded timeline retains the selected version");
+                                session.timeline = timeline.clone();
+                                panel.rebuild();
+                            }
+                        }
+                    }
+                    Err(error) => {
+                        viewer.live.message = Some(format!(
+                            "Evolution reload failed; keeping the previous timeline: {error}"
+                        ))
+                    }
+                }
+                cx.notify();
+            });
+        }));
+    }
+
     pub(super) fn load_evolution(
         &mut self,
         anchor: Revision,
@@ -281,7 +377,7 @@ impl Viewer {
             let result = cx
                 .background_spawn(async move { branch.evolution(&commit, limit) })
                 .await;
-            let _ = this.update_in(cx, |viewer, _, cx| {
+            let _ = this.update_in(cx, |viewer, window, cx| {
                 if viewer.evolution.generation != generation {
                     return;
                 }
@@ -302,6 +398,9 @@ impl Viewer {
                     Err(error) => TimelineState::Failed(error),
                 };
                 viewer.sync_file_evolution();
+                if limit != viewer.settings.evolution.limit {
+                    viewer.reload_evolution_limit(window, cx);
+                }
                 cx.notify();
             });
         }));

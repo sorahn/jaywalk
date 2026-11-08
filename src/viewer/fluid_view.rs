@@ -72,9 +72,7 @@ impl Viewer {
                     .map(|(index, _)| index);
                 let active = navigation_target.or(active);
                 let text_start = |state: &EditorState, offsets: &[usize]| {
-                    let row = state
-                        .display_map()
-                        .display_row_to_buffer_line(state.visible_row_range()?.start);
+                    let row = state.visible_row_range()?.start;
                     let offset = *offsets.get(row)?;
                     Some(state.range_to_bounds(&(offset..offset))?.left() - state.scroll_offset().x)
                 };

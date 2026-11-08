@@ -67,7 +67,16 @@ impl Viewer {
         let viewer = cx.entity().downgrade();
         canvas(
             |_, _, _| (),
-            move |bounds, _, window, _| {
+            move |bounds, _, window, cx| {
+                // Restore after the widget has updated its font/wrap layout.
+                // Scrolling before remeasurement can reinterpret old row heights.
+                let _ = viewer.update(cx, |viewer, cx| {
+                    if let Some(position) = viewer.config.pending_standard.take()
+                        && let Some(Ok(Some(state))) = viewer.code().map(|code| &code.standard)
+                    {
+                        state.update(cx, |state, cx| state.scroll_to_line(position, cx));
+                    }
+                });
                 let viewer = viewer.clone();
                 window.on_mouse_event(move |event: &ScrollWheelEvent, phase, _, cx| {
                     if phase != DispatchPhase::Capture || !bounds.contains(&event.position) {

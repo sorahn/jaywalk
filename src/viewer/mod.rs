@@ -26,6 +26,7 @@ mod loading;
 mod palette;
 mod panels;
 mod session_layout;
+mod settings;
 use geometry::{comparison_geometry, horizontal_wheel};
 
 fn standard_mode(view: ViewMode) -> DiffMode {
@@ -212,6 +213,7 @@ pub(crate) struct Viewer {
     live: live::LiveState,
     palette: palette::PaletteState,
     layout: session_layout::SessionLayout,
+    config: settings::ConfigState,
 }
 
 impl Viewer {
@@ -240,6 +242,7 @@ impl Viewer {
     }
 
     fn clear_file(&mut self) {
+        self.config.pending_standard = None;
         self.file_generation += 1;
         self.file_task = None;
         self.selected_file = None;
@@ -358,9 +361,7 @@ impl Viewer {
                 return position.line().saturating_sub(1);
             }
             let state = code.after.read(cx);
-            state.display_map().display_row_to_buffer_line(
-                state.visible_row_range().map_or(0, |range| range.start),
-            )
+            state.visible_row_range().map_or(0, |range| range.start)
         });
         self.view_mode = mode;
         if let Some(Ok(Some(state))) = self.code().map(|code| &code.standard) {

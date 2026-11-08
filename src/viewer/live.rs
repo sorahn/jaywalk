@@ -87,11 +87,8 @@ impl Viewer {
 
     pub(super) fn capture_reading(&self, cx: &App) -> Option<ReadingSnapshot> {
         let code = self.code()?;
-        let line = |state: &EditorState| {
-            state.display_map().display_row_to_buffer_line(
-                state.visible_row_range().map_or(0, |range| range.start),
-            )
-        };
+        // GPUI's visible range already uses buffer lines, even with wrapping.
+        let line = |state: &EditorState| state.visible_row_range().map_or(0, |range| range.start);
         let before = code.before.read(cx);
         let after = code.after.read(cx);
         let mut before_line = line(before);

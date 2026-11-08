@@ -26,6 +26,7 @@ impl Viewer {
         let palette = palette::PaletteState::new(window, cx);
         let layout = session_layout::SessionLayout::load(&arguments);
         let mut viewer = Self {
+            config: settings::ConfigState::new(),
             live: live::LiveState::new(),
             palette,
             layout,
@@ -54,6 +55,7 @@ impl Viewer {
             editor_observers: Vec::new(),
         };
         viewer.apply_saved_layout();
+        viewer.start_settings_reload(window, cx);
         viewer.initialize_browser(window, cx);
         viewer.load_repository(preferred_path, window, cx);
         viewer

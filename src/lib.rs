@@ -7,3 +7,4 @@ pub mod layout_state;
 pub mod reading;
 pub mod repository;
 pub mod settings;
+pub mod settings_reload;

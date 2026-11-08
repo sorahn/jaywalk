@@ -1,5 +1,5 @@
 # Copy this file to ~/.config/jaywalk/config.toml and edit it directly.
-# Unspecified values inherit these defaults. Restart the app after editing.
+# Unspecified values inherit these defaults. Saved edits apply automatically.
 
 [window]
 width = 1500
@@ -76,3 +76,7 @@ min_files_height = 120
 [live]
 enabled = true
 poll_interval_ms = 1500
+
+# Configuration reload is independent of recorded repository refresh above.
+[settings]
+poll_interval_ms = 500

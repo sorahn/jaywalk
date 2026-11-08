@@ -330,3 +330,35 @@ impl Viewer {
         cx.notify();
     }
 }
+
+impl Viewer {
+    pub(super) fn apply_panel_settings(&mut self, previous: &Settings, cx: &mut Context<Self>) {
+        if previous.panels.history != self.settings.panels.history
+            || previous.panels.files != self.settings.panels.files
+        {
+            self.capture_sidebar_widths(cx);
+            if previous.panels.history.default_width != self.settings.panels.history.default_width {
+                self.layout.saved.history_width = None;
+            }
+            if previous.panels.files.default_width != self.settings.panels.files.default_width {
+                self.layout.saved.files_width = None;
+            }
+            self.rebuild_sidebar_layout(cx);
+        }
+        if previous.panels.diff != self.settings.panels.diff {
+            self.panels.diff = cx.new(|_| ResizableState::default());
+        }
+        if previous.evolution.default_height != self.settings.evolution.default_height {
+            self.layout.saved.change_height = None;
+        }
+        if previous.file_evolution.default_height != self.settings.file_evolution.default_height {
+            self.layout.saved.file_height = None;
+        }
+        if previous.evolution != self.settings.evolution {
+            self.panels.evolution = cx.new(|_| ResizableState::default());
+        }
+        if previous.file_evolution != self.settings.file_evolution {
+            self.panels.file_evolution = cx.new(|_| ResizableState::default());
+        }
+    }
+}

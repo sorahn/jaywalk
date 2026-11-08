@@ -1,19 +1,26 @@
-//! Typed startup settings. The shipped TOML is the single source of defaults.
+//! Typed reloadable settings. The shipped TOML is the single source of defaults.
 use serde::Deserialize;
 use std::path::{Path, PathBuf};
 
 pub const DEFAULT_CONFIG: &str = include_str!("../config/default.toml");
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct ReloadSettings {
+    pub poll_interval_ms: u64,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct LiveSettings {
     pub enabled: bool,
     pub poll_interval_ms: u64,
 }
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct Settings {
+    pub settings: ReloadSettings,
     pub live: LiveSettings,
     pub window: WindowSettings,
     pub ui: UiSettings,
@@ -26,7 +33,7 @@ pub struct Settings {
     pub file_evolution: FileEvolutionSettings,
 }
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct EvolutionSettings {
     pub visible: bool,
@@ -40,7 +47,7 @@ pub struct EvolutionSettings {
     pub limit: usize,
 }
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct FileEvolutionSettings {
     pub visible: bool,
@@ -50,20 +57,20 @@ pub struct FileEvolutionSettings {
     pub min_files_height: f32,
 }
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct WindowSettings {
     pub width: f32,
     pub height: f32,
 }
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct UiSettings {
     pub font_size: f32,
 }
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct EditorSettings {
     pub font_size: f32,
@@ -71,7 +78,7 @@ pub struct EditorSettings {
     pub font_family: Option<String>,
 }
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct PanelSettings {
     pub history: SidebarSettings,
@@ -79,7 +86,7 @@ pub struct PanelSettings {
     pub diff: DiffPanelSettings,
 }
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct SidebarSettings {
     pub default_width: f32,
@@ -87,21 +94,21 @@ pub struct SidebarSettings {
     pub max_width: f32,
 }
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct DiffPanelSettings {
     pub gutter_width: f32,
     pub min_code_width: f32,
 }
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct HistorySettings {
     pub row_height: f32,
     pub lane_spacing: f32,
 }
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct FileSettings {
     pub tree_row_height: f32,
@@ -118,7 +125,7 @@ pub enum DiffView {
     Fluid,
 }
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct DiffSettings {
     pub default_view: DiffView,
@@ -127,7 +134,7 @@ pub struct DiffSettings {
     pub inline: PaneSettings,
 }
 
-#[derive(Clone, Copy, Debug, Deserialize)]
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct PaneSettings {
     pub word_wrap: bool,
@@ -191,6 +198,9 @@ impl Settings {
                 return Err(format!("{name} must be between {min} and {max}"));
             }
             Ok(())
+        }
+        if !(100..=60000).contains(&self.settings.poll_interval_ms) {
+            return Err("settings.poll_interval_ms must be between 100 and 60000".into());
         }
         bounded("window.width", self.window.width, 320., 10000.)?;
         bounded("window.height", self.window.height, 240., 10000.)?;
@@ -328,6 +338,8 @@ mod tests {
         for input in [
             "[editor]\nfont_szie=14",
             "[live]\npoll_interval_ms=0",
+            "[settings]\npoll_interval_ms=0",
+            "[settings]\npoll_interval_ms=60001",
             "[editor]\nfont_size=nan",
             "[panels.files]\nmin_width=500\ndefault_width=200",
             "[diff]\ndefault_view='invalid'",
