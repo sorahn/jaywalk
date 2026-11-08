@@ -483,3 +483,14 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer cargo clippy --all-targ
 ```
 
 Tests use synthetic temporary jj repositories and leave external checkouts unchanged.
+
+
+## License
+
+Jaywalk's original code is licensed under the GNU General Public License,
+version 3 only (`GPL-3.0-only`). See [LICENSE](LICENSE) for the full terms.
+
+Third-party code retains its respective licenses. In particular, the vendored
+`gpui-component` code and its local patches remain under Apache-2.0; its license
+is preserved in [vendor/gpui-component/LICENSE-APACHE](vendor/gpui-component/LICENSE-APACHE).
+See [vendor/README.md](vendor/README.md) for dependency provenance and local changes.

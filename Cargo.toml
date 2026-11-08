@@ -2,6 +2,7 @@
 name = "jaywalk"
 version = "0.1.1"
 edition = "2024"
+license = "GPL-3.0-only"
 default-run = "jaywalk"
 
 [dependencies]
