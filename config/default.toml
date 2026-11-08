@@ -6,6 +6,10 @@ width = 1500
 height = 950
 
 [ui]
+# Suppress transient loading indicators; 0 shows them immediately.
+loading_delay_ms = 200
+# Reserved comparison toolbar height; grows if the UI font needs more space.
+comparison_bar_height = 36
 font_size = 16
 ligatures = true
 # font_family = "Helvetica Neue"

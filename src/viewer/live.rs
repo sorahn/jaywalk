@@ -199,6 +199,7 @@ impl Viewer {
             .unwrap_or_else(|| self.arguments.tip.clone());
         let generation = self.repository_generation;
         let file_generation = self.file_generation;
+        self.begin_loading(LoadingKind::Live, window, cx);
         self.live.busy = true;
         self.live.message = Some("Updating recorded changes…".into());
         self.live.refresh = Some(cx.spawn_in(window, async move |this, cx| {
@@ -220,6 +221,7 @@ impl Viewer {
             let _ =
                 this.update_in(cx, |viewer, window, cx| {
                     viewer.live.busy = false;
+                    viewer.finish_loading(LoadingKind::Live);
                     if viewer.repository_generation != generation
                         || viewer.file_generation != file_generation
                     {
@@ -237,6 +239,7 @@ impl Viewer {
                         Ok((branch, history, revision, comparison)) => {
                             viewer.repository_generation += 1;
                             viewer.repository_task = None;
+                            viewer.remember_evolution_header();
                             viewer.evolution.clear();
                             viewer.file_evolution.clear();
                             let scope = revision.as_ref().map_or(

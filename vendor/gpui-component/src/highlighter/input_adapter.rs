@@ -27,6 +27,33 @@ pub(crate) fn input_highlighter_factory() -> InputHighlighterFactory {
     })
 }
 
+/// A complete initial parse for an editor that must paint highlighted text on
+/// its first frame. Prepare on a background thread, then install the factory
+/// after setting the editor value. Subsequent edits use the normal adapter.
+pub struct PreparedInputHighlighter {
+    inner: SyntaxHighlighter,
+}
+
+impl PreparedInputHighlighter {
+    pub fn new(language: &str, text: &str) -> Self {
+        let mut inner = SyntaxHighlighter::new(language);
+        inner.update(None, &Rope::from(text), None);
+        Self { inner }
+    }
+
+    pub fn into_factory(self) -> InputHighlighterFactory {
+        let prepared = RefCell::new(Some(self.inner));
+        Rc::new(move |language| {
+            let inner = prepared.borrow_mut().take().filter(|inner| inner.language() == language);
+            inner.map(|inner| Box::new(TreeSitterInputHighlighter {
+                inner: Rc::new(RefCell::new(inner)),
+                parse_task: Rc::new(RefCell::new(None)),
+            }) as Box<dyn InputHighlighter>)
+                .or_else(|| input_highlighter_factory()(language))
+        })
+    }
+}
+
 const SYNC_PARSE_TIMEOUT: Duration = Duration::from_millis(2);
 const SYNC_PARSE_MAX_BYTES: usize = 256 * 1024;
 const PARSE_DEBOUNCE: Duration = Duration::from_millis(150);

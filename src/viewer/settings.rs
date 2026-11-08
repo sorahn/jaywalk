@@ -170,6 +170,9 @@ impl Viewer {
         if self.view_mode != ViewMode::Fluid {
             self.config.pending_standard = position;
         }
+        if previous.ui.loading_delay_ms != self.settings.ui.loading_delay_ms {
+            self.reschedule_feedback(window, cx);
+        }
         self.apply_panel_settings(&previous, cx);
         self.apply_evolution_settings(&previous, window, cx);
         if previous.panels.files.font != self.settings.panels.files.font

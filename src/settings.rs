@@ -80,6 +80,8 @@ pub struct WindowSettings {
 #[derive(Clone, Debug, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct UiSettings {
+    pub loading_delay_ms: u64,
+    pub comparison_bar_height: f32,
     pub font_size: f32,
     #[serde(default)]
     pub font_family: Option<String>,
@@ -253,6 +255,15 @@ impl Settings {
         }
         bounded("window.width", self.window.width, 320., 10000.)?;
         bounded("window.height", self.window.height, 240., 10000.)?;
+        if self.ui.loading_delay_ms > 5000 {
+            return Err("ui.loading_delay_ms must be between 0 and 5000".into());
+        }
+        bounded(
+            "ui.comparison_bar_height",
+            self.ui.comparison_bar_height,
+            24.,
+            120.,
+        )?;
         bounded("ui.font_size", self.ui.font_size, 8., 48.)?;
         bounded("editor.font_size", self.editor.font_size, 8., 48.)?;
         if !(1..=16).contains(&self.editor.tab_size) {

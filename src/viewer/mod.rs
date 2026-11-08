@@ -17,6 +17,7 @@ use crate::Arguments;
 pub(crate) mod commands;
 mod comparison;
 mod evolution;
+mod feedback;
 mod files;
 mod fluid_view;
 mod geometry;
@@ -30,6 +31,7 @@ mod session_layout;
 mod settings;
 mod typography;
 use geometry::{comparison_geometry, horizontal_wheel};
+use jaywalk::loading_feedback::LoadingKind;
 
 fn standard_mode(view: ViewMode) -> DiffMode {
     match view {
@@ -124,6 +126,7 @@ struct CodeComparison {
     before: Entity<EditorState>,
     after: Entity<EditorState>,
     model: Rc<FileDiff>,
+    decorations: [gpui::base::input::TextDecorationCollection; 2],
     standard: Result<Option<Entity<DiffState>>, String>,
 }
 
@@ -137,7 +140,20 @@ struct PreparedFile {
     before: String,
     after: String,
     model: FileDiff,
+    syntax: [gpui::component::highlighter::PreparedInputHighlighter; 2],
     standard: Result<Vec<DiffFile>, String>,
+}
+
+fn file_language(path: &str) -> &'static str {
+    match std::path::Path::new(path)
+        .extension()
+        .and_then(|value| value.to_str())
+    {
+        Some("ts") => "typescript",
+        Some("tsx") => "tsx",
+        Some("js" | "jsx") => "javascript",
+        _ => "plain",
+    }
 }
 
 impl PreparedFile {
@@ -148,6 +164,10 @@ impl PreparedFile {
     ) -> Result<Self, String> {
         let (before, after) = comparison.contents(file)?;
         let model = FileDiff::new(&before, &after);
+        let language = file_language(&file.after_path);
+        let syntax = [&before, &after].map(|text| {
+            gpui::component::highlighter::PreparedInputHighlighter::new(language, text)
+        });
         let standard = DiffFile::parse(&standard_patch(&before, &after))
             .map(|files| {
                 files
@@ -160,6 +180,7 @@ impl PreparedFile {
             before,
             after,
             model,
+            syntax,
             standard,
         })
     }
@@ -176,6 +197,7 @@ pub(crate) struct Viewer {
     panels: panels::PanelLayout,
     history_scroll: UniformListScrollHandle,
     evolution: evolution::EvolutionPanel,
+    evolution_header: Option<evolution::HeaderPresentation>,
     file_evolution: evolution::EvolutionPanel,
     active_evolution: evolution::EvolutionKind,
     repository: LoadState<RepositorySession>,
@@ -197,6 +219,7 @@ pub(crate) struct Viewer {
     fluid: FluidScroll,
     editor_observers: Vec<Subscription>,
     live: live::LiveState,
+    feedback: feedback::Feedback,
     palette: palette::PaletteState,
     layout: session_layout::SessionLayout,
     config: settings::ConfigState,
@@ -244,6 +267,7 @@ impl Viewer {
         self.config.pending_horizontal = None;
         self.file_generation += 1;
         self.file_task = None;
+        self.finish_loading(LoadingKind::File);
         self.selected_file = None;
         self.live.pending_position = None;
         self.live.restore = None;

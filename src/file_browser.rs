@@ -23,8 +23,11 @@ pub fn with_preview(
     let retained = open
         .filter(|file| find_file(files, &file.after_path).is_none())
         .map(|file| {
-            let index = displayed.len();
-            displayed.push(file.clone());
+            let index = displayed
+                .iter()
+                .position(|entry| entry.after_path > file.after_path)
+                .unwrap_or(displayed.len());
+            displayed.insert(index, file.clone());
             index
         });
     (displayed, retained)
@@ -222,6 +225,36 @@ mod preview_tests {
             None
         );
     }
+    #[test]
+    fn preview_keeps_its_sorted_place_and_changed_rows_resolve_by_path() {
+        let changed = [
+            file("modified", "Cargo.toml", "Cargo.toml"),
+            file("modified", "src/main.rs", "src/main.rs"),
+        ];
+        for (path, expected) in [("Cargo.lock", 0), ("README.md", 1), ("zz.txt", 2)] {
+            let open = file("modified", path, path);
+            let (rows, retained) = with_preview(&changed, Some(&open));
+            assert_eq!(retained, Some(expected));
+            assert_eq!(rows[expected].after_path, path);
+            assert!(
+                rows.windows(2)
+                    .all(|pair| pair[0].after_path < pair[1].after_path)
+            );
+            // Inserting a preview shifts display indices, never comparison indices.
+            let row = find_file(&rows, "src/main.rs").unwrap();
+            assert_eq!(find_file(&changed, &rows[row].after_path), Some(1));
+            let (closed, retained) = with_preview(&changed, None);
+            assert_eq!(retained, None);
+            assert_eq!(
+                closed
+                    .iter()
+                    .map(|file| file.after_path.as_str())
+                    .collect::<Vec<_>>(),
+                vec!["Cargo.toml", "src/main.rs"]
+            );
+        }
+    }
+
     #[test]
     fn empty_comparison_can_retain_a_file_until_it_reappears_or_is_closed() {
         let open = file("modified", "old.rs", "old.rs");

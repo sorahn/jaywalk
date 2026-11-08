@@ -1,5 +1,12 @@
 use super::*;
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum FileLoad {
+    Select,
+    Follow,
+    Reflow,
+}
+
 impl Viewer {
     pub(crate) fn new(
         arguments: Arguments,
@@ -31,6 +38,7 @@ impl Viewer {
             line_numbers: settings.editor.line_numbers,
             config: settings::ConfigState::new(),
             live: live::LiveState::new(),
+            feedback: feedback::Feedback::default(),
             palette,
             layout,
             arguments,
@@ -39,6 +47,7 @@ impl Viewer {
             panels: panels::PanelLayout::new(cx),
             history_scroll: UniformListScrollHandle::new(),
             evolution,
+            evolution_header: None,
             file_evolution,
             active_evolution: evolution::EvolutionKind::Change,
             repository: LoadState::Loading,
@@ -76,6 +85,7 @@ impl Viewer {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        self.remember_evolution_header();
         self.evolution.clear();
         self.file_evolution.clear();
         self.active_evolution = evolution::EvolutionKind::Change;
@@ -83,6 +93,7 @@ impl Viewer {
         let generation = self.repository_generation;
         self.remember_reading(cx);
         self.repository = LoadState::Loading;
+        self.begin_loading(LoadingKind::Comparison, window, cx);
         self.rebuild_browser(cx);
         let arguments = self.arguments.clone();
         self.repository_task = Some(cx.spawn_in(window, async move |this, cx| {
@@ -115,6 +126,7 @@ impl Viewer {
                 if viewer.repository_generation != generation {
                     return;
                 }
+                viewer.finish_loading(LoadingKind::Comparison);
                 viewer.repository = match result {
                     Ok((comparison, history, tip_expression)) => {
                         if viewer.live.tip_expression.is_none() {
@@ -188,7 +200,7 @@ impl Viewer {
             return;
         };
         let comparison = comparison.clone();
-        self.load_file(comparison, file, false, window, cx);
+        self.load_file(comparison, file, FileLoad::Select, window, cx);
     }
 
     pub(super) fn follow_open_file(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -200,7 +212,7 @@ impl Viewer {
         };
         if let Some(index) = jaywalk::file_browser::find_file(&comparison.files, &path) {
             let file = comparison.files[index].clone();
-            self.load_file(comparison, file, true, window, cx);
+            self.load_file(comparison, file, FileLoad::Follow, window, cx);
         }
     }
 
@@ -209,7 +221,7 @@ impl Viewer {
             self.load_file(
                 selected.source.clone(),
                 selected.file.clone(),
-                true,
+                FileLoad::Reflow,
                 window,
                 cx,
             );
@@ -220,10 +232,11 @@ impl Viewer {
         &mut self,
         comparison: Comparison,
         file: jaywalk::repository::ChangedFile,
-        preserve: bool,
+        reason: FileLoad,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        let preserve = reason != FileLoad::Select;
         self.remember_reading(cx);
         if preserve {
             self.file_generation += 1;
@@ -237,6 +250,7 @@ impl Viewer {
             self.fluid = FluidScroll::default();
             self.horizontal_position = 0.;
         }
+        self.begin_loading(LoadingKind::File, window, cx);
         self.recall_reading(&file.after_path);
         let generation = self.file_generation;
         self.focus_evolution_file(Some(&file.after_path));
@@ -246,15 +260,7 @@ impl Viewer {
         let metadata = file.clone();
         let tab_size = self.settings.editor.tab_size;
         self.file_task = Some(cx.spawn_in(window, async move |this, cx| {
-            let extension = std::path::Path::new(&file.after_path)
-                .extension()
-                .and_then(|value| value.to_str());
-            let language = match extension {
-                Some("ts") => "typescript",
-                Some("tsx") => "tsx",
-                Some("js" | "jsx") => "javascript",
-                _ => "plain",
-            };
+            let language = file_language(&file.after_path);
             let path = file.after_path.clone();
             let result = cx
                 .background_spawn(async move { PreparedFile::load(&comparison, &file, tab_size) })
@@ -263,12 +269,30 @@ impl Viewer {
                 if viewer.file_generation != generation {
                     return;
                 }
+                viewer.finish_loading(LoadingKind::File);
                 if preserve && let Some(snapshot) = viewer.capture_reading(cx) {
                     viewer.live.restore = Some((path.clone(), snapshot));
                 }
                 let content = match result {
                     Err(error) => LoadState::Failed(error),
                     Ok(prepared) => {
+                        // Keeping the mounted editors preserves their measured wrap map,
+                        // focus and selection. Identical text needs no viewport reset.
+                        if reason == FileLoad::Follow
+                            && viewer.selected_path().as_deref() == Some(&path)
+                            && viewer.code().is_some()
+                        {
+                            viewer.update_followed_file(prepared, window, cx);
+                            let selected = viewer
+                                .selected_file
+                                .as_mut()
+                                .expect("the followed file still owns its editors");
+                            selected.file = metadata;
+                            selected.source = source;
+                            viewer.rebuild_browser(cx);
+                            cx.notify();
+                            return;
+                        }
                         viewer.restore_prepared_reading(&path, &prepared.before, &prepared.after);
                         let standard = prepared.standard.map(|files| {
                             if files.is_empty() {
@@ -300,10 +324,16 @@ impl Viewer {
                         };
                         let before = make_editor(prepared.before, viewer.wrapping.before, cx);
                         let after = make_editor(prepared.after, viewer.wrapping.after, cx);
-                        for (state, ranges, color) in [
+                        for (state, syntax) in [&before, &after].into_iter().zip(prepared.syntax) {
+                            state.update(cx, |editor, cx| {
+                                editor.set_highlighter_factory(syntax.into_factory(), cx)
+                            });
+                        }
+                        let decorations = [
                             (&before, &prepared.model.before_words, 0xf8514955),
                             (&after, &prepared.model.after_words, 0x4ec96e55),
-                        ] {
+                        ]
+                        .map(|(state, ranges, color)| {
                             state.update(cx, |editor, cx| {
                                 editor.create_decorations_collection(
                                     ranges
@@ -320,9 +350,9 @@ impl Viewer {
                                         })
                                         .collect(),
                                     cx,
-                                );
-                            });
-                        }
+                                )
+                            })
+                        });
                         if viewer.view_mode != ViewMode::Fluid
                             && let Some((before, after, horizontal)) =
                                 viewer.live.pending_position.take()
@@ -340,9 +370,16 @@ impl Viewer {
                                 after
                             };
                             viewer.config.pending_horizontal = Some(horizontal);
-                            viewer.config.pending_standard = Some(
-                                gpui::component::diff::DiffLinePosition::new(path, side, line + 1),
-                            );
+                            state.update(cx, |state, cx| {
+                                state.scroll_to_line(
+                                    gpui::component::diff::DiffLinePosition::new(
+                                        path,
+                                        side,
+                                        line + 1,
+                                    ),
+                                    cx,
+                                )
+                            });
                         }
                         viewer.editor_observers = vec![
                             cx.observe(&before, |_, _, cx| cx.notify()),
@@ -352,6 +389,7 @@ impl Viewer {
                             before,
                             after,
                             model: Rc::new(prepared.model),
+                            decorations,
                             standard,
                         })
                     }
@@ -370,6 +408,142 @@ impl Viewer {
         cx.notify();
     }
 
+    fn update_followed_file(
+        &mut self,
+        prepared: PreparedFile,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let path = self.selected_path().expect("a followed file has a path");
+        let code = self.code().expect("a followed file has mounted editors");
+        let before = code.before.clone();
+        let after = code.after.clone();
+        if before.read(cx).value().as_ref() == prepared.before
+            && after.read(cx).value().as_ref() == prepared.after
+        {
+            self.live.restore = None;
+            return;
+        }
+        self.restore_prepared_reading(&path, &prepared.before, &prepared.after);
+        for ((state, text), syntax) in [(&before, prepared.before), (&after, prepared.after)]
+            .into_iter()
+            .zip(prepared.syntax)
+        {
+            if state.read(cx).value().as_ref() != text {
+                state.update(cx, |editor, cx| {
+                    editor.set_value(text, window, cx);
+                    editor.set_highlighter_factory(syntax.into_factory(), cx);
+                });
+            }
+        }
+        let code = self
+            .code()
+            .expect("updating text keeps its editor entities");
+        for (collection, ranges, color) in [
+            (
+                &code.decorations[0],
+                &prepared.model.before_words,
+                0xf8514955,
+            ),
+            (
+                &code.decorations[1],
+                &prepared.model.after_words,
+                0x4ec96e55,
+            ),
+        ] {
+            collection.set(
+                ranges
+                    .iter()
+                    .cloned()
+                    .map(|range| {
+                        gpui::base::input::TextDecoration::new(
+                            range,
+                            HighlightStyle {
+                                background_color: Some(rgba(color).into()),
+                                ..Default::default()
+                            },
+                        )
+                    })
+                    .collect(),
+                cx,
+            );
+        }
+        if self.view_mode == ViewMode::Fluid
+            && let Some((left, right, horizontal)) = self.live.pending_position.take()
+        {
+            // set_value updates the cached wrap map synchronously. Restore
+            // against it before prepaint, rather than after a frame at line 1.
+            let geometry = comparison_geometry(before.read(cx), after.read(cx), &prepared.model);
+            self.fluid.position = geometry.position_for_line(&prepared.model, left, true);
+            for (state, positions, line) in [
+                (&before, &geometry.before, left),
+                (&after, &geometry.after, right),
+            ] {
+                state.update(cx, |editor, cx| {
+                    editor.set_scroll_offset(
+                        point(
+                            px(-horizontal),
+                            px(-positions[line.min(positions.len() - 1)]),
+                        ),
+                        cx,
+                    )
+                });
+            }
+            self.horizontal_position = horizontal;
+        }
+        let standard = match prepared.standard {
+            Ok(files) if files.is_empty() => Ok(None),
+            Ok(files) => {
+                let language = before.read(cx).language_name();
+                let mode = standard_mode(self.view_mode);
+                let state = cx.new(|cx| {
+                    DiffState::new(
+                        files
+                            .into_iter()
+                            .map(|file| file.with_language(language.clone())),
+                        cx,
+                    )
+                    .with_context_lines(None)
+                    .with_mode(mode)
+                });
+                if self.view_mode != ViewMode::Fluid
+                    && let Some((left, right, horizontal)) = self.live.pending_position.take()
+                    && let Some(path) = state
+                        .read(cx)
+                        .files()
+                        .first()
+                        .map(|file| file.path().clone())
+                {
+                    let side = self.live.standard_side;
+                    let line = if side == gpui::component::diff::DiffSide::Original {
+                        left
+                    } else {
+                        right
+                    };
+                    state.update(cx, |state, cx| {
+                        state.scroll_to_line(
+                            gpui::component::diff::DiffLinePosition::new(path, side, line + 1),
+                            cx,
+                        );
+                    });
+                    self.config.pending_horizontal = Some(horizontal);
+                }
+                Ok(Some(state))
+            }
+            Err(error) => Err(error),
+        };
+        if let Some(SelectedFile {
+            content: LoadState::Loaded(code),
+            ..
+        }) = &mut self.selected_file
+        {
+            code.model = Rc::new(prepared.model);
+            code.standard = standard;
+        }
+        self.active_change = None;
+        self.navigation_target = None;
+    }
+
     pub(super) fn show_whole_branch(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         // There is no recorded branch to restore until the initial snapshot
         // finishes. Cancelling that task here would leave a loading view.
@@ -377,11 +551,14 @@ impl Viewer {
             return;
         }
         self.remember_reading(cx);
+        self.remember_evolution_header();
         self.evolution.clear();
         self.file_evolution.clear();
         self.active_evolution = evolution::EvolutionKind::Change;
         self.repository_generation += 1;
         self.repository_task = None;
+        self.finish_loading(LoadingKind::Comparison);
+        self.finish_loading(LoadingKind::Evolution);
         if let LoadState::Loaded(session) = &mut self.repository {
             session.scope = ComparisonScope::WholeBranch;
             session.comparison = LoadState::Loaded(session.branch.clone());
@@ -419,6 +596,7 @@ impl Viewer {
         let already_loading = matches!(&session.scope, ComparisonScope::Revision {commit_id: current, ..} if current == commit_id)
             && matches!(session.comparison, LoadState::Loading);
         let branch = session.branch.as_ref().clone();
+        self.remember_evolution_header();
         self.remember_reading(cx);
         if already_loading {
             self.load_evolution(revision, window, cx);
@@ -428,6 +606,7 @@ impl Viewer {
         self.repository_generation += 1;
         let generation = self.repository_generation;
         self.repository_task = None;
+        self.finish_loading(LoadingKind::Comparison);
         if let LoadState::Loaded(session) = &mut self.repository {
             session.scope = ComparisonScope::Revision {
                 commit_id: revision.commit_id.clone(),
@@ -444,6 +623,7 @@ impl Viewer {
             cx.notify();
             return;
         }
+        self.begin_loading(LoadingKind::Comparison, window, cx);
         let revision_for_evolution = revision.clone();
         self.repository_task = Some(cx.spawn_in(window, async move |this, cx| {
             let result = cx
@@ -453,6 +633,7 @@ impl Viewer {
                 if viewer.repository_generation != generation {
                     return;
                 }
+                viewer.finish_loading(LoadingKind::Comparison);
                 if let LoadState::Loaded(session) = &mut viewer.repository {
                     session.comparison = match result {
                         Ok(comparison) => {
@@ -475,5 +656,41 @@ impl Viewer {
 
     pub(super) fn refresh(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.refresh_live(window, cx);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use gpui::base::input::HighlightStyleResolver;
+    use gpui::component::highlighter::PreparedInputHighlighter;
+    use gpui::{HighlightStyle, rgb};
+
+    struct TestStyles;
+    impl HighlightStyleResolver for TestStyles {
+        fn style(&self, _: &str) -> Option<HighlightStyle> {
+            Some(HighlightStyle {
+                color: Some(rgb(0x3794ff).into()),
+                ..Default::default()
+            })
+        }
+    }
+
+    #[test]
+    fn large_comparisons_have_syntax_colors_before_any_editor_update() {
+        // Above the live editor's synchronous parse budget. No window, timer,
+        // or first paint is needed to obtain complete styles for either text.
+        for value in ["before", "after"] {
+            let text = format!("export const name = '{value} 🦀';\n").repeat(10_000);
+            assert!(text.len() > 256 * 1024);
+            let factory = PreparedInputHighlighter::new("typescript", &text).into_factory();
+            let highlighter = factory("typescript").expect("typescript has a parser");
+            let line_bytes = text.len() / 10_000;
+            for range in [0..line_bytes, text.len() - line_bytes..text.len()] {
+                let spans = highlighter.styles(&range, &TestStyles);
+                assert!(spans.iter().any(|(_, style)| style.color.is_some()));
+                assert_eq!(spans.first().unwrap().0.start, range.start);
+                assert_eq!(spans.last().unwrap().0.end, range.end);
+            }
+        }
     }
 }

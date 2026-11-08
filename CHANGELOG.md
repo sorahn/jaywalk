@@ -29,6 +29,18 @@ Planned version: **0.1.1**.
 
 ### Fixed
 
+- Preserve overview and file-view backgrounds and filename headers across loading and error states;
+  delay transient History loading text consistently with the other panels.
+
+- Mark retained previews with an inline icon and keep their sidebar entries in
+  normal sorted order without adding a header row.
+
+- Keep the evolution toolbar and changed-file list stable during commit changes;
+  suppress transient loading indicators with a configurable delay, and retain
+  the evolution label, controls and timeline rows until replacement metadata is ready.
+  Reuse open editors across comparisons and restore changed-text positions before
+  painting; prepare syntax off-thread to avoid a second highlighting flash.
+
 - Clearly identify the working-copy change and whether it contains changes.
 - Preserve reading position when fonts, wrapping, and diff views change.
 - Preserve text selection and copy bindings when shortcuts reload.

@@ -106,13 +106,34 @@ impl Viewer {
                     if let Some(index) = index
                         && viewer.selected_index() != Some(index)
                     {
-                        viewer.select_file(index, window, cx);
+                        viewer.select_browser_entry(index, window, cx);
                     }
                 }),
             );
     }
 
+    fn select_browser_entry(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(path) = self
+            .browser
+            .files
+            .get(index)
+            .map(|file| file.after_path.clone())
+        {
+            self.select_path(&path, window, cx);
+        }
+    }
+
+    pub(super) fn is_retained_preview(&self) -> bool {
+        self.browser.retained.is_some() && self.browser.retained == self.selected_index()
+    }
+
     pub(super) fn rebuild_browser(&mut self, cx: &mut Context<Self>) {
+        // Keep the last coherent list until replacement metadata arrives.
+        // Selection callbacks require a loaded current comparison, so stale rows
+        // cannot open a file from a different commit while it is pending.
+        if matches!(self.comparison_state(), LoadState::Loading) {
+            return;
+        }
         let (files, retained) = jaywalk::file_browser::with_preview(
             self.comparison()
                 .map_or(&[], |comparison| comparison.files.as_ref()),
@@ -253,8 +274,19 @@ impl Viewer {
                     .py_2()
                     .child(
                         div()
+                            .flex_1()
+                            .min_w_0()
+                            .truncate()
                             .text_size(px(self.settings.panels.files.font.size * 0.85))
-                            .child("CHANGED FILES"),
+                            .child(
+                                if matches!(self.comparison_state(), LoadState::Loading)
+                                    && self.loading_visible(LoadingKind::Comparison)
+                                {
+                                    "CHANGED FILES · Loading…"
+                                } else {
+                                    "CHANGED FILES"
+                                },
+                            ),
                     )
                     .child(
                         div()
@@ -303,7 +335,6 @@ impl Viewer {
                     ),
             );
         match self.comparison_state() {
-            LoadState::Loading => panel = panel.child(div().p_3().child("Loading comparison…")),
             LoadState::Failed(error) => panel = panel.child(div().p_3().child(error)),
             LoadState::Loaded(comparison) if comparison.files.is_empty() => {
                 panel = panel.child(div().p_3().child("No changed files"));
@@ -372,7 +403,7 @@ impl Viewer {
                                     .child(label),
                             )
                             .on_click(cx.listener(move |this, _, window, cx| {
-                                this.select_file(index, window, cx)
+                                this.select_browser_entry(index, window, cx)
                             })),
                     );
                 }

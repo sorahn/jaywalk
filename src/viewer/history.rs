@@ -135,19 +135,26 @@ impl Viewer {
                         ),
                 ),
         );
-        let session = match &self.repository {
-            LoadState::Loaded(session) => session,
-            LoadState::Loading => {
-                return panel
-                    .child(div().p_3().child("Loading repository…"))
-                    .into_any_element();
-            }
-            LoadState::Failed(error) => {
-                return panel
-                    .child(div().p_3().child(error.clone()))
-                    .into_any_element();
-            }
-        };
+        let session =
+            match &self.repository {
+                LoadState::Loaded(session) => session,
+                LoadState::Loading => {
+                    return panel
+                        .child(div().p_3().child(
+                            if self.loading_visible(LoadingKind::Comparison) {
+                                "Loading repository…"
+                            } else {
+                                ""
+                            },
+                        ))
+                        .into_any_element();
+                }
+                LoadState::Failed(error) => {
+                    return panel
+                        .child(div().p_3().child(error.clone()))
+                        .into_any_element();
+                }
+            };
         let history = match &session.history {
             Ok(history) => history.clone(),
             Err(error) => {

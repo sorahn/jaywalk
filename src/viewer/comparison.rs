@@ -1,4 +1,5 @@
 use super::*;
+use gpui::component::Icon;
 
 impl Viewer {
     pub(super) fn unchanged_file_summary(&self) -> &'static str {
@@ -22,56 +23,55 @@ impl Viewer {
             .as_ref()
             .expect("loaded file has metadata");
         let file = &selected.file;
-        let text_changed = self
+        let contents_unchanged = self
             .code()
-            .is_some_and(|code| code.model.blocks.iter().any(|block| block.changed));
-        let mut header = div()
-            .v_flex()
-            .px_3()
-            .py_2()
-            .bg(rgb(0x302b3d))
-            .child(file.after_path.clone());
-        let preview = match self.comparison_state() {
-            LoadState::Loading => Some("Updating selected comparison…"),
-            LoadState::Failed(_) => {
-                Some("Previous preview · selected comparison could not be loaded")
-            }
-            LoadState::Loaded(comparison) => {
-                if jaywalk::file_browser::find_file(&comparison.files, &file.after_path).is_none() {
-                    Some("Retained preview · file is absent from the selected comparison")
-                } else if comparison.base != selected.source.base
-                    || comparison.tip != selected.source.tip
-                    || comparison.operation != selected.source.operation
-                {
-                    Some("Updating file comparison…")
-                } else {
-                    None
-                }
-            }
-        };
-        if let Some(preview) = preview {
-            header = header.child(div().text_sm().italic().child(preview));
-        }
+            .is_some_and(|code| code.model.blocks.iter().all(|block| !block.changed));
+        let updating = self.loading_visible(LoadingKind::Comparison)
+            || self.loading_visible(LoadingKind::File)
+            || self.loading_visible(LoadingKind::Live);
+        let mut header = div().v_flex().px_3().py_2().bg(rgb(0x302b3d)).child(
+            div()
+                .h_flex()
+                .items_center()
+                .gap_2()
+                .children(
+                    (self.is_retained_preview()
+                        || matches!(self.comparison_state(), LoadState::Failed(_)))
+                    .then(|| {
+                        div()
+                            .flex_shrink_0()
+                            .child(Icon::new(IconName::Eye).size(px(self.settings.ui.font_size)))
+                    }),
+                )
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .truncate()
+                        .child(file.after_path.clone()),
+                )
+                .children(updating.then(|| div().flex_shrink_0().text_sm().child("Updating…"))),
+        );
         let detail = match file.status.as_str() {
             "renamed" => Some(format!(
                 "Renamed from {}{}",
                 file.before_path,
-                if text_changed {
-                    ""
-                } else {
+                if contents_unchanged {
                     " · contents unchanged"
+                } else {
+                    ""
                 }
             )),
             "copied" => Some(format!(
                 "Copied from {}{}",
                 file.before_path,
-                if text_changed {
-                    ""
-                } else {
+                if contents_unchanged {
                     " · contents unchanged"
+                } else {
+                    ""
                 }
             )),
-            _ if !text_changed => Some(self.unchanged_file_summary().to_owned()),
+            _ if contents_unchanged => Some(self.unchanged_file_summary().to_owned()),
             _ => None,
         };
         if let Some(detail) = detail {
@@ -98,16 +98,14 @@ impl Viewer {
                         && let Some(Ok(Some(state))) =
                             viewer.code().map(|code| code.standard.clone())
                     {
-                        let horizontal = viewer.config.pending_horizontal.take();
-                        state.update(cx, |state, cx| {
-                            state.scroll_to_line(position, cx);
-                            if let Some(horizontal) = horizontal {
-                                state.scroll_horizontal(px(horizontal), cx);
-                            }
-                        });
-                        if let Some(horizontal) = horizontal {
-                            viewer.horizontal_position = horizontal;
-                        }
+                        state.update(cx, |state, cx| state.scroll_to_line(position, cx));
+                    }
+                    if let Some(horizontal) = viewer.config.pending_horizontal.take()
+                        && let Some(Ok(Some(state))) =
+                            viewer.code().map(|code| code.standard.clone())
+                    {
+                        state.update(cx, |state, cx| state.scroll_horizontal(px(horizontal), cx));
+                        viewer.horizontal_position = horizontal;
                     }
                 });
                 let viewer = viewer.clone();
@@ -168,11 +166,36 @@ impl Viewer {
     }
 
     pub(super) fn render_comparison(&self, cx: &mut Context<Self>) -> AnyElement {
+        let theme = gpui::component::Theme::global(cx);
+        let file_background = if self.view_mode == ViewMode::Fluid {
+            theme
+                .highlight_theme
+                .style
+                .editor_background
+                .unwrap_or_else(|| theme.input_background())
+        } else {
+            theme.background
+        };
+        let file_surface = div().v_flex().size_full().bg(file_background);
         if let Some(selected) = &self.selected_file {
             match &selected.content {
-                LoadState::Loading => return div().p_6().child("Loading file…").into_any_element(),
+                LoadState::Loading => {
+                    return file_surface
+                        .child(self.render_file_header())
+                        .child(div().flex_1().min_h_0().p_6().child(
+                            if self.loading_visible(LoadingKind::File) {
+                                "Loading file…"
+                            } else {
+                                ""
+                            },
+                        ))
+                        .into_any_element();
+                }
                 LoadState::Failed(error) => {
-                    return div().p_6().child(error.clone()).into_any_element();
+                    return file_surface
+                        .child(self.render_file_header())
+                        .child(div().flex_1().min_h_0().p_6().child(error.clone()))
+                        .into_any_element();
                 }
                 LoadState::Loaded(_) => {}
             }
@@ -209,9 +232,7 @@ impl Viewer {
                         .h_full()
                         .into_any_element()
                 };
-                return div()
-                    .v_flex()
-                    .size_full()
+                return file_surface
                     .child(self.render_file_header())
                     .child(
                         div().relative().flex_1().min_h_0().child(body).child(
@@ -225,9 +246,7 @@ impl Viewer {
             }
             let gutter_bounds = Rc::new(Cell::new(None));
             let measured_gutter = gutter_bounds.clone();
-            return div()
-                .v_flex()
-                .size_full()
+            return file_surface
                 .child(self.render_file_header())
                 .child(
                     div()
@@ -324,19 +343,23 @@ impl Viewer {
                 )
                 .into_any_element();
         }
+        // Keep the overview surface identical in pending, failed, and ready
+        // states instead of exposing the dark parent for a loading frame.
+        let overview = div().v_flex().size_full().bg(rgb(0x302b3d)).gap_4().p_6();
         match self.comparison_state() {
-            LoadState::Loading => div().p_6().child("Loading comparison…").into_any_element(),
-            LoadState::Failed(error) => div().p_6().child(error).into_any_element(),
+            LoadState::Loading => overview
+                .child(if self.loading_visible(LoadingKind::Comparison) {
+                    "Loading comparison…"
+                } else {
+                    ""
+                })
+                .into_any_element(),
+            LoadState::Failed(error) => overview.child(error).into_any_element(),
             LoadState::Loaded(comparison) => {
                 let heading = self
                     .selected_path()
                     .unwrap_or_else(|| "Changeset overview".into());
-                div()
-                    .v_flex()
-                    .size_full()
-                    .bg(rgb(0x302b3d))
-                    .gap_4()
-                    .p_6()
+                overview
                     .child(div().text_xl().child(heading))
                     .child(if self.is_interdiff() && comparison.files.is_empty() {
                         "No patch changes between these versions.".to_owned()

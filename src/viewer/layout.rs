@@ -251,14 +251,23 @@ impl Render for Viewer {
                     .bg(rgb(0x542c2c))
                     .child(message.clone())
             }))
-            .children(self.live.message.as_ref().map(|message| {
-                div()
-                    .px_3()
-                    .py_1()
-                    .text_xs()
-                    .bg(rgb(0x3b3426))
-                    .child(message.clone())
-            }))
+            .children(
+                self.live
+                    .message
+                    .as_ref()
+                    .filter(|message| {
+                        message.as_str() != "Updating recorded changes…"
+                            || self.loading_visible(LoadingKind::Live)
+                    })
+                    .map(|message| {
+                        div()
+                            .px_3()
+                            .py_1()
+                            .text_xs()
+                            .bg(rgb(0x3b3426))
+                            .child(message.clone())
+                    }),
+            )
             .children(self.render_palette(cx))
     }
 }

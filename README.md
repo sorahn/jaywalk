@@ -21,6 +21,17 @@ font-size extensions; see `vendor/README.md`.
 
 ## Reading across comparisons
 
+The comparison toolbar reserves its vertical space while revisions and evolution
+metadata load. Its previous label and controls stay visible during fast metadata
+loads, without briefly substituting a commit hash. Retained controls cannot act
+on the old timeline while replacement metadata is pending. The previous
+changed-file list stays visible until its replacement arrives. Loading indicators appear only after `[ui].loading_delay_ms` (200 ms by
+default); this does not delay loading or displaying results. Set it to `0` for
+immediate feedback. `[ui].comparison_bar_height` sets the toolbar's minimum height
+(36 logical pixels by default); larger UI fonts can increase it. Both settings
+apply live.
+
+
 Changing commits, evolution versions, or returning to Whole branch keeps the
 open file and restores its source-line reading position when possible. Live
 refresh follows the same behavior. Matching content anchors account for lines
@@ -28,8 +39,8 @@ inserted above the viewport; removed or rewritten anchors fall back to the
 nearest valid line. View mode and wrapping remain selected.
 
 If the selected comparison does not change that file, its last loaded diff
-stays visible as a labeled retained preview with an italic row in either file
-list or tree. It is excluded from changed-file counts. Selecting another file
+stays visible as a retained preview, marked by an eye icon beside the filename
+and an italic row in its normal sorted position in either file list or tree. It is excluded from changed-file counts. Selecting another file
 or Overview closes that temporary preview. If a later comparison changes the
 file, its new diff replaces the preview automatically. Explicit detected
 renames are followed; copies do not move the open file to their destination.

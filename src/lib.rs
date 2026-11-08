@@ -7,6 +7,7 @@ pub mod fluid;
 mod git;
 pub mod history;
 pub mod layout_state;
+pub mod loading_feedback;
 pub mod reading;
 pub mod repository;
 pub mod settings;
