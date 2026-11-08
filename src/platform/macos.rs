@@ -11,6 +11,8 @@ pub(super) fn update_menus(cx: &mut App) {
     use CommandId::*;
     cx.set_menus([
         Menu::new("Jaywalk").items([
+            item(About),
+            MenuItem::separator(),
             item(OpenSettings),
             MenuItem::separator(),
             MenuItem::os_submenu("Services", SystemMenuType::Services),

@@ -19,6 +19,19 @@ Rust API that fails on the installed stable compiler. The lockfile records the
 verified dependency set. The existing diff component is vendored for scoped scrolling, wrapping, and
 font-size extensions; see `vendor/README.md`.
 
+## Version and changelog
+
+This branch prepares **0.1.1**; user-visible changes are in [CHANGELOG.md](CHANGELOG.md).
+`Cargo.toml` owns the release version, including the macOS bundle's version.
+Run `jw --version` (or `jaywalk --version`), or choose **Jaywalk → About Jaywalk**
+to identify the build. About also offers Copy version and remains available with
+no repository windows open.
+
+Development builds show `0.1.1-dev (REVISION)`, with `-dirty` for modified
+checkouts. Release-profile builds show `0.1.1`. The About window includes source
+provenance for either build. A running process retains its compiled identity
+until it is quit and restarted. See CONTRIBUTING.md for the release procedure.
+
 ## Settings
 
 Edit `~/.config/jaywalk/config.toml` directly. When `XDG_CONFIG_HOME` is set,

@@ -106,6 +106,7 @@ poll_interval_ms = 500
 # Replace a command's entire array to rebind it; [] removes its shortcuts.
 # Space-separated keystrokes form chords, e.g. "secondary-k secondary-s".
 [keybindings]
+about = []
 open_repository = ["secondary-o"]
 find_file = ["secondary-p"]
 show_commands = ["secondary-shift-p", "f1"]

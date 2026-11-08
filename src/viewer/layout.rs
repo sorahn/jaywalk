@@ -9,7 +9,8 @@ impl Render for Viewer {
             .on_action(
                 cx.listener(|this, action: &commands::ExecuteCommand, window, cx| {
                     match action.command {
-                        jaywalk::commands::CommandId::OpenRepository
+                        jaywalk::commands::CommandId::About
+                        | jaywalk::commands::CommandId::OpenRepository
                         | jaywalk::commands::CommandId::Quit
                         | jaywalk::commands::CommandId::Hide
                         | jaywalk::commands::CommandId::HideOthers

@@ -5,6 +5,7 @@ use gpui::component::{Theme, ThemeMode};
 use gpui::*;
 use jaywalk::settings_reload::SettingsSource;
 
+mod about;
 mod cli;
 mod instance;
 mod windows;
@@ -23,6 +24,10 @@ fn main() {
 
 fn run() -> std::result::Result<(), String> {
     let mut arguments = Arguments::parse();
+    if arguments.package_version {
+        println!("{}", jaywalk::version::PACKAGE);
+        return Ok(());
+    }
     if arguments.inspect {
         let comparison = arguments.comparison()?;
         println!(

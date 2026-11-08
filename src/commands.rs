@@ -4,6 +4,7 @@ use serde::Deserialize;
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum CommandId {
+    About,
     OpenRepository,
     FindFile,
     ShowCommands,
@@ -43,6 +44,7 @@ pub enum CommandId {
 
 impl CommandId {
     pub const ALL: &[Self] = &[
+        Self::About,
         Self::OpenRepository,
         Self::FindFile,
         Self::ShowCommands,
@@ -82,6 +84,7 @@ impl CommandId {
 
     pub fn label(self) -> &'static str {
         match self {
+            Self::About => "About Jaywalk",
             Self::OpenRepository => "Open repository…",
             Self::FindFile => "Find changed file",
             Self::ShowCommands => "Command palette",

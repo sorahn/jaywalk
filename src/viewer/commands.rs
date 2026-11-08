@@ -12,6 +12,13 @@ pub(crate) fn init(arguments: &Arguments, settings: &Settings, cx: &mut App) {
     install_bindings(settings, cx);
     let arguments = arguments.clone();
     cx.on_action(move |action: &ExecuteCommand, cx| match action.command {
+        CommandId::About => cx.defer(|cx| {
+            // A menu action may run inside the active window's update. Reusing
+            // that window must wait until it is back in the app's window table.
+            if let Err(error) = crate::about::show(cx) {
+                eprintln!("Could not open About Jaywalk: {error}");
+            }
+        }),
         CommandId::OpenRepository => crate::choose_repository(arguments.clone(), cx),
         CommandId::Quit => cx.quit(),
         CommandId::Hide => cx.hide(),
@@ -40,7 +47,8 @@ fn configured_bindings(settings: &Settings) -> Vec<KeyBinding> {
     let mut result = Vec::new();
     for (command, bindings) in &settings.keybindings {
         let context = match command {
-            CommandId::OpenRepository
+            CommandId::About
+            | CommandId::OpenRepository
             | CommandId::Quit
             | CommandId::Hide
             | CommandId::HideOthers
@@ -136,7 +144,8 @@ impl Viewer {
             CommandId::CloseWindow => window.remove_window(),
             CommandId::Minimize => window.minimize_window(),
             CommandId::Fullscreen => window.toggle_fullscreen(),
-            CommandId::OpenRepository
+            CommandId::About
+            | CommandId::OpenRepository
             | CommandId::Quit
             | CommandId::Hide
             | CommandId::HideOthers

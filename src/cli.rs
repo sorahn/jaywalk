@@ -3,7 +3,7 @@ use jaywalk::repository::Comparison;
 use std::path::{Path, PathBuf};
 
 #[derive(Clone, Parser, serde::Serialize, serde::Deserialize)]
-#[command(about = "Jaywalk: a native Jujutsu diff viewer")]
+#[command(about = "Jaywalk: a native Git and Jujutsu diff viewer", version = jaywalk::version::DISPLAY)]
 pub(crate) struct Arguments {
     #[arg(default_value = ".")]
     pub(crate) directory: PathBuf,
@@ -19,6 +19,10 @@ pub(crate) struct Arguments {
     pub(crate) wait: bool,
     #[arg(long)]
     pub(crate) inspect: bool,
+    /// Machine-readable release version for the bundle builder.
+    #[arg(long, hide = true)]
+    #[serde(default)]
+    pub(crate) package_version: bool,
     /// Keep the GUI attached to this terminal (useful for debugging).
     #[arg(long)]
     pub(crate) foreground: bool,
