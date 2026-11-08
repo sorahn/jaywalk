@@ -1,6 +1,18 @@
 [package]
-name = "jj-viewer"
+name = "jaywalk"
 version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+clap = { version = "4", features = ["derive"] }
+serde_json = "1"
+serde = { version = "1", features = ["derive"] }
+toml = "1.2"
+similar = "2.7"
+gpui-kit = { version = "=0.8.0", features = ["tree-sitter-typescript", "tree-sitter-tsx", "tree-sitter-javascript"] }
+
+[profile.dev]
+debug = 0
+
+[patch.crates-io]
+gpui-component = { path = "vendor/gpui-component" }
