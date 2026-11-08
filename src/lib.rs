@@ -1,7 +1,9 @@
 pub mod diff_model;
 pub mod evolution;
+pub mod external;
 pub mod file_browser;
 pub mod fluid;
+mod git;
 pub mod history;
 pub mod layout_state;
 pub mod reading;
