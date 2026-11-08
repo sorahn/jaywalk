@@ -225,7 +225,7 @@ impl Viewer {
             return;
         }
         let current = self
-            .selected_index()
+            .selected_changed_index()
             .map(|index| index as i32)
             .unwrap_or(if delta > 0 {
                 -1

@@ -3,8 +3,9 @@ use super::*;
 impl Viewer {
     pub(super) fn unchanged_file_summary(&self) -> &'static str {
         let status = self
-            .selected_index()
-            .and_then(|index| self.comparison()?.files.get(index))
+            .selected_file
+            .as_ref()
+            .map(|selected| &selected.file)
             .map(|file| file.status.as_str());
         match status {
             Some("renamed") => "Renamed · contents unchanged",
@@ -16,10 +17,11 @@ impl Viewer {
     }
 
     fn render_file_header(&self) -> AnyElement {
-        let file = &self
-            .comparison()
-            .expect("loaded file has a recorded comparison")
-            .files[self.selected_index().expect("loaded file has an index")];
+        let selected = self
+            .selected_file
+            .as_ref()
+            .expect("loaded file has metadata");
+        let file = &selected.file;
         let text_changed = self
             .code()
             .is_some_and(|code| code.model.blocks.iter().any(|block| block.changed));
@@ -29,6 +31,27 @@ impl Viewer {
             .py_2()
             .bg(rgb(0x302b3d))
             .child(file.after_path.clone());
+        let preview = match self.comparison_state() {
+            LoadState::Loading => Some("Updating selected comparison…"),
+            LoadState::Failed(_) => {
+                Some("Previous preview · selected comparison could not be loaded")
+            }
+            LoadState::Loaded(comparison) => {
+                if jaywalk::file_browser::find_file(&comparison.files, &file.after_path).is_none() {
+                    Some("Retained preview · file is absent from the selected comparison")
+                } else if comparison.base != selected.source.base
+                    || comparison.tip != selected.source.tip
+                    || comparison.operation != selected.source.operation
+                {
+                    Some("Updating file comparison…")
+                } else {
+                    None
+                }
+            }
+        };
+        if let Some(preview) = preview {
+            header = header.child(div().text_sm().italic().child(preview));
+        }
         let detail = match file.status.as_str() {
             "renamed" => Some(format!(
                 "Renamed from {}{}",
@@ -72,9 +95,19 @@ impl Viewer {
                 // Scrolling before remeasurement can reinterpret old row heights.
                 let _ = viewer.update(cx, |viewer, cx| {
                     if let Some(position) = viewer.config.pending_standard.take()
-                        && let Some(Ok(Some(state))) = viewer.code().map(|code| &code.standard)
+                        && let Some(Ok(Some(state))) =
+                            viewer.code().map(|code| code.standard.clone())
                     {
-                        state.update(cx, |state, cx| state.scroll_to_line(position, cx));
+                        let horizontal = viewer.config.pending_horizontal.take();
+                        state.update(cx, |state, cx| {
+                            state.scroll_to_line(position, cx);
+                            if let Some(horizontal) = horizontal {
+                                state.scroll_horizontal(px(horizontal), cx);
+                            }
+                        });
+                        if let Some(horizontal) = horizontal {
+                            viewer.horizontal_position = horizontal;
+                        }
                     }
                 });
                 let viewer = viewer.clone();
@@ -296,8 +329,7 @@ impl Viewer {
             LoadState::Failed(error) => div().p_6().child(error).into_any_element(),
             LoadState::Loaded(comparison) => {
                 let heading = self
-                    .selected_index()
-                    .map(|index| comparison.files[index].after_path.clone())
+                    .selected_path()
                     .unwrap_or_else(|| "Changeset overview".into());
                 div()
                     .v_flex()

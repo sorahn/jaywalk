@@ -81,8 +81,9 @@ impl Viewer {
         self.active_evolution = evolution::EvolutionKind::Change;
         self.repository_generation += 1;
         let generation = self.repository_generation;
-        self.clear_file();
+        self.remember_reading(cx);
         self.repository = LoadState::Loading;
+        self.rebuild_browser(cx);
         let arguments = self.arguments.clone();
         self.repository_task = Some(cx.spawn_in(window, async move |this, cx| {
             let result = cx
@@ -148,6 +149,8 @@ impl Viewer {
                 });
                 if let Some(path) = preferred_path {
                     viewer.select_path(&path, window, cx);
+                } else if viewer.selected_file.is_some() {
+                    viewer.follow_open_file(window, cx);
                 }
                 cx.notify();
             });
@@ -164,12 +167,10 @@ impl Viewer {
     }
 
     pub(super) fn select_path(&mut self, path: &str, window: &mut Window, cx: &mut Context<Self>) {
-        if let Some(index) = self.comparison().and_then(|comparison| {
-            comparison
-                .files
-                .iter()
-                .position(|file| file.after_path == path)
-        }) {
+        if let Some(index) = self
+            .comparison()
+            .and_then(|comparison| jaywalk::file_browser::find_file(&comparison.files, path))
+        {
             self.select_file(index, window, cx);
         }
     }
@@ -187,19 +188,62 @@ impl Viewer {
             return;
         };
         let comparison = comparison.clone();
+        self.load_file(comparison, file, false, window, cx);
+    }
+
+    pub(super) fn follow_open_file(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(path) = self.selected_path() else {
+            return;
+        };
+        let Some(comparison) = self.comparison().cloned() else {
+            return;
+        };
+        if let Some(index) = jaywalk::file_browser::find_file(&comparison.files, &path) {
+            let file = comparison.files[index].clone();
+            self.load_file(comparison, file, true, window, cx);
+        }
+    }
+
+    pub(super) fn reload_open_file(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(selected) = &self.selected_file {
+            self.load_file(
+                selected.source.clone(),
+                selected.file.clone(),
+                true,
+                window,
+                cx,
+            );
+        }
+    }
+
+    fn load_file(
+        &mut self,
+        comparison: Comparison,
+        file: jaywalk::repository::ChangedFile,
+        preserve: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         self.remember_reading(cx);
-        self.recall_reading(&comparison, &file.after_path);
-        self.clear_file();
+        if preserve {
+            self.file_generation += 1;
+        } else {
+            self.clear_file();
+            self.selected_file = Some(SelectedFile {
+                file: file.clone(),
+                source: comparison.clone(),
+                content: LoadState::Loading,
+            });
+            self.fluid = FluidScroll::default();
+            self.horizontal_position = 0.;
+        }
+        self.recall_reading(&file.after_path);
         let generation = self.file_generation;
-        self.selected_file = Some(SelectedFile {
-            index,
-            content: LoadState::Loading,
-        });
         self.focus_evolution_file(Some(&file.after_path));
-        self.select_browser_file(index, cx);
-        self.fluid = FluidScroll::default();
-        self.horizontal_position = 0.;
+        self.rebuild_browser(cx);
         self.reveal_after_layout = false;
+        let source = comparison.clone();
+        let metadata = file.clone();
         let tab_size = self.settings.editor.tab_size;
         self.file_task = Some(cx.spawn_in(window, async move |this, cx| {
             let extension = std::path::Path::new(&file.after_path)
@@ -218,6 +262,9 @@ impl Viewer {
             let _ = this.update_in(cx, |viewer, window, cx| {
                 if viewer.file_generation != generation {
                     return;
+                }
+                if preserve && let Some(snapshot) = viewer.capture_reading(cx) {
+                    viewer.live.restore = Some((path.clone(), snapshot));
                 }
                 let content = match result {
                     Err(error) => LoadState::Failed(error),
@@ -277,23 +324,25 @@ impl Viewer {
                             });
                         }
                         if viewer.view_mode != ViewMode::Fluid
-                            && let Some((_, line, _)) = viewer.live.pending_position.take()
+                            && let Some((before, after, horizontal)) =
+                                viewer.live.pending_position.take()
                             && let Ok(Some(state)) = &standard
+                            && let Some(path) = state
+                                .read(cx)
+                                .files()
+                                .first()
+                                .map(|file| file.path().clone())
                         {
-                            state.update(cx, |state, cx| {
-                                if let Some(path) =
-                                    state.files().first().map(|file| file.path().clone())
-                                {
-                                    state.scroll_to_line(
-                                        gpui::component::diff::DiffLinePosition::new(
-                                            path,
-                                            gpui::component::diff::DiffSide::Modified,
-                                            line + 1,
-                                        ),
-                                        cx,
-                                    );
-                                }
-                            });
+                            let side = viewer.live.standard_side;
+                            let line = if side == gpui::component::diff::DiffSide::Original {
+                                before
+                            } else {
+                                after
+                            };
+                            viewer.config.pending_horizontal = Some(horizontal);
+                            viewer.config.pending_standard = Some(
+                                gpui::component::diff::DiffLinePosition::new(path, side, line + 1),
+                            );
                         }
                         viewer.editor_observers = vec![
                             cx.observe(&before, |_, _, cx| cx.notify()),
@@ -307,7 +356,14 @@ impl Viewer {
                         })
                     }
                 };
-                viewer.selected_file = Some(SelectedFile { index, content });
+                viewer.active_change = None;
+                viewer.navigation_target = None;
+                viewer.selected_file = Some(SelectedFile {
+                    file: metadata,
+                    source,
+                    content,
+                });
+                viewer.rebuild_browser(cx);
                 cx.notify();
             });
         }));
@@ -321,21 +377,17 @@ impl Viewer {
             return;
         }
         self.remember_reading(cx);
-        let preferred_path = self.live.branch_file.clone();
         self.evolution.clear();
         self.file_evolution.clear();
         self.active_evolution = evolution::EvolutionKind::Change;
         self.repository_generation += 1;
         self.repository_task = None;
-        self.clear_file();
         if let LoadState::Loaded(session) = &mut self.repository {
             session.scope = ComparisonScope::WholeBranch;
             session.comparison = LoadState::Loaded(session.branch.clone());
         }
         self.rebuild_browser(cx);
-        if let Some(path) = preferred_path {
-            self.select_path(&path, window, cx);
-        }
+        self.follow_open_file(window, cx);
         cx.notify();
     }
 
@@ -367,11 +419,7 @@ impl Viewer {
         let already_loading = matches!(&session.scope, ComparisonScope::Revision {commit_id: current, ..} if current == commit_id)
             && matches!(session.comparison, LoadState::Loading);
         let branch = session.branch.as_ref().clone();
-        // A graph click selects the whole commit, not the last file inspected
-        // in it. Cancel stale file completion before clearing the file focus.
         self.remember_reading(cx);
-        self.clear_file();
-        self.focus_evolution_file(None);
         if already_loading {
             self.load_evolution(revision, window, cx);
             cx.notify();
@@ -391,6 +439,7 @@ impl Viewer {
         }
         if cached.is_some() {
             self.rebuild_browser(cx);
+            self.follow_open_file(window, cx);
             self.load_evolution(revision, window, cx);
             cx.notify();
             return;
@@ -400,7 +449,7 @@ impl Viewer {
             let result = cx
                 .background_spawn(async move { branch.for_revision(&revision) })
                 .await;
-            let _ = this.update_in(cx, |viewer, _, cx| {
+            let _ = this.update_in(cx, |viewer, window, cx| {
                 if viewer.repository_generation != generation {
                     return;
                 }
@@ -415,9 +464,11 @@ impl Viewer {
                     };
                 }
                 viewer.rebuild_browser(cx);
+                viewer.follow_open_file(window, cx);
                 cx.notify();
             });
         }));
+        self.rebuild_browser(cx);
         self.load_evolution(revision_for_evolution, window, cx);
         cx.notify();
     }

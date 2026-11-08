@@ -20,6 +20,9 @@ Planned version: **0.1.1**.
 
 ### Changed
 
+- Keep the open file, diff view, and source-line reading position across
+  comparison changes; retain absent files as italic temporary previews.
+
 - TOML settings apply live, retaining the last valid configuration on errors.
 - Terminal launches share one app process and focus an already-open repository;
   other repositories open additional windows in that process.

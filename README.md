@@ -19,6 +19,21 @@ Rust API that fails on the installed stable compiler. The lockfile records the
 verified dependency set. The existing diff component is vendored for scoped scrolling, wrapping, and
 font-size extensions; see `vendor/README.md`.
 
+## Reading across comparisons
+
+Changing commits, evolution versions, or returning to Whole branch keeps the
+open file and restores its source-line reading position when possible. Live
+refresh follows the same behavior. Matching content anchors account for lines
+inserted above the viewport; removed or rewritten anchors fall back to the
+nearest valid line. View mode and wrapping remain selected.
+
+If the selected comparison does not change that file, its last loaded diff
+stays visible as a labeled retained preview with an italic row in either file
+list or tree. It is excluded from changed-file counts. Selecting another file
+or Overview closes that temporary preview. If a later comparison changes the
+file, its new diff replaces the preview automatically. Explicit detected
+renames are followed; copies do not move the open file to their destination.
+
 ## Version and changelog
 
 This branch prepares **0.1.1**; user-visible changes are in [CHANGELOG.md](CHANGELOG.md).

@@ -88,7 +88,9 @@ impl Viewer {
             CommandId::OpenSettings => self.open_settings_file(window, cx),
             CommandId::WholeBranch => self.show_whole_branch(window, cx),
             CommandId::Overview => {
+                self.remember_reading(cx);
                 self.clear_file();
+                self.rebuild_browser(cx);
                 self.focus_evolution_file(None);
                 cx.notify();
             }

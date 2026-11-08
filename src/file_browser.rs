@@ -1,6 +1,35 @@
 //! Display-only paths and changed-file hierarchy. Original paths stay untouched.
 use std::collections::{BTreeMap, BTreeSet};
 
+/// Resolve a followed file by its current path, then an explicit rename.
+/// A copy does not move the source file's identity to the new destination.
+pub fn find_file(files: &[crate::repository::ChangedFile], path: &str) -> Option<usize> {
+    files
+        .iter()
+        .position(|file| file.after_path == path)
+        .or_else(|| {
+            files
+                .iter()
+                .position(|file| file.status == "renamed" && file.before_path == path)
+        })
+}
+
+/// UI-only projection: retain one preview without changing the actual diff.
+pub fn with_preview(
+    files: &[crate::repository::ChangedFile],
+    open: Option<&crate::repository::ChangedFile>,
+) -> (Vec<crate::repository::ChangedFile>, Option<usize>) {
+    let mut displayed = files.to_vec();
+    let retained = open
+        .filter(|file| find_file(files, &file.after_path).is_none())
+        .map(|file| {
+            let index = displayed.len();
+            displayed.push(file.clone());
+            index
+        });
+    (displayed, retained)
+}
+
 #[derive(Debug)]
 pub struct CompactPath {
     variants: Vec<String>,
@@ -163,5 +192,65 @@ mod tests {
             matches!(&nodes[0], FileNode::Directory { children, .. } if matches!(children[0], FileNode::File { index: 1, .. }))
         );
         assert!(matches!(&nodes[1], FileNode::File { index: 0, .. }));
+    }
+}
+
+#[cfg(test)]
+mod preview_tests {
+    use super::{find_file, with_preview};
+    use crate::repository::ChangedFile;
+    fn file(status: &str, before: &str, after: &str) -> ChangedFile {
+        ChangedFile {
+            status: status.into(),
+            before_path: before.into(),
+            after_path: after.into(),
+        }
+    }
+    #[test]
+    fn preview_is_temporary_and_never_becomes_a_changed_file() {
+        let open = file("modified", "src/open.rs", "src/open.rs");
+        let changed = [file("modified", "other.rs", "other.rs")];
+        let (rows, retained) = with_preview(&changed, Some(&open));
+        assert_eq!(changed.len(), 1);
+        assert_eq!(rows.len(), 2);
+        assert_eq!(retained, Some(1));
+        let (rows, retained) = with_preview(&changed, Some(&changed[0]));
+        assert_eq!(rows.len(), 1);
+        assert_eq!(retained, None);
+        assert_eq!(
+            with_preview(std::slice::from_ref(&open), Some(&open)).1,
+            None
+        );
+    }
+    #[test]
+    fn empty_comparison_can_retain_a_file_until_it_reappears_or_is_closed() {
+        let open = file("modified", "old.rs", "old.rs");
+        let (rows, retained) = with_preview(&[], Some(&open));
+        assert_eq!(retained, Some(0));
+        assert_eq!(rows[0].after_path, "old.rs");
+        assert!(with_preview(&[], None).0.is_empty());
+        let renamed = [file("renamed", "old.rs", "new.rs")];
+        let (rows, retained) = with_preview(&renamed, Some(&open));
+        assert_eq!(rows.len(), 1);
+        assert_eq!(retained, None);
+        assert_eq!(find_file(&rows, &open.after_path), Some(0));
+    }
+
+    #[test]
+    fn follows_explicit_renames_but_not_copies_or_unrelated_names() {
+        let rename = file("renamed", "old.rs", "new.rs");
+        assert_eq!(find_file(std::slice::from_ref(&rename), "old.rs"), Some(0));
+        assert_eq!(
+            find_file(&[file("copied", "old.rs", "copy.rs")], "old.rs"),
+            None
+        );
+        assert_eq!(
+            find_file(std::slice::from_ref(&rename), "other/old.rs"),
+            None
+        );
+        assert_eq!(
+            find_file(&[rename, file("added", "old.rs", "old.rs")], "old.rs"),
+            Some(1)
+        );
     }
 }

@@ -7,6 +7,7 @@ use std::time::Duration;
 pub(super) struct ConfigState {
     task: Option<Task<()>>,
     pub(super) error: Option<String>,
+    pub(super) pending_horizontal: Option<f32>,
     pub(super) pending_standard: Option<gpui::component::diff::DiffLinePosition>,
 }
 
@@ -16,6 +17,7 @@ impl ConfigState {
             task: None,
             error: None,
             pending_standard: None,
+            pending_horizontal: None,
         }
     }
 }
@@ -78,11 +80,7 @@ impl Viewer {
             }
             let state = code.after.read(cx);
             let line = state.visible_row_range().map_or(0, |range| range.start);
-            let path = self
-                .selected_index()
-                .and_then(|index| self.comparison()?.files.get(index))?
-                .after_path
-                .clone();
+            let path = self.selected_path()?;
             Some(gpui::component::diff::DiffLinePosition::new(
                 path,
                 gpui::component::diff::DiffSide::Modified,
@@ -205,10 +203,9 @@ impl Viewer {
         {
             self.save_layout(window, cx);
         }
-        if previous.editor.tab_size != self.settings.editor.tab_size
-            && let Some(index) = self.selected_index()
+        if previous.editor.tab_size != self.settings.editor.tab_size && self.selected_file.is_some()
         {
-            self.select_file(index, window, cx);
+            self.reload_open_file(window, cx);
         }
         // Fonts and wrapping invalidate text measurements as well as paint.
         window.refresh();

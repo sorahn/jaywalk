@@ -8,6 +8,7 @@ pub(super) struct ReadingSnapshot {
     before: ReadingAnchor,
     after: ReadingAnchor,
     horizontal: f32,
+    side: gpui::component::diff::DiffSide,
 }
 
 pub(super) struct LiveState {
@@ -19,7 +20,7 @@ pub(super) struct LiveState {
     pub(super) restore: Option<(String, ReadingSnapshot)>,
     pub(super) pending_position: Option<(usize, usize, f32)>,
     positions: std::collections::HashMap<String, ReadingSnapshot>,
-    pub(super) branch_file: Option<String>,
+    pub(super) standard_side: gpui::component::diff::DiffSide,
 }
 impl LiveState {
     pub(super) fn new() -> Self {
@@ -32,7 +33,7 @@ impl LiveState {
             restore: None,
             pending_position: None,
             positions: std::collections::HashMap::new(),
-            branch_file: None,
+            standard_side: gpui::component::diff::DiffSide::Modified,
         }
     }
 }
@@ -41,33 +42,19 @@ impl Viewer {
         let Some(snapshot) = self.capture_reading(cx) else {
             return;
         };
-        let Some(comparison) = self.comparison() else {
+        let Some(path) = self.selected_path() else {
             return;
         };
-        let Some(file) = self
-            .selected_index()
-            .and_then(|index| comparison.files.get(index))
-        else {
-            return;
-        };
-        let key = format!("{}:{}:{}", comparison.base, comparison.tip, file.after_path);
-        if matches!(
-            self.repository.ready().map(|session| &session.scope),
-            Some(ComparisonScope::WholeBranch)
-        ) {
-            self.live.branch_file = Some(file.after_path.clone());
-        }
         if self.live.positions.len() > 128 {
             self.live.positions.clear();
         }
-        self.live.positions.insert(key, snapshot);
+        self.live.positions.insert(path, snapshot);
     }
-    pub(super) fn recall_reading(&mut self, comparison: &Comparison, path: &str) {
+    pub(super) fn recall_reading(&mut self, path: &str) {
         if self.live.restore.is_some() {
             return;
         }
-        let key = format!("{}:{}:{}", comparison.base, comparison.tip, path);
-        if let Some(snapshot) = self.live.positions.get(&key) {
+        if let Some(snapshot) = self.live.positions.get(path) {
             self.live.restore = Some((path.to_owned(), snapshot.clone()));
         }
     }
@@ -91,12 +78,16 @@ impl Viewer {
         let line = |state: &EditorState| state.visible_row_range().map_or(0, |range| range.start);
         let before = code.before.read(cx);
         let after = code.after.read(cx);
+        let mut horizontal = self.horizontal_position;
+        let mut side = gpui::component::diff::DiffSide::Modified;
         let mut before_line = line(before);
         let mut after_line = line(after);
         if self.view_mode != ViewMode::Fluid
             && let Ok(Some(standard)) = &code.standard
             && let Some(position) = standard.read(cx).viewport_position()
         {
+            horizontal = f32::from(standard.read(cx).horizontal_offset());
+            side = position.side();
             match position.side() {
                 gpui::component::diff::DiffSide::Original => {
                     before_line = position.line().saturating_sub(1)
@@ -107,7 +98,8 @@ impl Viewer {
         Some(ReadingSnapshot {
             before: ReadingAnchor::capture(&before.value(), before_line),
             after: ReadingAnchor::capture(&after.value(), after_line),
-            horizontal: self.horizontal_position,
+            side,
+            horizontal,
         })
     }
 
@@ -115,6 +107,7 @@ impl Viewer {
         if let Some((expected, snapshot)) = self.live.restore.take()
             && expected == path
         {
+            self.live.standard_side = snapshot.side;
             self.live.pending_position = Some((
                 snapshot.before.resolve(before),
                 snapshot.after.resolve(after),
@@ -162,11 +155,7 @@ impl Viewer {
 
     pub(super) fn refresh_live(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if !self.supports_evolution() {
-            let path = self
-                .selected_index()
-                .and_then(|index| self.comparison()?.files.get(index))
-                .map(|file| file.after_path.clone());
-            self.load_repository(path, window, cx);
+            self.load_repository(None, window, cx);
             return;
         }
         if self.live.busy {
@@ -201,11 +190,6 @@ impl Viewer {
         } else {
             None
         };
-        let path = self
-            .selected_index()
-            .and_then(|index| self.comparison()?.files.get(index))
-            .map(|file| file.after_path.clone());
-        let reading = self.capture_reading(cx);
         let directory = self.arguments.directory.clone();
         let base = self.arguments.base.clone();
         let tip = self
@@ -218,76 +202,68 @@ impl Viewer {
         self.live.busy = true;
         self.live.message = Some("Updating recorded changes…".into());
         self.live.refresh = Some(cx.spawn_in(window, async move |this, cx| {
-            let result = cx.background_spawn(async move {
-                let branch = Comparison::load(&directory, base.as_deref(), &tip)?;
-                let history = branch.history()?;
-                let revision = change.as_deref()
-                    .map(|change| branch.revision(change)).transpose()?;
-                let comparison = match &revision {
-                    Some(revision) => branch.for_revision(revision)?,
-                    None => branch.clone(),
-                };
-                Ok::<_, String>((branch, history, revision, comparison))
-            }).await;
-            let _ = this.update_in(cx, |viewer, window, cx| {
-                viewer.live.busy = false;
-                if viewer.repository_generation != generation
-                    || viewer.file_generation != file_generation {
-                    if viewer.live.message.as_deref() == Some("Updating recorded changes…") {
-                        viewer.live.message = None;
-                        cx.notify();
-                    }
-                    return;
-                }
-                match result {
-                    Err(error) => {
-                        viewer.live.message = Some(format!(
-                            "Refresh paused; previous view retained: {error}"
-                        ));
-                    }
-                    Ok((branch, history, revision, comparison)) => {
-                        viewer.repository_generation += 1;
-                        viewer.repository_task = None;
-                        viewer.clear_file();
-                        viewer.focus_evolution_file(None);
-                        viewer.evolution.clear();
-                        viewer.file_evolution.clear();
-                        let scope = revision.as_ref().map_or(
-                            ComparisonScope::WholeBranch,
-                            |revision| ComparisonScope::Revision {
-                                commit_id: revision.commit_id.clone(),
-                                merge: revision.parents.len() > 1,
-                            },
-                        );
-                        let comparison = Rc::new(comparison);
-                        viewer.repository = LoadState::Loaded(RepositorySession {
-                            branch: Rc::new(branch),
-                            history: Ok(Rc::new(history)),
-                            scope,
-                            revision_comparison: revision.as_ref().map(|_| comparison.clone()),
-                            comparison: LoadState::Loaded(comparison),
-                        });
-                        viewer.rebuild_browser(cx);
-                        if let Some(revision) = revision {
-                            viewer.load_evolution(revision, window, cx);
+            let result = cx
+                .background_spawn(async move {
+                    let branch = Comparison::load(&directory, base.as_deref(), &tip)?;
+                    let history = branch.history()?;
+                    let revision = change
+                        .as_deref()
+                        .map(|change| branch.revision(change))
+                        .transpose()?;
+                    let comparison = match &revision {
+                        Some(revision) => branch.for_revision(revision)?,
+                        None => branch.clone(),
+                    };
+                    Ok::<_, String>((branch, history, revision, comparison))
+                })
+                .await;
+            let _ =
+                this.update_in(cx, |viewer, window, cx| {
+                    viewer.live.busy = false;
+                    if viewer.repository_generation != generation
+                        || viewer.file_generation != file_generation
+                    {
+                        if viewer.live.message.as_deref() == Some("Updating recorded changes…") {
+                            viewer.live.message = None;
+                            cx.notify();
                         }
-                        viewer.live.message = None;
-                        if let Some(path) = path {
-                            if let Some(reading) = reading {
-                                viewer.live.restore = Some((path.clone(), reading));
+                        return;
+                    }
+                    match result {
+                        Err(error) => {
+                            viewer.live.message =
+                                Some(format!("Refresh paused; previous view retained: {error}"));
+                        }
+                        Ok((branch, history, revision, comparison)) => {
+                            viewer.repository_generation += 1;
+                            viewer.repository_task = None;
+                            viewer.evolution.clear();
+                            viewer.file_evolution.clear();
+                            let scope = revision.as_ref().map_or(
+                                ComparisonScope::WholeBranch,
+                                |revision| ComparisonScope::Revision {
+                                    commit_id: revision.commit_id.clone(),
+                                    merge: revision.parents.len() > 1,
+                                },
+                            );
+                            let comparison = Rc::new(comparison);
+                            viewer.repository = LoadState::Loaded(RepositorySession {
+                                branch: Rc::new(branch),
+                                history: Ok(Rc::new(history)),
+                                scope,
+                                revision_comparison: revision.as_ref().map(|_| comparison.clone()),
+                                comparison: LoadState::Loaded(comparison),
+                            });
+                            viewer.rebuild_browser(cx);
+                            if let Some(revision) = revision {
+                                viewer.load_evolution(revision, window, cx);
                             }
-                            viewer.select_path(&path, window, cx);
-                            if viewer.selected_index().is_none() {
-                                viewer.live.restore = None;
-                                viewer.live.message = Some(
-                                    "The selected file is no longer changed; showing the comparison overview".into()
-                                );
-                            }
+                            viewer.live.message = None;
+                            viewer.follow_open_file(window, cx);
                         }
                     }
-                }
-                cx.notify();
-            });
+                    cx.notify();
+                });
         }));
         cx.notify();
     }

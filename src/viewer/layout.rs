@@ -76,7 +76,9 @@ impl Render for Viewer {
                             )
                             .child(Button::new("overview").ghost().label("Overview").on_click(
                                 cx.listener(|this, _, _, cx| {
+                                    this.remember_reading(cx);
                                     this.clear_file();
+                                    this.rebuild_browser(cx);
                                     this.focus_evolution_file(None);
                                     cx.notify();
                                 }),

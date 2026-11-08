@@ -484,13 +484,11 @@ impl Viewer {
         };
         let branch = session.branch.as_ref().clone();
         let preferred_path = self
-            .selected_index()
-            .and_then(|index| self.comparison()?.files.get(index))
-            .map(|file| file.after_path.clone())
+            .selected_path()
             .or_else(|| self.file_evolution.file_path.clone());
         self.repository_generation += 1;
         let generation = self.repository_generation;
-        self.clear_file();
+        self.remember_reading(cx);
         if let LoadState::Loaded(session) = &mut self.repository {
             session.scope = scope;
             session.comparison = LoadState::Loading;
@@ -519,7 +517,9 @@ impl Viewer {
                     TimelineState::Loaded(session) => Some((session.selected, session.mode)),
                     _ => None,
                 };
-                if let Some(path) = preferred_path {
+                if viewer.selected_file.is_some() {
+                    viewer.follow_open_file(window, cx);
+                } else if let Some(path) = preferred_path {
                     viewer.select_path(&path, window, cx);
                 }
                 if kind == EvolutionKind::Change

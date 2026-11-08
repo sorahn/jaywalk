@@ -128,7 +128,8 @@ struct CodeComparison {
 }
 
 struct SelectedFile {
-    index: usize,
+    file: jaywalk::repository::ChangedFile,
+    source: Comparison,
     content: LoadState<CodeComparison>,
 }
 
@@ -219,7 +220,19 @@ impl Viewer {
     }
 
     fn selected_index(&self) -> Option<usize> {
-        self.selected_file.as_ref().map(|file| file.index)
+        let file = &self.selected_file.as_ref()?.file;
+        jaywalk::file_browser::find_file(&self.browser.files, &file.after_path)
+    }
+
+    fn selected_changed_index(&self) -> Option<usize> {
+        let file = &self.selected_file.as_ref()?.file;
+        jaywalk::file_browser::find_file(&self.comparison()?.files, &file.after_path)
+    }
+
+    fn selected_path(&self) -> Option<String> {
+        self.selected_file
+            .as_ref()
+            .map(|selected| selected.file.after_path.clone())
     }
 
     fn code(&self) -> Option<&CodeComparison> {
@@ -228,10 +241,12 @@ impl Viewer {
 
     fn clear_file(&mut self) {
         self.config.pending_standard = None;
+        self.config.pending_horizontal = None;
         self.file_generation += 1;
         self.file_task = None;
         self.selected_file = None;
         self.live.pending_position = None;
+        self.live.restore = None;
         self.active_change = None;
         self.navigation_target = None;
         self.editor_observers.clear();
