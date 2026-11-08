@@ -604,13 +604,17 @@ impl Viewer {
         kind: EvolutionKind,
         cx: &mut Context<Self>,
     ) -> AnyElement {
+        let font_size = match kind {
+            EvolutionKind::Change => self.settings.panels.history.font.size,
+            EvolutionKind::File => self.settings.panels.files.font.size,
+        };
         let state = self.evolution_panel(kind);
         let mut panel = div()
             .id(("evolution-panel", kind.id()))
             .v_flex().size_full().bg(rgb(0x252c39))
             .child(div().v_flex().px_3().py_1()
                 .child(div().h_flex().items_center().justify_between()
-                    .child(div().text_xs().child(match kind {
+                    .child(div().text_size(px(font_size * 0.85)).child(match kind {
                         EvolutionKind::Change => "CHANGE EVOLUTION",
                         EvolutionKind::File => "FILE EVOLUTION",
                     }))
@@ -629,7 +633,7 @@ impl Viewer {
         let evolution = match &state.state {
             TimelineState::Unselected => {
                 return panel
-                    .child(div().p_3().text_sm().child(match kind {
+                    .child(div().p_3().text_size(px(font_size)).child(match kind {
                         EvolutionKind::Change => {
                             "Select a change in history to explore its versions."
                         }
@@ -641,12 +645,17 @@ impl Viewer {
             }
             TimelineState::Loading { .. } => {
                 return panel
-                    .child(div().p_3().text_sm().child("Loading recorded versions…"))
+                    .child(
+                        div()
+                            .p_3()
+                            .text_size(px(font_size))
+                            .child("Loading recorded versions…"),
+                    )
                     .into_any_element();
             }
             TimelineState::Failed(error) => {
                 return panel
-                    .child(div().p_3().text_sm().child(error.clone()))
+                    .child(div().p_3().text_size(px(font_size)).child(error.clone()))
                     .into_any_element();
             }
             TimelineState::Loaded(evolution) => evolution,
@@ -676,7 +685,7 @@ impl Viewer {
                     .id("evolution-file-context")
                     .px_3()
                     .pb_1()
-                    .text_xs()
+                    .text_size(px(font_size * 0.85))
                     .text_color(rgb(0xb8c6d9))
                     .truncate()
                     .child(context)
@@ -687,7 +696,7 @@ impl Viewer {
                 div()
                     .px_3()
                     .pb_1()
-                    .text_xs()
+                    .text_size(px(font_size * 0.85))
                     .text_color(rgb(0xb8c6d9))
                     .child("Timeline · changes since previous"),
             );
@@ -721,11 +730,7 @@ impl Viewer {
         };
         let actual_predecessors = version.predecessors.clone();
         let viewer = cx.entity().downgrade();
-        let height = self
-            .settings
-            .evolution
-            .row_height
-            .max(self.settings.ui.font_size * 2.5);
+        let height = self.settings.evolution.row_height.max(font_size * 2.5);
         let spacing = self.settings.history.lane_spacing;
         let grouping_enabled = state.collapse_repeats;
         let rows = uniform_list(("evolution-rows", kind.id()), presentation.rows.len(), move |visible, _, _| {
@@ -906,10 +911,10 @@ impl Viewer {
                                 .flex_1()
                                 .min_w_0()
                                 .pr_2()
-                                .child(div().text_sm().truncate().child(title))
+                                .child(div().text_size(px(font_size)).truncate().child(title))
                                 .child(
                                     div()
-                                        .text_xs()
+                                        .text_size(px(font_size * 0.85))
                                         .text_color(rgb(0xa6b5ca))
                                         .truncate()
                                         .child(detail),
@@ -934,7 +939,7 @@ impl Viewer {
         let mut details = div()
             .px_3()
             .py_2()
-            .text_xs()
+            .text_size(px(font_size * 0.85))
             .text_color(rgb(0xb8c6d9))
             .child(format!(
                 "{} versions · {} {} · {} hidden{}",

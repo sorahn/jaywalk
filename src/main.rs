@@ -8,6 +8,7 @@ use jaywalk::settings_reload::SettingsSource;
 use std::path::PathBuf;
 
 mod launcher;
+mod platform;
 mod viewer;
 use viewer::Viewer;
 
@@ -64,7 +65,7 @@ fn main() {
             std::process::exit(1);
         }
     };
-    if !arguments.foreground {
+    if !arguments.foreground && !platform::is_app_bundle() {
         if let Err(error) = launcher::launch(arguments.config.as_deref()) {
             eprintln!("{error}");
             std::process::exit(1);
@@ -75,36 +76,88 @@ fn main() {
         .with_assets(gpui::assets::AllAssets)
         .run(move |cx| {
             gpui::init(cx);
-            viewer::init(cx);
+            viewer::init(&arguments, &settings, cx);
             Theme::change(ThemeMode::Dark, None, cx);
             configure_code_theme(cx);
-            let theme = Theme::global_mut(cx);
-            theme.font_size = px(settings.ui.font_size);
-            theme.mono_font_size = px(settings.editor.font_size);
-            if let Some(family) = &settings.editor.font_family {
-                theme.mono_font_family = family.clone().into();
-            }
-            let options = WindowOptions {
-                titlebar: Some(TitlebarOptions {
-                    title: Some("Jaywalk".into()),
-                    ..Default::default()
-                }),
-                window_bounds: Some(WindowBounds::Windowed(Bounds::centered(
-                    None,
-                    size(px(settings.window.width), px(settings.window.height)),
-                    cx,
-                ))),
-                ..Default::default()
-            };
-            if let Err(error) = gpui::open_window(options, cx, |window, cx| {
-                cx.new(|cx| Viewer::new(arguments, settings, window, cx))
-            }) {
+            Theme::update(cx, |theme| {
+                if let Some(family) = &settings.ui.font_family {
+                    theme.font_family = family.clone().into();
+                }
+                theme.font_size = px(settings.ui.font_size);
+                theme.mono_font_size = px(settings.editor.font_size);
+                if let Some(family) = &settings.editor.font_family {
+                    theme.mono_font_family = family.clone().into();
+                }
+            });
+            if let Err(error) = open_viewer(arguments, settings, cx) {
                 eprintln!("Could not open the viewer window: {error}");
                 cx.quit();
                 return;
             }
             cx.activate(true);
         });
+}
+
+fn open_viewer(
+    arguments: Arguments,
+    settings: jaywalk::settings::Settings,
+    cx: &mut App,
+) -> Result<()> {
+    let options = WindowOptions {
+        titlebar: Some(TitlebarOptions {
+            title: Some("Jaywalk".into()),
+            ..Default::default()
+        }),
+        window_bounds: Some(WindowBounds::Windowed(Bounds::centered(
+            None,
+            size(px(settings.window.width), px(settings.window.height)),
+            cx,
+        ))),
+        ..Default::default()
+    };
+    gpui::open_window(options, cx, |window, cx| {
+        cx.new(|cx| Viewer::new(arguments, settings, window, cx))
+    })?;
+    Ok(())
+}
+
+// Keep File > Open Repository usable after the last native window closes.
+fn choose_repository(mut arguments: Arguments, cx: &mut App) {
+    let receiver = cx.prompt_for_paths(PathPromptOptions {
+        files: false,
+        directories: true,
+        multiple: false,
+        prompt: Some("Open repository".into()),
+    });
+    cx.spawn(async move |cx| match receiver.await {
+        Ok(Ok(Some(paths))) => {
+            if let Some(path) = paths.into_iter().next() {
+                arguments.directory = path;
+                arguments.base = None;
+                arguments.tip = "@".into();
+                arguments.file = None;
+                let config = arguments.config.clone();
+                let settings = cx
+                    .background_spawn(
+                        async move { SettingsSource::resolve(config.as_deref())?.read() },
+                    )
+                    .await;
+                match settings {
+                    Ok(settings) => {
+                        cx.update(|cx| {
+                            if let Err(error) = open_viewer(arguments, settings, cx) {
+                                eprintln!("Could not open repository: {error}");
+                            }
+                        });
+                    }
+                    Err(error) => eprintln!("Could not open repository: {error}"),
+                }
+            }
+        }
+        Ok(Ok(None)) => {}
+        result => eprintln!("Could not select repository: {result:?}"),
+    })
+    .detach();
 }
 
 fn configure_code_theme(cx: &mut App) {

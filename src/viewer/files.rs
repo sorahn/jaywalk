@@ -6,12 +6,7 @@ use gpui::prelude::FluentBuilder;
 use jaywalk::file_browser::{CompactPath, FileNode, present_paths};
 use std::collections::HashMap;
 
-#[derive(Default, PartialEq, Eq)]
-enum FileListMode {
-    #[default]
-    List,
-    Tree,
-}
+use jaywalk::settings::FileView as FileListMode;
 
 pub(super) struct FileBrowser {
     mode: FileListMode,
@@ -25,9 +20,9 @@ pub(super) struct FileBrowser {
 }
 
 impl FileBrowser {
-    pub(super) fn new(default_width: f32, cx: &mut App) -> Self {
+    pub(super) fn new(default_width: f32, mode: FileListMode, cx: &mut App) -> Self {
         Self {
-            mode: FileListMode::default(),
+            mode,
             labels: Vec::new(),
             tree: cx.new(|cx| TreeState::new(cx)),
             tree_indices: HashMap::new(),
@@ -128,7 +123,7 @@ impl Viewer {
             0,
             &mut self.browser.tree_indices,
             &mut self.browser.tree_width,
-            self.settings.ui.font_size * 0.5,
+            self.settings.panels.files.font.size * 0.5,
             self.settings.files.indent_width,
         );
         self.browser.horizontal.set_offset(point(px(0.), px(0.)));
@@ -137,8 +132,12 @@ impl Viewer {
             .update(cx, |tree, cx| tree.set_items(items, cx));
     }
 
+    pub(super) fn apply_file_view(&mut self) {
+        self.browser.mode = self.settings.files.default_view;
+    }
+
     pub(super) fn refresh_browser_metrics(&mut self) {
-        let glyph_width = self.settings.ui.font_size * 0.5;
+        let glyph_width = self.settings.panels.files.font.size * 0.5;
         let indent = self.settings.files.indent_width;
         self.browser.tree_width = self.comparison().map_or(0., |comparison| {
             comparison
@@ -168,8 +167,9 @@ impl Viewer {
             .settings
             .files
             .tree_row_height
-            .max(self.settings.ui.font_size * 1.25 + 8.);
+            .max(self.settings.panels.files.font.size * 1.25 + 8.);
         let indent_width = self.settings.files.indent_width;
+        let font_size = self.settings.panels.files.font.size;
         let tree = Tree::new(&self.browser.tree, move |index, entry, _, _, _| {
             let file_index = entry.item().id.strip_prefix("file:").map(|id| {
                 id.parse::<usize>()
@@ -196,7 +196,7 @@ impl Viewer {
             );
             ListItem::new(("file-tree", index))
                 .h(px(row_height))
-                .text_sm()
+                .text_size(px(font_size))
                 .pl(px(entry.depth() as f32 * indent_width + 8.))
                 .text_color(rgb(color))
                 .child(content)
@@ -230,7 +230,11 @@ impl Viewer {
                     .justify_between()
                     .px_3()
                     .py_2()
-                    .child(div().text_xs().child("CHANGED FILES"))
+                    .child(
+                        div()
+                            .text_size(px(self.settings.panels.files.font.size * 0.85))
+                            .child("CHANGED FILES"),
+                    )
                     .child(
                         div()
                             .h_flex()
@@ -293,7 +297,8 @@ impl Viewer {
                     .min_h_0()
                     .when(wrap, |list| list.overflow_y_scroll())
                     .when(!wrap, |list| list.overflow_scroll());
-                let columns = ((self.browser.width - 52.) / (self.settings.ui.font_size * 0.4375))
+                let columns = ((self.browser.width - 52.)
+                    / (self.settings.panels.files.font.size * 0.5))
                     .max(1.) as usize;
                 for (index, file) in comparison.files.iter().enumerate() {
                     let (marker, color) = file_style(&file.status);
@@ -324,7 +329,7 @@ impl Viewer {
                             } else {
                                 0x253448
                             }))
-                            .text_sm()
+                            .text_size(px(self.settings.panels.files.font.size))
                             .cursor_pointer()
                             .text_color(rgb(color))
                             .child(div().w(px(14.)).flex_shrink_0().child(marker))

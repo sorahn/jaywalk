@@ -10,17 +10,7 @@ pub(super) enum PaletteKind {
 #[derive(Clone)]
 enum Choice {
     File(String),
-    WholeBranch,
-    Refresh,
-    Wrap,
-    View(ViewMode),
-    History,
-    Files,
-    ChangeEvolution,
-    FileEvolution,
-    Next,
-    Previous,
-    Review(evolution::ReviewMode),
+    Command(jaywalk::commands::CommandId),
 }
 pub(super) struct PaletteState {
     state: Entity<CommandState>,
@@ -91,31 +81,10 @@ impl Viewer {
                         .collect()
                 })
                 .unwrap_or_default(),
-            PaletteKind::Commands => vec![
-                (
-                    "Version patch".into(),
-                    Choice::Review(evolution::ReviewMode::Patch),
-                ),
-                (
-                    "Since previous version".into(),
-                    Choice::Review(evolution::ReviewMode::SincePrevious),
-                ),
-                ("Whole branch".into(), Choice::WholeBranch),
-                ("Refresh recorded changes".into(), Choice::Refresh),
-                ("Toggle word wrap".into(), Choice::Wrap),
-                ("View: Fluid".into(), Choice::View(ViewMode::Fluid)),
-                (
-                    "View: side by side".into(),
-                    Choice::View(ViewMode::SideBySide),
-                ),
-                ("View: inline".into(), Choice::View(ViewMode::Inline)),
-                ("Toggle history panel".into(), Choice::History),
-                ("Toggle changed files panel".into(), Choice::Files),
-                ("Toggle change evolution".into(), Choice::ChangeEvolution),
-                ("Toggle file evolution".into(), Choice::FileEvolution),
-                ("Next change".into(), Choice::Next),
-                ("Previous change".into(), Choice::Previous),
-            ],
+            PaletteKind::Commands => jaywalk::commands::CommandId::ALL
+                .iter()
+                .map(|command| (command.label().to_owned(), Choice::Command(*command)))
+                .collect(),
         };
         choices.retain(|(label, _)| fuzzy_score(&query, label).is_some());
         choices.sort_by_key(|(label, _)| fuzzy_score(&query, label));
@@ -131,19 +100,7 @@ impl Viewer {
                 this.close_palette(window, cx);
                 match choice {
                     Choice::File(path) => this.select_path(&path, window, cx),
-                    Choice::WholeBranch => this.show_whole_branch(window, cx),
-                    Choice::Refresh => this.refresh(window, cx),
-                    Choice::Wrap => this.toggle_wrap(window, cx),
-                    Choice::View(mode) => this.set_view_mode(mode, cx),
-                    Choice::History => this.toggle_sidebar(true, window, cx),
-                    Choice::Files => this.toggle_sidebar(false, window, cx),
-                    Choice::ChangeEvolution => this.toggle_evolution(window, cx),
-                    Choice::FileEvolution => {
-                        this.toggle_evolution_panel(evolution::EvolutionKind::File, window, cx)
-                    }
-                    Choice::Next => this.navigate_change(1, cx),
-                    Choice::Previous => this.navigate_change(-1, cx),
-                    Choice::Review(mode) => this.select_evolution_mode(mode, window, cx),
+                    Choice::Command(command) => this.execute_command(command, window, cx),
                 }
             },
         );
@@ -153,11 +110,31 @@ impl Viewer {
                 PaletteKind::Files => "Find a changed file…",
                 PaletteKind::Commands => "Run a command…",
             })
-            .items(
-                choices
-                    .iter()
-                    .map(|(label, _)| CommandItem::new().label(label.clone())),
-            )
+            .items(choices.iter().map(|(label, choice)| {
+                let label: SharedString = label.clone().into();
+                let command = match choice {
+                    Choice::Command(command) => Some(*command),
+                    _ => None,
+                };
+                CommandItem::new()
+                    .label(label.clone())
+                    .child(move |window, _| {
+                        let shortcut = command.and_then(|command| {
+                            gpui::component::kbd::Kbd::binding_for_action(
+                                &commands::ExecuteCommand { command },
+                                None,
+                                window,
+                            )
+                        });
+                        div()
+                            .h_flex()
+                            .w_full()
+                            .items_center()
+                            .justify_between()
+                            .child(label.clone())
+                            .children(shortcut)
+                    })
+            }))
             .on_query(cx.listener(|_, _, _, cx| cx.notify()))
             .on_cancel(move |window, cx| cancel(&(), window, cx))
             .on_confirm(move |index, window, cx| confirm(&index, window, cx));

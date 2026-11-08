@@ -4,15 +4,27 @@ use jaywalk::history::History;
 const GRAPH_MARGIN: f32 = 10.;
 const NODE_RADIUS: f32 = 3.5;
 
-fn history_row(
-    history: Rc<History>,
-    index: usize,
+#[derive(Clone, Copy)]
+struct RowMetrics {
     width: f32,
     height: f32,
     spacing: f32,
+    font_size: f32,
+}
+
+fn history_row(
+    history: Rc<History>,
+    index: usize,
+    metrics: RowMetrics,
     selected: bool,
     viewer: WeakEntity<Viewer>,
 ) -> AnyElement {
+    let RowMetrics {
+        width,
+        height,
+        spacing,
+        font_size,
+    } = metrics;
     let revision = &history.revisions[index];
     let commit_id = revision.commit_id.clone();
     let description = revision.summary();
@@ -79,7 +91,7 @@ fn history_row(
                 .flex_1()
                 .min_w_0()
                 .pr_2()
-                .text_sm()
+                .text_size(px(font_size))
                 .truncate()
                 .child(description),
         )
@@ -100,7 +112,11 @@ impl Viewer {
                 .justify_between()
                 .px_3()
                 .py_2()
-                .child(div().text_sm().child("JJ HISTORY"))
+                .child(
+                    div()
+                        .text_size(px(self.settings.panels.history.font.size))
+                        .child("JJ HISTORY"),
+                )
                 .child(
                     Button::new("toggle-evolution")
                         .ghost()
@@ -145,8 +161,9 @@ impl Viewer {
             .settings
             .history
             .row_height
-            .max(self.settings.ui.font_size * 1.25);
+            .max(self.settings.panels.history.font.size * 1.25);
         let spacing = self.settings.history.lane_spacing;
+        let font_size = self.settings.panels.history.font.size;
         let rows = uniform_list("history-rows", count, move |visible, _, _| {
             let width = GRAPH_MARGIN * 2.
                 + (history.visible_lane_count(visible.clone()) - 1) as f32 * spacing;
@@ -157,9 +174,12 @@ impl Viewer {
                     history_row(
                         history.clone(),
                         index,
-                        width,
-                        height,
-                        spacing,
+                        RowMetrics {
+                            width,
+                            height,
+                            spacing,
+                            font_size,
+                        },
                         selected,
                         viewer.clone(),
                     )
@@ -172,7 +192,7 @@ impl Viewer {
             div()
                 .px_3()
                 .py_1()
-                .text_xs()
+                .text_size(px(self.settings.panels.history.font.size * 0.85))
                 .text_color(rgb(0x9baab4))
                 .child(format!("{count} recorded revisions")),
         );

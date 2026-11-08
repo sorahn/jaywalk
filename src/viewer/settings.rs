@@ -65,14 +65,12 @@ impl Viewer {
         }));
     }
 
-    fn apply_settings(&mut self, settings: Settings, window: &mut Window, cx: &mut Context<Self>) {
-        if self.settings == settings {
-            return;
-        }
-        let previous_wrap = self.wrapping;
-        let previous = std::mem::replace(&mut self.settings, settings);
+    pub(super) fn prepare_display_reflow(
+        &mut self,
+        cx: &App,
+    ) -> Option<gpui::component::diff::DiffLinePosition> {
         self.preserve_reflow_position(cx);
-        let position = self.code().and_then(|code| {
+        self.code().and_then(|code| {
             if self.view_mode != ViewMode::Fluid
                 && let Ok(Some(standard)) = &code.standard
             {
@@ -90,7 +88,16 @@ impl Viewer {
                 gpui::component::diff::DiffSide::Modified,
                 line + 1,
             ))
-        });
+        })
+    }
+
+    fn apply_settings(&mut self, settings: Settings, window: &mut Window, cx: &mut Context<Self>) {
+        if self.settings == settings {
+            return;
+        }
+        let previous_wrap = self.wrapping;
+        let previous = std::mem::replace(&mut self.settings, settings);
+        let position = self.prepare_display_reflow(cx);
         // A changed default is an explicit config edit. Unchanged fields leave
         // toolbar overrides and independently resized/hidden panels untouched.
         if previous.diff.default_view != self.settings.diff.default_view {
@@ -117,10 +124,29 @@ impl Viewer {
                 *current = new.word_wrap;
             }
         }
+        if previous.editor.font_size != self.settings.editor.font_size {
+            self.code_font_size = self.settings.editor.font_size;
+        }
+        if previous.editor.line_numbers != self.settings.editor.line_numbers {
+            self.line_numbers = self.settings.editor.line_numbers;
+        }
+        if previous.keybindings != self.settings.keybindings {
+            commands::install_bindings(&self.settings, cx);
+        }
+        if previous.files.default_view != self.settings.files.default_view {
+            self.apply_file_view();
+        }
         if previous.ui != self.settings.ui || previous.editor != self.settings.editor {
             Theme::update(cx, |theme| {
                 theme.font_size = px(self.settings.ui.font_size);
-                theme.mono_font_size = px(self.settings.editor.font_size);
+                theme.mono_font_size = px(self.code_font_size);
+                theme.font_family = self
+                    .settings
+                    .ui
+                    .font_family
+                    .clone()
+                    .map(SharedString::from)
+                    .unwrap_or_else(|| Theme::default().font_family);
                 theme.mono_font_family = self
                     .settings
                     .editor
@@ -135,6 +161,9 @@ impl Viewer {
                 (&code.before, previous_wrap.before, self.wrapping.before),
                 (&code.after, previous_wrap.after, self.wrapping.after),
             ] {
+                state.update(cx, |state, cx| {
+                    state.set_line_number(self.line_numbers, window, cx)
+                });
                 if old != wrap || previous.editor != self.settings.editor {
                     state.update(cx, |state, cx| state.set_soft_wrap(wrap, window, cx));
                 }
@@ -145,7 +174,8 @@ impl Viewer {
         }
         self.apply_panel_settings(&previous, cx);
         self.apply_evolution_settings(&previous, window, cx);
-        if previous.ui != self.settings.ui
+        if previous.panels.files.font != self.settings.panels.files.font
+            || previous.ui != self.settings.ui
             || previous.files.indent_width != self.settings.files.indent_width
         {
             self.refresh_browser_metrics();
@@ -174,6 +204,11 @@ impl Viewer {
             || previous.file_evolution != self.settings.file_evolution
         {
             self.save_layout(window, cx);
+        }
+        if previous.editor.tab_size != self.settings.editor.tab_size
+            && let Some(index) = self.selected_index()
+        {
+            self.select_file(index, window, cx);
         }
         // Fonts and wrapping invalidate text measurements as well as paint.
         window.refresh();

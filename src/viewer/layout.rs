@@ -6,35 +6,22 @@ impl Render for Viewer {
             .id("viewer-root")
             .key_context("Jaywalk")
             .track_focus(&self.focus)
-            .on_action(cx.listener(|this, _: &ShowWholeBranch, window, cx| {
-                this.show_whole_branch(window, cx)
-            }))
-            .on_action(cx.listener(|this, _: &FindFile, window, cx| {
-                this.open_palette(palette::PaletteKind::Files, window, cx)
-            }))
-            .on_action(cx.listener(|this, _: &ShowCommands, window, cx| {
-                this.open_palette(palette::PaletteKind::Commands, window, cx)
-            }))
-            .on_action(cx.listener(|this, _: &RefreshView, window, cx| this.refresh(window, cx)))
             .on_action(
-                cx.listener(|this, _: &NextFile, window, cx| this.navigate_file(1, window, cx)),
-            )
-            .on_action(
-                cx.listener(|this, _: &PreviousFile, window, cx| {
-                    this.navigate_file(-1, window, cx)
+                cx.listener(|this, action: &commands::ExecuteCommand, window, cx| {
+                    match action.command {
+                        jaywalk::commands::CommandId::OpenRepository
+                        | jaywalk::commands::CommandId::Quit
+                        | jaywalk::commands::CommandId::Hide
+                        | jaywalk::commands::CommandId::HideOthers
+                        | jaywalk::commands::CommandId::ShowAll => cx.propagate(),
+                        _ => this.execute_command(action.command, window, cx),
+                    }
                 }),
             )
-            .on_action(cx.listener(|this, _: &NextChange, _, cx| this.navigate_change(1, cx)))
-            .on_action(cx.listener(|this, _: &PreviousChange, _, cx| this.navigate_change(-1, cx)))
-            .on_action(cx.listener(|this, _: &NextRevision, window, cx| {
-                this.navigate_revision(1, window, cx)
-            }))
-            .on_action(cx.listener(|this, _: &PreviousRevision, window, cx| {
-                this.navigate_revision(-1, window, cx)
-            }))
             .relative()
             .v_flex()
             .size_full()
+            .font_features(typography::features(self.settings.ui.ligatures))
             .bg(rgb(0x1f1f1f))
             .text_color(rgb(0xcccccc))
             .child(
@@ -104,7 +91,15 @@ impl Render for Viewer {
                                         px(self.settings.panels.history.min_width)
                                             ..px(self.settings.panels.history.max_width),
                                     )
-                                    .child(self.render_history_sidebar(cx)),
+                                    .child(
+                                        div()
+                                            .size_full()
+                                            .font(typography::panel_font(
+                                                &self.settings.panels.history.font,
+                                                cx,
+                                            ))
+                                            .child(self.render_history_sidebar(cx)),
+                                    ),
                             )
                             .child(
                                 resizable_panel()
@@ -114,7 +109,15 @@ impl Render for Viewer {
                                         px(self.settings.panels.files.min_width)
                                             ..px(self.settings.panels.files.max_width),
                                     )
-                                    .child(self.render_file_sidebar(cx)),
+                                    .child(
+                                        div()
+                                            .size_full()
+                                            .font(typography::panel_font(
+                                                &self.settings.panels.files.font,
+                                                cx,
+                                            ))
+                                            .child(self.render_file_sidebar(cx)),
+                                    ),
                             )
                             .child(
                                 resizable_panel().child(

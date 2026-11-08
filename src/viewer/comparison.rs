@@ -156,6 +156,12 @@ impl Viewer {
                     div().p_6().child(error.clone()).into_any_element()
                 } else if let Some(Ok(Some(state))) = self.code().map(|code| &code.standard) {
                     Diff::new(state)
+                        .code_font(
+                            gpui::component::Theme::global(cx).mono_font_family.clone(),
+                            px(self.code_font_size),
+                        )
+                        .line_number(self.line_numbers)
+                        .font_features(typography::features(self.settings.editor.ligatures))
                         .header_visible(false)
                         .soft_wrap(self.wrapping.inline)
                         .soft_wrap_sides(self.wrapping.before, self.wrapping.after)
@@ -163,6 +169,8 @@ impl Viewer {
                         .into_any_element()
                 } else {
                     Editor::new(left)
+                        .text_size(px(self.code_font_size))
+                        .font_features(typography::features(self.settings.editor.ligatures))
                         .readonly(true)
                         .bordered(false)
                         .h_full()
@@ -215,6 +223,10 @@ impl Viewer {
                                                 ))
                                                 .child(
                                                     Editor::new(left)
+                                                        .text_size(px(self.code_font_size))
+                                                        .font_features(typography::features(
+                                                            self.settings.editor.ligatures,
+                                                        ))
                                                         .readonly(true)
                                                         .bordered(false)
                                                         .h_full(),
@@ -259,6 +271,10 @@ impl Viewer {
                                                 ))
                                                 .child(
                                                     Editor::new(right)
+                                                        .text_size(px(self.code_font_size))
+                                                        .font_features(typography::features(
+                                                            self.settings.editor.ligatures,
+                                                        ))
                                                         .readonly(true)
                                                         .bordered(false)
                                                         .h_full(),

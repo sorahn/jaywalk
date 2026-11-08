@@ -14,6 +14,7 @@ use std::rc::Rc;
 
 use crate::Arguments;
 
+pub(crate) mod commands;
 mod comparison;
 mod evolution;
 mod files;
@@ -27,6 +28,7 @@ mod palette;
 mod panels;
 mod session_layout;
 mod settings;
+mod typography;
 use geometry::{comparison_geometry, horizontal_wheel};
 
 fn standard_mode(view: ViewMode) -> DiffMode {
@@ -141,11 +143,18 @@ impl PreparedFile {
     fn load(
         comparison: &Comparison,
         file: &jaywalk::repository::ChangedFile,
+        tab_size: usize,
     ) -> Result<Self, String> {
         let (before, after) = comparison.contents(file)?;
         let model = FileDiff::new(&before, &after);
-        let standard =
-            DiffFile::parse(&standard_patch(&before, &after)).map_err(|error| error.to_string());
+        let standard = DiffFile::parse(&standard_patch(&before, &after))
+            .map(|files| {
+                files
+                    .into_iter()
+                    .map(|file| file.with_tab_size(tab_size))
+                    .collect()
+            })
+            .map_err(|error| error.to_string());
         Ok(Self {
             before,
             after,
@@ -155,35 +164,8 @@ impl PreparedFile {
     }
 }
 
-gpui::actions!(
-    jaywalk,
-    [
-        ShowWholeBranch,
-        FindFile,
-        ShowCommands,
-        RefreshView,
-        NextFile,
-        PreviousFile,
-        NextChange,
-        PreviousChange,
-        NextRevision,
-        PreviousRevision
-    ]
-);
-
-pub(crate) fn init(cx: &mut App) {
-    cx.bind_keys([
-        KeyBinding::new("secondary-shift-b", ShowWholeBranch, Some("Jaywalk")),
-        KeyBinding::new("secondary-p", FindFile, Some("Jaywalk")),
-        KeyBinding::new("secondary-shift-p", ShowCommands, Some("Jaywalk")),
-        KeyBinding::new("secondary-r", RefreshView, Some("Jaywalk")),
-        KeyBinding::new("secondary-alt-down", NextRevision, Some("Jaywalk")),
-        KeyBinding::new("secondary-alt-up", PreviousRevision, Some("Jaywalk")),
-        KeyBinding::new("alt-down", NextFile, Some("Jaywalk")),
-        KeyBinding::new("alt-up", PreviousFile, Some("Jaywalk")),
-        KeyBinding::new("f7", NextChange, Some("Jaywalk")),
-        KeyBinding::new("shift-f7", PreviousChange, Some("Jaywalk")),
-    ]);
+pub(crate) fn init(arguments: &Arguments, settings: &Settings, cx: &mut App) {
+    commands::init(arguments, settings, cx);
 }
 
 pub(crate) struct Viewer {
@@ -205,6 +187,8 @@ pub(crate) struct Viewer {
     active_change: Option<usize>,
     navigation_target: Option<usize>,
     view_mode: ViewMode,
+    code_font_size: f32,
+    line_numbers: bool,
     wrapping: Wrapping,
     horizontal_position: f32,
     reveal_after_layout: bool,

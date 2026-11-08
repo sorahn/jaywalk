@@ -11,6 +11,7 @@ impl Viewer {
         let view_mode = settings.diff.default_view;
         let wrapping = Wrapping::from_settings(&settings.diff);
         let file_width = settings.panels.files.default_width;
+        let file_mode = settings.files.default_view;
         let focus = cx.focus_handle();
         window.focus(&focus, cx);
         let evolution = evolution::EvolutionPanel::new(
@@ -26,6 +27,8 @@ impl Viewer {
         let palette = palette::PaletteState::new(window, cx);
         let layout = session_layout::SessionLayout::load(&arguments);
         let mut viewer = Self {
+            code_font_size: settings.editor.font_size,
+            line_numbers: settings.editor.line_numbers,
             config: settings::ConfigState::new(),
             live: live::LiveState::new(),
             palette,
@@ -40,7 +43,7 @@ impl Viewer {
             active_evolution: evolution::EvolutionKind::Change,
             repository: LoadState::Loading,
             selected_file: None,
-            browser: files::FileBrowser::new(file_width, cx),
+            browser: files::FileBrowser::new(file_width, file_mode, cx),
             repository_generation: 0,
             file_generation: 0,
             repository_task: None,
@@ -165,6 +168,7 @@ impl Viewer {
         self.fluid = FluidScroll::default();
         self.horizontal_position = 0.;
         self.reveal_after_layout = false;
+        let tab_size = self.settings.editor.tab_size;
         self.file_task = Some(cx.spawn_in(window, async move |this, cx| {
             let extension = std::path::Path::new(&file.after_path)
                 .extension()
@@ -177,7 +181,7 @@ impl Viewer {
             };
             let path = file.after_path.clone();
             let result = cx
-                .background_spawn(async move { PreparedFile::load(&comparison, &file) })
+                .background_spawn(async move { PreparedFile::load(&comparison, &file, tab_size) })
                 .await;
             let _ = this.update_in(cx, |viewer, window, cx| {
                 if viewer.file_generation != generation {
@@ -205,6 +209,11 @@ impl Viewer {
                             cx.new(|cx| {
                                 EditorState::new(window, cx)
                                     .language(language)
+                                    .line_number(viewer.line_numbers)
+                                    .tab_size(gpui::base::input::TabSize {
+                                        tab_size: viewer.settings.editor.tab_size,
+                                        hard_tabs: false,
+                                    })
                                     .soft_wrap(wrap)
                                     .folding(false)
                                     .default_value(text)

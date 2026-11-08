@@ -28,6 +28,22 @@ polling is independent of repository refresh and controlled by
 `settings.poll_interval_ms` (500 ms by default). Two matching reads let saves
 settle, so updates normally appear within about a second.
 
+Cmd+, opens this file in your default text editor. Choose another app or command
+with `settings.editor`:
+
+```toml
+[settings]
+editor = "Zed" # macOS app name or absolute .app path
+# Or an executable plus arguments, on any supported platform:
+# editor = ["code", "--reuse-window"]
+```
+
+A string selects a native app on macOS (an executable on other platforms).
+An array runs a command directly without a shell, appending the config filename
+as one argument. Paths with spaces need no shell escaping. Omit `editor` to
+restore the default. Changes apply to the next Cmd+, or Settings menu action;
+opening errors appear in the viewer.
+
 All current settings apply live; no restart is required. Invalid TOML, unknown
 keys, invalid values, or unreadable explicit files show a settings error while
 the last valid configuration remains in effect. Fixing the file clears the
@@ -48,10 +64,103 @@ file can override only the values it needs; omitted values inherit defaults.
 Unknown keys, malformed TOML, and invalid sizes produce an error with the
 config path. An explicitly supplied config file must exist.
 
-Settings cover window size, UI/code fonts, panel default widths and limits,
-history density, compact file paths, file-list wrapping, default diff view,
-and separate before/after/inline code wrapping. The toolbar wrap button
-changes the current view for the running session; it does not rewrite TOML.
+Settings cover window size, independent fonts for application controls, source
+code, History, and Changed files, panel sizes, history density, file-list/tree
+defaults, diff modes, line numbers, tab width, and per-pane word wrapping.
+Sidebar evolution docks inherit their sidebar's font. Font sizes are logical
+pixels. Ligature controls enable or disable OpenType `liga`, `clig`, and `calt`;
+the visible effect depends on the selected installed font.
+
+```toml
+[editor]
+font_family = "Menlo"
+font_size = 14
+line_numbers = true
+tab_size = 4
+ligatures = false
+
+[panels.history.font]
+size = 15
+# family = "Helvetica Neue"
+ligatures = true
+
+[panels.files.font]
+size = 14
+ligatures = true
+
+[files]
+default_view = "tree"
+
+[keybindings]
+toggle_history = ["secondary-j"]
+find_file = ["secondary-k secondary-p"]
+```
+
+`ui.font_family`, `ui.font_size`, and `ui.ligatures` style application controls.
+The toolbar wrap/line-number/view controls and viewer font-size commands are
+session choices; they do not rewrite TOML. A later edit to the corresponding
+setting overrides that choice. Viewer font-size commands leave sidebar sizes
+unchanged. Changing tab width re-prepares the selected file in the background,
+retaining source text and reading position.
+
+## Keyboard commands
+
+Shortcuts follow familiar VS Code/Zed conventions where the actions correspond.
+`secondary` means Command on macOS and Control elsewhere. These are the defaults:
+
+| Action | macOS shortcut |
+| --- | --- |
+| Open repository in another window | Cmd+O |
+| Open settings in the system text editor | Cmd+, |
+| Find changed file | Cmd+P |
+| Command palette | Cmd+Shift+P or F1 |
+| Toggle History | Cmd+B |
+| Toggle Changed files | Cmd+Shift+E |
+| Toggle word wrap | Option+Z |
+| Increase/decrease/reset viewer font size | Cmd+= / Cmd+- / Cmd+0 |
+| Next/previous change | Option+F5 / Option+Shift+F5 (also F7 / Shift+F7) |
+| Next/previous file | Option+Down / Option+Up |
+| Next/previous revision | Cmd+Option+Down / Cmd+Option+Up |
+| Whole branch | Cmd+Shift+B |
+| Refresh | Cmd+R |
+| Close window / quit | Cmd+W / Cmd+Q |
+
+The command palette also includes line numbers, all three diff views, evolution
+review modes, and Reset panel layout. Bound commands display their current
+shortcut. The complete command IDs are listed under `[keybindings]` in
+`config/default.toml`. Override a command's array to replace its shortcuts;
+use `[]` to remove them. Space-separated strokes form a chord. Invalid shortcuts,
+unknown commands, and duplicate shortcuts assigned to different commands reject
+the entire update while retaining the last valid settings/keymap. Reloading keys
+preserves the toolkit's editing, selection, and copy bindings.
+
+Shortcut references: [VS Code defaults](https://code.visualstudio.com/docs/reference/default-keybindings)
+and [Zed keymaps](https://zed.dev/docs/key-bindings). Jaywalk-specific actions
+keep their existing shortcuts where there is no direct editor equivalent.
+
+## macOS application
+
+The macOS integration provides native Jaywalk, File, Edit, View, Go, Window,
+and Help menus through GPUI's AppKit bridge. Menus, shortcuts, and the palette
+use the same commands. Open repository creates another window in the same
+process, and remains available after the last window closes. Edit exposes
+Copy and Select All for the focused source/picker. Settings opens the current
+config file and creates a default config if none exists.
+
+Build a local app bundle with an ad hoc signature:
+
+```sh
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer scripts/bundle-macos.sh
+# Or: scripts/bundle-macos.sh release
+open target/debug/Jaywalk.app --args /absolute/path/to/repository
+```
+
+The bundle is `target/debug/Jaywalk.app` (or `target/release/Jaywalk.app`).
+It runs directly without the terminal-detachment re-exec used by the CLI.
+Opening the app from Finder can start without a repository; use File > Open
+repository. This is a local build, without release notarization or an installer.
+Routing a second terminal launch to the existing application and global tabs
+remain future work.
 
 ## Development history
 
