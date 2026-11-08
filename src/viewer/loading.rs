@@ -85,6 +85,7 @@ impl Viewer {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        self.resume_live_refresh();
         self.remember_evolution_header();
         self.evolution.clear();
         self.file_evolution.clear();
@@ -100,26 +101,12 @@ impl Viewer {
             let result = cx
                 .background_spawn(async move {
                     let comparison = arguments.comparison()?;
-                    if !comparison.supports_evolution() {
-                        let history = if arguments.diff.is_some() {
-                            jaywalk::history::History::parse("")
-                        } else {
-                            comparison.history()
-                        };
-                        return Ok((comparison, history, None));
-                    }
-                    let history = comparison.history();
-                    let tip_expression = if arguments.tip == "@" {
-                        let revision = comparison.revision(&comparison.tip)?;
-                        Some(if revision.bookmarks.len() == 1 {
-                            revision.bookmarks[0].clone()
-                        } else {
-                            revision.change_id
-                        })
+                    let history = if arguments.diff.is_some() {
+                        jaywalk::history::History::parse("")
                     } else {
-                        Some(arguments.tip.clone())
+                        comparison.history()
                     };
-                    Ok::<_, String>((comparison, history, tip_expression))
+                    Ok::<_, String>((comparison, history))
                 })
                 .await;
             let _ = this.update_in(cx, |viewer, window, cx| {
@@ -128,10 +115,7 @@ impl Viewer {
                 }
                 viewer.finish_loading(LoadingKind::Comparison);
                 viewer.repository = match result {
-                    Ok((comparison, history, tip_expression)) => {
-                        if viewer.live.tip_expression.is_none() {
-                            viewer.live.tip_expression = tip_expression;
-                        }
+                    Ok((comparison, history)) => {
                         if !comparison.supports_evolution() {
                             viewer.evolution.visible = false;
                             viewer.file_evolution.visible = false;
@@ -551,6 +535,7 @@ impl Viewer {
             return;
         }
         self.remember_reading(cx);
+        self.resume_live_refresh();
         self.remember_evolution_header();
         self.evolution.clear();
         self.file_evolution.clear();
@@ -596,6 +581,7 @@ impl Viewer {
         let already_loading = matches!(&session.scope, ComparisonScope::Revision {commit_id: current, ..} if current == commit_id)
             && matches!(session.comparison, LoadState::Loading);
         let branch = session.branch.as_ref().clone();
+        self.resume_live_refresh();
         self.remember_evolution_header();
         self.remember_reading(cx);
         if already_loading {

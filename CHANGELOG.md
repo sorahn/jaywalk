@@ -29,6 +29,9 @@ Planned version: **0.1.1**.
 
 ### Fixed
 
+- Follow replacement working-copy changes with the default `@` target, pause
+  retries of unchanged failed operations, and keep notices in the fixed footer.
+
 - Preserve overview and file-view backgrounds and filename headers across loading and error states;
   delay transient History loading text consistently with the other panels.
 

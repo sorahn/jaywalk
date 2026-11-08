@@ -1,4 +1,5 @@
 use super::*;
+use gpui::component::tooltip::Tooltip;
 
 impl Render for Viewer {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
@@ -157,17 +158,28 @@ impl Render for Viewer {
                     .py_2()
                     .bg(rgb(0x3d3226))
                     .text_sm()
-                    .child(format!(
-                        "{}  |  {}",
-                        if self.arguments.diff.is_some() {
-                            "Read-only comparison"
-                        } else if !self.supports_evolution() {
-                            "Read-only Git snapshot"
-                        } else {
-                            "Read-only jj snapshot"
-                        },
-                        self.scope_label()
-                    ))
+                    .gap_3()
+                    .flex_shrink_0()
+                    .child(
+                        div()
+                            .h_flex()
+                            .items_center()
+                            .gap_3()
+                            .flex_1()
+                            .min_w_0()
+                            .child(div().min_w_0().truncate().child(format!(
+                                "{}  |  {}",
+                                if self.arguments.diff.is_some() {
+                                    "Read-only comparison"
+                                } else if !self.supports_evolution() {
+                                    "Read-only Git snapshot"
+                                } else {
+                                    "Read-only jj snapshot"
+                                },
+                                self.scope_label()
+                            )))
+                            .children(self.status_notice()),
+                    )
                     .child({
                         let total = self.code().map_or(0, |CodeComparison { model, .. }| {
                             model.blocks.iter().filter(|block| block.changed).count()
@@ -175,6 +187,7 @@ impl Render for Viewer {
                         div()
                             .h_flex()
                             .items_center()
+                            .flex_shrink_0()
                             .gap_2()
                             .child(
                                 Button::new("word-wrap")
@@ -243,31 +256,34 @@ impl Render for Viewer {
                             )
                     }),
             )
-            .children(self.config.error.as_ref().map(|message| {
-                div()
-                    .px_3()
-                    .py_1()
-                    .text_sm()
-                    .bg(rgb(0x542c2c))
-                    .child(message.clone())
-            }))
-            .children(
-                self.live
-                    .message
-                    .as_ref()
-                    .filter(|message| {
-                        message.as_str() != "Updating recorded changes…"
-                            || self.loading_visible(LoadingKind::Live)
-                    })
-                    .map(|message| {
-                        div()
-                            .px_3()
-                            .py_1()
-                            .text_xs()
-                            .bg(rgb(0x3b3426))
-                            .child(message.clone())
-                    }),
-            )
             .children(self.render_palette(cx))
+    }
+}
+
+impl Viewer {
+    fn status_notice(&self) -> Option<AnyElement> {
+        let (message, color) = if let Some(message) = &self.config.error {
+            (message, 0xf48771)
+        } else {
+            let message = self.live.message.as_ref()?;
+            if message == "Updating recorded changes…" && !self.loading_visible(LoadingKind::Live)
+            {
+                return None;
+            }
+            (message, 0xe5c07b)
+        };
+        let tooltip = message.clone();
+        Some(
+            div()
+                .id("status-notice")
+                .flex_1()
+                .min_w_0()
+                .text_xs()
+                .text_color(rgb(color))
+                .truncate()
+                .child(message.clone())
+                .tooltip(move |window, cx| Tooltip::new(tooltip.clone()).build(window, cx))
+                .into_any_element(),
+        )
     }
 }

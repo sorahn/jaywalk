@@ -137,10 +137,45 @@ impl Comparison {
             &["op", "log", "--no-graph", "-n", "1", "-T", "id"],
         )?;
         let operation = operation.trim().to_owned();
+        Self::recorded_at(root, operation, base, tip)
+    }
+
+    pub(crate) fn recorded_at(
+        root: PathBuf,
+        operation: String,
+        base: Option<&str>,
+        tip: &str,
+    ) -> Result<Self, String> {
         let tip = single_revision(&root, &operation, tip)?;
         let default_base = format!("heads(::{tip} & immutable())");
         let base = single_revision(&root, &operation, base.unwrap_or(&default_base))?;
         Self::between(root, operation, base, tip)
+    }
+
+    /// Resolve a followed change without confusing absence with a query failure.
+    pub(crate) fn visible_change(
+        &self,
+        change: &str,
+    ) -> Result<Option<crate::history::Revision>, String> {
+        let expression = format!("all() & present({change})");
+        let output = query(
+            &self.root,
+            &self.operation,
+            &[
+                "log",
+                "--no-graph",
+                "-r",
+                &expression,
+                "-T",
+                crate::history::TEMPLATE,
+            ],
+        )?;
+        let mut revisions = crate::history::History::parse(&output)?.revisions;
+        match revisions.len() {
+            0 => Ok(None),
+            1 => Ok(revisions.pop()),
+            _ => Err("The selected change has divergent visible versions; select a specific history row.".into()),
+        }
     }
 
     pub(crate) fn between(

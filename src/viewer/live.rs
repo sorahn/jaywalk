@@ -1,5 +1,6 @@
 //! Poll only recorded jj operations; never snapshot the observed working copy.
 use super::*;
+use jaywalk::live_refresh::{FollowedChange, RecordedRefresh, RefreshGate};
 use jaywalk::reading::ReadingAnchor;
 use std::time::Duration;
 
@@ -16,7 +17,7 @@ pub(super) struct LiveState {
     refresh: Option<Task<()>>,
     busy: bool,
     pub(super) message: Option<String>,
-    pub(super) tip_expression: Option<String>,
+    retry: RefreshGate,
     pub(super) restore: Option<(String, ReadingSnapshot)>,
     pub(super) pending_position: Option<(usize, usize, f32)>,
     positions: std::collections::HashMap<String, ReadingSnapshot>,
@@ -29,7 +30,7 @@ impl LiveState {
             refresh: None,
             busy: false,
             message: None,
-            tip_expression: None,
+            retry: RefreshGate::default(),
             restore: None,
             pending_position: None,
             positions: std::collections::HashMap::new(),
@@ -132,16 +133,21 @@ impl Viewer {
                 if this
                     .update_in(cx, |viewer, window, cx| match operation {
                         Ok(operation)
-                            if viewer
-                                .repository
-                                .ready()
-                                .is_some_and(|session| session.branch.operation != operation) =>
+                            if viewer.repository.ready().is_some_and(|session| {
+                                viewer
+                                    .live
+                                    .retry
+                                    .allows(&operation, &session.branch.operation)
+                            }) =>
                         {
-                            viewer.refresh_live(window, cx)
+                            viewer.refresh_recorded(window, cx)
                         }
                         Err(error) => {
-                            viewer.live.message = Some(format!("Live refresh: {error}"));
-                            cx.notify();
+                            let message = format!("Live refresh: {error}");
+                            if viewer.live.message.as_ref() != Some(&message) {
+                                viewer.live.message = Some(message);
+                                cx.notify();
+                            }
                         }
                         _ => {}
                     })
@@ -153,7 +159,19 @@ impl Viewer {
         }));
     }
 
+    pub(super) fn resume_live_refresh(&mut self) {
+        self.live.retry.clear();
+        if !self.live.busy {
+            self.live.message = None;
+        }
+    }
+
     pub(super) fn refresh_live(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.live.retry.clear();
+        self.refresh_recorded(window, cx);
+    }
+
+    fn refresh_recorded(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if !self.supports_evolution() {
             self.load_repository(None, window, cx);
             return;
@@ -186,17 +204,18 @@ impl Viewer {
                         .iter()
                         .find(|revision| &revision.commit_id == commit_id)
                 })
-                .map(|revision| revision.change_id.clone())
+                .map(|revision| FollowedChange {
+                    change_id: revision.change_id.clone(),
+                    working_copy: revision.working_copy,
+                })
         } else {
             None
         };
         let directory = self.arguments.directory.clone();
         let base = self.arguments.base.clone();
-        let tip = self
-            .live
-            .tip_expression
-            .clone()
-            .unwrap_or_else(|| self.arguments.tip.clone());
+        // Preserve the requested reference. In particular, @ follows the recorded
+        // workspace even when jj abandons and replaces its working-copy change.
+        let tip = self.arguments.tip.clone();
         let generation = self.repository_generation;
         let file_generation = self.file_generation;
         self.begin_loading(LoadingKind::Live, window, cx);
@@ -205,17 +224,7 @@ impl Viewer {
         self.live.refresh = Some(cx.spawn_in(window, async move |this, cx| {
             let result = cx
                 .background_spawn(async move {
-                    let branch = Comparison::load(&directory, base.as_deref(), &tip)?;
-                    let history = branch.history()?;
-                    let revision = change
-                        .as_deref()
-                        .map(|change| branch.revision(change))
-                        .transpose()?;
-                    let comparison = match &revision {
-                        Some(revision) => branch.for_revision(revision)?,
-                        None => branch.clone(),
-                    };
-                    Ok::<_, String>((branch, history, revision, comparison))
+                    RecordedRefresh::load(&directory, base.as_deref(), &tip, change.as_ref())
                 })
                 .await;
             let _ =
@@ -233,10 +242,19 @@ impl Viewer {
                     }
                     match result {
                         Err(error) => {
-                            viewer.live.message =
-                                Some(format!("Refresh paused; previous view retained: {error}"));
+                            viewer.live.retry.failed(error.operation);
+                            viewer.live.message = Some(format!(
+                                "Refresh paused; previous view retained: {}",
+                                error.message
+                            ));
                         }
-                        Ok((branch, history, revision, comparison)) => {
+                        Ok(RecordedRefresh {
+                            branch,
+                            history,
+                            revision,
+                            comparison,
+                        }) => {
+                            viewer.live.retry.clear();
                             viewer.repository_generation += 1;
                             viewer.repository_task = None;
                             viewer.remember_evolution_header();
@@ -258,6 +276,10 @@ impl Viewer {
                                 comparison: LoadState::Loaded(comparison),
                             });
                             viewer.rebuild_browser(cx);
+                            let active_evolution = viewer.active_evolution;
+                            let path = viewer.selected_path();
+                            viewer.focus_evolution_file(path.as_deref());
+                            viewer.active_evolution = active_evolution;
                             if let Some(revision) = revision {
                                 viewer.load_evolution(revision, window, cx);
                             }

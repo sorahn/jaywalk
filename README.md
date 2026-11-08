@@ -449,19 +449,26 @@ command component with arrow-key selection and Enter to confirm.
 
 Live refresh polls recorded jj operations in background tasks; `[live]`
 controls `enabled` and `poll_interval_ms` (default 1500). The viewer never
-snapshots unsaved/unsnapshotted working files. A normal history selection follows
-its stable change ID through rewrites. Evolution selections remain pinned as
-described above. With the default `--tip @`, the initial tip's sole bookmark
-becomes the branch tracking expression, or its stable change ID if no single
-bookmark is available. Explicit `--tip` expressions are reevaluated as supplied;
-a literal commit ID therefore stays fixed. Maintain a feature bookmark when
-new tip changes should be included automatically.
+snapshots unsaved/unsnapshotted working files. With the default `--tip @`,
+each refresh resolves the recorded workspace reference at one pinned operation,
+including when a squash or abandon replaces its working-copy change. Explicit
+`--tip` expressions are reevaluated as supplied; a literal commit ID stays
+fixed. Use `--tip <bookmark>` to follow a feature independently of the checkout.
+
+Normal history selections follow stable change IDs through rewrites. If a
+selected working-copy change is abandoned while following `@`, the viewer can
+follow the replacement working copy. Other missing/divergent selections keep
+the previous view with an explanation. Evolution selections remain pinned as
+described above.
 
 A refresh keeps the previous coherent view visible until replacement data is
-ready. Missing/divergent changes or failed reads keep that view and report an
-error rather than selecting an unrelated revision. File, comparison, and
-refresh generations reject superseded results. A selected file that is no
-longer changed returns to the overview with an explanation.
+ready. Failed reads are not automatically retried against the same recorded
+operation: another operation, selecting another scope, or a manual Refresh
+allows a new attempt. File, comparison, and refresh generations reject
+superseded results. An open file that is no longer changed stays as a retained
+preview. Refresh notices and settings errors occupy the existing footer,
+truncate to one line, and expose their full text on hover; they never add a row
+or resize the panels.
 
 Both editors now emphasize changed words within modified lines, alongside
 syntax colors and full-row diff shading. Fluid computes Unicode-safe word
