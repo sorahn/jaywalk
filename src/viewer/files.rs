@@ -17,6 +17,7 @@ pub(super) struct FileBrowser {
     tree_indices: HashMap<SharedString, usize>,
     observer: Option<Subscription>,
     horizontal: ScrollHandle,
+    list_scroll: ScrollHandle,
     width: f32,
     tree_width: f32,
 }
@@ -32,6 +33,7 @@ impl FileBrowser {
             tree_indices: HashMap::new(),
             observer: None,
             horizontal: ScrollHandle::new(),
+            list_scroll: ScrollHandle::new(),
             width: default_width,
             tree_width: default_width,
         }
@@ -292,6 +294,7 @@ impl Viewer {
                         div()
                             .h_flex()
                             .gap_1()
+                            .child(self.panel_menu(jaywalk::panel_layout::PanelId::Files))
                             .child(
                                 Button::new("file-evolution-toggle")
                                     .ghost()
@@ -350,6 +353,7 @@ impl Viewer {
                 let wrap = self.settings.files.list_word_wrap;
                 let mut list = div()
                     .id("changed-files")
+                    .track_scroll(&self.browser.list_scroll)
                     .flex_1()
                     .min_h_0()
                     .when(wrap, |list| list.overflow_y_scroll())

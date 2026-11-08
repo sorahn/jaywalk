@@ -122,6 +122,7 @@ impl Viewer {
                             "GIT HISTORY"
                         }),
                 )
+                .child(self.panel_menu(jaywalk::panel_layout::PanelId::History))
                 .child(
                     Button::new("toggle-evolution")
                         .ghost()

@@ -120,7 +120,7 @@ impl EvolutionPanel {
         }
     }
 
-    fn rebuild(&mut self) {
+    pub(super) fn rebuild(&mut self) {
         if let TimelineState::Loaded(session) = &mut self.state {
             session.view = Rc::new(
                 session
@@ -748,6 +748,10 @@ impl Viewer {
                     .child(div().text_size(px(font_size * 0.85)).child(match kind {
                         EvolutionKind::Change => "CHANGE EVOLUTION",
                         EvolutionKind::File => "FILE EVOLUTION",
+                    }))
+                    .child(self.panel_menu(match kind {
+                        EvolutionKind::Change => jaywalk::panel_layout::PanelId::ChangeEvolution,
+                        EvolutionKind::File => jaywalk::panel_layout::PanelId::FileEvolution,
                     }))
                     .child(Button::new("close-evolution").ghost().compact().icon(IconName::X)
                         .tooltip("Hide evolution")

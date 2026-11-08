@@ -143,6 +143,38 @@ impl Viewer {
                 window.refresh();
                 cx.notify();
             }
+            CommandId::HistoryLeft
+            | CommandId::HistoryRight
+            | CommandId::FilesLeft
+            | CommandId::FilesRight
+            | CommandId::SwapSidebars
+            | CommandId::ChangeEvolutionSidebar
+            | CommandId::ChangeEvolutionBottom
+            | CommandId::FileEvolutionSidebar
+            | CommandId::FileEvolutionBottom => self.move_panel(command, cx),
+            CommandId::ResetInterface => {
+                self.set_view_mode(self.settings.diff.default_view, cx);
+                self.wrapping = Wrapping::from_settings(&self.settings.diff);
+                self.line_numbers = self.settings.editor.line_numbers;
+                self.apply_file_view();
+                for panel in [&mut self.evolution, &mut self.file_evolution] {
+                    panel.collapse_repeats = self.settings.evolution.collapse_repeats;
+                    panel.show_unchanged_rebases = self.settings.evolution.show_unchanged_rebases;
+                    panel.rebuild();
+                }
+                if let Some(code) = self.code() {
+                    for (state, wrap) in [
+                        (&code.before, self.wrapping.before),
+                        (&code.after, self.wrapping.after),
+                    ] {
+                        state.update(cx, |state, cx| {
+                            state.set_soft_wrap(wrap, window, cx);
+                            state.set_line_number(self.line_numbers, window, cx);
+                        });
+                    }
+                }
+                self.reset_layout(window, cx);
+            }
             CommandId::ResetLayout => self.reset_layout(window, cx),
             CommandId::CloseWindow => window.remove_window(),
             CommandId::Minimize => window.minimize_window(),

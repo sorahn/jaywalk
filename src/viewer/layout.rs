@@ -2,7 +2,7 @@ use super::*;
 use gpui::component::tooltip::Tooltip;
 
 impl Render for Viewer {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         div()
             .id("viewer-root")
             .key_context("Jaywalk")
@@ -94,59 +94,7 @@ impl Render for Viewer {
                     .relative()
                     .flex_1()
                     .min_h_0()
-                    .child(
-                        self.sidebar_group(cx)
-                            .child(
-                                resizable_panel()
-                                    .visible(!self.layout.saved.history_hidden)
-                                    .size(px(self.sidebar_width(true)))
-                                    .size_range(
-                                        px(self.settings.panels.history.min_width)
-                                            ..px(self.settings.panels.history.max_width),
-                                    )
-                                    .child(
-                                        div()
-                                            .size_full()
-                                            .font(typography::panel_font(
-                                                &self.settings.panels.history.font,
-                                                cx,
-                                            ))
-                                            .child(self.render_history_sidebar(cx)),
-                                    ),
-                            )
-                            .child(
-                                resizable_panel()
-                                    .visible(!self.layout.saved.files_hidden)
-                                    .size(px(self.sidebar_width(false)))
-                                    .size_range(
-                                        px(self.settings.panels.files.min_width)
-                                            ..px(self.settings.panels.files.max_width),
-                                    )
-                                    .child(
-                                        div()
-                                            .size_full()
-                                            .font(typography::panel_font(
-                                                &self.settings.panels.files.font,
-                                                cx,
-                                            ))
-                                            .child(self.render_file_sidebar(cx)),
-                                    ),
-                            )
-                            .child(
-                                resizable_panel().child(
-                                    div()
-                                        .v_flex()
-                                        .size_full()
-                                        .child(self.render_evolution_comparison(cx))
-                                        .child(
-                                            div()
-                                                .flex_1()
-                                                .min_h_0()
-                                                .child(self.render_comparison(cx)),
-                                        ),
-                                ),
-                            ),
-                    )
+                    .child(self.render_workbench(f32::from(window.bounds().size.width), cx))
                     .child(self.sidebar_bounds_marker()),
             )
             .child(

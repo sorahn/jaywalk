@@ -233,11 +233,18 @@ impl Viewer {
                     })
                     .ghost()
                     .compact()
-                    .icon(if history {
-                        IconName::PanelLeft
-                    } else {
-                        IconName::PanelRight
-                    })
+                    .icon(
+                        if (if history {
+                            self.placement().history_side
+                        } else {
+                            self.placement().files_side
+                        }) == jaywalk::panel_layout::Side::Left
+                        {
+                            IconName::PanelLeft
+                        } else {
+                            IconName::PanelRight
+                        },
+                    )
                     .tooltip(label)
                     .selected(if history {
                         !self.layout.saved.history_hidden

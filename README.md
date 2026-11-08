@@ -530,3 +530,10 @@ The former shared `layout.toml` is left untouched and is not imported into
 unrelated repositories. Configuration edits still apply live to their matching
 controls. Different open comparisons of one repository share its last saved
 interface choices; different repositories keep independent entries.
+
+Panel-header menus, **View → Panel Placement**, and the command palette move
+sidebars and timelines without changing the selected comparison. Bottom timelines
+share the central workspace's bottom dock side by side. **Reset panel layout**
+restores configured placement, visibility and sizes; **Reset repository interface
+choices** also restores diff/file modes, wrapping and timeline filters. Separator
+double-click resets only the adjacent panel (or the split) to its configured size.
