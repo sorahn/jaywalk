@@ -97,6 +97,9 @@ pub struct UiSettings {
     pub row_height: f32,
     pub panel_header_height: f32,
     pub toolbar_height: f32,
+    pub footer_height: f32,
+    pub footer_font_size: f32,
+    pub footer_control_height: f32,
     pub comparison_bar_height: f32,
     pub font_size: f32,
     #[serde(default)]
@@ -220,6 +223,13 @@ fn merge_defaults(base: &mut toml::Value, overrides: toml::Value) {
 }
 
 impl Settings {
+    pub fn footer_height(&self) -> f32 {
+        self.ui
+            .footer_height
+            .max(self.ui.footer_control_height)
+            .max(self.ui.footer_font_size * 1.5)
+    }
+
     /// One row rhythm by default; larger panel fonts establish a readable minimum.
     pub fn row_height(&self, override_height: Option<f32>, font_size: f32) -> f32 {
         override_height
@@ -406,6 +416,14 @@ impl Settings {
             120.,
         )?;
         bounded("ui.toolbar_height", self.ui.toolbar_height, 28., 120.)?;
+        bounded("ui.footer_height", self.ui.footer_height, 20., 120.)?;
+        bounded("ui.footer_font_size", self.ui.footer_font_size, 8., 48.)?;
+        bounded(
+            "ui.footer_control_height",
+            self.ui.footer_control_height,
+            16.,
+            80.,
+        )?;
         for (name, value) in [
             ("history.row_height", self.history.row_height),
             ("files.tree_row_height", self.files.tree_row_height),

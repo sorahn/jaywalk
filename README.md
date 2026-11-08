@@ -549,3 +549,9 @@ Panel surfaces, selection states and hairline separators use the active theme.
 `ui.panel_header_height` and `ui.toolbar_height` set compact header geometry;
 large fonts establish readable minimums. Placement controls are available from
 each panel's ellipsis menu.
+
+The full-window footer uses `ui.footer_height` (28 pixels),
+`ui.footer_font_size` (12) and `ui.footer_control_height` (22). Its height grows
+only when those configured metrics require it, never in response to status or
+error text. Notices truncate in place and expose their full text on hover.
+The word-wrap control remains immediately left of the three diff-view buttons.

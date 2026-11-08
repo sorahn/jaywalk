@@ -1,5 +1,5 @@
 use super::*;
-use gpui::component::Icon;
+use gpui::component::{Icon, Sizable};
 
 impl Viewer {
     pub(super) fn unchanged_file_summary(&self) -> &'static str {
@@ -136,9 +136,8 @@ impl Viewer {
             .h_flex()
             .items_center()
             .gap_1()
-            .p_1()
-            .rounded_md()
-            .bg(rgb(0x292929));
+            .rounded_sm()
+            .bg(gpui::component::Theme::global(cx).secondary);
         for (id, mode, icon, label) in [
             (
                 "view-inline",
@@ -162,6 +161,7 @@ impl Viewer {
             group = group.child(
                 Button::new(id)
                     .ghost()
+                    .with_size(px(self.settings.ui.footer_control_height))
                     .compact()
                     .icon(icon)
                     .tooltip(label)

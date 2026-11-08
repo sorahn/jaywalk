@@ -12,6 +12,9 @@ loading_delay_ms = 200
 row_height = 26
 panel_header_height = 30
 toolbar_height = 36
+footer_height = 28
+footer_font_size = 12
+footer_control_height = 22
 # Reserved comparison toolbar height; grows if the UI font needs more space.
 comparison_bar_height = 36
 font_size = 16

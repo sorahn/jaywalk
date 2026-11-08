@@ -1,4 +1,5 @@
 use super::*;
+use gpui::component::Sizable;
 use gpui::component::tooltip::Tooltip;
 
 impl Render for Viewer {
@@ -111,10 +112,12 @@ impl Render for Viewer {
                     .h_flex()
                     .justify_between()
                     .items_center()
-                    .px_3()
-                    .py_2()
-                    .bg(rgb(0x3d3226))
-                    .text_sm()
+                    .px_2()
+                    .h(px(self.settings.footer_height()))
+                    .border_t_1()
+                    .border_color(gpui::component::Theme::global(cx).border)
+                    .bg(gpui::component::Theme::global(cx).muted)
+                    .text_size(px(self.settings.ui.footer_font_size))
                     .gap_3()
                     .flex_shrink_0()
                     .child(
@@ -149,6 +152,7 @@ impl Render for Viewer {
                             .child(
                                 Button::new("word-wrap")
                                     .ghost()
+                                    .with_size(px(self.settings.ui.footer_control_height))
                                     .compact()
                                     .icon(IconName::TextWrap)
                                     .tooltip("Word wrap")
@@ -158,24 +162,30 @@ impl Render for Viewer {
                                     })),
                             )
                             .child(self.render_view_toggle(cx))
-                            .child(if self.code().is_some() {
-                                if total == 0 {
-                                    self.unchanged_file_summary().to_owned()
-                                } else if self.view_mode == ViewMode::Fluid {
-                                    format!(
-                                        "Change {} of {}",
-                                        self.active_change.map_or(0, |index| index + 1),
-                                        total
-                                    )
-                                } else {
-                                    format!("{total} changes")
-                                }
-                            } else {
-                                String::new()
-                            })
+                            .child(
+                                div()
+                                    .max_w(px(self.settings.ui.footer_font_size * 18.))
+                                    .truncate()
+                                    .child(if self.code().is_some() {
+                                        if total == 0 {
+                                            self.unchanged_file_summary().to_owned()
+                                        } else if self.view_mode == ViewMode::Fluid {
+                                            format!(
+                                                "Change {} of {}",
+                                                self.active_change.map_or(0, |index| index + 1),
+                                                total
+                                            )
+                                        } else {
+                                            format!("{total} changes")
+                                        }
+                                    } else {
+                                        String::new()
+                                    }),
+                            )
                             .child(
                                 Button::new("previous-change")
                                     .ghost()
+                                    .with_size(px(self.settings.ui.footer_control_height))
                                     .label("↑")
                                     .disabled(
                                         self.code().is_none()
@@ -195,6 +205,7 @@ impl Render for Viewer {
                             .child(
                                 Button::new("next-change")
                                     .ghost()
+                                    .with_size(px(self.settings.ui.footer_control_height))
                                     .label("↓")
                                     .disabled(
                                         self.code().is_none()
@@ -221,6 +232,8 @@ impl Viewer {
     fn status_notice(&self) -> Option<AnyElement> {
         let (message, color) = if let Some(message) = &self.config.error {
             (message, 0xf48771)
+        } else if let Some(message) = &self.layout.error {
+            (message, 0xe5c07b)
         } else {
             let message = self.live.message.as_ref()?;
             if message == "Updating recorded changes…" && !self.loading_visible(LoadingKind::Live)
@@ -230,15 +243,23 @@ impl Viewer {
             (message, 0xe5c07b)
         };
         let tooltip = message.clone();
+        // Truncation ellipsizes each line; explicit diagnostic newlines still
+        // create multiple rows unless the visible label is projected first.
+        let summary = message
+            .split(['\n', '\r'])
+            .map(str::trim)
+            .find(|line| !line.is_empty())
+            .unwrap_or("")
+            .to_owned();
         Some(
             div()
                 .id("status-notice")
                 .flex_1()
                 .min_w_0()
-                .text_xs()
+                .text_size(px(self.settings.ui.footer_font_size))
                 .text_color(rgb(color))
                 .truncate()
-                .child(message.clone())
+                .child(summary)
                 .tooltip(move |window, cx| Tooltip::new(tooltip.clone()).build(window, cx))
                 .into_any_element(),
         )
