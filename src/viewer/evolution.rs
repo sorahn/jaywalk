@@ -207,6 +207,9 @@ impl Viewer {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if !self.supports_evolution() {
+            return;
+        }
         let panel = self.evolution_panel_mut(kind);
         panel.visible = !panel.visible;
         if panel.visible && matches!(self.evolution.state, TimelineState::Unselected) {
@@ -336,6 +339,9 @@ impl Viewer {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if !self.supports_evolution() {
+            return;
+        }
         // File focus and evolution-version selection are projections of this
         // same recorded timeline. Returning to its graph row needs no jj read.
         if let TimelineState::Loaded(session) = &mut self.evolution.state

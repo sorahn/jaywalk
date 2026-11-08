@@ -124,7 +124,7 @@ impl Viewer {
     }
 
     pub(super) fn start_live(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.live.poll.is_some() || !self.settings.live.enabled {
+        if !self.supports_evolution() || self.live.poll.is_some() || !self.settings.live.enabled {
             return;
         }
         let directory = self.arguments.directory.clone();
@@ -161,6 +161,14 @@ impl Viewer {
     }
 
     pub(super) fn refresh_live(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.supports_evolution() {
+            let path = self
+                .selected_index()
+                .and_then(|index| self.comparison()?.files.get(index))
+                .map(|file| file.after_path.clone());
+            self.load_repository(path, window, cx);
+            return;
+        }
         if self.live.busy {
             return;
         }

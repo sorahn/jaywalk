@@ -1,4 +1,5 @@
 use super::*;
+use gpui::prelude::FluentBuilder;
 use jaywalk::history::History;
 
 const GRAPH_MARGIN: f32 = 10.;
@@ -115,13 +116,18 @@ impl Viewer {
                 .child(
                     div()
                         .text_size(px(self.settings.panels.history.font.size))
-                        .child("JJ HISTORY"),
+                        .child(if self.supports_evolution() {
+                            "JJ HISTORY"
+                        } else {
+                            "GIT HISTORY"
+                        }),
                 )
                 .child(
                     Button::new("toggle-evolution")
                         .ghost()
                         .compact()
                         .label("Evolution")
+                        .when(!self.supports_evolution(), |button| button.hidden())
                         .selected(self.evolution.visible)
                         .tooltip("Show change evolution")
                         .on_click(

@@ -58,6 +58,11 @@ impl Viewer {
             editor_observers: Vec::new(),
         };
         viewer.apply_saved_layout();
+        if viewer.arguments.diff.is_some() {
+            viewer.layout.saved.history_hidden = true;
+            viewer.evolution.visible = false;
+            viewer.file_evolution.visible = false;
+        }
         viewer.start_settings_reload(window, cx);
         viewer.initialize_browser(window, cx);
         viewer.load_repository(preferred_path, window, cx);
@@ -81,11 +86,15 @@ impl Viewer {
         self.repository_task = Some(cx.spawn_in(window, async move |this, cx| {
             let result = cx
                 .background_spawn(async move {
-                    let comparison = Comparison::load(
-                        &arguments.directory,
-                        arguments.base.as_deref(),
-                        &arguments.tip,
-                    )?;
+                    let comparison = arguments.comparison()?;
+                    if !comparison.supports_evolution() {
+                        let history = if arguments.diff.is_some() {
+                            jaywalk::history::History::parse("")
+                        } else {
+                            comparison.history()
+                        };
+                        return Ok((comparison, history, None));
+                    }
                     let history = comparison.history();
                     let tip_expression = if arguments.tip == "@" {
                         let revision = comparison.revision(&comparison.tip)?;
@@ -109,6 +118,10 @@ impl Viewer {
                         if viewer.live.tip_expression.is_none() {
                             viewer.live.tip_expression = tip_expression;
                         }
+                        if !comparison.supports_evolution() {
+                            viewer.evolution.visible = false;
+                            viewer.file_evolution.visible = false;
+                        }
                         let branch = Rc::new(comparison);
                         LoadState::Loaded(RepositorySession {
                             branch: branch.clone(),
@@ -122,6 +135,16 @@ impl Viewer {
                 };
                 viewer.start_live(window, cx);
                 viewer.rebuild_browser(cx);
+                let preferred_path = preferred_path.or_else(|| {
+                    (viewer.arguments.diff.is_some())
+                        .then(|| {
+                            viewer
+                                .comparison()
+                                .filter(|comparison| comparison.files.len() == 1)
+                                .map(|comparison| comparison.files[0].after_path.clone())
+                        })
+                        .flatten()
+                });
                 if let Some(path) = preferred_path {
                     viewer.select_path(&path, window, cx);
                 }

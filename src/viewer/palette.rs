@@ -83,6 +83,16 @@ impl Viewer {
                 .unwrap_or_default(),
             PaletteKind::Commands => jaywalk::commands::CommandId::ALL
                 .iter()
+                .filter(|command| {
+                    self.supports_evolution()
+                        || !matches!(
+                            command,
+                            jaywalk::commands::CommandId::ToggleChangeEvolution
+                                | jaywalk::commands::CommandId::ToggleFileEvolution
+                                | jaywalk::commands::CommandId::VersionPatch
+                                | jaywalk::commands::CommandId::SincePrevious
+                        )
+                })
                 .map(|command| (command.label().to_owned(), Choice::Command(*command)))
                 .collect(),
         };

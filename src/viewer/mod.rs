@@ -246,8 +246,20 @@ impl Viewer {
         )
     }
 
+    fn supports_evolution(&self) -> bool {
+        self.repository
+            .ready()
+            .is_some_and(|session| session.branch.supports_evolution())
+    }
+
     fn scope_label(&self) -> String {
+        if self.arguments.diff.is_some() {
+            return "External diff".into();
+        }
         match self.repository.ready().map(|session| &session.scope) {
+            Some(ComparisonScope::WholeBranch) if !self.supports_evolution() => {
+                "Git comparison".into()
+            }
             Some(ComparisonScope::WholeBranch) => "Whole branch".into(),
             Some(ComparisonScope::Revision { commit_id, merge }) => format!(
                 "Commit {}{}",

@@ -17,15 +17,24 @@ use viewer::Viewer;
 struct Arguments {
     #[arg(default_value = ".")]
     directory: PathBuf,
-    #[arg(long)]
+    #[arg(long, conflicts_with = "diff")]
     base: Option<String>,
-    #[arg(long, default_value = "@")]
+    #[arg(long, default_value = "@", conflicts_with = "diff")]
     tip: String,
+    /// Compare two files or directory trees, without requiring a repository.
+    #[arg(long, num_args = 2, value_names = ["LEFT", "RIGHT"])]
+    diff: Option<Vec<PathBuf>>,
+    /// Wait until the launched window closes (required for temporary diff inputs).
+    #[arg(long)]
+    wait: bool,
     #[arg(long)]
     inspect: bool,
     /// Keep the GUI attached to this terminal (useful for debugging).
     #[arg(long)]
     foreground: bool,
+    // A bundled executable reached through jw still needs normal CLI detachment.
+    #[arg(long, hide = true)]
+    terminal_launch: bool,
     #[arg(long)]
     file: Option<String>,
     /// Read settings from this TOML file instead of the default config path.
@@ -33,14 +42,19 @@ struct Arguments {
     config: Option<PathBuf>,
 }
 
+impl Arguments {
+    fn comparison(&self) -> std::result::Result<Comparison, String> {
+        match &self.diff {
+            Some(paths) => jaywalk::external::ExternalContents::comparison(&paths[0], &paths[1]),
+            None => Comparison::load(&self.directory, self.base.as_deref(), &self.tip),
+        }
+    }
+}
+
 fn main() {
     let arguments = Arguments::parse();
     if arguments.inspect {
-        match Comparison::load(
-            &arguments.directory,
-            arguments.base.as_deref(),
-            &arguments.tip,
-        ) {
+        match arguments.comparison() {
             Ok(comparison) => println!(
                 "{} changed files\nbase {}\ntip {}\noperation {}",
                 comparison.files.len(),
@@ -65,7 +79,10 @@ fn main() {
             std::process::exit(1);
         }
     };
-    if !arguments.foreground && !platform::is_app_bundle() {
+    if !arguments.foreground
+        && !arguments.wait
+        && (arguments.terminal_launch || !platform::is_app_bundle())
+    {
         if let Err(error) = launcher::launch(arguments.config.as_deref()) {
             eprintln!("{error}");
             std::process::exit(1);
@@ -76,6 +93,9 @@ fn main() {
         .with_assets(gpui::assets::AllAssets)
         .run(move |cx| {
             gpui::init(cx);
+            if arguments.wait {
+                cx.set_quit_mode(QuitMode::LastWindowClosed);
+            }
             viewer::init(&arguments, &settings, cx);
             Theme::change(ThemeMode::Dark, None, cx);
             configure_code_theme(cx);
@@ -133,6 +153,7 @@ fn choose_repository(mut arguments: Arguments, cx: &mut App) {
         Ok(Ok(Some(paths))) => {
             if let Some(path) = paths.into_iter().next() {
                 arguments.directory = path;
+                arguments.diff = None;
                 arguments.base = None;
                 arguments.tip = "@".into();
                 arguments.file = None;

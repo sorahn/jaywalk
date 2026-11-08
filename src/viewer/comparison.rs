@@ -299,13 +299,31 @@ impl Viewer {
                     .selected_index()
                     .map(|index| comparison.files[index].after_path.clone())
                     .unwrap_or_else(|| "Changeset overview".into());
-                div().v_flex().size_full().bg(rgb(0x302b3d)).gap_4().p_6()
+                div()
+                    .v_flex()
+                    .size_full()
+                    .bg(rgb(0x302b3d))
+                    .gap_4()
+                    .p_6()
                     .child(div().text_xl().child(heading))
-                    .child(if self.is_interdiff() && comparison.files.is_empty() { "No patch changes between these versions.".to_owned() } else { format!("{} changed files", comparison.files.len()) })
+                    .child(if self.is_interdiff() && comparison.files.is_empty() {
+                        "No patch changes between these versions.".to_owned()
+                    } else {
+                        format!("{} changed files", comparison.files.len())
+                    })
                     .child(format!("Base: {}", comparison.base))
                     .child(format!("Tip: {}", comparison.tip))
-                    .child(format!("Operation: {}", &comparison.operation[..12]))
-                    .child("Choose a file from the list. Each refresh reads one recorded jj operation.")
+                    .children(comparison.supports_evolution().then(|| {
+                        div().child(format!(
+                            "Operation: {}",
+                            &comparison.operation[..comparison.operation.len().min(12)]
+                        ))
+                    }))
+                    .child(if comparison.supports_evolution() {
+                        "Choose a file from the list. Each refresh reads one recorded jj operation."
+                    } else {
+                        "Choose a file from the list. Use Refresh to reread the comparison."
+                    })
                     .into_any_element()
             }
         }

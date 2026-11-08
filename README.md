@@ -5,7 +5,8 @@ existing text and panel components.
 
 ## Build
 
-Requires Rust, jj 0.47+, and full Xcode on macOS. Build without changing the
+Requires Rust and full Xcode on macOS. jj repositories require jj 0.47+;
+plain Git repositories require Git. Build without changing the
 global developer directory:
 
 ```sh
@@ -166,6 +167,71 @@ remain future work.
 
 `main` contains the merged native prototype. New work starts on feature
 branches; the original prototype remains available as `viewer-prototype`.
+
+## Terminal launcher and diff tools
+
+Install `jw` from this checkout:
+
+```sh
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer scripts/install-cli.sh
+# Optional bin directory and profile:
+# scripts/install-cli.sh /usr/local/bin release
+```
+
+The default destination is `~/.local/bin`; add it to PATH if necessary. The
+installer refuses to overwrite another command. Keep this checkout and its
+`target` binaries in place while using the development link. Rerun the installer
+after rebuilding to refresh the macOS app bundle.
+
+```sh
+jw .                                      # jj or Git repository
+jw . --base REV --tip REV                  # explicit revision endpoints
+jw . --file src/main.rs                    # select a changed file
+jw diff before.txt after.txt               # standalone files
+jw diff /path/to/before /path/to/after      # directory trees
+jw --wait diff before.txt after.txt        # wait until all launched windows close
+```
+
+In a colocated checkout Jaywalk prefers jj. In plain Git, the default compares
+HEAD with staged and unstaged worktree changes, including untracked files.
+`--base REV --tip REV` compares recorded Git commits; `--tip @` means the
+working tree. The graph shows Git history and commit patches (merges use the
+first parent). Evolution controls require jj metadata. Git and external
+comparisons refresh manually; jj keeps its recorded-operation live refresh.
+Git comparisons capture file contents when loaded so later file selection does
+not mix in subsequent edits. Neither backend writes to the observed repository.
+
+External file/tree comparisons have no repository history. Directory paths are
+matched literally; renames appear as an addition and deletion. Symlink targets
+are compared without traversing directory symlinks. Unsupported binary/large
+text is reported in the viewer. Use Refresh to reread inputs that still exist.
+
+Configure jj's optional read-only diff tool in your jj config:
+
+```toml
+[merge-tools.jaywalk]
+program = "jw"
+diff-args = ["--wait", "diff", "$left", "$right"]
+diff-invocation-mode = "dir"
+```
+
+Then run `jj diff --tool jaywalk`, including its usual `-r`, `--from`, `--to`,
+and path filters. `--wait` keeps jj's temporary input trees alive until the
+window closes. This is a diff viewer, not a `jj diffedit` or merge tool.
+See [jj external tool configuration](https://docs.jj-vcs.dev/latest/config/#external-diff-tools).
+
+Configure Git's optional difftool:
+
+```sh
+git config --global difftool.jaywalk.cmd 'jw --wait diff "$LOCAL" "$REMOTE"'
+git config --global difftool.jaywalk.trustExitCode true
+git difftool --no-prompt --tool=jaywalk
+# Compare a whole tree in one window:
+git difftool --no-prompt --dir-diff --no-symlinks --tool=jaywalk
+```
+
+Use Git's usual `--cached` or revision arguments as needed. This configuration
+does not change either tool's default viewer. See [Git difftool](https://git-scm.com/docs/git-difftool).
 
 ## Prototype usage
 

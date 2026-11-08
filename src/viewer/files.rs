@@ -244,6 +244,7 @@ impl Viewer {
                                     .ghost()
                                     .compact()
                                     .icon(IconName::GitCompareArrows)
+                                    .when(!self.supports_evolution(), |button| button.hidden())
                                     .tooltip("File evolution")
                                     .selected(self.file_evolution.visible)
                                     .on_click(cx.listener(|this, _, window, cx| {

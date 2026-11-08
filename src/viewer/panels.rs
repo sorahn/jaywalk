@@ -71,7 +71,7 @@ impl Viewer {
     }
 
     pub(super) fn render_history_sidebar(&self, cx: &mut Context<Self>) -> AnyElement {
-        if !self.evolution.visible {
+        if !self.supports_evolution() || !self.evolution.visible {
             return self.render_history(cx);
         }
         let settings = &self.settings.evolution;
@@ -94,7 +94,7 @@ impl Viewer {
     }
 
     pub(super) fn render_file_sidebar(&self, cx: &mut Context<Self>) -> AnyElement {
-        if !self.file_evolution.visible {
+        if !self.supports_evolution() || !self.file_evolution.visible {
             return self.render_files(cx);
         }
         let settings = &self.settings.file_evolution;

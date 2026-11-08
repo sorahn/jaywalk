@@ -33,7 +33,10 @@ impl Render for Viewer {
                     .bg(rgb(0x263d35))
                     .child(format!(
                         "Jaywalk  /  {}",
-                        self.arguments.directory.display()
+                        self.arguments.diff.as_ref().map_or_else(
+                            || self.arguments.directory.display().to_string(),
+                            |paths| format!("{} ↔ {}", paths[0].display(), paths[1].display())
+                        )
                     ))
                     .child(
                         div()
@@ -53,7 +56,13 @@ impl Render for Viewer {
                             .child(
                                 Button::new("whole-branch")
                                     .ghost()
-                                    .label("Whole branch")
+                                    .label(if self.arguments.diff.is_some() {
+                                        "All files"
+                                    } else if !self.supports_evolution() {
+                                        "All changes"
+                                    } else {
+                                        "Whole branch"
+                                    })
                                     .disabled(self.repository.ready().is_none())
                                     .selected(matches!(
                                         self.repository.ready().map(|session| &session.scope),
@@ -145,7 +154,17 @@ impl Render for Viewer {
                     .py_2()
                     .bg(rgb(0x3d3226))
                     .text_sm()
-                    .child(format!("Read-only jj snapshot  |  {}", self.scope_label()))
+                    .child(format!(
+                        "{}  |  {}",
+                        if self.arguments.diff.is_some() {
+                            "Read-only comparison"
+                        } else if !self.supports_evolution() {
+                            "Read-only Git snapshot"
+                        } else {
+                            "Read-only jj snapshot"
+                        },
+                        self.scope_label()
+                    ))
                     .child({
                         let total = self.code().map_or(0, |CodeComparison { model, .. }| {
                             model.blocks.iter().filter(|block| block.changed).count()

@@ -45,8 +45,6 @@ pub(super) fn update_menus(cx: &mut App) {
             MenuItem::separator(),
             item(ToggleHistory),
             item(ToggleFiles),
-            item(ToggleChangeEvolution),
-            item(ToggleFileEvolution),
             MenuItem::separator(),
             item(ZoomIn),
             item(ZoomOut),
