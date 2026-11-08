@@ -45,9 +45,8 @@ or Overview closes that temporary preview. If a later comparison changes the
 file, its new diff replaces the preview automatically. Explicit detected
 renames are followed; copies do not move the open file to their destination.
 
-## Version and changelog
+## Version
 
-This branch prepares **0.1.1**; user-visible changes are in [CHANGELOG.md](CHANGELOG.md).
 `Cargo.toml` owns the release version, including the macOS bundle's version.
 Run `jw --version` (or `jaywalk --version`), or choose **Jaywalk → About Jaywalk**
 to identify the build. About also offers Copy version and remains available with
@@ -56,7 +55,8 @@ no repository windows open.
 Development builds show `0.1.1-dev (REVISION)`, with `-dirty` for modified
 checkouts. Release-profile builds show `0.1.1`. The About window includes source
 provenance for either build. A running process retains its compiled identity
-until it is quit and restarted. See CONTRIBUTING.md for the release procedure.
+until it is quit and restarted. Release notes will live in GitHub Releases when
+releases begin.
 
 ## Settings
 
