@@ -1,13 +1,13 @@
 //! Recorded revisions, typed references and explicit history query scope.
 const DEFAULT_HISTORY_LIMIT: usize = 200;
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum TrackingState {
     Tracked,
     Untracked,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum ReferenceKind {
     Local,
     Remote {
@@ -15,16 +15,54 @@ pub enum ReferenceKind {
         tracking: Option<TrackingState>,
     },
 }
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct Reference {
     pub name: String,
     pub target: String,
     pub kind: ReferenceKind,
+    pub tracked_by: Vec<String>,
+    pub conflicted: bool,
+}
+/// Defaults cover newly discovered remotes. Overrides survive removal/re-addition.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct RemoteVisibility {
+    pub default_visible: bool,
+    pub overrides: std::collections::BTreeMap<String, bool>,
+}
+impl Default for RemoteVisibility {
+    fn default() -> Self {
+        Self {
+            default_visible: true,
+            overrides: Default::default(),
+        }
+    }
+}
+impl RemoteVisibility {
+    pub fn includes(&self, remote: &str) -> bool {
+        self.overrides
+            .get(remote)
+            .copied()
+            .unwrap_or(self.default_visible)
+    }
+    pub fn set(&mut self, remote: String, visible: bool) {
+        self.overrides.insert(remote, visible);
+    }
+    pub fn all(visible: bool) -> Self {
+        Self {
+            default_visible: visible,
+            overrides: Default::default(),
+        }
+    }
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum HistoryScope {
     Repository,
     Ancestors(Vec<String>),
+    Sources {
+        visibility: RemoteVisibility,
+        reveal: Option<String>,
+    },
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct HistoryQuery {
@@ -40,6 +78,45 @@ impl Default for HistoryQuery {
     }
 }
 impl HistoryQuery {
+    pub fn sources(visibility: RemoteVisibility, reveal: Option<String>) -> Result<Self, String> {
+        if reveal
+            .as_ref()
+            .is_some_and(|id| id.is_empty() || !id.bytes().all(|b| b.is_ascii_hexdigit()))
+        {
+            return Err("Reveal target must be a resolved commit ID".into());
+        }
+        Ok(Self {
+            scope: HistoryScope::Sources { visibility, reveal },
+            ..Self::default()
+        })
+    }
+    pub fn roots(&self, references: &crate::references::ReferenceSnapshot) -> Vec<String> {
+        if let HistoryScope::Ancestors(commits) = &self.scope {
+            return commits.clone();
+        }
+        let mut roots = references.local_heads.clone();
+        for reference in &references.references {
+            let visible = match (&self.scope, reference.remote()) {
+                (HistoryScope::Sources { visibility, .. }, Some(remote)) => {
+                    visibility.includes(remote)
+                }
+                _ => true,
+            };
+            if visible {
+                roots.push(reference.target.clone());
+            }
+        }
+        if let HistoryScope::Sources {
+            reveal: Some(commit),
+            ..
+        } = &self.scope
+        {
+            roots.push(commit.clone());
+        }
+        roots.sort();
+        roots.dedup();
+        roots
+    }
     pub fn ancestors(commits: Vec<String>) -> Result<Self, String> {
         if commits.is_empty()
             || commits
@@ -66,16 +143,28 @@ impl HistoryQuery {
     pub fn limit(&self) -> usize {
         self.limit
     }
-    pub(crate) fn jj_revset(&self, tip: &str) -> String {
+    pub(crate) fn jj_revset(
+        &self,
+        tip: &str,
+        references: &crate::references::ReferenceSnapshot,
+    ) -> String {
         let roots = match &self.scope {
             HistoryScope::Repository => format!("visible_heads() | {tip}"),
             HistoryScope::Ancestors(commits) => commits.join(" | "),
+            HistoryScope::Sources { .. } => {
+                let roots = self.roots(references);
+                if roots.is_empty() {
+                    "none()".into()
+                } else {
+                    roots.join(" | ")
+                }
+            }
         };
         format!("ancestors({roots}, {})", self.limit)
     }
 }
 
-pub(crate) const TEMPLATE: &str = r#""[" ++ json(commit_id) ++ "," ++ json(change_id) ++ "," ++ json(description.first_line()) ++ "," ++ json(author.name()) ++ ",[" ++ bookmarks.map(|b| json(b.name())).join(",") ++ "],[" ++ parents.map(|p| json(p.commit_id())).join(",") ++ "]," ++ json(current_working_copy) ++ "," ++ json(empty) ++ "]\n""#;
+pub(crate) const TEMPLATE: &str = r#""[" ++ json(commit_id) ++ "," ++ json(change_id) ++ "," ++ json(description.first_line()) ++ "," ++ json(author.name()) ++ ",[" ++ local_bookmarks.map(|b| json(b.name())).join(",") ++ "],[" ++ parents.map(|p| json(p.commit_id())).join(",") ++ "]," ++ json(current_working_copy) ++ "," ++ json(empty) ++ "]\n""#;
 // Recorded revision metadata and topological graph lanes, independent of UI.
 
 #[derive(Clone, Debug)]
@@ -126,18 +215,14 @@ struct Entry(
     #[serde(default)] bool,
 );
 
-#[derive(Clone, Debug)]
-pub struct GraphRow {
-    pub lane: usize,
-    pub incoming: bool,
-    pub edges: Vec<(usize, usize)>,
-}
+pub use crate::graph::GraphRow;
 
 #[derive(Debug)]
 pub struct History {
     pub revisions: Vec<Revision>,
     pub graph: Vec<GraphRow>,
     pub lane_count: usize,
+    pub references: std::sync::Arc<crate::references::ReferenceSnapshot>,
 }
 
 impl History {
@@ -171,6 +256,8 @@ impl History {
                         name,
                         target: commit_id.clone(),
                         kind: ReferenceKind::Local,
+                        tracked_by: Vec::new(),
+                        conflicted: false,
                     })
                     .collect(),
                 parents,
@@ -181,6 +268,22 @@ impl History {
         Ok(Self::new(revisions))
     }
 
+    pub(crate) fn with_references(
+        mut self,
+        references: crate::references::ReferenceSnapshot,
+    ) -> Self {
+        for revision in &mut self.revisions {
+            revision.references = references
+                .references
+                .iter()
+                .filter(|reference| reference.target == revision.commit_id)
+                .cloned()
+                .collect();
+        }
+        self.references = std::sync::Arc::new(references);
+        self
+    }
+
     /// Space only for lanes drawn in the current visible row range. Edges
     /// count as well as nodes so partially visible branch sprawl is retained.
     pub fn visible_lane_count(&self, rows: std::ops::Range<usize>) -> usize {
@@ -189,56 +292,34 @@ impl History {
         self.graph[start..end]
             .iter()
             .flat_map(|row| {
-                std::iter::once(row.lane)
-                    .chain(row.edges.iter().flat_map(|(from, to)| [*from, *to]))
+                std::iter::once(row.lane).chain(
+                    row.strokes
+                        .iter()
+                        .flat_map(|stroke| [stroke.from, stroke.to]),
+                )
             })
             .max()
             .map_or(1, |lane| lane + 1)
     }
 
     pub(crate) fn new(revisions: Vec<Revision>) -> Self {
-        let mut pending: Vec<String> = Vec::new();
-        let mut graph = Vec::new();
-        let mut lane_count = 1;
-        for revision in &revisions {
-            let incoming = pending.contains(&revision.commit_id);
-            let lane = if let Some(lane) = pending.iter().position(|id| id == &revision.commit_id) {
-                lane
-            } else {
-                pending.push(revision.commit_id.clone());
-                pending.len() - 1
-            };
-            let before = pending.clone();
-            pending.remove(lane);
-            for (index, parent) in revision.parents.iter().enumerate() {
-                if !pending.contains(parent) {
-                    pending.insert((lane + index).min(pending.len()), parent.clone());
-                }
-            }
-            let mut edges = Vec::new();
-            for (from, id) in before.iter().enumerate() {
-                let targets: &[String] = if id == &revision.commit_id {
-                    &revision.parents
-                } else {
-                    std::slice::from_ref(id)
-                };
-                for target in targets {
-                    if let Some(to) = pending.iter().position(|id| id == target) {
-                        edges.push((from, to));
-                    }
-                }
-            }
-            lane_count = lane_count.max(before.len()).max(pending.len());
-            graph.push(GraphRow {
-                lane,
-                incoming,
-                edges,
-            });
-        }
+        let graph = crate::graph::layout(&revisions);
+        let lane_count = graph
+            .iter()
+            .flat_map(|row| {
+                std::iter::once(row.lane).chain(
+                    row.strokes
+                        .iter()
+                        .flat_map(|stroke| [stroke.from, stroke.to]),
+                )
+            })
+            .max()
+            .map_or(1, |lane| lane + 1);
         Self {
             revisions,
             graph,
             lane_count,
+            references: Default::default(),
         }
     }
 }
@@ -258,13 +339,22 @@ mod tests {
         .unwrap();
         assert_eq!(history.lane_count, 2);
         assert_eq!(history.visible_lane_count(0..1), 2);
-        assert_eq!(history.visible_lane_count(3..4), 1);
+        assert_eq!(history.visible_lane_count(3..4), 2);
         assert_eq!(history.visible_lane_count(20..30), 1);
-        assert_eq!(history.graph[0].edges, vec![(0, 0), (0, 1)]);
-        assert_eq!(history.graph[1].edges, vec![(0, 0), (1, 1)]);
-        assert_eq!(history.graph[2].edges, vec![(0, 0), (1, 0)]);
-        assert!(history.graph[3].incoming);
-        assert!(history.graph[3].edges.is_empty());
+        assert_eq!(
+            history.graph.iter().map(|row| row.lane).collect::<Vec<_>>(),
+            [0, 0, 1, 0]
+        );
+        let joins = &history.graph[3].strokes;
+        assert_eq!(
+            joins.iter().map(|s| (s.from, s.to)).collect::<Vec<_>>(),
+            [(0, 0), (1, 0)]
+        );
+        assert!(
+            joins
+                .iter()
+                .all(|stroke| stroke.half == crate::graph::GraphHalf::Incoming)
+        );
     }
 
     #[test]
@@ -301,7 +391,7 @@ mod query_tests {
         let query = HistoryQuery::default();
         assert_eq!(query.limit(), 200);
         assert_eq!(
-            query.jj_revset("abc"),
+            query.jj_revset("abc", &Default::default()),
             "ancestors(visible_heads() | abc, 200)"
         );
         assert_eq!(
@@ -309,7 +399,7 @@ mod query_tests {
                 .unwrap()
                 .with_limit(12)
                 .unwrap()
-                .jj_revset("unused"),
+                .jj_revset("unused", &Default::default()),
             "ancestors(abc | def, 12)"
         );
         assert!(query.with_limit(0).is_err());

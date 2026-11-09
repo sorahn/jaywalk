@@ -5,6 +5,7 @@ use crate::repository::{ChangedFile, Comparison, ContentSource, FileSide, query}
 use serde::Deserialize;
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
+#[cfg(test)]
 use std::process::Command;
 use std::sync::Arc;
 
@@ -16,7 +17,7 @@ pub struct Version {
     pub parents: Vec<String>,
     pub predecessors: Vec<String>,
     pub timestamp: String,
-    pub operation_id: String,
+    pub operation_id: Option<String>,
     pub operation: String,
     pub hidden: bool,
     pub divergent: bool,
@@ -265,7 +266,10 @@ impl Evolution {
             let version: Version = serde_json::from_str(line)
                 .map_err(|error| format!("Invalid jj evolution metadata: {error}"))?;
             if !valid_id(&version.commit_id)
-                || !valid_id(&version.operation_id)
+                || version
+                    .operation_id
+                    .as_deref()
+                    .is_some_and(|id| !valid_id(id))
                 || version
                     .parents
                     .iter()
@@ -416,7 +420,7 @@ impl EvolutionContents {
         if !valid_id(id) {
             return Err("Invalid interdiff object ID".into());
         }
-        let output = Command::new("git")
+        let output = crate::tools::command("git")?
             .arg("--git-dir")
             .arg(&self.git_dir)
             .args(["cat-file", "blob", id])
@@ -464,8 +468,16 @@ impl EvolutionContents {
 
 impl Comparison {
     pub fn evolution(&self, commit: &str, limit: usize) -> Result<Evolution, String> {
+        self.evolution_at(commit, limit, &self.operation)
+    }
+    pub fn evolution_at(
+        &self,
+        commit: &str,
+        limit: usize,
+        operation: &str,
+    ) -> Result<Evolution, String> {
         // Explicit fields avoid depending on jj's complete JSON representation.
-        let template = r#""{" ++ '"commit_id":' ++ json(commit.commit_id()) ++ ',"change_id":' ++ json(commit.change_id()) ++ ',"description":' ++ json(commit.description()) ++ ',"parents":' ++ json(commit.parents().map(|p| p.commit_id())) ++ ',"predecessors":' ++ json(predecessors.map(|p| p.commit_id())) ++ ',"timestamp":' ++ json(operation.time().end().local().format("%Y-%m-%d %H:%M:%S")) ++ ',"operation_id":' ++ json(operation.id()) ++ ',"operation":' ++ json(operation.description()) ++ ',"hidden":' ++ json(commit.hidden()) ++ ',"divergent":' ++ json(commit.divergent()) ++ ',"conflict":' ++ json(commit.conflict()) ++ ',"patch_changed":' ++ json(self.inter_diff().files().len() > 0)"#;
+        let template = r#""{" ++ '"commit_id":' ++ json(commit.commit_id()) ++ ',"change_id":' ++ json(commit.change_id()) ++ ',"description":' ++ json(commit.description()) ++ ',"parents":' ++ json(commit.parents().map(|p| p.commit_id())) ++ ',"predecessors":' ++ json(predecessors.map(|p| p.commit_id())) ++ ',"timestamp":' ++ if(operation, json(operation.time().end().local().format("%Y-%m-%d %H:%M:%S")), "\"unknown time\"") ++ ',"operation_id":' ++ if(operation, json(operation.id()), "null") ++ ',"operation":' ++ if(operation, json(operation.description()), "\"operation unavailable\"") ++ ',"hidden":' ++ json(commit.hidden()) ++ ',"divergent":' ++ json(commit.divergent()) ++ ',"conflict":' ++ json(commit.conflict()) ++ ',"patch_changed":' ++ json(self.inter_diff().files().len() > 0)"#;
         let template = format!(
             r#"{template} ++ ',"patch_files":' ++ {} ++ ',"evolution_files":' ++ {} ++ "}}\n""#,
             file_delta_array("commit.diff().files()"),
@@ -473,7 +485,7 @@ impl Comparison {
         );
         let change_id = query(
             &self.root,
-            &self.operation,
+            operation,
             &["log", "-G", "-r", commit, "-T", "change_id"],
         )?;
         if change_id.is_empty() || !change_id.bytes().all(|byte| (b'k'..=b'z').contains(&byte)) {
@@ -487,7 +499,7 @@ impl Comparison {
         );
         let output = query(
             &self.root,
-            &self.operation,
+            operation,
             &[
                 "evolog",
                 "-G",
@@ -506,7 +518,7 @@ impl Comparison {
                 // viewer's explicitly labelled first-parent merge review.
                 let output = query(
                     &self.root,
-                    &self.operation,
+                    operation,
                     &[
                         "diff",
                         "--from",
@@ -532,13 +544,16 @@ impl Comparison {
     /// Compare a version to its actual predecessor(s), using jj's interdiff.
     /// Multiple predecessors use jj's combined predecessor semantics.
     pub fn for_evolution(&self, version: &Version) -> Result<Self, String> {
+        self.for_evolution_at(version, &self.operation)
+    }
+    pub fn for_evolution_at(&self, version: &Version, operation: &str) -> Result<Self, String> {
         if version.predecessors.is_empty() {
-            return self.for_revision(&version.revision());
+            return self.for_history_revision(&version.revision(), Some(operation));
         }
         let template = r#"self.inter_diff().files().map(|f| "{" ++ '"status":' ++ json(f.status()) ++ ',"before_path":' ++ json(f.source().path()) ++ ',"after_path":' ++ json(f.target().path()) ++ ',"before":{"kind":' ++ json(f.source().file_type()) ++ ',"object":' ++ if(f.source().normal_value(), json(f.source().normal_value().object_id()), "null") ++ ',"conflict":' ++ json(f.source().conflict()) ++ '},"after":{"kind":' ++ json(f.target().file_type()) ++ ',"object":' ++ if(f.target().normal_value(), json(f.target().normal_value().object_id()), "null") ++ ',"conflict":' ++ json(f.target().conflict()) ++ "}}\n").join("")"#;
         let output = query(
             &self.root,
-            &self.operation,
+            operation,
             &[
                 "evolog",
                 "-G",
@@ -557,7 +572,7 @@ impl Comparison {
                     .map_err(|error| format!("Invalid evolution file: {error}"))
             })
             .collect::<Result<_, _>>()?;
-        let git_dir = PathBuf::from(query(&self.root, &self.operation, &["git", "root"])?.trim());
+        let git_dir = PathBuf::from(query(&self.root, operation, &["git", "root"])?.trim());
         let files = entries
             .iter()
             .map(|entry| ChangedFile {
@@ -578,7 +593,7 @@ impl Comparison {
             .collect();
         Self {
             root: self.root.clone(),
-            operation: self.operation.clone(),
+            operation: operation.to_owned(),
             base: version.predecessors.join(","),
             tip: version.commit_id.clone(),
             files: files.into(),
@@ -1001,7 +1016,14 @@ mod tests {
         let evolution = Evolution::parse(&output, 100).unwrap();
         assert_eq!(evolution.event(0), Event::Combined);
         assert_eq!(evolution.graph.lane_count, 2);
-        assert_eq!(evolution.graph.graph[0].edges, vec![(0, 0), (0, 1)]);
+        assert_eq!(
+            evolution.graph.graph[0]
+                .strokes
+                .iter()
+                .map(|stroke| (stroke.from, stroke.to))
+                .collect::<Vec<_>>(),
+            vec![(0, 0), (0, 1)]
+        );
         assert!(Evolution::parse(&entry("all()", vec![]), 100).is_err());
     }
 }

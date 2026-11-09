@@ -55,9 +55,24 @@ min_code_width = 100
 # The before/after panes default to an even split of the remaining width.
 
 [history]
+# Alternate row tint; 0 disables stripes. Updates live.
+stripe_opacity = 0.08
 # Minimum row height; larger UI fonts can require more space.
 # row_height = 30 # Optional override of ui.row_height.
-lane_spacing = 12
+lane_spacing = 8
+show_reference_labels = true
+reference_badge_width = 110
+
+[history.remotes]
+# Applies to new remotes as well as those without an explicit override.
+default_visible = true
+# [history.remotes.overrides]
+# origin = false
+
+[overview]
+context_lines = 3
+expansion_lines = 20
+message_max_height = 220
 
 [files]
 default_view = "list"
@@ -130,6 +145,11 @@ since_previous = []
 refresh = ["secondary-r"]
 whole_branch = ["secondary-shift-b"]
 overview = []
+show_references = []
+toggle_reference_labels = []
+show_all_remotes = []
+hide_all_remotes = []
+reveal_selected_revision = []
 toggle_history = ["secondary-b"]
 toggle_files = ["secondary-shift-e"]
 toggle_change_evolution = []

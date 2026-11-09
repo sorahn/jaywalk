@@ -1,9 +1,11 @@
 use super::*;
 use gpui::component::Sizable;
 use gpui::component::tooltip::Tooltip;
+use gpui::prelude::FluentBuilder;
 
 impl Render for Viewer {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        self.sync_overview(window, cx);
         div()
             .id("viewer-root")
             .key_context("Jaywalk")
@@ -86,7 +88,8 @@ impl Render for Viewer {
                                     })),
                             )
                             .child(Button::new("overview").ghost().label("Overview").on_click(
-                                cx.listener(|this, _, _, cx| {
+                                cx.listener(|this, _, window, cx| {
+                                    window.focus(&this.focus, cx);
                                     this.remember_reading(cx);
                                     this.clear_file();
                                     this.rebuild_browser(cx);
@@ -95,7 +98,10 @@ impl Render for Viewer {
                                 }),
                             ))
                             .child(Button::new("refresh").ghost().label("Refresh").on_click(
-                                cx.listener(|this, _, window, cx| this.refresh(window, cx)),
+                                cx.listener(|this, _, window, cx| {
+                                    this.invalidate_overview();
+                                    this.refresh(window, cx);
+                                }),
                             )),
                     ),
             )
@@ -148,6 +154,7 @@ impl Render for Viewer {
                             .h_flex()
                             .items_center()
                             .flex_shrink_0()
+                            .when(self.selected_file.is_none(), |controls| controls.hidden())
                             .gap_2()
                             .child(
                                 Button::new("word-wrap")
@@ -189,10 +196,7 @@ impl Render for Viewer {
                                     .label("↑")
                                     .disabled(
                                         self.code().is_none()
-                                            || (self.view.effective() == ViewMode::Fluid
-                                                && self
-                                                    .active_change
-                                                    .is_none_or(|index| index == 0))
+                                            || total == 0
                                             || (self.view.effective() != ViewMode::Fluid
                                                 && self.code().is_none_or(|code| {
                                                     !matches!(code.standard, Ok(Some(_)))
@@ -209,10 +213,7 @@ impl Render for Viewer {
                                     .label("↓")
                                     .disabled(
                                         self.code().is_none()
-                                            || (self.view.effective() == ViewMode::Fluid
-                                                && self
-                                                    .active_change
-                                                    .is_none_or(|index| index + 1 >= total))
+                                            || total == 0
                                             || (self.view.effective() != ViewMode::Fluid
                                                 && self.code().is_none_or(|code| {
                                                     !matches!(code.standard, Ok(Some(_)))
@@ -230,10 +231,22 @@ impl Render for Viewer {
 
 impl Viewer {
     fn status_notice(&self) -> Option<AnyElement> {
-        let (message, color) = if let Some(message) = &self.config.error {
+        let (message, color): (&str, _) = if let Some(message) = &self.config.error {
             (message, 0xf48771)
+        } else if let Some(message) = self
+            .overview
+            .error
+            .as_ref()
+            .filter(|_| self.selected_file.is_none())
+        {
+            (message, 0xe5c07b)
         } else if let Some(message) = &self.layout.error {
             (message, 0xe5c07b)
+        } else if self.selected_file.is_none()
+            && (self.loading_visible(LoadingKind::Overview)
+                || self.loading_visible(LoadingKind::Comparison))
+        {
+            ("Updating overview…", 0xe5c07b)
         } else {
             let message = self.live.message.as_ref()?;
             if message == "Updating recorded changes…" && !self.loading_visible(LoadingKind::Live)
@@ -242,7 +255,7 @@ impl Viewer {
             }
             (message, 0xe5c07b)
         };
-        let tooltip = message.clone();
+        let tooltip = message.to_owned();
         // Truncation ellipsizes each line; explicit diagnostic newlines still
         // create multiple rows unless the visible label is projected first.
         let summary = message

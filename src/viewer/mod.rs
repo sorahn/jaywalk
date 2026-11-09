@@ -27,8 +27,10 @@ mod history;
 mod layout;
 mod live;
 mod loading;
+mod overview;
 mod palette;
 mod panels;
+mod references;
 mod session_layout;
 mod settings;
 mod typography;
@@ -106,6 +108,8 @@ enum ComparisonScope {
     WholeBranch,
     Revision {
         commit_id: String,
+        change_id: String,
+        working_copy: bool,
         merge: bool,
     },
     Evolution {
@@ -185,8 +189,10 @@ pub(crate) struct Viewer {
     settings: Settings,
     focus: FocusHandle,
     panels: panels::PanelLayout,
+    overview: overview::OverviewState,
     history_scroll: UniformListScrollHandle,
     history_query: jaywalk::history::HistoryQuery,
+    references: references::ReferenceState,
     evolution: evolution::EvolutionPanel,
     evolution_header: Option<evolution::HeaderPresentation>,
     file_evolution: evolution::EvolutionPanel,
@@ -294,7 +300,9 @@ impl Viewer {
                 "Git comparison".into()
             }
             Some(ComparisonScope::WholeBranch) => "Whole branch".into(),
-            Some(ComparisonScope::Revision { commit_id, merge }) => format!(
+            Some(ComparisonScope::Revision {
+                commit_id, merge, ..
+            }) => format!(
                 "Commit {}{}",
                 &commit_id[..commit_id.len().min(8)],
                 if *merge { " · first parent" } else { "" }
@@ -342,7 +350,11 @@ impl Viewer {
 
     fn toggle_wrap(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.preserve_reflow_position(cx);
-        self.wrapping.toggle(self.view.effective());
+        self.wrapping.toggle(if self.selected_file.is_none() {
+            ViewMode::Inline
+        } else {
+            self.view.effective()
+        });
         self.horizontal_position = 0.;
         self.reveal_after_layout = false;
         if let Some(CodeComparison { before, after, .. }) = self.code() {
@@ -447,7 +459,29 @@ impl Viewer {
         self.save_layout(cx);
     }
 
+    fn reveal_initial_change(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.reveal_after_layout {
+            return;
+        }
+        self.reveal_after_layout = false;
+        let generation = self.file_generation;
+        let viewer = cx.entity().downgrade();
+        // Editor paint can clear a scroll requested during that same paint.
+        // Wait until measured wrapping and the widget's scroll state settle.
+        window.defer(cx, move |_, cx| {
+            let _ = viewer.update(cx, |viewer, cx| {
+                if viewer.file_generation == generation {
+                    viewer.navigate_change(0, cx);
+                }
+            });
+        });
+    }
+
     fn navigate_change(&mut self, direction: i32, cx: &mut Context<Self>) {
+        if self.selected_file.is_none() {
+            self.navigate_overview_change(direction, cx);
+            return;
+        }
         if self.view.effective() != ViewMode::Fluid {
             if let Some(Ok(Some(state))) = self.code().map(|code| &code.standard) {
                 state.update(cx, |state, cx| {
@@ -473,10 +507,26 @@ impl Viewer {
         if count == 0 {
             return;
         }
-        let target = (self.active_change.unwrap_or(0) as i32 + direction).clamp(0, count as i32 - 1)
-            as usize;
-        let viewport = f32::from(before.read(cx).input_bounds().size.height);
         let geometry = comparison_geometry(before.read(cx), after.read(cx), model);
+        let current = self.active_change.unwrap_or(0).min(count - 1);
+        let block = model
+            .blocks
+            .iter()
+            .filter(|block| block.changed)
+            .nth(current)
+            .expect("a clamped change index has a corresponding block");
+        let intersects =
+            |state: &EditorState, positions: &[f32], lines: &std::ops::Range<usize>| {
+                !lines.is_empty()
+                    && positions[lines.end] + f32::from(state.scroll_offset().y) > 0.
+                    && positions[lines.start] + f32::from(state.scroll_offset().y)
+                        < f32::from(state.input_bounds().size.height)
+            };
+        let visible = intersects(before.read(cx), &geometry.before, &block.before)
+            || intersects(after.read(cx), &geometry.after, &block.after);
+        let target = geometry::change_target(self.active_change, direction, count, visible)
+            .expect("a nonempty change list has a navigation target");
+        let viewport = f32::from(before.read(cx).input_bounds().size.height);
         let position = geometry.change_position(model, target);
         let delta = position - viewport / 2. - self.fluid.position;
         self.navigation_target = Some(target);

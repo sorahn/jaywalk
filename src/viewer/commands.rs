@@ -88,14 +88,23 @@ impl Viewer {
             CommandId::OpenSettings => self.open_settings_file(window, cx),
             CommandId::WholeBranch => self.show_whole_branch(window, cx),
             CommandId::Overview => {
+                window.focus(&self.focus, cx);
                 self.remember_reading(cx);
                 self.clear_file();
                 self.rebuild_browser(cx);
                 self.focus_evolution_file(None);
                 cx.notify();
             }
-            CommandId::Refresh => self.refresh(window, cx),
+            CommandId::Refresh => {
+                self.invalidate_overview();
+                self.refresh(window, cx);
+            }
             CommandId::ToggleWrap => self.toggle_wrap(window, cx),
+            CommandId::ShowReferences => self.show_references(cx),
+            CommandId::ToggleReferenceLabels => self.toggle_reference_labels(cx),
+            CommandId::ShowAllRemotes => self.set_remote_visibility(None, true, window, cx),
+            CommandId::HideAllRemotes => self.set_remote_visibility(None, false, window, cx),
+            CommandId::RevealSelectedRevision => self.reveal_history_selection(window, cx),
             CommandId::ToggleHistory => self.toggle_sidebar(true, window, cx),
             CommandId::ToggleFiles => self.toggle_sidebar(false, window, cx),
             CommandId::ToggleChangeEvolution => self.toggle_evolution(window, cx),
@@ -153,6 +162,14 @@ impl Viewer {
             | CommandId::FileEvolutionSidebar
             | CommandId::FileEvolutionBottom => self.move_panel(command, cx),
             CommandId::ResetInterface => {
+                self.references.labels = self.settings.history.show_reference_labels;
+                self.references.visibility = self.settings.history.remotes.clone();
+                self.history_query = jaywalk::history::HistoryQuery::sources(
+                    self.references.visibility.clone(),
+                    None,
+                )
+                .expect("default visibility has no commit expression");
+                self.reload_history(None, window, cx);
                 self.set_view_mode(self.settings.diff.default_view, cx);
                 self.wrapping = Wrapping::from_settings(&self.settings.diff);
                 self.line_numbers = self.settings.editor.line_numbers;

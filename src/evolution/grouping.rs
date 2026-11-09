@@ -169,7 +169,7 @@ mod tests {
                 parents: vec!["f".into()],
                 predecessors: predecessors.iter().map(|id| (*id).into()).collect(),
                 timestamp: "2026-11-07 12:00:00".into(),
-                operation_id: "ff".into(),
+                operation_id: Some("ff".into()),
                 operation: "rewrite".into(),
                 hidden: *id != "a",
                 divergent: false,

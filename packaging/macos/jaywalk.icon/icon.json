@@ -1,10 +1,21 @@
 {
-  "fill" : {
-    "automatic-gradient" : "display-p3:0.18824,0.31373,0.78431,1.00000"
-  },
+  "fill-specializations" : [
+    {
+      "value" : {
+        "solid" : "display-p3:0.88627,0.90980,0.94118,1.00000"
+      }
+    },
+    {
+      "appearance" : "dark",
+      "value" : {
+        "solid" : "display-p3:0.07451,0.09020,0.12549,1.00000"
+      }
+    }
+  ],
   "groups" : [
     {
       "blur-material" : null,
+      "hidden" : true,
       "layers" : [
         {
           "blend-mode-specializations" : [
@@ -79,19 +90,6 @@
               0
             ]
           }
-        },
-        {
-          "fill-specializations" : [
-            {
-              "appearance" : "dark",
-              "value" : {
-                "automatic-gradient" : "srgb:1.00000,1.00000,1.00000,1.00000"
-              }
-            }
-          ],
-          "glass" : true,
-          "image-name" : "jaywalk_4bars.svg",
-          "name" : "jaywalk_4bars"
         }
       ],
       "shadow" : {
@@ -101,6 +99,89 @@
       "specular" : true,
       "translucency" : {
         "enabled" : true,
+        "value" : 0.5
+      }
+    },
+    {
+      "layers" : [
+        {
+          "fill-specializations" : [
+            {
+              "value" : {
+                "solid" : "srgb:0.91765,0.34510,0.04706,1.00000"
+              }
+            },
+            {
+              "appearance" : "dark",
+              "value" : {
+                "solid" : "srgb:0.97647,0.45098,0.08627,1.00000"
+              }
+            }
+          ],
+          "image-name" : "jaywalk_layer2_curve_35pct.svg",
+          "name" : "jaywalk_layer2_curve_35pct"
+        },
+        {
+          "fill-specializations" : [
+            {
+              "value" : {
+                "solid" : "srgb:0.20000,0.25490,0.33333,1.00000"
+              }
+            },
+            {
+              "appearance" : "dark",
+              "value" : {
+                "solid" : "srgb:0.79608,0.83529,0.88235,1.00000"
+              }
+            }
+          ],
+          "image-name" : "jaywalk_layer1_full_trunk.svg",
+          "name" : "jaywalk_layer1_full_trunk"
+        }
+      ],
+      "position" : {
+        "scale" : 1.35,
+        "translation-in-points" : [
+          0,
+          0
+        ]
+      },
+      "shadow" : {
+        "kind" : "neutral",
+        "opacity" : 0.5
+      },
+      "translucency" : {
+        "enabled" : false,
+        "value" : 0.5
+      }
+    },
+    {
+      "layers" : [
+        {
+          "fill-specializations" : [
+            {
+              "value" : {
+                "solid" : "srgb:0.58039,0.63922,0.72157,1.00000"
+              }
+            },
+            {
+              "appearance" : "dark",
+              "value" : {
+                "solid" : "srgb:0.17647,0.21569,0.28235,1.00000"
+              }
+            }
+          ],
+          "glass" : true,
+          "image-name" : "jaywalk_4bars.svg",
+          "name" : "jaywalk_4bars"
+        }
+      ],
+      "shadow" : {
+        "kind" : "neutral",
+        "opacity" : 0.5
+      },
+      "translucency" : {
+        "enabled" : false,
         "value" : 0.5
       }
     }

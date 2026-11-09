@@ -1,4 +1,4 @@
-//! Poll only recorded jj operations; never snapshot the observed working copy.
+//! Poll local recorded metadata; never fetch, import or snapshot the observed repository.
 use super::*;
 use jaywalk::live_refresh::{FollowedChange, RecordedRefresh, RefreshGate};
 use jaywalk::reading::ReadingAnchor;
@@ -18,6 +18,7 @@ pub(super) struct LiveState {
     busy: bool,
     pub(super) message: Option<String>,
     retry: RefreshGate,
+    stamp: Option<jaywalk::references::ReferenceStamp>,
     pub(super) restore: Option<(String, ReadingSnapshot)>,
     pub(super) pending_position: Option<(usize, usize, f32)>,
     positions: std::collections::HashMap<String, ReadingSnapshot>,
@@ -31,6 +32,7 @@ impl LiveState {
             busy: false,
             message: None,
             retry: RefreshGate::default(),
+            stamp: None,
             restore: None,
             pending_position: None,
             positions: std::collections::HashMap::new(),
@@ -122,29 +124,59 @@ impl Viewer {
     }
 
     pub(super) fn start_live(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if !self.supports_evolution() || self.live.poll.is_some() || !self.settings.live.enabled {
+        if self.arguments.diff.is_some() || self.live.poll.is_some() || !self.settings.live.enabled
+        {
             return;
         }
-        let directory = self.arguments.directory.clone();
+        let Some(session) = self.repository.ready() else {
+            return;
+        };
+        self.live.stamp =
+            session.history.as_ref().ok().map(|history| {
+                jaywalk::references::ReferenceStamp::from_snapshot(&history.references)
+            });
+        let directory = session.branch.root.clone();
+        let recorded = session.branch.supports_evolution();
         let interval = Duration::from_millis(self.settings.live.poll_interval_ms);
         self.live.poll = Some(cx.spawn_in(window, async move |this, cx| {
             loop {
                 cx.background_executor().timer(interval).await;
                 let root = directory.clone();
-                let operation = cx
-                    .background_spawn(async move { Comparison::current_operation(&root) })
+                let stamp = cx
+                    .background_spawn(async move {
+                        jaywalk::references::ReferenceStamp::read(&root, recorded)
+                    })
                     .await;
                 if this
-                    .update_in(cx, |viewer, window, cx| match operation {
-                        Ok(operation)
-                            if viewer.repository.ready().is_some_and(|session| {
-                                viewer
-                                    .live
-                                    .retry
-                                    .allows(&operation, &session.branch.operation)
-                            }) =>
-                        {
-                            viewer.refresh_recorded(window, cx)
+                    .update_in(cx, |viewer, window, cx| match stamp {
+                        Ok(stamp) => {
+                            if viewer
+                                .live
+                                .message
+                                .as_deref()
+                                .is_some_and(|message| message.starts_with("Live refresh:"))
+                            {
+                                viewer.live.message = None;
+                                cx.notify();
+                            }
+                            let changed = viewer.live.stamp.as_ref() != Some(&stamp);
+                            viewer.live.stamp = Some(stamp.clone());
+                            let Some(session) = viewer.repository.ready() else {
+                                return;
+                            };
+                            let pinned = matches!(session.scope, ComparisonScope::Evolution { .. });
+                            let operation_changed =
+                                stamp.operation.as_ref().is_some_and(|operation| {
+                                    viewer
+                                        .live
+                                        .retry
+                                        .allows(operation, &session.branch.operation)
+                                });
+                            if operation_changed && !pinned {
+                                viewer.refresh_recorded(window, cx);
+                            } else if changed {
+                                viewer.reload_history(None, window, cx);
+                            }
                         }
                         Err(error) => {
                             let message = format!("Live refresh: {error}");
@@ -153,7 +185,6 @@ impl Viewer {
                                 cx.notify();
                             }
                         }
-                        _ => {}
                     })
                     .is_err()
                 {
@@ -197,21 +228,16 @@ impl Viewer {
             cx.notify();
             return;
         }
-        let change = if let ComparisonScope::Revision { commit_id, .. } = &session.scope {
-            session
-                .history
-                .as_ref()
-                .ok()
-                .and_then(|history| {
-                    history
-                        .revisions
-                        .iter()
-                        .find(|revision| &revision.commit_id == commit_id)
-                })
-                .map(|revision| FollowedChange {
-                    change_id: revision.change_id.clone(),
-                    working_copy: revision.working_copy,
-                })
+        let change = if let ComparisonScope::Revision {
+            change_id,
+            working_copy,
+            ..
+        } = &session.scope
+        {
+            Some(FollowedChange {
+                change_id: change_id.clone(),
+                working_copy: *working_copy,
+            })
         } else {
             None
         };
@@ -221,6 +247,7 @@ impl Viewer {
         // workspace even when jj abandons and replaces its working-copy change.
         let tip = self.arguments.tip.clone();
         let history_query = self.history_query.clone();
+        let requested_history_query = history_query.clone();
         let generation = self.repository_generation;
         let file_generation = self.file_generation;
         self.begin_loading(LoadingKind::Live, window, cx);
@@ -251,6 +278,11 @@ impl Viewer {
                         }
                         return;
                     }
+                    if viewer.history_query != requested_history_query {
+                        viewer.live.message = None;
+                        viewer.refresh_recorded(window, cx);
+                        return;
+                    }
                     match result {
                         Err(error) => {
                             viewer.live.retry.failed(error.operation);
@@ -266,6 +298,7 @@ impl Viewer {
                             comparison,
                         }) => {
                             viewer.live.retry.clear();
+                            viewer.invalidate_history_reload();
                             viewer.repository_generation += 1;
                             viewer.repository_task = None;
                             viewer.remember_evolution_header();
@@ -275,6 +308,8 @@ impl Viewer {
                                 ComparisonScope::WholeBranch,
                                 |revision| ComparisonScope::Revision {
                                     commit_id: revision.commit_id.clone(),
+                                    change_id: revision.change_id.clone(),
+                                    working_copy: revision.working_copy,
                                     merge: revision.parents.len() > 1,
                                 },
                             );

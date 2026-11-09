@@ -43,6 +43,7 @@ pub struct Settings {
     pub history: HistorySettings,
     pub files: FileSettings,
     pub diff: DiffSettings,
+    pub overview: OverviewSettings,
     pub evolution: EvolutionSettings,
     pub file_evolution: FileEvolutionSettings,
 }
@@ -144,7 +145,19 @@ pub struct DiffPanelSettings {
 
 #[derive(Clone, Debug, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
+pub struct OverviewSettings {
+    pub context_lines: usize,
+    pub expansion_lines: usize,
+    pub message_max_height: f32,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct HistorySettings {
+    pub stripe_opacity: f32,
+    pub show_reference_labels: bool,
+    pub reference_badge_width: f32,
+    pub remotes: crate::history::RemoteVisibility,
     pub row_height: Option<f32>,
     pub lane_spacing: f32,
 }
@@ -442,7 +455,31 @@ impl Settings {
                 bounded(name, value, 12., 200.)?;
             }
         }
-        bounded("history.lane_spacing", self.history.lane_spacing, 8., 48.)?;
+        bounded(
+            "history.stripe_opacity",
+            self.history.stripe_opacity,
+            0.,
+            0.2,
+        )?;
+        bounded(
+            "history.reference_badge_width",
+            self.history.reference_badge_width,
+            40.,
+            300.,
+        )?;
+        if self.overview.context_lines > 100 || !(1..=1000).contains(&self.overview.expansion_lines)
+        {
+            return Err(
+                "overview context must be 0–100 lines and expansion must be 1–1000 lines".into(),
+            );
+        }
+        bounded(
+            "overview.message_max_height",
+            self.overview.message_max_height,
+            80.,
+            1200.,
+        )?;
+        bounded("history.lane_spacing", self.history.lane_spacing, 4., 48.)?;
         if !(250..=60000).contains(&self.live.poll_interval_ms) {
             return Err("live.poll_interval_ms must be between 250 and 60000".into());
         }
@@ -506,6 +543,16 @@ pub fn default_path() -> Result<PathBuf, String> {
 #[cfg(test)]
 mod tests {
     use super::{DiffView, Settings};
+
+    #[test]
+    fn references_have_independent_defaults_and_typed_remote_overrides() {
+        let settings = Settings::parse("[history]\nshow_reference_labels=false\n[history.remotes]\ndefault_visible=false\n[history.remotes.overrides]\nupstream=true").unwrap();
+        assert!(!settings.history.show_reference_labels);
+        assert!(settings.history.remotes.includes("upstream"));
+        assert!(!settings.history.remotes.includes("new-remote"));
+        assert!(Settings::parse("[history]\nreference_badge_width=0").is_err());
+        assert!(Settings::parse("[history.remotes.overrides]\norigin='hidden'").is_err());
+    }
 
     #[test]
     fn partial_nested_settings_inherit_shipped_defaults() {

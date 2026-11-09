@@ -12,6 +12,10 @@ pub struct FluidScroll {
 pub struct DiffGeometry {
     pub before: Vec<f32>,
     pub after: Vec<f32>,
+    /// Full editor heights, including a terminal empty row after a newline.
+    /// Source boundaries above still describe diff blocks, not scroll padding.
+    pub before_height: f32,
+    pub after_height: f32,
 }
 
 impl DiffGeometry {
@@ -33,6 +37,12 @@ impl DiffGeometry {
                 }
             }
         }
+        // A final newline creates a visible empty editor row without adding a
+        // diff line. Include it only in scrolling, never in connector geometry.
+        result.push((
+            (self.before_height - self.before.last().copied().unwrap_or(0.)).max(0.),
+            (self.after_height - self.after.last().copied().unwrap_or(0.)).max(0.),
+        ));
         result
     }
 
@@ -123,8 +133,8 @@ impl FluidScroll {
             before_y += before_height;
             after_y += after_height;
         }
-        let before_limit = (geometry.before.last().copied().unwrap_or(0.) - viewport).max(0.);
-        let after_limit = (geometry.after.last().copied().unwrap_or(0.) - viewport).max(0.);
+        let before_limit = (geometry.before_height - viewport).max(0.);
+        let after_limit = (geometry.after_height - viewport).max(0.);
         if self.position == 0.0 {
             return (0.0, 0.0);
         }
@@ -144,6 +154,8 @@ mod tests {
 
     fn geometry(diff: &FileDiff) -> DiffGeometry {
         DiffGeometry {
+            before_height: (diff.before_offsets.len() - 1) as f32 * 20.,
+            after_height: (diff.after_offsets.len() - 1) as f32 * 20.,
             before: (0..diff.before_offsets.len())
                 .map(|line| line as f32 * 20.)
                 .collect(),
@@ -164,6 +176,34 @@ mod tests {
         assert_eq!(first.0, 0.0);
         assert_eq!(next.0, 0.0);
         assert!(next.1 > first.1);
+    }
+
+    #[test]
+    fn final_empty_rows_are_reachable_without_extending_diff_blocks() {
+        for (left_newline, right_newline) in
+            [(true, true), (true, false), (false, true), (false, false)]
+        {
+            let source = |newline| {
+                format!(
+                    "{}last{}",
+                    "line\n".repeat(30),
+                    if newline { "\n" } else { "" }
+                )
+            };
+            let diff = FileDiff::new(&source(left_newline), &source(right_newline));
+            let mut geometry = geometry(&diff);
+            let before_end = geometry.before_height;
+            let after_end = geometry.after_height;
+            geometry.before_height += if left_newline { 20. } else { 0. };
+            geometry.after_height += if right_newline { 20. } else { 0. };
+            let mut scroll = FluidScroll::default();
+            let bottom = scroll.advance(10000., &diff, &geometry, 200.);
+            assert_eq!(bottom.0 + 200., geometry.before_height);
+            assert_eq!(bottom.1 + 200., geometry.after_height);
+            assert_eq!(geometry.before.last().copied(), Some(before_end));
+            assert_eq!(geometry.after.last().copied(), Some(after_end));
+            assert_eq!(scroll.advance(-10000., &diff, &geometry, 200.), (0., 0.));
+        }
     }
 
     #[test]
@@ -192,6 +232,8 @@ mod wrapped_tests {
         let geometry = DiffGeometry {
             before: vec![0., 100., 120., 140.],
             after: vec![0., 20., 80., 100.],
+            before_height: 140.,
+            after_height: 100.,
         };
         let mut scroll = FluidScroll::default();
         // At virtual row 100 the first source line ends on both sides.

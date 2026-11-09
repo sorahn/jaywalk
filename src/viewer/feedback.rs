@@ -65,6 +65,7 @@ impl Viewer {
     pub(super) fn reschedule_feedback(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         for kind in [
             LoadingKind::Comparison,
+            LoadingKind::Overview,
             LoadingKind::File,
             LoadingKind::Evolution,
             LoadingKind::Live,
@@ -72,4 +73,30 @@ impl Viewer {
             self.schedule_feedback(kind, window, cx);
         }
     }
+}
+
+/// Keep diagnostics literal and selectable; Copy retains the complete message,
+/// including line breaks, even when only part of it fits in a narrow panel.
+pub(super) fn error_message(id: &'static str, message: &str) -> AnyElement {
+    let copied = message.to_owned();
+    div()
+        .id(id)
+        .v_flex()
+        .gap_2()
+        .min_w_0()
+        .child(
+            div().child(
+                Button::new(SharedString::from(format!("{id}-copy")))
+                    .ghost()
+                    .label("Copy error")
+                    .on_click(move |_, _, cx| {
+                        cx.write_to_clipboard(ClipboardItem::new_string(copied.clone()));
+                    }),
+            ),
+        )
+        .child(gpui::base::SelectableText::new(
+            SharedString::from(format!("{id}-text")),
+            message.to_owned(),
+        ))
+        .into_any_element()
 }

@@ -7,6 +7,7 @@ use std::{
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum LoadingKind {
     Comparison,
+    Overview,
     File,
     Evolution,
     Live,

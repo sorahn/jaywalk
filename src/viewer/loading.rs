@@ -34,6 +34,7 @@ impl Viewer {
         );
         let palette = palette::PaletteState::new(window, cx);
         let layout = session_layout::SessionLayout::load(&arguments, &settings);
+        let references = references::ReferenceState::new(&settings.history);
         let mut viewer = Self {
             code_font_size: settings.editor.font_size,
             line_numbers: settings.editor.line_numbers,
@@ -46,8 +47,11 @@ impl Viewer {
             settings,
             focus,
             panels: panels::PanelLayout::new(cx),
+            overview: overview::OverviewState::default(),
             history_scroll: UniformListScrollHandle::new(),
-            history_query: Default::default(),
+            history_query: jaywalk::history::HistoryQuery::sources(Default::default(), None)
+                .expect("default source query has no unvalidated IDs"),
+            references,
             evolution,
             evolution_header: None,
             file_evolution,
@@ -87,6 +91,7 @@ impl Viewer {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        self.invalidate_history_reload();
         self.resume_live_refresh();
         self.remember_evolution_header();
         self.evolution.clear();
@@ -100,6 +105,7 @@ impl Viewer {
         self.rebuild_browser(cx);
         let arguments = self.arguments.clone();
         let history_query = self.history_query.clone();
+        let requested_history_query = history_query.clone();
         self.repository_task = Some(cx.spawn_in(window, async move |this, cx| {
             let result = cx
                 .background_spawn(async move {
@@ -134,6 +140,9 @@ impl Viewer {
                     }
                     Err(error) => LoadState::Failed(error),
                 };
+                if viewer.history_query != requested_history_query {
+                    viewer.reload_history(None, window, cx);
+                }
                 viewer.start_live(window, cx);
                 viewer.rebuild_browser(cx);
                 let preferred_path = viewer.pending_file.take().or(preferred_path).or_else(|| {
@@ -285,6 +294,10 @@ impl Viewer {
                             cx.notify();
                             return;
                         }
+                        viewer.reveal_after_layout = reason == FileLoad::Select
+                            && viewer.live.restore.is_none()
+                            && viewer.live.pending_position.is_none()
+                            && prepared.model.blocks.iter().any(|block| block.changed);
                         viewer.restore_prepared_reading(&path, &prepared.before, &prepared.after);
                         let standard = prepared.standard.map(|files| {
                             if files.is_empty() {
@@ -564,6 +577,7 @@ impl Viewer {
             return;
         }
         self.remember_reading(cx);
+        self.invalidate_history_reload();
         self.resume_live_refresh();
         self.remember_evolution_header();
         self.evolution.clear();
@@ -610,6 +624,7 @@ impl Viewer {
         let already_loading = matches!(&session.scope, ComparisonScope::Revision {commit_id: current, ..} if current == commit_id)
             && matches!(session.comparison, LoadState::Loading);
         let branch = session.branch.as_ref().clone();
+        let history_operation = history.references.operation.clone();
         self.resume_live_refresh();
         self.remember_evolution_header();
         self.remember_reading(cx);
@@ -625,6 +640,8 @@ impl Viewer {
         if let LoadState::Loaded(session) = &mut self.repository {
             session.scope = ComparisonScope::Revision {
                 commit_id: revision.commit_id.clone(),
+                change_id: revision.change_id.clone(),
+                working_copy: revision.working_copy,
                 merge: revision.parents.len() > 1,
             };
             session.comparison = cached.as_ref().map_or(LoadState::Loading, |comparison| {
@@ -642,7 +659,9 @@ impl Viewer {
         let revision_for_evolution = revision.clone();
         self.repository_task = Some(cx.spawn_in(window, async move |this, cx| {
             let result = cx
-                .background_spawn(async move { branch.for_revision(&revision) })
+                .background_spawn(async move {
+                    branch.for_history_revision(&revision, history_operation.as_deref())
+                })
                 .await;
             let _ = this.update_in(cx, |viewer, window, cx| {
                 if viewer.repository_generation != generation {

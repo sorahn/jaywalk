@@ -450,7 +450,13 @@ impl Viewer {
                     ),
             );
         match self.comparison_state() {
-            LoadState::Failed(error) => panel = panel.child(div().p_3().child(error)),
+            LoadState::Failed(error) => {
+                panel = panel.child(
+                    div()
+                        .p_3()
+                        .child(feedback::error_message("files-error", &error)),
+                )
+            }
             LoadState::Loaded(comparison)
                 if comparison.files.is_empty()
                     && !(self.browser.mode == FileListMode::Tree

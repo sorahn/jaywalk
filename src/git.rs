@@ -1,9 +1,9 @@
 //! Read-only Git comparisons for repositories without Jujutsu metadata.
-use crate::history::{History, HistoryQuery, HistoryScope, Revision};
+use crate::history::{History, HistoryQuery, Revision};
 use crate::repository::{ChangedFile, Comparison, ContentSource, FileSide, next_capture};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+
 use std::sync::Arc;
 
 use crate::repository_file::FileKind;
@@ -23,7 +23,7 @@ pub(crate) struct GitContents {
 }
 
 fn run(root: &Path, args: &[&str]) -> Result<Vec<u8>, String> {
-    let result = Command::new("git")
+    let result = crate::tools::command("git")?
         .current_dir(root)
         .args(["--no-pager", "--literal-pathspecs"])
         .args(args)
@@ -44,7 +44,7 @@ fn text(data: Vec<u8>) -> Result<String, String> {
     }
     String::from_utf8(data).map_err(|error| format!("Non-UTF-8 Git content: {error}"))
 }
-fn output(root: &Path, args: &[&str]) -> Result<String, String> {
+pub(crate) fn output(root: &Path, args: &[&str]) -> Result<String, String> {
     String::from_utf8(run(root, args)?).map_err(|error| format!("Non-UTF-8 Git metadata: {error}"))
 }
 fn resolve(root: &Path, revision: &str) -> Result<String, String> {
@@ -255,7 +255,98 @@ impl GitContents {
         text(run(&self.root, &["cat-file", "blob", &value.object])?)
     }
 }
+pub(crate) fn references(root: &Path) -> Result<crate::references::ReferenceSnapshot, String> {
+    use crate::history::{Reference, ReferenceKind, TrackingState};
+    let remotes = crate::references::configured_remotes(root)?;
+    let format = "--format=%(refname)%00%(objectname)%00%(*objectname)%00%(upstream)%00%(objecttype)%00%(*objecttype)%00%(symref)";
+    let data = output(
+        root,
+        &[
+            "for-each-ref",
+            format,
+            "refs/heads",
+            "refs/remotes",
+            "refs/tags",
+        ],
+    )?;
+    let entries: Vec<Vec<&str>> = data
+        .lines()
+        .map(|line| line.split('\0').collect())
+        .collect();
+    if entries.iter().any(|entry| entry.len() != 7) {
+        return Err("Incomplete Git reference entry".into());
+    }
+    let mut snapshot = crate::references::ReferenceSnapshot {
+        remotes,
+        ..Default::default()
+    };
+    snapshot.local_heads.push(resolve(root, "HEAD")?);
+    for entry in &entries {
+        if !entry[6].is_empty() {
+            continue;
+        } // symbolic remote HEAD aliases add no reference of their own.
+        let target = if entry[4] == "commit" {
+            entry[1]
+        } else if entry[5] == "commit" {
+            entry[2]
+        } else {
+            continue;
+        };
+        if entry[0].starts_with("refs/tags/") {
+            snapshot.local_heads.push(target.into());
+            continue;
+        }
+        let (name, kind, tracked_by) = if let Some(name) = entry[0].strip_prefix("refs/heads/") {
+            snapshot.local_heads.push(target.into());
+            (name.to_owned(), ReferenceKind::Local, Vec::new())
+        } else if let Some(path) = entry[0].strip_prefix("refs/remotes/") {
+            let remote = snapshot
+                .remotes
+                .iter()
+                .filter(|remote| path.starts_with(&format!("{remote}/")))
+                .max_by_key(|remote| remote.len())
+                .cloned()
+                .or_else(|| path.split_once('/').map(|(remote, _)| remote.into()))
+                .ok_or("Invalid remote reference name")?;
+            let name = path
+                .strip_prefix(&format!("{remote}/"))
+                .ok_or("Invalid remote reference prefix")?
+                .to_owned();
+            let tracked_by: Vec<String> = entries
+                .iter()
+                .filter(|local| local[0].starts_with("refs/heads/") && local[3] == entry[0])
+                .map(|local| local[0]["refs/heads/".len()..].to_owned())
+                .collect();
+            snapshot.remotes.push(remote.clone());
+            (
+                name,
+                ReferenceKind::Remote {
+                    remote,
+                    tracking: Some(if tracked_by.is_empty() {
+                        TrackingState::Untracked
+                    } else {
+                        TrackingState::Tracked
+                    }),
+                },
+                tracked_by,
+            )
+        } else {
+            continue;
+        };
+        snapshot.references.push(Reference {
+            name,
+            target: target.into(),
+            kind,
+            tracked_by,
+            conflicted: false,
+        });
+    }
+    snapshot.normalize();
+    Ok(snapshot)
+}
+
 pub(crate) fn history(root: &Path, query: &HistoryQuery) -> Result<History, String> {
+    let references = references(root)?;
     let limit = query.limit().to_string();
     let mut args = vec![
         "log",
@@ -265,10 +356,11 @@ pub(crate) fn history(root: &Path, query: &HistoryQuery) -> Result<History, Stri
         "-z",
         "--format=%H%x00%P%x00%s%x00%an",
     ];
-    match query.scope() {
-        HistoryScope::Repository => args.extend(["--all", "HEAD"]),
-        HistoryScope::Ancestors(commits) => args.extend(commits.iter().map(String::as_str)),
+    let roots = query.roots(&references);
+    if roots.is_empty() {
+        return Ok(History::new(vec![]).with_references(references));
     }
+    args.extend(roots.iter().map(String::as_str));
     args.push("--");
     let data = output(root, &args)?;
     let fields: Vec<_> = data.split_terminator('\0').collect();
@@ -288,7 +380,7 @@ pub(crate) fn history(root: &Path, query: &HistoryQuery) -> Result<History, Stri
             empty: false,
         })
         .collect();
-    Ok(History::new(revisions))
+    Ok(History::new(revisions).with_references(references))
 }
 pub(crate) fn for_revision(
     comparison: &Comparison,

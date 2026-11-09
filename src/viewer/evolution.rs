@@ -42,6 +42,7 @@ impl HeaderPresentation {
 
 #[derive(Clone)]
 pub(super) struct EvolutionSession {
+    operation: String,
     anchor: Revision,
     timeline: Rc<Evolution>,
     view: Rc<EvolutionView>,
@@ -345,6 +346,7 @@ impl Viewer {
             return;
         };
         let commit = session.anchor.commit_id.clone();
+        let operation = session.operation.clone();
         let Some(repository) = self.repository.ready() else {
             return;
         };
@@ -355,7 +357,7 @@ impl Viewer {
         self.begin_loading(LoadingKind::Evolution, window, cx);
         self.evolution.task = Some(cx.spawn_in(window, async move |this, cx| {
             let result = cx
-                .background_spawn(async move { branch.evolution(&commit, limit) })
+                .background_spawn(async move { branch.evolution_at(&commit, limit, &operation) })
                 .await;
             let _ = this.update_in(cx, |viewer, _, cx| {
                 if viewer.evolution.generation != generation {
@@ -439,6 +441,12 @@ impl Viewer {
             return;
         };
         let branch = session.branch.as_ref().clone();
+        let operation = session
+            .history
+            .as_ref()
+            .ok()
+            .and_then(|history| history.references.operation.clone())
+            .unwrap_or_else(|| branch.operation.clone());
         let generation = self.evolution.generation;
         let limit = self.settings.evolution.limit;
         self.evolution.state = TimelineState::Loading {
@@ -448,8 +456,9 @@ impl Viewer {
         self.begin_loading(LoadingKind::Evolution, window, cx);
         self.evolution.task = Some(cx.spawn_in(window, async move |this, cx| {
             let commit = anchor.commit_id.clone();
+            let read_operation = operation.clone();
             let result = cx
-                .background_spawn(async move { branch.evolution(&commit, limit) })
+                .background_spawn(async move { branch.evolution_at(&commit, limit, &read_operation) })
                 .await;
             let _ = this.update_in(cx, |viewer, window, cx| {
                 if viewer.evolution.generation != generation {
@@ -462,7 +471,7 @@ impl Viewer {
                             Some(selected) => {
                                 let view = Rc::new(timeline.view(viewer.evolution.show_unchanged_rebases, selected));
                                 let presentation = Rc::new(view.grouped(&timeline, viewer.evolution.file_path.as_deref(), ReviewMode::Patch, viewer.evolution.collapse_repeats, &viewer.evolution.expanded_groups));
-                                TimelineState::Loaded(EvolutionSession { anchor, timeline: Rc::new(timeline), view, presentation, selected, mode: ReviewMode::Patch })
+                                TimelineState::Loaded(EvolutionSession { operation, anchor, timeline: Rc::new(timeline), view, presentation, selected, mode: ReviewMode::Patch })
                             },
                             None => TimelineState::Failed("Selected version is outside the evolution limit; increase evolution.limit.".into()),
                         }
@@ -542,6 +551,7 @@ impl Viewer {
                 }
             ),
         };
+        let operation = evolution.operation.clone();
         let scope = ComparisonScope::Evolution {
             anchor: evolution.anchor.commit_id.clone(),
             version: version.commit_id.clone(),
@@ -568,8 +578,10 @@ impl Viewer {
             let result = cx
                 .background_spawn(async move {
                     match mode {
-                        ReviewMode::Patch => branch.for_revision(&version.revision()),
-                        ReviewMode::SincePrevious => branch.for_evolution(&version),
+                        ReviewMode::Patch => {
+                            branch.for_history_revision(&version.revision(), Some(&operation))
+                        }
+                        ReviewMode::SincePrevious => branch.for_evolution_at(&version, &operation),
                     }
                 })
                 .await;
@@ -805,7 +817,19 @@ impl Viewer {
             }
             TimelineState::Failed(error) => {
                 return panel
-                    .child(div().p_3().text_size(px(font_size)).child(error.clone()))
+                    .child(
+                        div()
+                            .p_3()
+                            .text_size(px(font_size))
+                            .child(feedback::error_message(
+                                if kind == evolution::EvolutionKind::Change {
+                                    "change-evolution-error"
+                                } else {
+                                    "file-evolution-error"
+                                },
+                                error,
+                            )),
+                    )
                     .into_any_element();
             }
             TimelineState::Loaded(evolution) => (evolution, state.file_path.clone(), &state.scroll),
@@ -906,17 +930,18 @@ impl Viewer {
                         version.description.trim(),
                         version.timestamp,
                         version.commit_id,
-                        &version.operation_id[..version.operation_id.len().min(12)],
+                        version.operation_id.as_deref().map(|id| &id[..id.len().min(12)]).unwrap_or("unavailable"),
                         version.operation
                     );
                     tooltip.push_str(&format!("\nChange event: {}", event.label()));
                     if let (Some(path), Some(effect)) = (&file_path, file_effect) {
                         tooltip.push_str(&format!("\nFile: {path}\n{}", effect.label()));
                     }
-                    let stamp = version
-                        .timestamp
-                        .split_once(' ')
-                        .map_or(version.timestamp.as_str(), |(_, time)| time);
+                    let stamp = if version.operation_id.is_none() {
+                        version.timestamp.as_str()
+                    } else {
+                        version.timestamp.split_once(' ').map_or(version.timestamp.as_str(), |(_, time)| time)
+                    };
                     let summary = file_effect.map_or_else(
                         || version.rewrite_summary(event),
                         |effect| effect.label().to_owned(),
@@ -976,32 +1001,8 @@ impl Viewer {
                                     } else {
                                         0x7797bd
                                     });
-                                    for (from, to) in &row.edges {
-                                        let mut path = PathBuilder::stroke(px(1.));
-                                        path.move_to(point(
-                                            x(*from),
-                                            if *from == row.lane {
-                                                middle
-                                            } else {
-                                                bounds.top()
-                                            },
-                                        ));
-                                        path.cubic_bezier_to(
-                                            point(x(*to), bounds.bottom()),
-                                            point(x(*from), middle),
-                                            point(x(*to), middle),
-                                        );
-                                        if let Ok(path) = path.build() {
-                                            window.paint_path(path, color);
-                                        }
-                                    }
-                                    if row.incoming {
-                                        let mut path = PathBuilder::stroke(px(1.));
-                                        path.move_to(point(x(row.lane), bounds.top()));
-                                        path.line_to(point(x(row.lane), middle));
-                                        if let Ok(path) = path.build() {
-                                            window.paint_path(path, color);
-                                        }
+                                    for stroke in &row.strokes {
+                                        super::history::paint_graph_stroke(stroke,bounds,spacing,color.into(),1.,window);
                                     }
                                     let mut marker = PathBuilder::stroke(px(1.));
                                     let center = x(row.lane);
@@ -1204,6 +1205,7 @@ mod timeline_tests {
         let mut panel = EvolutionPanel::new(true, false, true);
         panel.file_path = Some(path.into());
         panel.state = TimelineState::Loaded(EvolutionSession {
+            operation: "test-operation".into(),
             anchor,
             timeline,
             view,
