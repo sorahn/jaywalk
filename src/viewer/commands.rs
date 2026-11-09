@@ -113,7 +113,7 @@ impl Viewer {
             CommandId::PreviousRevision => self.navigate_revision(-1, window, cx),
             CommandId::ToggleLineNumbers => {
                 let position = self.prepare_display_reflow(cx);
-                if self.view_mode != ViewMode::Fluid {
+                if self.view.effective() != ViewMode::Fluid {
                     self.config.pending_standard = position;
                 }
                 self.line_numbers = !self.line_numbers;
@@ -136,7 +136,7 @@ impl Viewer {
                 }
                 .clamp(8., 48.);
                 let position = self.prepare_display_reflow(cx);
-                if self.view_mode != ViewMode::Fluid {
+                if self.view.effective() != ViewMode::Fluid {
                     self.config.pending_standard = position;
                 }
                 self.code_font_size = next;

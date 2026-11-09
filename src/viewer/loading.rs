@@ -61,7 +61,7 @@ impl Viewer {
             file_task: None,
             active_change: None,
             navigation_target: None,
-            view_mode,
+            view: jaywalk::view_choice::ViewChoice::new(view_mode),
             wrapping,
             horizontal_position: 0.,
             reveal_after_layout: false,
@@ -284,7 +284,7 @@ impl Viewer {
                             if files.is_empty() {
                                 return None;
                             }
-                            let mode = standard_mode(viewer.view_mode);
+                            let mode = standard_mode(viewer.view.effective());
                             Some(cx.new(|cx| {
                                 DiffState::new(
                                     files.into_iter().map(|file| file.with_language(language)),
@@ -339,7 +339,7 @@ impl Viewer {
                                 )
                             })
                         });
-                        if viewer.view_mode != ViewMode::Fluid
+                        if viewer.view.effective() != ViewMode::Fluid
                             && let Some((before, after, horizontal)) =
                                 viewer.live.pending_position.take()
                             && let Ok(Some(state)) = &standard
@@ -454,7 +454,7 @@ impl Viewer {
                 cx,
             );
         }
-        if self.view_mode == ViewMode::Fluid
+        if self.view.effective() == ViewMode::Fluid
             && let Some((left, right, horizontal)) = self.live.pending_position.take()
         {
             // set_value updates the cached wrap map synchronously. Restore
@@ -481,7 +481,7 @@ impl Viewer {
             Ok(files) if files.is_empty() => Ok(None),
             Ok(files) => {
                 let language = before.read(cx).language_name();
-                let mode = standard_mode(self.view_mode);
+                let mode = standard_mode(self.view.effective());
                 let state = cx.new(|cx| {
                     DiffState::new(
                         files
@@ -492,7 +492,7 @@ impl Viewer {
                     .with_context_lines(None)
                     .with_mode(mode)
                 });
-                if self.view_mode != ViewMode::Fluid
+                if self.view.effective() != ViewMode::Fluid
                     && let Some((left, right, horizontal)) = self.live.pending_position.take()
                     && let Some(path) = state
                         .read(cx)

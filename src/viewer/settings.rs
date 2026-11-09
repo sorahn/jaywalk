@@ -73,7 +73,7 @@ impl Viewer {
     ) -> Option<gpui::component::diff::DiffLinePosition> {
         self.preserve_reflow_position(cx);
         self.code().and_then(|code| {
-            if self.view_mode != ViewMode::Fluid
+            if self.view.effective() != ViewMode::Fluid
                 && let Ok(Some(standard)) = &code.standard
             {
                 return standard.read(cx).viewport_position();
@@ -168,7 +168,7 @@ impl Viewer {
                 }
             }
         }
-        if self.view_mode != ViewMode::Fluid {
+        if self.view.effective() != ViewMode::Fluid {
             self.config.pending_standard = position;
         }
         if previous.ui.loading_delay_ms != self.settings.ui.loading_delay_ms {

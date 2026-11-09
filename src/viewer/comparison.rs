@@ -165,7 +165,7 @@ impl Viewer {
                     .compact()
                     .icon(icon)
                     .tooltip(label)
-                    .selected(self.view_mode == mode)
+                    .selected(self.view.effective() == mode)
                     .on_click(cx.listener(move |this, _, _, cx| this.set_view_mode(mode, cx))),
             );
         }
@@ -174,7 +174,7 @@ impl Viewer {
 
     pub(super) fn render_comparison(&self, cx: &mut Context<Self>) -> AnyElement {
         let theme = gpui::component::Theme::global(cx);
-        let file_background = if self.view_mode == ViewMode::Fluid {
+        let file_background = if self.view.effective() == ViewMode::Fluid {
             theme
                 .highlight_theme
                 .style
@@ -214,7 +214,7 @@ impl Viewer {
             ..
         }) = self.code()
         {
-            if self.view_mode != ViewMode::Fluid {
+            if self.view.effective() != ViewMode::Fluid {
                 let body = if let Err(error) = standard {
                     div().p_6().child(error.clone()).into_any_element()
                 } else if let Some(Ok(Some(state))) = self.code().map(|code| &code.standard) {

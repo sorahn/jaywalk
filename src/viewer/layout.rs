@@ -156,7 +156,7 @@ impl Render for Viewer {
                                     .compact()
                                     .icon(IconName::TextWrap)
                                     .tooltip("Word wrap")
-                                    .selected(self.wrapping.enabled(self.view_mode))
+                                    .selected(self.wrapping.enabled(self.view.effective()))
                                     .on_click(cx.listener(|this, _, window, cx| {
                                         this.toggle_wrap(window, cx)
                                     })),
@@ -169,7 +169,7 @@ impl Render for Viewer {
                                     .child(if self.code().is_some() {
                                         if total == 0 {
                                             self.unchanged_file_summary().to_owned()
-                                        } else if self.view_mode == ViewMode::Fluid {
+                                        } else if self.view.effective() == ViewMode::Fluid {
                                             format!(
                                                 "Change {} of {}",
                                                 self.active_change.map_or(0, |index| index + 1),
@@ -189,11 +189,11 @@ impl Render for Viewer {
                                     .label("↑")
                                     .disabled(
                                         self.code().is_none()
-                                            || (self.view_mode == ViewMode::Fluid
+                                            || (self.view.effective() == ViewMode::Fluid
                                                 && self
                                                     .active_change
                                                     .is_none_or(|index| index == 0))
-                                            || (self.view_mode != ViewMode::Fluid
+                                            || (self.view.effective() != ViewMode::Fluid
                                                 && self.code().is_none_or(|code| {
                                                     !matches!(code.standard, Ok(Some(_)))
                                                 })),
@@ -209,11 +209,11 @@ impl Render for Viewer {
                                     .label("↓")
                                     .disabled(
                                         self.code().is_none()
-                                            || (self.view_mode == ViewMode::Fluid
+                                            || (self.view.effective() == ViewMode::Fluid
                                                 && self
                                                     .active_change
                                                     .is_none_or(|index| index + 1 >= total))
-                                            || (self.view_mode != ViewMode::Fluid
+                                            || (self.view.effective() != ViewMode::Fluid
                                                 && self.code().is_none_or(|code| {
                                                     !matches!(code.standard, Ok(Some(_)))
                                                 })),

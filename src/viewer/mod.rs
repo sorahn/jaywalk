@@ -201,7 +201,7 @@ pub(crate) struct Viewer {
     file_task: Option<Task<()>>,
     active_change: Option<usize>,
     navigation_target: Option<usize>,
-    view_mode: ViewMode,
+    view: jaywalk::view_choice::ViewChoice,
     code_font_size: f32,
     line_numbers: bool,
     wrapping: Wrapping,
@@ -332,7 +332,7 @@ impl Viewer {
 
     fn toggle_wrap(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.preserve_reflow_position(cx);
-        self.wrapping.toggle(self.view_mode);
+        self.wrapping.toggle(self.view.effective());
         self.horizontal_position = 0.;
         self.reveal_after_layout = false;
         if let Some(CodeComparison { before, after, .. }) = self.code() {
@@ -352,10 +352,10 @@ impl Viewer {
     }
 
     fn scroll_horizontal(&mut self, delta: f32, cx: &mut Context<Self>) {
-        if self.wrapping.enabled(self.view_mode) {
+        if self.wrapping.enabled(self.view.effective()) {
             return;
         }
-        if self.view_mode == ViewMode::Fluid {
+        if self.view.effective() == ViewMode::Fluid {
             self.horizontal_position = (self.horizontal_position + delta).max(0.);
             if let Some(CodeComparison { before, after, .. }) = self.code() {
                 for (state, wrap) in [(before, self.wrapping.before), (after, self.wrapping.after)]
@@ -378,11 +378,11 @@ impl Viewer {
     }
 
     fn set_view_mode(&mut self, mode: ViewMode, cx: &mut Context<Self>) {
-        if self.view_mode == mode {
+        if self.view.preferred() == mode {
             return;
         }
         let line = self.code().map(|code| {
-            if self.view_mode != ViewMode::Fluid
+            if self.view.effective() != ViewMode::Fluid
                 && let Ok(Some(state)) = &code.standard
                 && let Some(position) = state.read(cx).viewport_position()
             {
@@ -391,7 +391,8 @@ impl Viewer {
             let state = code.after.read(cx);
             state.visible_row_range().map_or(0, |range| range.start)
         });
-        self.view_mode = mode;
+        self.view.select(mode);
+        let mode = self.view.effective();
         if let Some(Ok(Some(state))) = self.code().map(|code| &code.standard) {
             state.update(cx, |state, cx| {
                 state.set_mode(standard_mode(mode), cx);
@@ -425,7 +426,7 @@ impl Viewer {
     }
 
     fn navigate_change(&mut self, direction: i32, cx: &mut Context<Self>) {
-        if self.view_mode != ViewMode::Fluid {
+        if self.view.effective() != ViewMode::Fluid {
             if let Some(Ok(Some(state))) = self.code().map(|code| &code.standard) {
                 state.update(cx, |state, cx| {
                     if direction < 0 {

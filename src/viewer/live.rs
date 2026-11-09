@@ -61,7 +61,7 @@ impl Viewer {
     }
 
     pub(super) fn preserve_reflow_position(&mut self, cx: &App) {
-        if self.view_mode != ViewMode::Fluid {
+        if self.view.effective() != ViewMode::Fluid {
             return;
         }
         if let Some(snapshot) = self.capture_reading(cx) {
@@ -83,7 +83,7 @@ impl Viewer {
         let mut side = gpui::component::diff::DiffSide::Modified;
         let mut before_line = line(before);
         let mut after_line = line(after);
-        if self.view_mode != ViewMode::Fluid
+        if self.view.effective() != ViewMode::Fluid
             && let Ok(Some(standard)) = &code.standard
             && let Some(position) = standard.read(cx).viewport_position()
         {
