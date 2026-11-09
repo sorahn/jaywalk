@@ -210,3 +210,32 @@ mod tests {
         assert_eq!(compact_label(&[]), None);
     }
 }
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ReferenceStamp {
+    pub operation: Option<String>,
+    remotes: Vec<String>,
+    git_fingerprint: Option<u64>,
+}
+impl ReferenceStamp {
+    pub fn from_snapshot(snapshot: &ReferenceSnapshot) -> Self {
+        Self {
+            operation: snapshot.operation.clone(),
+            remotes: snapshot.remotes.clone(),
+            git_fingerprint: snapshot.operation.is_none().then(|| snapshot.fingerprint()),
+        }
+    }
+    pub fn read(root: &Path, recorded: bool) -> Result<Self, String> {
+        if recorded {
+            let mut remotes = configured_remotes(root)?;
+            remotes.sort();
+            Ok(Self {
+                operation: Some(Comparison::current_operation(root)?),
+                remotes,
+                git_fingerprint: None,
+            })
+        } else {
+            Ok(Self::from_snapshot(&crate::git::references(root)?))
+        }
+    }
+}

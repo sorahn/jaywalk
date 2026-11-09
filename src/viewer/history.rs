@@ -109,6 +109,11 @@ impl Viewer {
     pub(super) fn render_history(&self, cx: &mut Context<Self>) -> AnyElement {
         let theme = gpui::component::Theme::global(cx);
         let surface = theme.sidebar;
+        let stripe = surface.blend(
+            theme
+                .foreground
+                .opacity(self.settings.history.stripe_opacity),
+        );
         let selection = theme.list_active;
         let hover = theme.secondary_hover;
         let mut panel = div().v_flex().size_full().bg(surface).child(
@@ -194,6 +199,7 @@ impl Viewer {
         let spacing = self.settings.history.lane_spacing;
         let font_size = self.settings.panels.history.font.size;
         let labels = self.references.labels;
+        let badge_width = self.settings.history.reference_badge_width;
         let visibility = self.references.visibility.clone();
         let rows = uniform_list("history-rows", count, move |visible, _, _| {
             let width = GRAPH_MARGIN * 2.
@@ -214,7 +220,11 @@ impl Viewer {
                         selected,
                         viewer.clone(),
                         RowColors {
-                            surface,
+                            surface: if index.is_multiple_of(2) {
+                                surface
+                            } else {
+                                stripe
+                            },
                             selection,
                             hover,
                         },
@@ -224,6 +234,7 @@ impl Viewer {
                                 index,
                                 &visibility,
                                 viewer.clone(),
+                                badge_width,
                             )
                         } else {
                             None

@@ -90,6 +90,13 @@ fn git_and_jj_enumerate_synced_untracked_and_same_named_remote_references() {
     let jj = Comparison::load(&f.0, Some("main"), "@").unwrap();
     let operation = Comparison::current_operation(&f.0).unwrap();
     let history = jj.history(&HistoryQuery::default()).unwrap();
+    let imported = jj.evolution(&base, 100).unwrap();
+    assert!(
+        imported
+            .versions
+            .iter()
+            .any(|version| version.operation_id.is_none())
+    );
     let refs = &history.references;
     assert_eq!(refs.remotes, ["empty", "origin", "upstream"]);
     assert_eq!(refs.references.len(), 3);
@@ -153,4 +160,65 @@ fn hiding_remote_roots_keeps_shared_local_history_and_can_reveal_a_pinned_select
             .unwrap();
         assert!(revealed.revisions.iter().any(|r| r.commit_id == remote));
     }
+}
+
+#[test]
+fn external_metadata_refresh_does_not_repin_the_open_comparison() {
+    use jaywalk::references::ReferenceStamp;
+    let f = Fixture::new();
+    f.run("git", &["remote", "add", "origin", "."]);
+    let git = Comparison::load(&f.0, Some("main"), "HEAD").unwrap();
+    let initial = ReferenceStamp::read(&f.0, false).unwrap();
+    f.run("git", &["remote", "add", "another", "."]);
+    assert_ne!(initial, ReferenceStamp::read(&f.0, false).unwrap());
+    f.run("git", &["remote", "remove", "another"]);
+    assert_eq!(initial, ReferenceStamp::read(&f.0, false).unwrap());
+    let base = git.tip.clone();
+    f.run("jj", &["git", "init", "--colocate"]);
+    let pinned = Comparison::load(&f.0, Some("main"), "@").unwrap();
+    let operation = pinned.operation.clone();
+    let stamp = ReferenceStamp::read(&f.0, true).unwrap();
+    let tree = f.run("git", &["rev-parse", &format!("{base}^{{tree}}")]);
+    let remote = f.run(
+        "git",
+        &["commit-tree", &tree, "-p", &base, "-m", "fetched update"],
+    );
+    f.run(
+        "git",
+        &["update-ref", "refs/remotes/origin/update", &remote],
+    );
+    f.run("jj", &["git", "import"]);
+    assert_ne!(stamp, ReferenceStamp::read(&f.0, true).unwrap());
+    let current = pinned.current_history(&Default::default()).unwrap();
+    let revision = current
+        .revisions
+        .iter()
+        .find(|r| r.commit_id == remote)
+        .unwrap();
+    let source = current.references.operation.as_deref();
+    assert_ne!(source, Some(operation.as_str()));
+    let patch = pinned.for_history_revision(revision, source).unwrap();
+    assert_eq!(patch.tip, remote);
+    assert_eq!(pinned.operation, operation);
+    assert!(
+        pinned
+            .reference_snapshot()
+            .unwrap()
+            .references
+            .iter()
+            .all(|r| r.target != remote)
+    );
+    assert!(
+        pinned
+            .evolution_at(&remote, 100, source.unwrap())
+            .unwrap()
+            .versions
+            .iter()
+            .any(|v| v.commit_id == remote)
+    );
+    assert_eq!(
+        Comparison::current_operation(&f.0).unwrap(),
+        source.unwrap(),
+        "reads must not import or snapshot"
+    );
 }

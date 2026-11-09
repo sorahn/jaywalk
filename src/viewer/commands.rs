@@ -158,6 +158,14 @@ impl Viewer {
             | CommandId::FileEvolutionSidebar
             | CommandId::FileEvolutionBottom => self.move_panel(command, cx),
             CommandId::ResetInterface => {
+                self.references.labels = self.settings.history.show_reference_labels;
+                self.references.visibility = self.settings.history.remotes.clone();
+                self.history_query = jaywalk::history::HistoryQuery::sources(
+                    self.references.visibility.clone(),
+                    None,
+                )
+                .expect("default visibility has no commit expression");
+                self.reload_history(None, window, cx);
                 self.set_view_mode(self.settings.diff.default_view, cx);
                 self.wrapping = Wrapping::from_settings(&self.settings.diff);
                 self.line_numbers = self.settings.editor.line_numbers;

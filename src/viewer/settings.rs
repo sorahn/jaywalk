@@ -136,6 +136,16 @@ impl Viewer {
         if previous.keybindings != self.settings.keybindings {
             commands::install_bindings(&self.settings, cx);
         }
+        if previous.history.show_reference_labels != self.settings.history.show_reference_labels {
+            self.references.labels = self.settings.history.show_reference_labels;
+        }
+        if previous.history.remotes != self.settings.history.remotes {
+            self.references.visibility = self.settings.history.remotes.clone();
+            self.history_query =
+                jaywalk::history::HistoryQuery::sources(self.references.visibility.clone(), None)
+                    .expect("configuration visibility has no commit expression");
+            self.reload_history(None, window, cx);
+        }
         if previous.files.default_view != self.settings.files.default_view {
             self.browser.mode = self.settings.files.default_view;
         }

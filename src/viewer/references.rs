@@ -15,10 +15,10 @@ pub(super) struct ReferenceState {
     pub(super) error: Option<String>,
 }
 impl ReferenceState {
-    pub(super) fn new() -> Self {
+    pub(super) fn new(settings: &jaywalk::settings::HistorySettings) -> Self {
         Self {
-            visibility: Default::default(),
-            labels: true,
+            visibility: settings.remotes.clone(),
+            labels: settings.show_reference_labels,
             open: false,
             inspected: None,
             generation: 0,
@@ -93,6 +93,10 @@ impl Viewer {
                 cx.notify();
             }
         }
+    }
+    pub(super) fn invalidate_history_reload(&mut self) {
+        self.references.generation += 1;
+        self.references.task = None;
     }
     pub(super) fn reload_history(
         &mut self,
@@ -431,6 +435,7 @@ pub(super) fn reference_badge(
     index: usize,
     visibility: &RemoteVisibility,
     viewer: WeakEntity<Viewer>,
+    badge_width: f32,
 ) -> Option<AnyElement> {
     let revision = &history.revisions[index];
     let visible: Vec<_> = revision
@@ -454,14 +459,14 @@ pub(super) fn reference_badge(
                     .ghost()
                     .small()
                     .compact()
-                    .max_w(px(110.))
+                    .max_w(px(badge_width))
                     .flex_shrink_0()
                     .child(
                         div()
                             .h_flex()
                             .items_center()
                             .gap_1()
-                            .max_w(px(98.))
+                            .max_w(px(badge_width - 12.))
                             .min_w_0()
                             .child(div().min_w_0().truncate().child(label.name))
                             .when(label.additional > 0, |row| {

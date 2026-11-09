@@ -55,9 +55,19 @@ min_code_width = 100
 # The before/after panes default to an even split of the remaining width.
 
 [history]
+# Alternate row tint; 0 disables stripes. Updates live.
+stripe_opacity = 0.08
 # Minimum row height; larger UI fonts can require more space.
 # row_height = 30 # Optional override of ui.row_height.
-lane_spacing = 12
+lane_spacing = 8
+show_reference_labels = true
+reference_badge_width = 110
+
+[history.remotes]
+# Applies to new remotes as well as those without an explicit override.
+default_visible = true
+# [history.remotes.overrides]
+# origin = false
 
 [files]
 default_view = "list"

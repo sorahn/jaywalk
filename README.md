@@ -260,8 +260,9 @@ In a colocated checkout Jaywalk prefers jj. In plain Git, the default compares
 HEAD with staged and unstaged worktree changes, including untracked files.
 `--base REV --tip REV` compares recorded Git commits; `--tip @` means the
 working tree. The graph shows Git history and commit patches (merges use the
-first parent). Evolution controls require jj metadata. Git and external
-comparisons refresh manually; jj keeps its recorded-operation live refresh.
+first parent). Evolution controls require jj metadata. Git comparison contents and external
+comparisons refresh manually; local Git reference metadata and recorded jj
+operations refresh live.
 Git comparisons capture file contents when loaded so later file selection does
 not mix in subsequent edits. Neither backend writes to the observed repository.
 
@@ -493,6 +494,57 @@ and native interaction checks. Arbitrary evolution-pair comparison, broader
 language detection, symbol/LSP navigation, panel rearrangement, and full theme
 import are deferred. The default-style syntax palette maps selected VS Code
 colors; it is not a complete VS Code theme importer.
+
+## Local and remote history
+
+History branches keep their lanes and colors until they rejoin a commit dot.
+Branches stack outward, with the rightmost route drawn on top. Turns use the
+35% logo curve in `assets/branch-curve-35pct.svg`, mapped between row centers
+and split at row boundaries for continuous scrolling.
+
+History rows stay single-line, with one bounded reference badge and a `+N`
+count. Hover for full names; click a badge for references grouped by local
+branches/bookmarks and remote. The header's reference icon opens all references,
+even when badges are hidden. Select a reference to inspect its commit patch;
+Copy copies its qualified name. Tracking information is available on hover.
+The command palette and macOS View > References menu offer the same actions.
+
+The filter icon controls each remote's history independently, with Show all and
+Hide all. Hiding labels changes presentation only. History combines local roots
+and enabled remote targets; shared ancestry remains visible once. Hiding an
+inspected revision retains the open file and reading position. Use **Reveal
+inspected revision** to temporarily include it again; changing source filters
+clears that temporary reveal. Choosing a hidden reference reveals its commit.
+Whole branch continues to use the comparison requested when the window opened.
+
+```toml
+[history]
+show_reference_labels = true
+reference_badge_width = 110
+
+[history.remotes]
+default_visible = true
+
+[history.remotes.overrides]
+origin = false
+upstream = true
+```
+
+These defaults apply live. Toolbar choices are remembered per repository using
+`layout.remember_per_repository`, independently of the settings file; **Reset
+repository interface choices** restores configured defaults. New remotes inherit
+`default_visible`; named overrides survive remote removal and re-addition.
+
+Jaywalk reads local metadata only: it never fetches, imports Git references into
+jj, or manages authentication. Run `jj git fetch` externally for jj repositories,
+or `git fetch` for Git-only repositories. In colocated repositories a raw Git
+fetch must be imported by jj externally before recorded jj history changes.
+Reference refreshes preserve pinned reviews; newly discovered commits use their
+source operation when opened. Imported commits without jj operation metadata
+remain browseable and show unavailable operation/time information. Git reference
+updates refresh the graph without
+recapturing the displayed worktree. `[live]` controls this polling. Network
+fetching and remote management remain future work.
 
 ## Checks
 

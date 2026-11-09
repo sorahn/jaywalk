@@ -55,6 +55,15 @@ impl SessionLayout {
 }
 impl Viewer {
     pub(super) fn apply_saved_layout(&mut self) {
+        if let Some(labels) = self.layout.saved.history_labels {
+            self.references.labels = labels;
+        }
+        if let Some(remotes) = &self.layout.saved.history_remotes {
+            self.references.visibility = remotes.clone();
+        }
+        self.history_query =
+            jaywalk::history::HistoryQuery::sources(self.references.visibility.clone(), None)
+                .expect("saved visibility has no commit expression");
         if let Some(visible) = self.layout.saved.change_evolution {
             self.evolution.visible = visible;
         }
@@ -108,6 +117,8 @@ impl Viewer {
             self.layout.saving = false;
             return;
         }
+        self.layout.saved.history_labels = Some(self.references.labels);
+        self.layout.saved.history_remotes = Some(self.references.visibility.clone());
         self.layout.saved.view = Some(self.view.preferred());
         self.layout.saved.file_view = Some(self.browser.mode);
         self.layout.saved.file_scope = Some(self.browser.scope);

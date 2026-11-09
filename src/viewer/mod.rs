@@ -107,6 +107,8 @@ enum ComparisonScope {
     WholeBranch,
     Revision {
         commit_id: String,
+        change_id: String,
+        working_copy: bool,
         merge: bool,
     },
     Evolution {
@@ -296,7 +298,9 @@ impl Viewer {
                 "Git comparison".into()
             }
             Some(ComparisonScope::WholeBranch) => "Whole branch".into(),
-            Some(ComparisonScope::Revision { commit_id, merge }) => format!(
+            Some(ComparisonScope::Revision {
+                commit_id, merge, ..
+            }) => format!(
                 "Commit {}{}",
                 &commit_id[..commit_id.len().min(8)],
                 if *merge { " · first parent" } else { "" }

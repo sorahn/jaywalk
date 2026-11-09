@@ -9,6 +9,8 @@ use std::{collections::BTreeMap, sync::Mutex};
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct LayoutState {
+    pub history_labels: Option<bool>,
+    pub history_remotes: Option<crate::history::RemoteVisibility>,
     pub history_hidden: bool,
     pub files_hidden: bool,
     pub change_evolution: Option<bool>,
@@ -81,6 +83,25 @@ mod tests {
         };
         let restored: LayoutState = toml::from_str(&toml::to_string(&state).unwrap()).unwrap();
         assert_eq!(restored.file_scope, state.file_scope);
+    }
+
+    #[test]
+    fn reference_choices_migrate_and_preserve_unknown_remote_overrides() {
+        let old: LayoutState = toml::from_str("file_view='tree'").unwrap();
+        assert!(old.history_labels.is_none());
+        assert!(old.history_remotes.is_none());
+        let mut remotes = crate::history::RemoteVisibility::all(false);
+        remotes.set("upstream".into(), true);
+        let state = LayoutState {
+            history_labels: Some(false),
+            history_remotes: Some(remotes),
+            ..old
+        };
+        let restored: LayoutState = toml::from_str(&toml::to_string(&state).unwrap()).unwrap();
+        let remotes = restored.history_remotes.unwrap();
+        assert!(!remotes.includes("new-remote"));
+        assert!(remotes.includes("upstream"));
+        assert_eq!(restored.history_labels, Some(false));
     }
 
     #[test]
