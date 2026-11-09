@@ -152,11 +152,7 @@ impl PreparedFile {
         file: &jaywalk::repository_file::FileEntry,
         tab_size: usize,
     ) -> Result<Self, String> {
-        let (before, after) = comparison.contents(
-            &file
-                .changed()
-                .ok_or("File is not part of this comparison")?,
-        )?;
+        let (before, after) = comparison.read_file(file)?;
         let model = FileDiff::new(&before, &after);
         let language = file_language(file.path());
         let syntax = [&before, &after].map(|text| {

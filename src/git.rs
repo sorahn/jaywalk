@@ -1,6 +1,6 @@
 //! Read-only Git comparisons for repositories without Jujutsu metadata.
 use crate::history::{History, Revision};
-use crate::repository::{ChangedFile, Comparison, ContentSource};
+use crate::repository::{ChangedFile, Comparison, ContentSource, FileSide, next_capture};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -159,16 +159,21 @@ pub(crate) fn between(root: PathBuf, base: String, tip: String) -> Result<Compar
         tip,
         files: files.into(),
         content: ContentSource::Git(Arc::new(GitContents { files: contents })),
+        capture: if working { next_capture() } else { 0 },
     })
 }
 impl GitContents {
-    pub(crate) fn read(&self, file: &ChangedFile) -> TextPair {
-        self.files.get(&file.after_path).cloned().ok_or_else(|| {
-            format!(
-                "File is absent from captured comparison: {}",
-                file.after_path
-            )
-        })?
+    pub(crate) fn read_path(&self, path: &str, side: FileSide) -> Result<String, String> {
+        let pair = self
+            .files
+            .get(path)
+            .ok_or_else(|| format!("File is absent from captured comparison: {path}"))?
+            .as_ref()
+            .map_err(Clone::clone)?;
+        Ok(match side {
+            FileSide::Before => pair.0.clone(),
+            FileSide::After => pair.1.clone(),
+        })
     }
 }
 pub(crate) fn history(root: &Path) -> Result<History, String> {

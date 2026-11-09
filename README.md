@@ -576,3 +576,14 @@ provider does not already recognize it. New bundled grammars become available
 through the same bundle feature when the pinned provider is upgraded. A grammar
 outside that bundle still needs a dependency and provider registration; custom
 grammar loading and user-defined file associations are future work.
+
+### Comparison file sources
+
+File identity and optional change metadata are independent. Changed-file counts
+and navigation use the actual comparison change list, while source reads use
+explicit before/after paths. Recorded jj reads remain pinned to their operation;
+evolution reads use the interdiff's synthesized objects. Git working-tree
+comparisons capture changed contents when loaded and reject uncaptured paths
+instead of reading later filesystem edits into that comparison. Full-tree
+browsing must preserve that consistency policy when it is added. External diff
+inputs retain their supplied-path, read-on-selection behavior.

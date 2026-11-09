@@ -163,11 +163,10 @@ impl Viewer {
     }
 
     pub(super) fn select_path(&mut self, path: &str, window: &mut Window, cx: &mut Context<Self>) {
-        if let Some(index) = self
-            .comparison()
-            .and_then(|comparison| jaywalk::file_browser::find_file(&comparison.files, path))
+        if let Some(comparison) = self.comparison().cloned()
+            && let Some(file) = comparison.changed_file(path)
         {
-            self.select_file(index, window, cx);
+            self.load_file(comparison, file, FileLoad::Select, window, cx);
         }
     }
 
@@ -177,26 +176,20 @@ impl Viewer {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let Some(comparison) = self.comparison() else {
-            return;
-        };
-        let Some(file) = comparison.files.get(index).cloned() else {
-            return;
-        };
-        let comparison = comparison.clone();
-        let file = jaywalk::repository_file::FileEntry::from(&file);
-        self.load_file(comparison, file, FileLoad::Select, window, cx);
+        if let Some(path) = self
+            .comparison()
+            .and_then(|comparison| comparison.files.get(index))
+            .map(|file| file.after_path.clone())
+        {
+            self.select_path(&path, window, cx);
+        }
     }
 
     pub(super) fn follow_open_file(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(path) = self.selected_path() else {
-            return;
-        };
-        let Some(comparison) = self.comparison().cloned() else {
-            return;
-        };
-        if let Some(index) = jaywalk::file_browser::find_file(&comparison.files, &path) {
-            let file = jaywalk::repository_file::FileEntry::from(&comparison.files[index]);
+        if let Some(path) = self.selected_path()
+            && let Some(comparison) = self.comparison().cloned()
+            && let Some(file) = comparison.changed_file(&path)
+        {
             self.load_file(comparison, file, FileLoad::Follow, window, cx);
         }
     }

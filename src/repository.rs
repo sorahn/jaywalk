@@ -1,6 +1,36 @@
+use crate::repository_file::{ChangeKind, FileEntry};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::Arc;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FileSide {
+    Before,
+    After,
+}
+
+/// Equality identifies one coherent read source, not just mutable endpoint names.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct ComparisonIdentity {
+    root: PathBuf,
+    operation: String,
+    base: String,
+    tip: String,
+    source: SourceIdentity,
+    capture: u64,
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+enum SourceIdentity {
+    Recorded,
+    Git,
+    External,
+    Evolution,
+}
+
+pub(crate) fn next_capture() -> u64 {
+    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+    NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+}
 
 #[derive(Clone, Debug)]
 pub struct ChangedFile {
@@ -17,6 +47,7 @@ pub struct Comparison {
     pub tip: String,
     pub files: Arc<[ChangedFile]>,
     pub(crate) content: ContentSource,
+    pub(crate) capture: u64,
 }
 
 #[derive(Clone, Debug)]
@@ -200,6 +231,7 @@ impl Comparison {
             tip,
             files: files.into(),
             content: ContentSource::Recorded,
+            capture: 0,
         })
     }
 
@@ -251,28 +283,62 @@ impl Comparison {
         crate::history::History::parse(&output)
     }
 
-    pub fn contents(&self, file: &ChangedFile) -> Result<(String, String), String> {
-        if let ContentSource::Git(contents) = &self.content {
-            return contents.read(file);
+    pub fn identity(&self) -> ComparisonIdentity {
+        ComparisonIdentity {
+            root: self.root.clone(),
+            operation: self.operation.clone(),
+            base: self.base.clone(),
+            tip: self.tip.clone(),
+            source: match self.content {
+                ContentSource::Recorded => SourceIdentity::Recorded,
+                ContentSource::Git(_) => SourceIdentity::Git,
+                ContentSource::External(_) => SourceIdentity::External,
+                ContentSource::Evolution(_) => SourceIdentity::Evolution,
+            },
+            capture: self.capture,
         }
-        if let ContentSource::External(contents) = &self.content {
-            return contents.read(file);
-        }
-        if let ContentSource::Evolution(contents) = &self.content {
-            return contents.read(file);
-        }
-        let before = if file.status == "added" {
-            String::new()
-        } else {
-            self.file_contents(&self.base, &file.before_path)?
-        };
-        let after = if file.status == "removed" {
-            String::new()
-        } else {
-            self.file_contents(&self.tip, &file.after_path)?
-        };
+    }
 
+    /// Metadata lookup remains changed-only until full-tree enumeration is added.
+    pub fn changed_file(&self, path: &str) -> Option<FileEntry> {
+        crate::file_browser::find_file(&self.files, path)
+            .map(|index| FileEntry::from(&self.files[index]))
+    }
+
+    /// Read by source-side path, independent of a change-list position or status.
+    /// Captured Git worktree sources deliberately reject paths not captured when
+    /// the comparison loaded; a later implementation must not read them live.
+    pub fn read_path(&self, path: &str, side: FileSide) -> Result<String, String> {
+        match &self.content {
+            ContentSource::Git(contents) => contents.read_path(path, side),
+            ContentSource::External(contents) => contents.read_path(path, side),
+            ContentSource::Evolution(contents) => contents.read_path(path, side),
+            ContentSource::Recorded => self.file_contents(
+                match side {
+                    FileSide::Before => &self.base,
+                    FileSide::After => &self.tip,
+                },
+                path,
+            ),
+        }
+    }
+
+    pub fn read_file(&self, file: &FileEntry) -> Result<(String, String), String> {
+        let before = if file.kind() == Some(&ChangeKind::Added) {
+            String::new()
+        } else {
+            self.read_path(file.before_path(), FileSide::Before)?
+        };
+        let after = if file.kind() == Some(&ChangeKind::Removed) {
+            String::new()
+        } else {
+            self.read_path(file.path(), FileSide::After)?
+        };
         Ok((before, after))
+    }
+
+    pub fn contents(&self, file: &ChangedFile) -> Result<(String, String), String> {
+        self.read_file(&FileEntry::from(file))
     }
 
     fn file_contents(&self, revision: &str, path: &str) -> Result<String, String> {

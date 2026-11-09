@@ -1,7 +1,7 @@
 //! Change evolution follows predecessor edges, independent of commit ancestry.
 pub mod grouping;
 use crate::history::{History, Revision};
-use crate::repository::{ChangedFile, Comparison, ContentSource, query};
+use crate::repository::{ChangedFile, Comparison, ContentSource, FileSide, query};
 use serde::Deserialize;
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
@@ -396,6 +396,7 @@ struct FileEntry {
 pub(crate) struct EvolutionContents {
     git_dir: PathBuf,
     entries: Arc<HashMap<String, (FileValue, FileValue)>>,
+    before_paths: Arc<HashMap<String, String>>,
 }
 
 impl EvolutionContents {
@@ -438,12 +439,20 @@ impl EvolutionContents {
         Ok(text)
     }
 
-    pub(crate) fn read(&self, file: &ChangedFile) -> Result<(String, String), String> {
+    pub(crate) fn read_path(&self, path: &str, side: FileSide) -> Result<String, String> {
+        let key = match side {
+            FileSide::Before => self.before_paths.get(path).map(String::as_str),
+            FileSide::After => Some(path),
+        }
+        .ok_or("Evolution file is absent from the recorded comparison")?;
         let (before, after) = self
             .entries
-            .get(&file.after_path)
+            .get(key)
             .ok_or("Evolution file is absent from the recorded comparison")?;
-        Ok((self.blob(before)?, self.blob(after)?))
+        self.blob(match side {
+            FileSide::Before => before,
+            FileSide::After => after,
+        })
     }
 }
 
@@ -551,6 +560,12 @@ impl Comparison {
                 after_path: entry.after_path.clone(),
             })
             .collect::<Vec<_>>();
+        let before_paths = Arc::new(
+            entries
+                .iter()
+                .map(|entry| (entry.before_path.clone(), entry.after_path.clone()))
+                .collect(),
+        );
         let entries = entries
             .into_iter()
             .map(|entry| (entry.after_path, (entry.before, entry.after)))
@@ -561,9 +576,11 @@ impl Comparison {
             base: version.predecessors.join(","),
             tip: version.commit_id.clone(),
             files: files.into(),
+            capture: 0,
             content: ContentSource::Evolution(EvolutionContents {
                 git_dir,
                 entries: Arc::new(entries),
+                before_paths,
             }),
         })
     }
