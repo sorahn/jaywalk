@@ -132,13 +132,26 @@ fn git_worktree_and_history_are_read_only_and_use_pinned_contents() {
     assert_eq!(comparison.identity(), comparison.clone().identity());
     let next_capture = Comparison::load(&fixture.0, None, "@").unwrap();
     assert_ne!(comparison.identity(), next_capture.identity());
-    // An uncaptured path must not silently fall through to a mutable worktree.
+    // Unchanged paths use their pinned base object, not later filesystem edits.
     fixture.write("unchanged.txt", "changed after capture\n");
+    let unchanged = comparison.catalog.find("unchanged.txt").unwrap();
+    assert!(unchanged.kind().is_none());
+    assert_eq!(
+        comparison.read_file(unchanged).unwrap(),
+        ("stable\n".into(), "stable\n".into())
+    );
     assert!(
         comparison
-            .read_path("unchanged.txt", jaywalk::repository::FileSide::After)
-            .unwrap_err()
-            .contains("absent from captured")
+            .catalog
+            .find("deleted.txt")
+            .unwrap()
+            .kind()
+            .is_some()
+    );
+    assert!(
+        comparison
+            .read_path("never existed", jaywalk::repository::FileSide::After)
+            .is_err()
     );
     fixture.write("unchanged.txt", "stable\n");
     fixture.write("a file.txt", "later\n");

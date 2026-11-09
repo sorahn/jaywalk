@@ -6,10 +6,20 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::Arc;
 
+use crate::repository_file::FileKind;
+
+#[derive(Clone, Debug)]
+struct GitValue {
+    object: String,
+    kind: FileKind,
+}
+
 type TextPair = Result<(String, String), String>;
 #[derive(Clone, Debug)]
 pub(crate) struct GitContents {
     files: BTreeMap<String, TextPair>,
+    root: PathBuf,
+    trees: [BTreeMap<String, GitValue>; 2],
 }
 
 fn run(root: &Path, args: &[&str]) -> Result<Vec<u8>, String> {
@@ -62,6 +72,26 @@ pub(crate) fn load(directory: &Path, base: Option<&str>, tip: &str) -> Result<Co
     between(root, base, tip)
 }
 
+fn tree(root: &Path, revision: &str) -> Result<BTreeMap<String, GitValue>, String> {
+    let output = output(root, &["ls-tree", "-r", "-z", revision])?;
+    let mut tree = BTreeMap::new();
+    for entry in output.split_terminator('\0') {
+        let (metadata, path) = entry.split_once('\t').ok_or("Incomplete Git tree entry")?;
+        let values: Vec<_> = metadata.split_whitespace().collect();
+        if values.len() != 3 {
+            return Err("Invalid Git tree entry".into());
+        }
+        tree.insert(
+            path.into(),
+            GitValue {
+                object: values[2].into(),
+                kind: FileKind::from(values[0]),
+            },
+        );
+    }
+    Ok(tree)
+}
+
 pub(crate) fn between(root: PathBuf, base: String, tip: String) -> Result<Comparison, String> {
     let working = tip == "working tree";
     let mut args = vec![
@@ -111,6 +141,26 @@ pub(crate) fn between(root: PathBuf, base: String, tip: String) -> Result<Compar
         }
     }
     let files: Vec<_> = files.into_values().collect();
+    let before_tree = tree(&root, &base)?;
+    let mut after_tree = if working {
+        // The diff classified remaining tracked paths as unchanged. Bind their
+        // bytes to the base objects, never to future filesystem reads.
+        let mut after = before_tree.clone();
+        for file in &files {
+            if file.status == "removed" {
+                after.remove(&file.after_path);
+            } else {
+                after.entry(file.after_path.clone()).or_insert(GitValue {
+                    object: String::new(),
+                    kind: FileKind::Regular,
+                });
+            }
+        }
+        after
+    } else {
+        tree(&root, &tip)?
+    };
+
     // Capture a coherent comparison now; selecting a file must not mix later edits
     // into an already displayed worktree comparison.
     let mut contents = BTreeMap::new();
@@ -130,6 +180,15 @@ pub(crate) fn between(root: PathBuf, base: String, tip: String) -> Result<Compar
                 let path = root.join(&file.after_path);
                 let metadata = std::fs::symlink_metadata(&path)
                     .map_err(|error| format!("Could not inspect {}: {error}", path.display()))?;
+                if let Some(value) = after_tree.get_mut(&file.after_path) {
+                    value.kind = if metadata.file_type().is_symlink() {
+                        FileKind::Symlink
+                    } else if metadata.is_dir() {
+                        FileKind::Submodule
+                    } else {
+                        FileKind::Regular
+                    };
+                }
                 if metadata.file_type().is_symlink() {
                     let target = std::fs::read_link(&path).map_err(|error| {
                         format!("Could not read link {}: {error}", path.display())
@@ -152,28 +211,48 @@ pub(crate) fn between(root: PathBuf, base: String, tip: String) -> Result<Compar
         })();
         contents.insert(file.after_path.clone(), pair);
     }
-    Ok(Comparison {
-        root,
+    Comparison {
+        root: root.clone(),
         operation: String::new(),
         base,
         tip,
         files: files.into(),
-        content: ContentSource::Git(Arc::new(GitContents { files: contents })),
+        content: ContentSource::Git(Arc::new(GitContents {
+            files: contents,
+            root,
+            trees: [before_tree, after_tree],
+        })),
         capture: if working { next_capture() } else { 0 },
-    })
+        catalog: Arc::default(),
+    }
+    .with_catalog()
 }
 impl GitContents {
+    pub(crate) fn paths(&self) -> BTreeMap<String, FileKind> {
+        self.trees[1]
+            .iter()
+            .map(|(path, value)| (path.clone(), value.kind.clone()))
+            .collect()
+    }
     pub(crate) fn read_path(&self, path: &str, side: FileSide) -> Result<String, String> {
-        let pair = self
-            .files
+        if let Some(pair) = self.files.get(path) {
+            let pair = pair.as_ref().map_err(Clone::clone)?;
+            return Ok(match side {
+                FileSide::Before => pair.0.clone(),
+                FileSide::After => pair.1.clone(),
+            });
+        }
+        let tree = &self.trees[match side {
+            FileSide::Before => 0,
+            FileSide::After => 1,
+        }];
+        let value = tree
             .get(path)
-            .ok_or_else(|| format!("File is absent from captured comparison: {path}"))?
-            .as_ref()
-            .map_err(Clone::clone)?;
-        Ok(match side {
-            FileSide::Before => pair.0.clone(),
-            FileSide::After => pair.1.clone(),
-        })
+            .ok_or_else(|| format!("File is absent from captured comparison: {path}"))?;
+        if matches!(value.kind, FileKind::Submodule | FileKind::Other(_)) {
+            return Err("Text view unavailable for this Git entry".into());
+        }
+        text(run(&self.root, &["cat-file", "blob", &value.object])?)
     }
 }
 pub(crate) fn history(root: &Path, query: &HistoryQuery) -> Result<History, String> {

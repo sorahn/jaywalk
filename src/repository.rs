@@ -1,4 +1,4 @@
-use crate::repository_file::{ChangeKind, FileEntry};
+use crate::repository_file::{ChangeKind, FileCatalog, FileEntry, FileKind};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::Arc;
@@ -46,6 +46,7 @@ pub struct Comparison {
     pub base: String,
     pub tip: String,
     pub files: Arc<[ChangedFile]>,
+    pub catalog: Arc<FileCatalog>,
     pub(crate) content: ContentSource,
     pub(crate) capture: u64,
 }
@@ -224,7 +225,7 @@ impl Comparison {
         let files = parse_changed_files(&output)
             .map_err(|error| format!("Could not read changed files: {error}"))?;
 
-        Ok(Self {
+        Self {
             root,
             operation,
             base,
@@ -232,7 +233,9 @@ impl Comparison {
             files: files.into(),
             content: ContentSource::Recorded,
             capture: 0,
-        })
+            catalog: Arc::default(),
+        }
+        .with_catalog()
     }
 
     /// Compare a recorded revision against its first parent. Merge revisions
@@ -287,6 +290,55 @@ impl Comparison {
         crate::history::History::parse(&output)
     }
 
+    pub(crate) fn with_catalog(mut self) -> Result<Self, String> {
+        // Comparisons are assembled on the background executor. Clone/selection
+        // paths share the index; a bounded cache also reuses immutable snapshots.
+        const MAX_CACHED_CATALOGS: usize = 16;
+        type Cache = std::collections::VecDeque<(ComparisonIdentity, Arc<FileCatalog>)>;
+        static CACHE: std::sync::OnceLock<std::sync::Mutex<Cache>> = std::sync::OnceLock::new();
+        let key = self.identity();
+        let cache = CACHE.get_or_init(Default::default);
+        if let Some(catalog) = cache
+            .lock()
+            .map_err(|_| "File catalog cache lock poisoned")?
+            .iter()
+            .find(|(id, _)| id == &key)
+            .map(|(_, catalog)| catalog.clone())
+        {
+            self.catalog = catalog;
+            return Ok(self);
+        }
+        let paths = match &self.content {
+            ContentSource::Git(contents) => contents.paths(),
+            ContentSource::External(contents) => contents.paths()?,
+            ContentSource::Recorded | ContentSource::Evolution(_) => {
+                let template = r#""[" ++ json(path) ++ "," ++ json(file_type) ++ "]\n""#;
+                let output = query(
+                    &self.root,
+                    &self.operation,
+                    &["file", "list", "-r", &self.tip, "-T", template],
+                )?;
+                let mut paths = std::collections::BTreeMap::new();
+                for line in output.lines() {
+                    let [path, kind]: [String; 2] = serde_json::from_str(line)
+                        .map_err(|error| format!("Invalid revision file entry: {error}"))?;
+                    paths.insert(path, FileKind::from(kind.as_str()));
+                }
+                paths
+            }
+        };
+        self.catalog = Arc::new(FileCatalog::new(paths, &self.files));
+        let mut cached = cache
+            .lock()
+            .map_err(|_| "File catalog cache lock poisoned")?;
+        cached.push_back((key, self.catalog.clone()));
+        while cached.len() > MAX_CACHED_CATALOGS {
+            cached.pop_front();
+        }
+        drop(cached);
+        Ok(self)
+    }
+
     pub fn identity(&self) -> ComparisonIdentity {
         ComparisonIdentity {
             root: self.root.clone(),
@@ -316,7 +368,13 @@ impl Comparison {
         match &self.content {
             ContentSource::Git(contents) => contents.read_path(path, side),
             ContentSource::External(contents) => contents.read_path(path, side),
-            ContentSource::Evolution(contents) => contents.read_path(path, side),
+            ContentSource::Evolution(contents) => {
+                if contents.contains(path, side) {
+                    contents.read_path(path, side)
+                } else {
+                    self.file_contents(&self.tip, path)
+                }
+            }
             ContentSource::Recorded => self.file_contents(
                 match side {
                     FileSide::Before => &self.base,
@@ -328,6 +386,19 @@ impl Comparison {
     }
 
     pub fn read_file(&self, file: &FileEntry) -> Result<(String, String), String> {
+        if matches!(
+            file.content_kind(),
+            FileKind::Submodule | FileKind::Other(_)
+        ) {
+            return Err(format!(
+                "Text view is unavailable for {:?} entries",
+                file.content_kind()
+            ));
+        }
+        if file.kind().is_none() {
+            let after = self.read_path(file.path(), FileSide::After)?;
+            return Ok((after.clone(), after));
+        }
         let before = if file.kind() == Some(&ChangeKind::Added) {
             String::new()
         } else {
@@ -345,7 +416,57 @@ impl Comparison {
         self.read_file(&FileEntry::from(file))
     }
 
+    fn link_contents(&self, revision: &str, path: &str) -> Result<String, String> {
+        let fileset = format!(
+            "root-file:{}",
+            serde_json::to_string(path).map_err(|error| error.to_string())?
+        );
+        let object = query(
+            &self.root,
+            &self.operation,
+            &[
+                "file",
+                "list",
+                "-r",
+                revision,
+                "-T",
+                "if(normal_value, normal_value.object_id())",
+                "--",
+                &fileset,
+            ],
+        )?;
+        let object = object.trim();
+        if object.is_empty() || !object.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+            return Err("Symbolic link is absent or conflicted in this source".into());
+        }
+        let git_dir = query(&self.root, &self.operation, &["git", "root"])?;
+        let output = Command::new("git")
+            .arg("--git-dir")
+            .arg(git_dir.trim())
+            .args(["cat-file", "blob", object])
+            .output()
+            .map_err(|error| format!("Could not read symbolic link object: {error}"))?;
+        if !output.status.success() {
+            return Err(format!(
+                "Could not read symbolic link object: {}",
+                String::from_utf8_lossy(&output.stderr).trim()
+            ));
+        }
+        if output.stdout.len() > 2_000_000 || output.stdout.contains(&0) {
+            return Err("Binary or large symbolic link target".into());
+        }
+        String::from_utf8(output.stdout).map_err(|_| "Non-UTF-8 symbolic link target".into())
+    }
+
     fn file_contents(&self, revision: &str, path: &str) -> Result<String, String> {
+        if self
+            .catalog
+            .find(path)
+            .is_some_and(|file| file.content_kind() == &FileKind::Symlink)
+        {
+            return self.link_contents(revision, path);
+        }
+
         let fileset = format!(
             "root-file:{}",
             serde_json::to_string(path).map_err(|error| error.to_string())?
@@ -362,6 +483,30 @@ impl Comparison {
             )
         })?;
 
+        if text.is_empty() {
+            let kind = query(
+                &self.root,
+                &self.operation,
+                &[
+                    "file",
+                    "list",
+                    "-r",
+                    revision,
+                    "-T",
+                    "json(file_type)",
+                    "--",
+                    &fileset,
+                ],
+            )?;
+            let kind: String = serde_json::from_str(&kind)
+                .map_err(|_| format!("File {path:?} is absent from this revision"))?;
+            if kind == "symlink" {
+                return self.link_contents(revision, path);
+            }
+            if kind != "file" && kind != "conflict" {
+                return Err(format!("Text view is unavailable for {kind} entries"));
+            }
+        }
         if text.contains('\0') {
             return Err("Binary file: text comparison is unavailable.".into());
         }
@@ -423,15 +568,42 @@ mod tests {
         run(&["git", "init"]);
         std::fs::write(root.join("old file.ts"), "const value = 1;\n").unwrap();
         std::fs::write(root.join("removed.ts"), "removed\n").unwrap();
+        std::fs::write(root.join("unchanged 漢\n.txt"), "pinned unchanged\n").unwrap();
+        #[cfg(unix)]
+        std::os::unix::fs::symlink("not-a-real-target", root.join("symbolic")).unwrap();
+        #[cfg(unix)]
+        std::os::unix::fs::symlink("deleted-target", root.join("z-symbolic")).unwrap();
         run(&["describe", "-m", "baseline"]);
         run(&["bookmark", "create", "main"]);
         run(&["new", "main", "-m", "change files"]);
         std::fs::rename(root.join("old file.ts"), root.join("new file.ts")).unwrap();
         std::fs::remove_file(root.join("removed.ts")).unwrap();
+        #[cfg(unix)]
+        std::fs::remove_file(root.join("z-symbolic")).unwrap();
         std::fs::write(root.join("added.ts"), "added\n").unwrap();
         run(&["status"]);
 
         let comparison = Comparison::load(&root, Some("main"), "@").unwrap();
+        let unchanged = comparison.catalog.find("unchanged 漢\n.txt").unwrap();
+        assert!(unchanged.kind().is_none());
+        std::fs::write(root.join("unchanged 漢\n.txt"), "later edits").unwrap();
+        assert_eq!(
+            comparison.read_file(unchanged).unwrap().1,
+            "pinned unchanged\n"
+        );
+        let same = Comparison::load(&root, Some("main"), "@").unwrap();
+        assert!(Arc::ptr_eq(&comparison.catalog, &same.catalog));
+        #[cfg(unix)]
+        {
+            let link = comparison.catalog.find("symbolic").unwrap();
+            assert_eq!(link.content_kind(), &FileKind::Symlink);
+            assert_eq!(comparison.read_file(link).unwrap().1, "not-a-real-target");
+            let removed_link = comparison.catalog.find("z-symbolic").unwrap();
+            assert_eq!(
+                comparison.read_file(removed_link).unwrap(),
+                ("deleted-target".into(), String::new())
+            );
+        }
         let operation_before = comparison.operation.clone();
         let history = comparison.history(&Default::default()).unwrap();
         let selected = history

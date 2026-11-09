@@ -112,7 +112,7 @@ impl ExternalContents {
                 after_path: name,
             });
         }
-        Ok(Comparison {
+        Comparison {
             root: right.clone(),
             operation: String::new(),
             base: left.display().to_string(),
@@ -120,9 +120,30 @@ impl ExternalContents {
             files: files.into(),
             content: ContentSource::External(Arc::new(contents)),
             capture: next_capture(),
-        })
+            catalog: Arc::default(),
+        }
+        .with_catalog()
     }
 
+    pub(crate) fn paths(
+        &self,
+    ) -> Result<BTreeMap<String, crate::repository_file::FileKind>, String> {
+        self.right
+            .iter()
+            .map(|(path, source)| {
+                let metadata = std::fs::symlink_metadata(source)
+                    .map_err(|error| format!("Could not inspect {}: {error}", source.display()))?;
+                Ok((
+                    path.clone(),
+                    if metadata.is_symlink() {
+                        crate::repository_file::FileKind::Symlink
+                    } else {
+                        crate::repository_file::FileKind::Regular
+                    },
+                ))
+            })
+            .collect()
+    }
     pub(crate) fn read_path(&self, path: &str, side: FileSide) -> Result<String, String> {
         let read = |paths: &BTreeMap<String, PathBuf>, name: &str| -> Result<String, String> {
             let Some(path) = paths.get(name) else {
