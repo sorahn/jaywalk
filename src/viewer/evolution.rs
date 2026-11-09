@@ -1,4 +1,5 @@
 use super::*;
+use gpui::component::Sizable;
 use gpui::component::tooltip::Tooltip;
 pub(super) use jaywalk::evolution::ReviewMode;
 use jaywalk::evolution::grouping::{GroupedEvolutionView, TimelineRow};
@@ -83,9 +84,9 @@ impl EvolutionKind {
 
 pub(super) struct EvolutionPanel {
     pub(super) visible: bool,
-    show_unchanged_rebases: bool,
+    pub(super) show_unchanged_rebases: bool,
     file_path: Option<String>,
-    collapse_repeats: bool,
+    pub(super) collapse_repeats: bool,
     expanded_groups: HashSet<String>,
     state: TimelineState,
     generation: u64,
@@ -120,7 +121,7 @@ impl EvolutionPanel {
         }
     }
 
-    fn rebuild(&mut self) {
+    pub(super) fn rebuild(&mut self) {
         if let TimelineState::Loaded(session) = &mut self.state {
             session.view = Rc::new(
                 session
@@ -233,6 +234,7 @@ impl Viewer {
         panel.rebuild();
         panel.scroll = UniformListScrollHandle::new();
         cx.notify();
+        self.save_layout(cx);
     }
 
     fn toggle_repeated_group(&mut self, kind: EvolutionKind, head: &str, cx: &mut Context<Self>) {
@@ -254,6 +256,7 @@ impl Viewer {
         panel.rebuild();
         panel.scroll = UniformListScrollHandle::new();
         cx.notify();
+        self.save_layout(cx);
     }
 
     pub(super) fn toggle_evolution(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -293,7 +296,7 @@ impl Viewer {
             }
         }
         self.sync_file_evolution();
-        self.save_layout(window, cx);
+        self.save_layout(cx);
         cx.notify();
     }
 
@@ -676,7 +679,7 @@ impl Viewer {
                 .max(self.settings.ui.font_size * 1.75 + 8.)))
             .flex_shrink_0()
             .overflow_hidden()
-            .bg(rgb(0x293342))
+            .bg(gpui::component::Theme::global(cx).sidebar)
             .child(
                 div()
                     .flex_1()
@@ -706,7 +709,7 @@ impl Viewer {
                 let version = controls.version.clone();
                 modes = modes.child(
                     Button::new(id)
-                        .ghost()
+                        .ghost().small()
                         .compact()
                         .label(label)
                         .tooltip(tooltip)
@@ -738,24 +741,33 @@ impl Viewer {
             EvolutionKind::File => self.settings.panels.files.font.size,
         };
         let state = self.evolution_panel(kind);
+        let theme = gpui::component::Theme::global(cx);
+        let surface = theme.sidebar;
+        let selection = theme.list_active;
+        let hover = theme.secondary_hover;
+        let previous_surface = theme.secondary;
         let mut panel = div()
             .id(("evolution-panel", kind.id()))
-            .v_flex().size_full().bg(rgb(0x252c39))
-            .child(div().v_flex().px_3().py_1()
-                .child(div().h_flex().items_center().justify_between()
-                    .child(div().text_size(px(font_size * 0.85)).child(match kind {
+            .v_flex().size_full().bg(surface)
+            .child(div().v_flex()
+                .child(self.panel_header(font_size, cx)
+                    .child(div().flex_1().min_w_0().truncate().text_size(px(font_size * 0.85)).child(match kind {
                         EvolutionKind::Change => "CHANGE EVOLUTION",
                         EvolutionKind::File => "FILE EVOLUTION",
                     }))
-                    .child(Button::new("close-evolution").ghost().compact().icon(IconName::X)
+                    .child(self.panel_menu(match kind {
+                        EvolutionKind::Change => jaywalk::panel_layout::PanelId::ChangeEvolution,
+                        EvolutionKind::File => jaywalk::panel_layout::PanelId::FileEvolution,
+                    }))
+                    .child(Button::new("close-evolution").ghost().small().compact().icon(IconName::X)
                         .tooltip("Hide evolution")
                         .on_click(cx.listener(move |this, _, window, cx| this.toggle_evolution_panel(kind, window, cx)))))
-                .child(div().h_flex().gap_1()
-                    .child(Button::new("group-repeats").ghost().compact().label("Group")
+                .child(div().h_flex().gap_1().px_3().py_1()
+                    .child(Button::new("group-repeats").ghost().small().compact().label("Group")
                         .selected(state.collapse_repeats)
                         .tooltip("Group consecutive matching entries")
                         .on_click(cx.listener(move |this, _, _, cx| this.toggle_repeat_grouping(kind, cx))))
-                    .child(Button::new("unchanged-rebases").ghost().compact().label("Rebases")
+                    .child(Button::new("unchanged-rebases").ghost().small().compact().label("Rebases")
                         .selected(state.show_unchanged_rebases)
                         .tooltip("Show unchanged rebases (current and selected versions stay visible)")
                         .on_click(cx.listener(move |this, _, _, cx| this.toggle_unchanged_rebases(kind, cx))))));
@@ -950,14 +962,8 @@ impl Viewer {
                         .h_flex()
                         .items_center()
                         .cursor_pointer()
-                        .bg(rgb(if row_selected {
-                            0x354b68
-                        } else if previous {
-                            0x2c3c52
-                        } else {
-                            0x252c39
-                        }))
-                        .hover(|style| style.bg(rgb(0x303e50)))
+                        .bg(if row_selected { selection } else if previous { previous_surface } else { surface })
+                        .hover(move |style| style.bg(hover))
                         .child(
                             canvas(
                                 |_, _, _| (),
@@ -1031,7 +1037,7 @@ impl Viewer {
                             if group_control {
                                 let head = group_head.clone();
                                 let control_viewer = viewer.clone();
-                                slot = slot.child(Button::new(("toggle-repeat-group", index)).ghost().compact()
+                                slot = slot.child(Button::new(("toggle-repeat-group", index)).ghost().small().compact()
                                     .icon(if collapsed { IconName::ChevronRight } else { IconName::ChevronDown })
                                     .tooltip(if collapsed { "Expand versions" } else { "Collapse versions" })
                                     .on_click(move |_, _, cx| {

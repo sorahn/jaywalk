@@ -96,6 +96,7 @@ impl Viewer {
         let previous_wrap = self.wrapping;
         let previous = std::mem::replace(&mut self.settings, settings);
         let position = self.prepare_display_reflow(cx);
+        self.preserve_row_positions(&previous, cx);
         // A changed default is an explicit config edit. Unchanged fields leave
         // toolbar overrides and independently resized/hidden panels untouched.
         if previous.diff.default_view != self.settings.diff.default_view {
@@ -173,6 +174,14 @@ impl Viewer {
         if previous.ui.loading_delay_ms != self.settings.ui.loading_delay_ms {
             self.reschedule_feedback(window, cx);
         }
+        if previous.layout.history_visible != self.settings.layout.history_visible {
+            self.layout.saved.history_hidden = !self.settings.layout.history_visible;
+            self.rebuild_sidebar_layout(cx);
+        }
+        if previous.layout.files_visible != self.settings.layout.files_visible {
+            self.layout.saved.files_hidden = !self.settings.layout.files_visible;
+            self.rebuild_sidebar_layout(cx);
+        }
         self.apply_panel_settings(&previous, cx);
         self.apply_evolution_settings(&previous, window, cx);
         if previous.panels.files.font != self.settings.panels.files.font
@@ -204,12 +213,13 @@ impl Viewer {
             || previous.evolution != self.settings.evolution
             || previous.file_evolution != self.settings.file_evolution
         {
-            self.save_layout(window, cx);
+            self.save_layout(cx);
         }
         if previous.editor.tab_size != self.settings.editor.tab_size && self.selected_file.is_some()
         {
             self.reload_open_file(window, cx);
         }
+        self.save_layout(cx);
         // Fonts and wrapping invalidate text measurements as well as paint.
         window.refresh();
         cx.notify();

@@ -1,6 +1,6 @@
 //! Typed reloadable settings. The shipped TOML is the single source of defaults.
 use crate::commands::CommandId;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
@@ -39,11 +39,24 @@ pub struct Settings {
     pub ui: UiSettings,
     pub editor: EditorSettings,
     pub panels: PanelSettings,
+    pub layout: LayoutSettings,
     pub history: HistorySettings,
     pub files: FileSettings,
     pub diff: DiffSettings,
     pub evolution: EvolutionSettings,
     pub file_evolution: FileEvolutionSettings,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct LayoutSettings {
+    pub remember_per_repository: bool,
+    pub history_visible: bool,
+    pub files_visible: bool,
+    pub bottom_height: f32,
+    pub min_bottom_height: f32,
+    pub max_bottom_height: f32,
+    pub placement: crate::panel_layout::Placement,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq)]
@@ -81,6 +94,12 @@ pub struct WindowSettings {
 #[serde(deny_unknown_fields)]
 pub struct UiSettings {
     pub loading_delay_ms: u64,
+    pub row_height: f32,
+    pub panel_header_height: f32,
+    pub toolbar_height: f32,
+    pub footer_height: f32,
+    pub footer_font_size: f32,
+    pub footer_control_height: f32,
     pub comparison_bar_height: f32,
     pub font_size: f32,
     #[serde(default)]
@@ -126,7 +145,7 @@ pub struct DiffPanelSettings {
 #[derive(Clone, Debug, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct HistorySettings {
-    pub row_height: f32,
+    pub row_height: Option<f32>,
     pub lane_spacing: f32,
 }
 
@@ -134,7 +153,8 @@ pub struct HistorySettings {
 #[serde(deny_unknown_fields)]
 pub struct FileSettings {
     pub default_view: FileView,
-    pub tree_row_height: f32,
+    pub tree_row_height: Option<f32>,
+    pub list_row_height: Option<f32>,
     pub indent_width: f32,
     pub compact_paths: bool,
     pub list_word_wrap: bool,
@@ -149,7 +169,7 @@ pub struct FontSettings {
     pub ligatures: bool,
 }
 
-#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum FileView {
     #[default]
@@ -157,7 +177,7 @@ pub enum FileView {
     Tree,
 }
 
-#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum DiffView {
     Inline,
@@ -203,6 +223,20 @@ fn merge_defaults(base: &mut toml::Value, overrides: toml::Value) {
 }
 
 impl Settings {
+    pub fn footer_height(&self) -> f32 {
+        self.ui
+            .footer_height
+            .max(self.ui.footer_control_height)
+            .max(self.ui.footer_font_size * 1.5)
+    }
+
+    /// One row rhythm by default; larger panel fonts establish a readable minimum.
+    pub fn row_height(&self, override_height: Option<f32>, font_size: f32) -> f32 {
+        override_height
+            .unwrap_or(self.ui.row_height)
+            .max(font_size * 1.25)
+    }
+
     pub fn parse(input: &str) -> Result<Self, String> {
         let mut defaults: toml::Value = toml::from_str(DEFAULT_CONFIG)
             .expect("the shipped TOML defaults are validated in tests");
@@ -253,6 +287,24 @@ impl Settings {
                 return Err("settings.editor must name an app or a nonempty command array, without NUL characters".into());
             }
         }
+        bounded(
+            "layout.min_bottom_height",
+            self.layout.min_bottom_height,
+            40.,
+            2000.,
+        )?;
+        bounded(
+            "layout.max_bottom_height",
+            self.layout.max_bottom_height,
+            self.layout.min_bottom_height,
+            4000.,
+        )?;
+        bounded(
+            "layout.bottom_height",
+            self.layout.bottom_height,
+            self.layout.min_bottom_height,
+            self.layout.max_bottom_height,
+        )?;
         bounded("window.width", self.window.width, 320., 10000.)?;
         bounded("window.height", self.window.height, 240., 10000.)?;
         if self.ui.loading_delay_ms > 5000 {
@@ -356,14 +408,32 @@ impl Settings {
             32.,
             2000.,
         )?;
-        bounded("history.row_height", self.history.row_height, 12., 160.)?;
-        bounded("history.lane_spacing", self.history.lane_spacing, 8., 48.)?;
+        bounded("ui.row_height", self.ui.row_height, 12., 160.)?;
         bounded(
-            "files.tree_row_height",
-            self.files.tree_row_height,
-            12.,
-            200.,
+            "ui.panel_header_height",
+            self.ui.panel_header_height,
+            24.,
+            120.,
         )?;
+        bounded("ui.toolbar_height", self.ui.toolbar_height, 28., 120.)?;
+        bounded("ui.footer_height", self.ui.footer_height, 20., 120.)?;
+        bounded("ui.footer_font_size", self.ui.footer_font_size, 8., 48.)?;
+        bounded(
+            "ui.footer_control_height",
+            self.ui.footer_control_height,
+            16.,
+            80.,
+        )?;
+        for (name, value) in [
+            ("history.row_height", self.history.row_height),
+            ("files.tree_row_height", self.files.tree_row_height),
+            ("files.list_row_height", self.files.list_row_height),
+        ] {
+            if let Some(value) = value {
+                bounded(name, value, 12., 200.)?;
+            }
+        }
+        bounded("history.lane_spacing", self.history.lane_spacing, 8., 48.)?;
         if !(250..=60000).contains(&self.live.poll_interval_ms) {
             return Err("live.poll_interval_ms must be between 250 and 60000".into());
         }
@@ -542,6 +612,32 @@ mod editor_tests {
                 Settings::parse(&format!("[settings]\neditor={value}")).is_err(),
                 "{value}"
             );
+        }
+    }
+}
+
+#[cfg(test)]
+mod row_tests {
+    use super::Settings;
+    #[test]
+    fn rows_inherit_common_density_but_allow_independent_overrides_and_large_fonts() {
+        let settings = Settings::parse("[ui]\nrow_height=24\n[files]\nlist_row_height=32").unwrap();
+        assert_eq!(settings.row_height(settings.history.row_height, 14.), 24.);
+        assert_eq!(
+            settings.row_height(settings.files.tree_row_height, 14.),
+            24.
+        );
+        assert_eq!(
+            settings.row_height(settings.files.list_row_height, 14.),
+            32.
+        );
+        assert_eq!(settings.row_height(None, 32.), 40.);
+        for input in [
+            "[ui]\nrow_height=0",
+            "[files]\nlist_row_height=nan",
+            "[history]\nrow_height=-1",
+        ] {
+            assert!(Settings::parse(input).is_err());
         }
     }
 }

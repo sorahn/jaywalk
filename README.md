@@ -45,9 +45,8 @@ or Overview closes that temporary preview. If a later comparison changes the
 file, its new diff replaces the preview automatically. Explicit detected
 renames are followed; copies do not move the open file to their destination.
 
-## Version and changelog
+## Version
 
-This branch prepares **0.1.1**; user-visible changes are in [CHANGELOG.md](CHANGELOG.md).
 `Cargo.toml` owns the release version, including the macOS bundle's version.
 Run `jw --version` (or `jaywalk --version`), or choose **Jaywalk → About Jaywalk**
 to identify the build. About also offers Copy version and remains available with
@@ -56,7 +55,8 @@ no repository windows open.
 Development builds show `0.1.1-dev (REVISION)`, with `-dirty` for modified
 checkouts. Release-profile builds show `0.1.1`. The About window includes source
 provenance for either build. A running process retains its compiled identity
-until it is quit and restarted. See CONTRIBUTING.md for the release procedure.
+until it is quit and restarted. Release notes will live in GitHub Releases when
+releases begin.
 
 ## Settings
 
@@ -401,8 +401,11 @@ Fluid separator to restore an even code split with the configured gutter width.
 
 The bottom-right three-way toggle selects inline, aligned side-by-side, or
 Fluid diff (the default). The standard views use GPUI Kit's existing diff
-widget with full context and syntax highlighting. The separate word-wrap
-button to the left of the mode toggle applies to all views. Fluid retains
+widget with full context and syntax highlighting. The complete GPUI Kit
+Tree-sitter language bundle is enabled in all three diff views, including
+Markdown, TOML, Make, Rust, JavaScript/TypeScript, JSON, YAML, Python, Go, C/C++,
+and the other grammars shipped by the provider. The separate word-wrap button
+to the left of the mode toggle applies to all views. Fluid retains
 independent document heights, with connectors following wrapped rows.
 Switching modes retains the selected file and anchors the view to its source
 line. Wrapping/reflow and returning to previously inspected files preserve
@@ -477,14 +480,13 @@ deletions retain full-row emphasis; unrelated paired lines and lines over
 1000 bytes omit extra word shading. Standard views use the widget's existing
 word emphasis.
 
-The upper-right panel buttons toggle History, Changed files, and the evolution
-docks. Panel widths, evolution heights, the Fluid split ratio, and visibility
-are saved separately in `~/.config/jaywalk/layout.toml`. With `--config PATH`,
-layout uses the adjacent `PATH` with its extension replaced by `layout.toml`.
-Saved sizes are clamped to current settings limits; double-click resets remain
-available. Writes happen off the UI thread, are serialized, and atomically
-replace the state file. Deleting it restores startup defaults; settings TOML is
-never rewritten by runtime controls. Panel rearrangement remains future work.
+Panel buttons toggle History, Changed files and the evolution docks. Interface
+choices are stored per repository in `~/.config/jaywalk/interface.toml`, or a
+sibling `*.interface.toml` for alternate config profiles. Saved sizes are clamped
+to current settings limits; double-click resets remain available. Writes happen
+off the UI thread, are serialized, and atomically replace the state file.
+Settings TOML is never rewritten by runtime controls. Set
+`layout.remember_per_repository = false` to use configured defaults on later opens.
 
 The Fluid mapping remains a prototype, with automated endpoint/wrapping tests
 and native interaction checks. Arbitrary evolution-pair comparison, broader
@@ -512,3 +514,65 @@ Third-party code retains its respective licenses. In particular, the vendored
 `gpui-component` code and its local patches remain under Apache-2.0; its license
 is preserved in [vendor/gpui-component/LICENSE-APACHE](vendor/gpui-component/LICENSE-APACHE).
 See [vendor/README.md](vendor/README.md) for dependency provenance and local changes.
+
+## Panel layout defaults
+
+`[layout]` controls default sidebar visibility, bottom-dock height and whether
+interface choices are remembered per repository. `[layout.placement]` selects
+`left` or `right` for `history_side` and `files_side`, with `sidebar_order` of
+`history_first` or `files_first` in left-to-right order when they share a side.
+The `change_evolution` and `file_evolution` placements accept `sidebar` or
+`bottom`. Panel identity and review content stay independent of placement.
+
+Interface choices are remembered per canonical repository checkout in
+`~/.config/jaywalk/interface.toml`. Alternate `--config` profiles use a sibling
+`*.interface.toml` file. Set `layout.remember_per_repository = false` to stop
+reading and writing remembered choices; later opens start from TOML defaults.
+Standalone file/directory comparisons do not persist temporary input paths.
+The former shared `layout.toml` is left untouched and is not imported into
+unrelated repositories. Configuration edits still apply live to their matching
+controls. Different open comparisons of one repository share its last saved
+interface choices; different repositories keep independent entries.
+
+Panel-header menus, **View → Panel Placement**, and the command palette move
+sidebars and timelines without changing the selected comparison. Bottom timelines
+share the central workspace's bottom dock side by side. **Reset panel layout**
+restores configured placement, visibility and sizes; **Reset repository interface
+choices** also restores diff/file modes, wrapping and timeline filters. Separator
+double-click resets only the adjacent panel (or the split) to its configured size.
+
+`ui.row_height` supplies the compact 26-pixel minimum for history rows, flat file
+rows and tree/directory rows. Optional `history.row_height`,
+`files.list_row_height` and `files.tree_row_height` override individual views.
+Larger panel fonts establish a readable minimum; wrapped file paths can grow.
+Evolution cards keep their separate `evolution.row_height` setting. All row
+settings apply live.
+
+Panel surfaces, selection states and hairline separators use the active theme.
+`ui.panel_header_height` and `ui.toolbar_height` set compact header geometry;
+large fonts establish readable minimums. Placement controls are available from
+each panel's ellipsis menu.
+
+The full-window footer uses `ui.footer_height` (28 pixels),
+`ui.footer_font_size` (12) and `ui.footer_control_height` (22). Its height grows
+only when those configured metrics require it, never in response to status or
+error text. Notices truncate in place and expose their full text on hover.
+The word-wrap control remains immediately left of the three diff-view buttons.
+
+### Adding syntax languages
+
+GPUI Kit supplies the Tree-sitter grammars and highlight queries through
+`gpui-component`; Jaywalk enables its complete `tree-sitter-languages` bundle.
+Language detection is shared by Fluid and standard/inline views in `src/syntax.rs`.
+It uses the provider's language names and aliases, with a small central table
+for extra extensions and conventional filenames such as `Makefile`,
+`GNUmakefile`, `CMakeLists.txt`, `Cargo.lock`, and shell startup files. Unknown
+files remain plain text. Markdown code fences can use other bundled grammars.
+Highlight coverage follows the provider's queries; a grammar alone does not
+imply rich coloring for every language.
+
+For another provider-supported extension, add its alias in that module if the
+provider does not already recognize it. New bundled grammars become available
+through the same bundle feature when the pinned provider is upgraded. A grammar
+outside that bundle still needs a dependency and provider registration; custom
+grammar loading and user-defined file associations are future work.

@@ -27,7 +27,6 @@ fn main() {
         "packaging",
         "scripts",
         "vendor",
-        "CHANGELOG.md",
     ] {
         println!("cargo::rerun-if-changed={path}");
     }

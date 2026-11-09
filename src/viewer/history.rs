@@ -1,4 +1,5 @@
 use super::*;
+use gpui::component::Sizable;
 use gpui::prelude::FluentBuilder;
 use jaywalk::history::History;
 
@@ -13,13 +14,26 @@ struct RowMetrics {
     font_size: f32,
 }
 
+#[derive(Clone, Copy)]
+struct RowColors {
+    surface: Hsla,
+    selection: Hsla,
+    hover: Hsla,
+}
+
 fn history_row(
     history: Rc<History>,
     index: usize,
     metrics: RowMetrics,
     selected: bool,
     viewer: WeakEntity<Viewer>,
+    colors: RowColors,
 ) -> AnyElement {
+    let RowColors {
+        surface,
+        selection,
+        hover,
+    } = colors;
     let RowMetrics {
         width,
         height,
@@ -36,8 +50,8 @@ fn history_row(
         .h_flex()
         .items_center()
         .cursor_pointer()
-        .bg(rgb(if selected { 0x344956 } else { 0x242b30 }))
-        .hover(|style| style.bg(rgb(0x303e48)))
+        .bg(if selected { selection } else { surface })
+        .hover(move |style| style.bg(hover))
         .child(
             canvas(
                 |_, _, _| (),
@@ -106,15 +120,17 @@ fn history_row(
 
 impl Viewer {
     pub(super) fn render_history(&self, cx: &mut Context<Self>) -> AnyElement {
-        let mut panel = div().v_flex().size_full().bg(rgb(0x242b30)).child(
-            div()
-                .h_flex()
-                .items_center()
-                .justify_between()
-                .px_3()
-                .py_2()
+        let theme = gpui::component::Theme::global(cx);
+        let surface = theme.sidebar;
+        let selection = theme.list_active;
+        let hover = theme.secondary_hover;
+        let mut panel = div().v_flex().size_full().bg(surface).child(
+            self.panel_header(self.settings.panels.history.font.size, cx)
                 .child(
                     div()
+                        .flex_1()
+                        .min_w_0()
+                        .truncate()
                         .text_size(px(self.settings.panels.history.font.size))
                         .child(if self.supports_evolution() {
                             "JJ HISTORY"
@@ -122,9 +138,11 @@ impl Viewer {
                             "GIT HISTORY"
                         }),
                 )
+                .child(self.panel_menu(jaywalk::panel_layout::PanelId::History))
                 .child(
                     Button::new("toggle-evolution")
                         .ghost()
+                        .small()
                         .compact()
                         .label("Evolution")
                         .when(!self.supports_evolution(), |button| button.hidden())
@@ -170,11 +188,10 @@ impl Viewer {
         };
         let count = history.revisions.len();
         let viewer = cx.entity().downgrade();
-        let height = self
-            .settings
-            .history
-            .row_height
-            .max(self.settings.panels.history.font.size * 1.25);
+        let height = self.settings.row_height(
+            self.settings.history.row_height,
+            self.settings.panels.history.font.size,
+        );
         let spacing = self.settings.history.lane_spacing;
         let font_size = self.settings.panels.history.font.size;
         let rows = uniform_list("history-rows", count, move |visible, _, _| {
@@ -195,6 +212,11 @@ impl Viewer {
                         },
                         selected,
                         viewer.clone(),
+                        RowColors {
+                            surface,
+                            selection,
+                            hover,
+                        },
                     )
                 })
                 .collect()

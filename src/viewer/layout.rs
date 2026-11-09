@@ -1,8 +1,9 @@
 use super::*;
+use gpui::component::Sizable;
 use gpui::component::tooltip::Tooltip;
 
 impl Render for Viewer {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         div()
             .id("viewer-root")
             .key_context("Jaywalk")
@@ -24,25 +25,34 @@ impl Render for Viewer {
             .v_flex()
             .size_full()
             .font_features(typography::features(self.settings.ui.ligatures))
-            .bg(rgb(0x1f1f1f))
-            .text_color(rgb(0xcccccc))
+            .bg(gpui::component::Theme::global(cx).background)
+            .text_color(gpui::component::Theme::global(cx).foreground)
             .child(
                 div()
                     .h_flex()
                     .items_center()
                     .justify_between()
-                    .p_3()
-                    .bg(rgb(0x263d35))
-                    .child(format!(
+                    .px_3()
+                    .h(px(self
+                        .settings
+                        .ui
+                        .toolbar_height
+                        .max(self.settings.ui.font_size * 1.75)))
+                    .flex_shrink_0()
+                    .border_b_1()
+                    .border_color(gpui::component::Theme::global(cx).border)
+                    .bg(gpui::component::Theme::global(cx).muted)
+                    .child(div().flex_1().min_w_0().truncate().child(format!(
                         "Jaywalk  /  {}",
                         self.arguments.diff.as_ref().map_or_else(
                             || self.arguments.directory.display().to_string(),
                             |paths| format!("{} ↔ {}", paths[0].display(), paths[1].display())
                         )
-                    ))
+                    )))
                     .child(
                         div()
                             .h_flex()
+                            .flex_shrink_0()
                             .gap_2()
                             .child(self.render_panel_toggles(cx))
                             .child(
@@ -94,59 +104,7 @@ impl Render for Viewer {
                     .relative()
                     .flex_1()
                     .min_h_0()
-                    .child(
-                        self.sidebar_group(cx)
-                            .child(
-                                resizable_panel()
-                                    .visible(!self.layout.saved.history_hidden)
-                                    .size(px(self.sidebar_width(true)))
-                                    .size_range(
-                                        px(self.settings.panels.history.min_width)
-                                            ..px(self.settings.panels.history.max_width),
-                                    )
-                                    .child(
-                                        div()
-                                            .size_full()
-                                            .font(typography::panel_font(
-                                                &self.settings.panels.history.font,
-                                                cx,
-                                            ))
-                                            .child(self.render_history_sidebar(cx)),
-                                    ),
-                            )
-                            .child(
-                                resizable_panel()
-                                    .visible(!self.layout.saved.files_hidden)
-                                    .size(px(self.sidebar_width(false)))
-                                    .size_range(
-                                        px(self.settings.panels.files.min_width)
-                                            ..px(self.settings.panels.files.max_width),
-                                    )
-                                    .child(
-                                        div()
-                                            .size_full()
-                                            .font(typography::panel_font(
-                                                &self.settings.panels.files.font,
-                                                cx,
-                                            ))
-                                            .child(self.render_file_sidebar(cx)),
-                                    ),
-                            )
-                            .child(
-                                resizable_panel().child(
-                                    div()
-                                        .v_flex()
-                                        .size_full()
-                                        .child(self.render_evolution_comparison(cx))
-                                        .child(
-                                            div()
-                                                .flex_1()
-                                                .min_h_0()
-                                                .child(self.render_comparison(cx)),
-                                        ),
-                                ),
-                            ),
-                    )
+                    .child(self.render_workbench(f32::from(window.bounds().size.width), cx))
                     .child(self.sidebar_bounds_marker()),
             )
             .child(
@@ -154,10 +112,12 @@ impl Render for Viewer {
                     .h_flex()
                     .justify_between()
                     .items_center()
-                    .px_3()
-                    .py_2()
-                    .bg(rgb(0x3d3226))
-                    .text_sm()
+                    .px_2()
+                    .h(px(self.settings.footer_height()))
+                    .border_t_1()
+                    .border_color(gpui::component::Theme::global(cx).border)
+                    .bg(gpui::component::Theme::global(cx).muted)
+                    .text_size(px(self.settings.ui.footer_font_size))
                     .gap_3()
                     .flex_shrink_0()
                     .child(
@@ -192,6 +152,7 @@ impl Render for Viewer {
                             .child(
                                 Button::new("word-wrap")
                                     .ghost()
+                                    .with_size(px(self.settings.ui.footer_control_height))
                                     .compact()
                                     .icon(IconName::TextWrap)
                                     .tooltip("Word wrap")
@@ -201,24 +162,30 @@ impl Render for Viewer {
                                     })),
                             )
                             .child(self.render_view_toggle(cx))
-                            .child(if self.code().is_some() {
-                                if total == 0 {
-                                    self.unchanged_file_summary().to_owned()
-                                } else if self.view_mode == ViewMode::Fluid {
-                                    format!(
-                                        "Change {} of {}",
-                                        self.active_change.map_or(0, |index| index + 1),
-                                        total
-                                    )
-                                } else {
-                                    format!("{total} changes")
-                                }
-                            } else {
-                                String::new()
-                            })
+                            .child(
+                                div()
+                                    .max_w(px(self.settings.ui.footer_font_size * 18.))
+                                    .truncate()
+                                    .child(if self.code().is_some() {
+                                        if total == 0 {
+                                            self.unchanged_file_summary().to_owned()
+                                        } else if self.view_mode == ViewMode::Fluid {
+                                            format!(
+                                                "Change {} of {}",
+                                                self.active_change.map_or(0, |index| index + 1),
+                                                total
+                                            )
+                                        } else {
+                                            format!("{total} changes")
+                                        }
+                                    } else {
+                                        String::new()
+                                    }),
+                            )
                             .child(
                                 Button::new("previous-change")
                                     .ghost()
+                                    .with_size(px(self.settings.ui.footer_control_height))
                                     .label("↑")
                                     .disabled(
                                         self.code().is_none()
@@ -238,6 +205,7 @@ impl Render for Viewer {
                             .child(
                                 Button::new("next-change")
                                     .ghost()
+                                    .with_size(px(self.settings.ui.footer_control_height))
                                     .label("↓")
                                     .disabled(
                                         self.code().is_none()
@@ -264,6 +232,8 @@ impl Viewer {
     fn status_notice(&self) -> Option<AnyElement> {
         let (message, color) = if let Some(message) = &self.config.error {
             (message, 0xf48771)
+        } else if let Some(message) = &self.layout.error {
+            (message, 0xe5c07b)
         } else {
             let message = self.live.message.as_ref()?;
             if message == "Updating recorded changes…" && !self.loading_visible(LoadingKind::Live)
@@ -273,15 +243,23 @@ impl Viewer {
             (message, 0xe5c07b)
         };
         let tooltip = message.clone();
+        // Truncation ellipsizes each line; explicit diagnostic newlines still
+        // create multiple rows unless the visible label is projected first.
+        let summary = message
+            .split(['\n', '\r'])
+            .map(str::trim)
+            .find(|line| !line.is_empty())
+            .unwrap_or("")
+            .to_owned();
         Some(
             div()
                 .id("status-notice")
                 .flex_1()
                 .min_w_0()
-                .text_xs()
+                .text_size(px(self.settings.ui.footer_font_size))
                 .text_color(rgb(color))
                 .truncate()
-                .child(message.clone())
+                .child(summary)
                 .tooltip(move |window, cx| Tooltip::new(tooltip.clone()).build(window, cx))
                 .into_any_element(),
         )

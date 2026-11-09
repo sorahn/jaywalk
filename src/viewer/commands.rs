@@ -125,6 +125,7 @@ impl Viewer {
                     }
                 }
                 self.preserve_reflow_position(cx);
+                self.save_layout(cx);
                 cx.notify();
             }
             CommandId::ZoomIn | CommandId::ZoomOut | CommandId::ResetZoom => {
@@ -141,6 +142,38 @@ impl Viewer {
                 self.code_font_size = next;
                 window.refresh();
                 cx.notify();
+            }
+            CommandId::HistoryLeft
+            | CommandId::HistoryRight
+            | CommandId::FilesLeft
+            | CommandId::FilesRight
+            | CommandId::SwapSidebars
+            | CommandId::ChangeEvolutionSidebar
+            | CommandId::ChangeEvolutionBottom
+            | CommandId::FileEvolutionSidebar
+            | CommandId::FileEvolutionBottom => self.move_panel(command, cx),
+            CommandId::ResetInterface => {
+                self.set_view_mode(self.settings.diff.default_view, cx);
+                self.wrapping = Wrapping::from_settings(&self.settings.diff);
+                self.line_numbers = self.settings.editor.line_numbers;
+                self.apply_file_view();
+                for panel in [&mut self.evolution, &mut self.file_evolution] {
+                    panel.collapse_repeats = self.settings.evolution.collapse_repeats;
+                    panel.show_unchanged_rebases = self.settings.evolution.show_unchanged_rebases;
+                    panel.rebuild();
+                }
+                if let Some(code) = self.code() {
+                    for (state, wrap) in [
+                        (&code.before, self.wrapping.before),
+                        (&code.after, self.wrapping.after),
+                    ] {
+                        state.update(cx, |state, cx| {
+                            state.set_soft_wrap(wrap, window, cx);
+                            state.set_line_number(self.line_numbers, window, cx);
+                        });
+                    }
+                }
+                self.reset_layout(window, cx);
             }
             CommandId::ResetLayout => self.reset_layout(window, cx),
             CommandId::CloseWindow => window.remove_window(),
@@ -206,13 +239,13 @@ impl Viewer {
         .detach();
     }
 
-    fn reset_layout(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    fn reset_layout(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
         self.preserve_reflow_position(cx);
-        self.layout.saved = jaywalk::layout_state::LayoutState::default();
+        self.layout.saved = jaywalk::layout_state::LayoutState::from_settings(&self.settings);
         self.panels = panels::PanelLayout::new(cx);
         self.evolution.visible = self.settings.evolution.visible;
         self.file_evolution.visible = self.settings.file_evolution.visible;
-        self.save_layout(window, cx);
+        self.save_layout(cx);
         cx.notify();
     }
 }

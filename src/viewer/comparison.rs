@@ -1,5 +1,5 @@
 use super::*;
-use gpui::component::Icon;
+use gpui::component::{Icon, Sizable};
 
 impl Viewer {
     pub(super) fn unchanged_file_summary(&self) -> &'static str {
@@ -17,7 +17,7 @@ impl Viewer {
         }
     }
 
-    fn render_file_header(&self) -> AnyElement {
+    fn render_file_header(&self, cx: &App) -> AnyElement {
         let selected = self
             .selected_file
             .as_ref()
@@ -29,29 +29,36 @@ impl Viewer {
         let updating = self.loading_visible(LoadingKind::Comparison)
             || self.loading_visible(LoadingKind::File)
             || self.loading_visible(LoadingKind::Live);
-        let mut header = div().v_flex().px_3().py_2().bg(rgb(0x302b3d)).child(
-            div()
-                .h_flex()
-                .items_center()
-                .gap_2()
-                .children(
-                    (self.is_retained_preview()
-                        || matches!(self.comparison_state(), LoadState::Failed(_)))
-                    .then(|| {
+        let mut header = div()
+            .v_flex()
+            .px_3()
+            .py_1()
+            .border_b_1()
+            .border_color(gpui::component::Theme::global(cx).border)
+            .bg(gpui::component::Theme::global(cx).sidebar)
+            .child(
+                div()
+                    .h_flex()
+                    .items_center()
+                    .gap_2()
+                    .children(
+                        (self.is_retained_preview()
+                            || matches!(self.comparison_state(), LoadState::Failed(_)))
+                        .then(|| {
+                            div().flex_shrink_0().child(
+                                Icon::new(IconName::Eye).size(px(self.settings.ui.font_size)),
+                            )
+                        }),
+                    )
+                    .child(
                         div()
-                            .flex_shrink_0()
-                            .child(Icon::new(IconName::Eye).size(px(self.settings.ui.font_size)))
-                    }),
-                )
-                .child(
-                    div()
-                        .flex_1()
-                        .min_w_0()
-                        .truncate()
-                        .child(file.after_path.clone()),
-                )
-                .children(updating.then(|| div().flex_shrink_0().text_sm().child("Updating…"))),
-        );
+                            .flex_1()
+                            .min_w_0()
+                            .truncate()
+                            .child(file.after_path.clone()),
+                    )
+                    .children(updating.then(|| div().flex_shrink_0().text_sm().child("Updating…"))),
+            );
         let detail = match file.status.as_str() {
             "renamed" => Some(format!(
                 "Renamed from {}{}",
@@ -129,9 +136,8 @@ impl Viewer {
             .h_flex()
             .items_center()
             .gap_1()
-            .p_1()
-            .rounded_md()
-            .bg(rgb(0x292929));
+            .rounded_sm()
+            .bg(gpui::component::Theme::global(cx).secondary);
         for (id, mode, icon, label) in [
             (
                 "view-inline",
@@ -155,6 +161,7 @@ impl Viewer {
             group = group.child(
                 Button::new(id)
                     .ghost()
+                    .with_size(px(self.settings.ui.footer_control_height))
                     .compact()
                     .icon(icon)
                     .tooltip(label)
@@ -181,7 +188,7 @@ impl Viewer {
             match &selected.content {
                 LoadState::Loading => {
                     return file_surface
-                        .child(self.render_file_header())
+                        .child(self.render_file_header(cx))
                         .child(div().flex_1().min_h_0().p_6().child(
                             if self.loading_visible(LoadingKind::File) {
                                 "Loading file…"
@@ -193,7 +200,7 @@ impl Viewer {
                 }
                 LoadState::Failed(error) => {
                     return file_surface
-                        .child(self.render_file_header())
+                        .child(self.render_file_header(cx))
                         .child(div().flex_1().min_h_0().p_6().child(error.clone()))
                         .into_any_element();
                 }
@@ -233,7 +240,7 @@ impl Viewer {
                         .into_any_element()
                 };
                 return file_surface
-                    .child(self.render_file_header())
+                    .child(self.render_file_header(cx))
                     .child(
                         div().relative().flex_1().min_h_0().child(body).child(
                             div()
@@ -247,7 +254,7 @@ impl Viewer {
             let gutter_bounds = Rc::new(Cell::new(None));
             let measured_gutter = gutter_bounds.clone();
             return file_surface
-                .child(self.render_file_header())
+                .child(self.render_file_header(cx))
                 .child(
                     div()
                         .relative()
@@ -345,7 +352,12 @@ impl Viewer {
         }
         // Keep the overview surface identical in pending, failed, and ready
         // states instead of exposing the dark parent for a loading frame.
-        let overview = div().v_flex().size_full().bg(rgb(0x302b3d)).gap_4().p_6();
+        let overview = div()
+            .v_flex()
+            .size_full()
+            .bg(gpui::component::Theme::global(cx).background)
+            .gap_4()
+            .p_6();
         match self.comparison_state() {
             LoadState::Loading => overview
                 .child(if self.loading_visible(LoadingKind::Comparison) {

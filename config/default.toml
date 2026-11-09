@@ -8,6 +8,13 @@ height = 950
 [ui]
 # Suppress transient loading indicators; 0 shows them immediately.
 loading_delay_ms = 200
+# Shared minimum for history, flat files and directory-tree rows.
+row_height = 26
+panel_header_height = 30
+toolbar_height = 36
+footer_height = 28
+footer_font_size = 12
+footer_control_height = 22
 # Reserved comparison toolbar height; grows if the UI font needs more space.
 comparison_bar_height = 36
 font_size = 16
@@ -49,12 +56,13 @@ min_code_width = 100
 
 [history]
 # Minimum row height; larger UI fonts can require more space.
-row_height = 26
+# row_height = 30 # Optional override of ui.row_height.
 lane_spacing = 12
 
 [files]
 default_view = "list"
-tree_row_height = 30
+# tree_row_height = 30
+# list_row_height = 30
 indent_width = 12
 compact_paths = true
 list_word_wrap = false
@@ -139,6 +147,16 @@ zoom_in = ["secondary-="]
 zoom_out = ["secondary--"]
 reset_zoom = ["secondary-0"]
 reset_layout = []
+history_left = []
+history_right = []
+files_left = []
+files_right = []
+swap_sidebars = []
+change_evolution_sidebar = []
+change_evolution_bottom = []
+file_evolution_sidebar = []
+file_evolution_bottom = []
+reset_interface = []
 quit = ["secondary-q"]
 close_window = ["secondary-w"]
 minimize = ["secondary-m"]
@@ -146,3 +164,22 @@ fullscreen = ["ctrl-secondary-f"]
 hide = ["secondary-h"]
 hide_others = ["secondary-alt-h"]
 show_all = []
+
+# Startup defaults; remembered repository choices are stored separately.
+[layout]
+remember_per_repository = true
+history_visible = true
+files_visible = true
+bottom_height = 280
+min_bottom_height = 120
+max_bottom_height = 700
+
+[layout.placement]
+history_side = "left"
+files_side = "left"
+# Left-to-right order when both sidebars share a side.
+sidebar_order = "history_first"
+# "sidebar" keeps each timeline below its associated list; "bottom" docks it
+# under the central workspace. Two bottom timelines appear beside each other.
+change_evolution = "sidebar"
+file_evolution = "sidebar"

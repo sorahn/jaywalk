@@ -9,11 +9,13 @@ use jaywalk::diff_model::FileDiff;
 use jaywalk::fluid::{DiffGeometry, FluidScroll};
 use jaywalk::repository::Comparison;
 use jaywalk::settings::{DiffSettings, DiffView as ViewMode, Settings};
+use jaywalk::syntax::file_language;
 use std::cell::Cell;
 use std::rc::Rc;
 
 use crate::Arguments;
 
+mod chrome;
 pub(crate) mod commands;
 mod comparison;
 mod evolution;
@@ -142,18 +144,6 @@ struct PreparedFile {
     model: FileDiff,
     syntax: [gpui::component::highlighter::PreparedInputHighlighter; 2],
     standard: Result<Vec<DiffFile>, String>,
-}
-
-fn file_language(path: &str) -> &'static str {
-    match std::path::Path::new(path)
-        .extension()
-        .and_then(|value| value.to_str())
-    {
-        Some("ts") => "typescript",
-        Some("tsx") => "tsx",
-        Some("js" | "jsx") => "javascript",
-        _ => "plain",
-    }
 }
 
 impl PreparedFile {
@@ -357,6 +347,7 @@ impl Viewer {
             state.update(cx, |state, cx| state.scroll_horizontal(px(-1e9), cx));
         }
         cx.notify();
+        self.save_layout(cx);
     }
 
     fn scroll_horizontal(&mut self, delta: f32, cx: &mut Context<Self>) {
@@ -429,6 +420,7 @@ impl Viewer {
             self.live.pending_position = Some((before_line, line, self.horizontal_position));
         }
         cx.notify();
+        self.save_layout(cx);
     }
 
     fn navigate_change(&mut self, direction: i32, cx: &mut Context<Self>) {
