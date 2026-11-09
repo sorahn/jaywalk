@@ -79,6 +79,7 @@ default_visible = true
 [overview]
 context_lines = 3
 expansion_lines = 20
+# For overviews without changed files; otherwise the message scrolls with the diff.
 message_max_height = 220
 
 [files]

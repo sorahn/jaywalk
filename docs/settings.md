@@ -206,7 +206,7 @@ origin = true
 | --- | --- | --- |
 | `overview.context_lines` | `3` | Unchanged context around overview edits; integer 0–100. Range disclosures reveal more; Show full files temporarily unfolds everything. |
 | `overview.expansion_lines` | `20` | Lines revealed by each directional context-expansion action; integer 1–1000. |
-| `overview.message_max_height` | `220` | Maximum height of the scrollable commit-message area; 80–1200. |
+| `overview.message_max_height` | `220` | Maximum height of the scrollable message area when there are no changed files; 80–1200. With files, the full message scrolls with the overview and folds its subject into the existing comparison bar while scrolling. |
 
 ### `files`
 

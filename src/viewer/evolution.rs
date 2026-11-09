@@ -698,7 +698,7 @@ impl Viewer {
                     .min_w_0()
                     .text_xs()
                     .truncate()
-                    .child(presentation.label),
+                    .child(self.overview_comparison_label(presentation.label)),
             );
         if let Some(controls) = presentation.controls {
             let kind = controls.kind;

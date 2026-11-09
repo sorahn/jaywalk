@@ -160,6 +160,9 @@ impl Viewer {
 
     fn render_workspace(&self, cx: &mut Context<Self>) -> AnyElement {
         let workspace = div()
+            // Compose the comparison caption after the diff has published its
+            // current scroll position, without waiting for another frame.
+            .with_dynamic_prepaint_order(|_, _| [1, 0].into_iter().collect())
             .v_flex()
             .size_full()
             .child(self.render_evolution_comparison(cx))

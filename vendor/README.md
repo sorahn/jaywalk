@@ -27,3 +27,10 @@ The input facade scopes code bodies as `Editor` or `ReadonlyEditor` in
 `src/input/input.rs`, leaving the editable search panel outside that scope.
 This lets host review shortcuts override source navigation without intercepting
 normal text movement in search inputs.
+
+The diff widget's `render_preamble` slot lets overview metadata scroll with the
+first file. The first file header's bounds are recorded during list prepaint and
+consumed by the sticky layer in the same frame. `DiffState::preamble_scrolled`
+lets the host fold the subject into its existing comparison bar; the host
+prepaints that bar after the diff to avoid a deferred caption update. Empty
+comparisons keep their standalone host header.

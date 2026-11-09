@@ -3,6 +3,7 @@
 use super::*;
 use gpui::component::Sizable;
 use gpui::component::diff::DiffAnnotation;
+use gpui::prelude::FluentBuilder as _;
 use jaywalk::overview::CommitDetails;
 use jaywalk::repository::{ChangedFile, ComparisonIdentity};
 use std::collections::BTreeMap;
@@ -82,6 +83,20 @@ pub(super) struct OverviewState {
     pub(super) error: Option<String>,
 }
 impl Viewer {
+    pub(super) fn overview_comparison_label(&self, label: String) -> AnyElement {
+        match &self.overview.current {
+            Some(loaded) if self.selected_file.is_none() && !loaded.files.is_empty() => {
+                ComparisonCaption {
+                    state: loaded.state.clone(),
+                    label,
+                    subject: message_parts(loaded.commit.as_ref()).0.to_owned(),
+                    content: None,
+                }
+                .into_any_element()
+            }
+            _ => label.into_any_element(),
+        }
+    }
     pub(super) fn navigate_overview_change(&mut self, direction: i32, cx: &mut Context<Self>) {
         if let Some(loaded) = &self.overview.current {
             loaded.state.update(cx, |state, cx| {
@@ -212,27 +227,7 @@ impl Viewer {
             };
             return surface.child(div().p_6().child(text)).into_any_element();
         };
-        let (title, body) = loaded
-            .commit
-            .as_ref()
-            .map_or(("Changeset overview", ""), |commit| {
-                let (title, body) = commit
-                    .message
-                    .split_once('\n')
-                    .unwrap_or((&commit.message, ""));
-                (
-                    if title.trim().is_empty() {
-                        if commit.working_copy {
-                            "Working copy"
-                        } else {
-                            "No description"
-                        }
-                    } else {
-                        title
-                    },
-                    body.trim_matches('\n'),
-                )
-            });
+        let (title, body) = message_parts(loaded.commit.as_ref());
         let metadata = loaded
             .commit
             .as_ref()
@@ -240,59 +235,73 @@ impl Viewer {
         let state = loaded.state.clone();
         let context = self.settings.overview.context_lines;
         let full = loaded.state.read(cx).context_lines().is_none();
-        let mut header = div()
-            .id("overview-message")
-            .v_flex()
-            .gap_2()
-            .p_4()
-            .max_h(px(self.settings.overview.message_max_height))
-            .flex_shrink_0()
-            .overflow_y_scroll()
-            .border_b_1()
-            .border_color(theme.border)
-            .child(
-                div()
-                    .h_flex()
-                    .items_center()
-                    .gap_2()
-                    .child(div().flex_1().min_w_0().text_sm().truncate().child(format!(
-                        "{} · {} files · +{} −{}",
-                        loaded.scope,
-                        loaded.files.len(),
-                        loaded.additions,
-                        loaded.deletions
-                    )))
-                    .child(
-                        Button::new("overview-context")
-                            .ghost()
-                            .small()
-                            .label(if full {
-                                "Fold unchanged lines"
-                            } else {
-                                "Show full files"
-                            })
-                            .on_click(move |_, _, cx| {
-                                state.update(cx, |state, cx| {
-                                    state.set_context_lines(
-                                        if full { Some(context) } else { None },
-                                        cx,
-                                    )
+        let standalone = loaded.files.is_empty();
+        let max_height = self.settings.overview.message_max_height;
+        let title = title.to_owned();
+        let body = body.to_owned();
+        let summary = format!(
+            "{} · {} files · +{} −{}",
+            loaded.scope,
+            loaded.files.len(),
+            loaded.additions,
+            loaded.deletions
+        );
+        let border = theme.border;
+        let muted = theme.muted_foreground;
+        let expanded = move || {
+            let state = state.clone();
+            let mut header = div()
+                .id("overview-message")
+                .v_flex()
+                .gap_2()
+                .p_4()
+                .when(standalone, |header| {
+                    header.max_h(px(max_height)).overflow_y_scroll()
+                })
+                .flex_shrink_0()
+                .border_b_1()
+                .border_color(border)
+                .child(
+                    div()
+                        .h_flex()
+                        .items_center()
+                        .gap_2()
+                        .child(
+                            div()
+                                .flex_1()
+                                .min_w_0()
+                                .text_sm()
+                                .truncate()
+                                .child(summary.clone()),
+                        )
+                        .child(
+                            Button::new("overview-context")
+                                .ghost()
+                                .small()
+                                .label(if full {
+                                    "Fold unchanged lines"
+                                } else {
+                                    "Show full files"
                                 })
-                            }),
-                    ),
-            )
-            .child(div().text_xl().whitespace_normal().child(title.to_owned()));
-        if !body.is_empty() {
-            header = header.child(div().whitespace_normal().child(body.to_owned()));
-        }
-        if let Some(metadata) = metadata {
-            header = header.child(
-                div()
-                    .text_sm()
-                    .text_color(theme.muted_foreground)
-                    .child(metadata),
-            );
-        }
+                                .on_click(move |_, _, cx| {
+                                    state.update(cx, |state, cx| {
+                                        state.set_context_lines(
+                                            if full { Some(context) } else { None },
+                                            cx,
+                                        )
+                                    })
+                                }),
+                        ),
+                )
+                .child(div().text_xl().whitespace_normal().child(title.to_owned()));
+            if !body.is_empty() {
+                header = header.child(div().whitespace_normal().child(body.to_owned()));
+            }
+            if let Some(metadata) = &metadata {
+                header = header.child(div().text_sm().text_color(muted).child(metadata.clone()));
+            }
+            header.into_any_element()
+        };
         let viewer = cx.entity().downgrade();
         let files = loaded.files.clone();
         let annotations = files
@@ -303,7 +312,9 @@ impl Viewer {
             })
             .collect::<Vec<_>>();
         let notices = files.clone();
+        let empty_header = loaded.files.is_empty().then(&expanded);
         let diff = Diff::new(&loaded.state)
+            .render_preamble(move |_, _| expanded())
             .sticky_headers(true)
             .code_font(theme.mono_font_family.clone(), px(self.code_font_size))
             .font_features(typography::features(self.settings.editor.ligatures))
@@ -381,7 +392,7 @@ impl Viewer {
         .absolute()
         .size_full();
         surface
-            .child(header)
+            .children(empty_header)
             .child(
                 div()
                     .relative()
@@ -402,5 +413,107 @@ impl Viewer {
                     .child(tracking),
             )
             .into_any_element()
+    }
+}
+
+fn message_parts(commit: Option<&CommitDetails>) -> (&str, &str) {
+    let Some(commit) = commit else {
+        return ("Changeset overview", "");
+    };
+    let (title, body) = commit
+        .message
+        .split_once('\n')
+        .unwrap_or((&commit.message, ""));
+    let title = if title.trim().is_empty() {
+        if commit.working_copy {
+            "Working copy"
+        } else {
+            "No description"
+        }
+    } else {
+        title
+    };
+    (title, body.trim_matches('\n'))
+}
+
+/// The diff prepaints before the comparison bar. Choose its caption here,
+/// using the scroll position that will actually be painted in this frame.
+struct ComparisonCaption {
+    state: Entity<DiffState>,
+    label: String,
+    subject: String,
+    content: Option<AnyElement>,
+}
+impl Element for ComparisonCaption {
+    type RequestLayoutState = ();
+    type PrepaintState = ();
+    fn id(&self) -> Option<ElementId> {
+        Some("overview-comparison-caption".into())
+    }
+    fn source_location(&self) -> Option<&'static core::panic::Location<'static>> {
+        None
+    }
+    fn request_layout(
+        &mut self,
+        _: Option<&GlobalElementId>,
+        _: Option<&InspectorElementId>,
+        window: &mut Window,
+        cx: &mut App,
+    ) -> (LayoutId, ()) {
+        let style = Style {
+            size: size(relative(1.).into(), window.line_height().into()),
+            ..Style::default()
+        };
+        (window.request_layout(style, [], cx), ())
+    }
+    fn prepaint(
+        &mut self,
+        _: Option<&GlobalElementId>,
+        _: Option<&InspectorElementId>,
+        bounds: Bounds<Pixels>,
+        _: &mut (),
+        window: &mut Window,
+        cx: &mut App,
+    ) {
+        let caption = if self.state.read(cx).preamble_scrolled() {
+            format!("{} · {}", self.label, self.subject)
+        } else {
+            self.label.clone()
+        };
+        let mut content = div()
+            .w(bounds.size.width)
+            .truncate()
+            .child(caption)
+            .into_any_element();
+        content.layout_as_root(
+            size(
+                AvailableSpace::Definite(bounds.size.width),
+                AvailableSpace::Definite(bounds.size.height),
+            ),
+            window,
+            cx,
+        );
+        content.prepaint_at(bounds.origin, window, cx);
+        self.content = Some(content);
+    }
+    fn paint(
+        &mut self,
+        _: Option<&GlobalElementId>,
+        _: Option<&InspectorElementId>,
+        _: Bounds<Pixels>,
+        _: &mut (),
+        _: &mut (),
+        window: &mut Window,
+        cx: &mut App,
+    ) {
+        if let Some(content) = &mut self.content {
+            content.paint(window, cx);
+        }
+    }
+}
+impl IntoElement for ComparisonCaption {
+    type Element = Self;
+    fn into_element(self) -> Self {
+        self
     }
 }

@@ -173,6 +173,7 @@ impl DiffAnnotation {
     }
 }
 
+type OverviewRenderer = Rc<dyn Fn(&mut Window, &mut App) -> AnyElement>;
 type FileRenderer = Rc<dyn Fn(&DiffFile, &mut Window, &mut App) -> AnyElement>;
 type AnnotationRenderer = Rc<dyn Fn(&DiffAnnotation, &mut Window, &mut App) -> AnyElement>;
 type RangeHandler = Rc<dyn Fn(&DiffLineRange, &mut Window, &mut App)>;
@@ -211,6 +212,7 @@ pub struct Diff {
     syntax_highlight: bool,
     header_visible: bool,
     sticky_headers: bool,
+    preamble: Option<OverviewRenderer>,
     hover_highlight: DiffHoverHighlight,
     hunk_separator: DiffHunkSeparator,
     change_indicator: DiffChangeIndicator,
@@ -244,6 +246,7 @@ impl Diff {
             syntax_highlight: true,
             header_visible: true,
             sticky_headers: false,
+            preamble: None,
             hover_highlight: DiffHoverHighlight::default(),
             hunk_separator: DiffHunkSeparator::default(),
             change_indicator: DiffChangeIndicator::default(),
@@ -283,6 +286,19 @@ impl Diff {
     /// Pin the current file header to the viewport until the next header pushes it away.
     pub fn sticky_headers(mut self, enabled: bool) -> Self {
         self.sticky_headers = enabled;
+        self
+    }
+
+    /// Scroll overview content with the first file. The host may use
+    /// `DiffState::preamble_scrolled` to condense it into existing chrome.
+    pub fn render_preamble<F, E>(mut self, expanded: F) -> Self
+    where
+        F: Fn(&mut Window, &mut App) -> E + 'static,
+        E: IntoElement,
+    {
+        self.preamble = Some(Rc::new(move |window, cx| {
+            expanded(window, cx).into_any_element()
+        }));
         self
     }
 
@@ -489,8 +505,12 @@ fn render_diff(
     state.ensure_presentation(cx);
     let rem = window.rem_size();
     // Monospace font size is already expressed in pixels, independently of UI rem size.
-    let (font_family, font_size) = props.code_font.clone()
-        .unwrap_or_else(|| (cx.theme().mono_font_family.clone(), cx.theme().mono_font_size));
+    let (font_family, font_size) = props.code_font.clone().unwrap_or_else(|| {
+        (
+            cx.theme().mono_font_family.clone(),
+            cx.theme().mono_font_size,
+        )
+    });
     let row_height = font_size * 1.6;
     let digits = state
         .files()
@@ -606,6 +626,8 @@ fn render_diff(
         change_background: props.change_background,
         soft_wrap,
         side_wrap,
+        preamble: props.preamble,
+        first_header_bounds: Default::default(),
         header: props.header,
         annotations: props.annotations.clone(),
         annotation_content: props.annotation_content,
@@ -664,7 +686,12 @@ fn render_diff(
             state.geometry().clone(),
         ))
         .when(props.sticky_headers && props.header_visible, |this| {
-            this.child(div().absolute().inset_0().child(sticky::StickyHeader::new(code.clone())))
+            this.child(
+                div()
+                    .absolute()
+                    .inset_0()
+                    .child(sticky::StickyHeader::new(code.clone())),
+            )
         })
         .when(has_rows && !soft_wrap && mode != DiffMode::Split, |this| {
             this.child(
@@ -855,6 +882,8 @@ struct CodePresentation {
     change_background: bool,
     soft_wrap: bool,
     side_wrap: [bool; 2],
+    preamble: Option<OverviewRenderer>,
+    first_header_bounds: std::cell::Cell<Option<gpui::Bounds<Pixels>>>,
     header: HeaderSlots,
     annotations: Rc<Annotations>,
     annotation_content: Option<AnnotationRenderer>,
@@ -1211,11 +1240,34 @@ fn conflict_tint(part: Option<ConflictPart>, cx: &App) -> Hsla {
 
 fn render_file_header(
     file: usize,
-    code: &CodePresentation,
+    code: &Rc<CodePresentation>,
     window: &mut Window,
     cx: &mut App,
 ) -> AnyElement {
-    render_file_header_content(file, code, true, window, cx)
+    let header = render_file_header_content(file, code, true, window, cx);
+    if file == 0
+        && let Some(render) = &code.preamble
+    {
+        let geometry = code.clone();
+        return v_flex()
+            .w_full()
+            .child(
+                div()
+                    .w(code.state.read(cx).viewport().width)
+                    .child(render(window, cx)),
+            )
+            .child(header)
+            .on_children_prepainted(move |bounds, _, cx| {
+                geometry.first_header_bounds.set(bounds.get(1).copied());
+                if let Some(preamble) = bounds.first() {
+                    geometry
+                        .state
+                        .update(cx, |state, _| state.preamble_height = preamble.size.height);
+                }
+            })
+            .into_any_element();
+    }
+    header
 }
 
 fn render_file_header_content(
@@ -1328,7 +1380,9 @@ fn render_file_header_content(
                 )
                 .child(div().flex_1().min_w_0().child(content)),
         )
-        .when(annotations, |header| header.children(file_annotations(file, code, window, cx)))
+        .when(annotations, |header| {
+            header.children(file_annotations(file, code, window, cx))
+        })
         .into_any_element()
 }
 

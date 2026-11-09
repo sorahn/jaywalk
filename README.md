@@ -255,8 +255,10 @@ header to switch to the regular viewer. Empty files, renames and unavailable tex
 previews remain listed. Overview uses the inline wrapping preference and existing
 next/previous-change commands; Fluid and split controls belong to the file viewer.
 
-Overview file headers stick to the top of the diff viewport; the next header
-pushes the current one away. The sidebar uses a reading tint for the top file,
+The full overview message scrolls away with the diff, folding its subject into the existing
+comparison bar (for example, **Whole branch · Working copy**). Long subjects truncate with an ellipsis; scrolling back to
+the top reveals the full message. File headers stick below that subject, and
+the next file header pushes the current one away. The sidebar uses a reading tint for the top file,
 separate from file selection, and scrolls only enough to keep that row visible.
 Collapsed folders stay collapsed and carry the indicator for a contained file.
 Tracking neither opens a file nor moves keyboard focus. List mode follows the
@@ -264,7 +266,8 @@ same directory-first traversal as tree mode, omitting directory rows; the overvi
 uses that ordering too.
 
 The `[overview]` settings control `context_lines` (default 3), `expansion_lines`
-(default 20) and `message_max_height` (default 220 logical pixels). They apply
+(default 20) and `message_max_height` (default 220 logical pixels for overviews
+without changed files). They apply
 live. Overview preparation runs in the background and keeps the previous complete
 view visible until the new comparison is ready. Refresh reloads recorded changes
 while preserving the selected change, file, and content-based reading anchors.

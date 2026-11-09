@@ -222,6 +222,7 @@ pub struct DiffState {
     rows: Rc<Vec<DisplayRow>>,
     change_rows: Vec<usize>,
     list: ListState,
+    pub(crate) preamble_height: Pixels,
     horizontal_scroll: ScrollHandle,
     pub(crate) linked_horizontal_offset: Pixels,
     pub(crate) split_source_widths: [Pixels; 2],
@@ -354,6 +355,7 @@ impl DiffState {
             rows: Rc::default(),
             change_rows: Vec::new(),
             list: ListState::new(0, ListAlignment::Top, px(0.)),
+            preamble_height: px(0.),
             horizontal_scroll: ScrollHandle::new(),
             linked_horizontal_offset: px(0.),
             split_source_widths: [px(0.); 2],
@@ -531,9 +533,17 @@ impl DiffState {
         self.row_position(self.list.logical_scroll_top().item_ix)
     }
 
+    /// Whether the overview preamble has begun scrolling out of view. Read
+    /// after the list prepaints to compose host chrome in the same frame.
+    pub fn preamble_scrolled(&self) -> bool {
+        let top = self.list.logical_scroll_top();
+        top.item_ix > 0 || top.offset_in_item > px(0.)
+    }
+
     /// File owning the top displayed row, including headers, folds and notices.
     pub fn viewport_file(&self) -> Option<&SharedString> {
-        self.rows.get(self.list.logical_scroll_top().item_ix)
+        self.rows
+            .get(self.list.logical_scroll_top().item_ix)
             .and_then(|row| self.files.get(row.file()))
             .map(DiffFile::path)
     }
@@ -840,7 +850,11 @@ impl DiffState {
         };
         self.list.scroll_to(ListOffset {
             item_ix,
-            offset_in_item: px(0.),
+            offset_in_item: if item_ix == 0 {
+                self.preamble_height
+            } else {
+                px(0.)
+            },
         });
         cx.notify();
     }
