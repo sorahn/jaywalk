@@ -262,7 +262,8 @@ next/previous-change commands; Fluid and split controls belong to the file viewe
 The full overview message scrolls away with the diff, folding its subject into the existing
 comparison bar (for example, **Whole branch · Working copy**). Long subjects truncate with an ellipsis; scrolling back to
 the top reveals the full message. File headers stick below that subject, and
-the next file header pushes the current one away. The sidebar uses a reading tint for the top file,
+the next file header pushes the current one away. Click the caret or the
+filename/status area to fold a file; **Open file** remains a separate action. The sidebar uses a reading tint for the top file,
 separate from file selection, and scrolls only enough to keep that row visible.
 Collapsed folders stay collapsed and carry the indicator for a contained file.
 Tracking neither opens a file nor moves keyboard focus. List mode follows the
