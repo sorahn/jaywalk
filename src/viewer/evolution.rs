@@ -817,7 +817,19 @@ impl Viewer {
             }
             TimelineState::Failed(error) => {
                 return panel
-                    .child(div().p_3().text_size(px(font_size)).child(error.clone()))
+                    .child(
+                        div()
+                            .p_3()
+                            .text_size(px(font_size))
+                            .child(feedback::error_message(
+                                if kind == evolution::EvolutionKind::Change {
+                                    "change-evolution-error"
+                                } else {
+                                    "file-evolution-error"
+                                },
+                                error,
+                            )),
+                    )
                     .into_any_element();
             }
             TimelineState::Loaded(evolution) => (evolution, state.file_path.clone(), &state.scroll),

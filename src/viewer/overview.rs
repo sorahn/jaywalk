@@ -188,7 +188,13 @@ impl Viewer {
         let theme = gpui::component::Theme::global(cx);
         let surface = div().v_flex().size_full().bg(theme.background);
         if let LoadState::Failed(error) = self.comparison_state() {
-            return surface.child(div().p_6().child(error)).into_any_element();
+            return surface
+                .child(
+                    div()
+                        .p_6()
+                        .child(feedback::error_message("overview-error", &error)),
+                )
+                .into_any_element();
         }
         let Some(loaded) = &self.overview.current else {
             let text = if self.overview.error.is_some() {

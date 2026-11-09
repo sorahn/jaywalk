@@ -163,7 +163,11 @@ impl Viewer {
                 }
                 LoadState::Failed(error) => {
                     return panel
-                        .child(div().p_3().child(error.clone()))
+                        .child(
+                            div()
+                                .p_3()
+                                .child(feedback::error_message("history-error", error)),
+                        )
                         .into_any_element();
                 }
             };
@@ -171,7 +175,11 @@ impl Viewer {
             Ok(history) => history.clone(),
             Err(error) => {
                 return panel
-                    .child(div().p_3().child(error.clone()))
+                    .child(
+                        div()
+                            .p_3()
+                            .child(feedback::error_message("history-error", error)),
+                    )
                     .into_any_element();
             }
         };

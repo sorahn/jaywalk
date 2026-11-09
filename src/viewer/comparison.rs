@@ -254,7 +254,13 @@ impl Viewer {
                 LoadState::Failed(error) => {
                     return file_surface
                         .child(self.render_file_header(cx))
-                        .child(div().flex_1().min_h_0().p_6().child(error.clone()))
+                        .child(
+                            div()
+                                .flex_1()
+                                .min_h_0()
+                                .p_6()
+                                .child(feedback::error_message("file-error", error)),
+                        )
                         .into_any_element();
                 }
                 LoadState::Loaded(_) => {}
@@ -269,7 +275,10 @@ impl Viewer {
         {
             if self.view.effective() != ViewMode::Fluid {
                 let body = if let Err(error) = standard {
-                    div().p_6().child(error.clone()).into_any_element()
+                    div()
+                        .p_6()
+                        .child(feedback::error_message("diff-error", error))
+                        .into_any_element()
                 } else if let Some(Ok(Some(state))) = self.code().map(|code| &code.standard) {
                     Diff::new(state)
                         .code_font(
