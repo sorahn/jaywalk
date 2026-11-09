@@ -29,6 +29,7 @@ mod live;
 mod loading;
 mod palette;
 mod panels;
+mod references;
 mod session_layout;
 mod settings;
 mod typography;
@@ -187,6 +188,7 @@ pub(crate) struct Viewer {
     panels: panels::PanelLayout,
     history_scroll: UniformListScrollHandle,
     history_query: jaywalk::history::HistoryQuery,
+    references: references::ReferenceState,
     evolution: evolution::EvolutionPanel,
     evolution_header: Option<evolution::HeaderPresentation>,
     file_evolution: evolution::EvolutionPanel,

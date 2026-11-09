@@ -23,10 +23,46 @@ pub struct Reference {
     pub tracked_by: Vec<String>,
     pub conflicted: bool,
 }
+/// Defaults cover newly discovered remotes. Overrides survive removal/re-addition.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct RemoteVisibility {
+    pub default_visible: bool,
+    pub overrides: std::collections::BTreeMap<String, bool>,
+}
+impl Default for RemoteVisibility {
+    fn default() -> Self {
+        Self {
+            default_visible: true,
+            overrides: Default::default(),
+        }
+    }
+}
+impl RemoteVisibility {
+    pub fn includes(&self, remote: &str) -> bool {
+        self.overrides
+            .get(remote)
+            .copied()
+            .unwrap_or(self.default_visible)
+    }
+    pub fn set(&mut self, remote: String, visible: bool) {
+        self.overrides.insert(remote, visible);
+    }
+    pub fn all(visible: bool) -> Self {
+        Self {
+            default_visible: visible,
+            overrides: Default::default(),
+        }
+    }
+}
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum HistoryScope {
     Repository,
     Ancestors(Vec<String>),
+    Sources {
+        visibility: RemoteVisibility,
+        reveal: Option<String>,
+    },
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct HistoryQuery {
@@ -42,6 +78,45 @@ impl Default for HistoryQuery {
     }
 }
 impl HistoryQuery {
+    pub fn sources(visibility: RemoteVisibility, reveal: Option<String>) -> Result<Self, String> {
+        if reveal
+            .as_ref()
+            .is_some_and(|id| id.is_empty() || !id.bytes().all(|b| b.is_ascii_hexdigit()))
+        {
+            return Err("Reveal target must be a resolved commit ID".into());
+        }
+        Ok(Self {
+            scope: HistoryScope::Sources { visibility, reveal },
+            ..Self::default()
+        })
+    }
+    pub fn roots(&self, references: &crate::references::ReferenceSnapshot) -> Vec<String> {
+        if let HistoryScope::Ancestors(commits) = &self.scope {
+            return commits.clone();
+        }
+        let mut roots = references.local_heads.clone();
+        for reference in &references.references {
+            let visible = match (&self.scope, reference.remote()) {
+                (HistoryScope::Sources { visibility, .. }, Some(remote)) => {
+                    visibility.includes(remote)
+                }
+                _ => true,
+            };
+            if visible {
+                roots.push(reference.target.clone());
+            }
+        }
+        if let HistoryScope::Sources {
+            reveal: Some(commit),
+            ..
+        } = &self.scope
+        {
+            roots.push(commit.clone());
+        }
+        roots.sort();
+        roots.dedup();
+        roots
+    }
     pub fn ancestors(commits: Vec<String>) -> Result<Self, String> {
         if commits.is_empty()
             || commits
@@ -68,10 +143,22 @@ impl HistoryQuery {
     pub fn limit(&self) -> usize {
         self.limit
     }
-    pub(crate) fn jj_revset(&self, tip: &str) -> String {
+    pub(crate) fn jj_revset(
+        &self,
+        tip: &str,
+        references: &crate::references::ReferenceSnapshot,
+    ) -> String {
         let roots = match &self.scope {
             HistoryScope::Repository => format!("visible_heads() | {tip}"),
             HistoryScope::Ancestors(commits) => commits.join(" | "),
+            HistoryScope::Sources { .. } => {
+                let roots = self.roots(references);
+                if roots.is_empty() {
+                    "none()".into()
+                } else {
+                    roots.join(" | ")
+                }
+            }
         };
         format!("ancestors({roots}, {})", self.limit)
     }
@@ -323,7 +410,7 @@ mod query_tests {
         let query = HistoryQuery::default();
         assert_eq!(query.limit(), 200);
         assert_eq!(
-            query.jj_revset("abc"),
+            query.jj_revset("abc", &Default::default()),
             "ancestors(visible_heads() | abc, 200)"
         );
         assert_eq!(
@@ -331,7 +418,7 @@ mod query_tests {
                 .unwrap()
                 .with_limit(12)
                 .unwrap()
-                .jj_revset("unused"),
+                .jj_revset("unused", &Default::default()),
             "ancestors(abc | def, 12)"
         );
         assert!(query.with_limit(0).is_err());

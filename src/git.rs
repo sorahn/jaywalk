@@ -1,5 +1,5 @@
 //! Read-only Git comparisons for repositories without Jujutsu metadata.
-use crate::history::{History, HistoryQuery, HistoryScope, Revision};
+use crate::history::{History, HistoryQuery, Revision};
 use crate::repository::{ChangedFile, Comparison, ContentSource, FileSide, next_capture};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -356,18 +356,11 @@ pub(crate) fn history(root: &Path, query: &HistoryQuery) -> Result<History, Stri
         "-z",
         "--format=%H%x00%P%x00%s%x00%an",
     ];
-    match query.scope() {
-        HistoryScope::Repository => {
-            args.extend(references.local_heads.iter().map(String::as_str));
-            args.extend(
-                references
-                    .references
-                    .iter()
-                    .map(|reference| reference.target.as_str()),
-            );
-        }
-        HistoryScope::Ancestors(commits) => args.extend(commits.iter().map(String::as_str)),
+    let roots = query.roots(&references);
+    if roots.is_empty() {
+        return Ok(History::new(vec![]).with_references(references));
     }
+    args.extend(roots.iter().map(String::as_str));
     args.push("--");
     let data = output(root, &args)?;
     let fields: Vec<_> = data.split_terminator('\0').collect();

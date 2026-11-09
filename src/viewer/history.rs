@@ -138,6 +138,7 @@ impl Viewer {
                             "GIT HISTORY"
                         }),
                 )
+                .child(self.remote_controls(cx))
                 .child(self.panel_menu(jaywalk::panel_layout::PanelId::History))
                 .child(
                     Button::new("toggle-evolution")
@@ -187,6 +188,16 @@ impl Viewer {
             ComparisonScope::Evolution { anchor, .. } => Some(anchor.clone()),
         };
         let count = history.revisions.len();
+        let status = if let Some(error) = &self.references.error {
+            error.clone()
+        } else if self
+            .selected_history_commit()
+            .is_some_and(|commit| !history.revisions.iter().any(|r| r.commit_id == commit))
+        {
+            format!("{count} revisions · inspected revision outside graph")
+        } else {
+            format!("{count} recorded revisions")
+        };
         let viewer = cx.entity().downgrade();
         let height = self.settings.row_height(
             self.settings.history.row_height,
@@ -229,7 +240,8 @@ impl Viewer {
                 .py_1()
                 .text_size(px(self.settings.panels.history.font.size * 0.85))
                 .text_color(rgb(0x9baab4))
-                .child(format!("{count} recorded revisions")),
+                .truncate()
+                .child(status),
         );
         panel.into_any_element()
     }

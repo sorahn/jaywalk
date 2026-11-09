@@ -105,3 +105,52 @@ fn git_and_jj_enumerate_synced_untracked_and_same_named_remote_references() {
     );
     assert_eq!(Comparison::current_operation(&f.0).unwrap(), operation);
 }
+
+#[test]
+fn hiding_remote_roots_keeps_shared_local_history_and_can_reveal_a_pinned_selection() {
+    use jaywalk::history::RemoteVisibility;
+    let f = Fixture::new();
+    let base = f.run("git", &["rev-parse", "HEAD"]);
+    f.run("git", &["remote", "add", "origin", "."]);
+    f.run("git", &["checkout", "-b", "temporary"]);
+    f.run("git", &["commit", "--allow-empty", "-m", "remote only"]);
+    let remote = f.run("git", &["rev-parse", "HEAD"]);
+    f.run("git", &["checkout", "main"]);
+    f.run("git", &["update-ref", "refs/remotes/origin/topic", &remote]);
+    f.run("git", &["update-ref", "refs/remotes/origin/main", &base]);
+    f.run("git", &["branch", "-D", "temporary"]);
+    for recorded in [false, true] {
+        if recorded {
+            f.run("jj", &["git", "init", "--colocate"]);
+        }
+        let comparison =
+            Comparison::load(&f.0, Some("main"), if recorded { "@" } else { "HEAD" }).unwrap();
+        let visible = HistoryQuery::sources(RemoteVisibility::default(), None).unwrap();
+        let hidden = HistoryQuery::sources(RemoteVisibility::all(false), None).unwrap();
+        assert!(
+            comparison
+                .history(&visible)
+                .unwrap()
+                .revisions
+                .iter()
+                .any(|r| r.commit_id == remote)
+        );
+        let filtered = comparison.history(&hidden).unwrap();
+        assert!(!filtered.revisions.iter().any(|r| r.commit_id == remote));
+        assert!(filtered.revisions.iter().any(|r| r.commit_id == base));
+        assert!(
+            filtered
+                .references
+                .references
+                .iter()
+                .any(|r| r.target == remote),
+            "hidden references remain discoverable"
+        );
+        let revealed = comparison
+            .history(
+                &HistoryQuery::sources(RemoteVisibility::all(false), Some(remote.clone())).unwrap(),
+            )
+            .unwrap();
+        assert!(revealed.revisions.iter().any(|r| r.commit_id == remote));
+    }
+}

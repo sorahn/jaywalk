@@ -241,6 +241,14 @@ impl Comparison {
     /// Compare a recorded revision against its first parent. Merge revisions
     /// deliberately use the first parent, and the UI labels this choice.
     pub fn for_revision(&self, revision: &crate::history::Revision) -> Result<Self, String> {
+        self.for_history_revision(revision, None)
+    }
+
+    pub fn for_history_revision(
+        &self,
+        revision: &crate::history::Revision,
+        operation: Option<&str>,
+    ) -> Result<Self, String> {
         if matches!(self.content, ContentSource::Git(_)) {
             return crate::git::for_revision(self, revision);
         }
@@ -251,7 +259,7 @@ impl Comparison {
             .clone();
         Self::between(
             self.root.clone(),
-            self.operation.clone(),
+            operation.unwrap_or(&self.operation).to_owned(),
             base,
             revision.commit_id.clone(),
         )
@@ -271,7 +279,8 @@ impl Comparison {
         if matches!(self.content, ContentSource::Git(_)) {
             return crate::git::history(&self.root, history);
         }
-        let revset = history.jj_revset(&self.tip);
+        let references = self.reference_snapshot()?;
+        let revset = history.jj_revset(&self.tip, &references);
         let limit = history.limit().to_string();
         let output = query(
             &self.root,
@@ -287,7 +296,34 @@ impl Comparison {
                 crate::history::TEMPLATE,
             ],
         )?;
-        Ok(crate::history::History::parse(&output)?.with_references(self.reference_snapshot()?))
+        Ok(crate::history::History::parse(&output)?.with_references(references))
+    }
+
+    pub fn current_history(
+        &self,
+        history: &crate::history::HistoryQuery,
+    ) -> Result<crate::history::History, String> {
+        if !self.supports_evolution() {
+            return self.history(history);
+        }
+        let operation = Self::current_operation(&self.root)?;
+        let references = crate::references::recorded(&self.root, &operation)?;
+        let revset = history.jj_revset(&self.tip, &references);
+        let output = query(
+            &self.root,
+            &operation,
+            &[
+                "log",
+                "--no-graph",
+                "-n",
+                &history.limit().to_string(),
+                "-r",
+                &revset,
+                "-T",
+                crate::history::TEMPLATE,
+            ],
+        )?;
+        Ok(crate::history::History::parse(&output)?.with_references(references))
     }
 
     pub(crate) fn with_catalog(mut self) -> Result<Self, String> {
