@@ -216,6 +216,7 @@ impl Viewer {
         // Preserve the requested reference. In particular, @ follows the recorded
         // workspace even when jj abandons and replaces its working-copy change.
         let tip = self.arguments.tip.clone();
+        let history_query = self.history_query.clone();
         let generation = self.repository_generation;
         let file_generation = self.file_generation;
         self.begin_loading(LoadingKind::Live, window, cx);
@@ -224,7 +225,13 @@ impl Viewer {
         self.live.refresh = Some(cx.spawn_in(window, async move |this, cx| {
             let result = cx
                 .background_spawn(async move {
-                    RecordedRefresh::load(&directory, base.as_deref(), &tip, change.as_ref())
+                    RecordedRefresh::load(
+                        &directory,
+                        base.as_deref(),
+                        &tip,
+                        change.as_ref(),
+                        &history_query,
+                    )
                 })
                 .await;
             let _ =

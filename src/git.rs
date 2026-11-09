@@ -1,5 +1,5 @@
 //! Read-only Git comparisons for repositories without Jujutsu metadata.
-use crate::history::{History, Revision};
+use crate::history::{History, HistoryQuery, HistoryScope, Revision};
 use crate::repository::{ChangedFile, Comparison, ContentSource, FileSide, next_capture};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -176,20 +176,22 @@ impl GitContents {
         })
     }
 }
-pub(crate) fn history(root: &Path) -> Result<History, String> {
-    let data = output(
-        root,
-        &[
-            "log",
-            "--topo-order",
-            "--all",
-            "HEAD",
-            "-n",
-            "200",
-            "-z",
-            "--format=%H%x00%P%x00%s%x00%an",
-        ],
-    )?;
+pub(crate) fn history(root: &Path, query: &HistoryQuery) -> Result<History, String> {
+    let limit = query.limit().to_string();
+    let mut args = vec![
+        "log",
+        "--topo-order",
+        "-n",
+        &limit,
+        "-z",
+        "--format=%H%x00%P%x00%s%x00%an",
+    ];
+    match query.scope() {
+        HistoryScope::Repository => args.extend(["--all", "HEAD"]),
+        HistoryScope::Ancestors(commits) => args.extend(commits.iter().map(String::as_str)),
+    }
+    args.push("--");
+    let data = output(root, &args)?;
     let fields: Vec<_> = data.split_terminator('\0').collect();
     if !fields.len().is_multiple_of(4) {
         return Err("Incomplete Git history entry".into());
@@ -202,7 +204,7 @@ pub(crate) fn history(root: &Path) -> Result<History, String> {
             description: entry[2].into(),
             author: entry[3].into(),
             parents: entry[1].split_whitespace().map(str::to_owned).collect(),
-            bookmarks: vec![],
+            references: vec![],
             working_copy: false,
             empty: false,
         })

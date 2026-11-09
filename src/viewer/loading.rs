@@ -46,6 +46,7 @@ impl Viewer {
             focus,
             panels: panels::PanelLayout::new(cx),
             history_scroll: UniformListScrollHandle::new(),
+            history_query: Default::default(),
             evolution,
             evolution_header: None,
             file_evolution,
@@ -97,6 +98,7 @@ impl Viewer {
         self.begin_loading(LoadingKind::Comparison, window, cx);
         self.rebuild_browser(cx);
         let arguments = self.arguments.clone();
+        let history_query = self.history_query.clone();
         self.repository_task = Some(cx.spawn_in(window, async move |this, cx| {
             let result = cx
                 .background_spawn(async move {
@@ -104,7 +106,7 @@ impl Viewer {
                     let history = if arguments.diff.is_some() {
                         jaywalk::history::History::parse("")
                     } else {
-                        comparison.history()
+                        comparison.history(&history_query)
                     };
                     Ok::<_, String>((comparison, history))
                 })

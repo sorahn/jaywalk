@@ -186,6 +186,7 @@ pub(crate) struct Viewer {
     focus: FocusHandle,
     panels: panels::PanelLayout,
     history_scroll: UniformListScrollHandle,
+    history_query: jaywalk::history::HistoryQuery,
     evolution: evolution::EvolutionPanel,
     evolution_header: Option<evolution::HeaderPresentation>,
     file_evolution: evolution::EvolutionPanel,

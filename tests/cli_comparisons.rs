@@ -149,8 +149,10 @@ fn git_worktree_and_history_are_read_only_and_use_pinned_contents() {
     fixture.write("a file.txt", "unstaged\n");
     assert_eq!(fixture.git(&["status", "--porcelain=v1"]), status);
     assert_eq!(fixture.git(&["rev-parse", "HEAD"]), initial);
-    let history = comparison.history().unwrap();
+    let history = comparison.history(&Default::default()).unwrap();
     assert_eq!(history.revisions.len(), 1);
+    let roots = jaywalk::history::HistoryQuery::ancestors(vec![initial.clone()]).unwrap();
+    assert_eq!(comparison.history(&roots).unwrap().revisions.len(), 1);
     let patch = comparison.for_revision(&history.revisions[0]).unwrap();
     assert_eq!(
         content(&patch, "a file.txt"),
@@ -169,7 +171,27 @@ fn git_worktree_and_history_are_read_only_and_use_pinned_contents() {
         content(&committed, "a file.txt"),
         ("original\n".into(), "unstaged\n".into())
     );
-    assert_eq!(committed.history().unwrap().revisions.len(), 2);
+    assert_eq!(
+        committed
+            .history(&Default::default())
+            .unwrap()
+            .revisions
+            .len(),
+        2
+    );
+    assert_eq!(committed.history(&roots).unwrap().revisions.len(), 1);
+    assert_eq!(
+        committed
+            .history(
+                &jaywalk::history::HistoryQuery::default()
+                    .with_limit(1)
+                    .unwrap()
+            )
+            .unwrap()
+            .revisions
+            .len(),
+        1
+    );
     assert!(!Path::new(&fixture.0.join(".jj")).exists());
 }
 

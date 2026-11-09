@@ -1180,7 +1180,7 @@ mod timeline_tests {
             change_id: "bbbbbbbb".into(),
             description: "edit file".into(),
             author: String::new(),
-            bookmarks: vec![],
+            references: vec![],
             parents: vec![],
             working_copy: false,
             empty: false,

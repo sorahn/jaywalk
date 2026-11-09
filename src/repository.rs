@@ -261,11 +261,15 @@ impl Comparison {
         )
     }
 
-    pub fn history(&self) -> Result<crate::history::History, String> {
+    pub fn history(
+        &self,
+        history: &crate::history::HistoryQuery,
+    ) -> Result<crate::history::History, String> {
         if matches!(self.content, ContentSource::Git(_)) {
-            return crate::git::history(&self.root);
+            return crate::git::history(&self.root, history);
         }
-        let revset = format!("ancestors(visible_heads() | {}, 200)", self.tip);
+        let revset = history.jj_revset(&self.tip);
+        let limit = history.limit().to_string();
         let output = query(
             &self.root,
             &self.operation,
@@ -273,7 +277,7 @@ impl Comparison {
                 "log",
                 "--no-graph",
                 "-n",
-                "200",
+                &limit,
                 "-r",
                 &revset,
                 "-T",
@@ -429,7 +433,7 @@ mod tests {
 
         let comparison = Comparison::load(&root, Some("main"), "@").unwrap();
         let operation_before = comparison.operation.clone();
-        let history = comparison.history().unwrap();
+        let history = comparison.history(&Default::default()).unwrap();
         let selected = history
             .revisions
             .iter()
@@ -483,7 +487,7 @@ mod tests {
         run(&["bookmark", "create", "right"]);
         run(&["new", "left", "right", "-m", "merge branches"]);
         let merge = Comparison::load(&root, Some(&comparison.tip), "@").unwrap();
-        let history = merge.history().unwrap();
+        let history = merge.history(&Default::default()).unwrap();
         let revision = history
             .revisions
             .iter()

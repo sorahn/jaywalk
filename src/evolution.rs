@@ -184,7 +184,7 @@ impl Version {
             change_id: self.change_id.clone(),
             description: self.description.clone(),
             author: String::new(),
-            bookmarks: Vec::new(),
+            references: Vec::new(),
             parents: self.parents.clone(),
             working_copy: false,
             empty: false,

@@ -1,6 +1,6 @@
 //! Follow recorded repository intent and suppress retries of unchanged failures.
 use crate::{
-    history::{History, Revision},
+    history::{History, HistoryQuery, Revision},
     repository::{Comparison, query},
 };
 use std::path::{Path, PathBuf};
@@ -29,6 +29,7 @@ impl RecordedRefresh {
         base: Option<&str>,
         tip: &str,
         selected: Option<&FollowedChange>,
+        history_query: &HistoryQuery,
     ) -> Result<Self, RefreshFailure> {
         let operation =
             Comparison::current_operation(directory).map_err(|message| RefreshFailure {
@@ -38,7 +39,7 @@ impl RecordedRefresh {
         let read = || -> Result<Self, String> {
             let root = PathBuf::from(query(directory, &operation, &["root"])?.trim());
             let branch = Comparison::recorded_at(root, operation.clone(), base, tip)?;
-            let history = branch.history()?;
+            let history = branch.history(history_query)?;
             let revision = match selected {
                 None => None,
                 Some(selected) => Some(match branch.visible_change(&selected.change_id)? {

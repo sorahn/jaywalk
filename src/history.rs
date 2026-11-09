@@ -1,3 +1,80 @@
+//! Recorded revisions, typed references and explicit history query scope.
+const DEFAULT_HISTORY_LIMIT: usize = 200;
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum TrackingState {
+    Tracked,
+    Untracked,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ReferenceKind {
+    Local,
+    Remote {
+        remote: String,
+        tracking: Option<TrackingState>,
+    },
+}
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Reference {
+    pub name: String,
+    pub target: String,
+    pub kind: ReferenceKind,
+}
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum HistoryScope {
+    Repository,
+    Ancestors(Vec<String>),
+}
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct HistoryQuery {
+    scope: HistoryScope,
+    limit: usize,
+}
+impl Default for HistoryQuery {
+    fn default() -> Self {
+        Self {
+            scope: HistoryScope::Repository,
+            limit: DEFAULT_HISTORY_LIMIT,
+        }
+    }
+}
+impl HistoryQuery {
+    pub fn ancestors(commits: Vec<String>) -> Result<Self, String> {
+        if commits.is_empty()
+            || commits
+                .iter()
+                .any(|id| id.is_empty() || !id.bytes().all(|byte| byte.is_ascii_hexdigit()))
+        {
+            return Err("History roots must be resolved commit IDs".into());
+        }
+        Ok(Self {
+            scope: HistoryScope::Ancestors(commits),
+            ..Self::default()
+        })
+    }
+    pub fn with_limit(mut self, limit: usize) -> Result<Self, String> {
+        if limit == 0 {
+            return Err("History limit must be positive".into());
+        }
+        self.limit = limit;
+        Ok(self)
+    }
+    pub fn scope(&self) -> &HistoryScope {
+        &self.scope
+    }
+    pub fn limit(&self) -> usize {
+        self.limit
+    }
+    pub(crate) fn jj_revset(&self, tip: &str) -> String {
+        let roots = match &self.scope {
+            HistoryScope::Repository => format!("visible_heads() | {tip}"),
+            HistoryScope::Ancestors(commits) => commits.join(" | "),
+        };
+        format!("ancestors({roots}, {})", self.limit)
+    }
+}
+
 pub(crate) const TEMPLATE: &str = r#""[" ++ json(commit_id) ++ "," ++ json(change_id) ++ "," ++ json(description.first_line()) ++ "," ++ json(author.name()) ++ ",[" ++ bookmarks.map(|b| json(b.name())).join(",") ++ "],[" ++ parents.map(|p| json(p.commit_id())).join(",") ++ "]," ++ json(current_working_copy) ++ "," ++ json(empty) ++ "]\n""#;
 // Recorded revision metadata and topological graph lanes, independent of UI.
 
@@ -7,7 +84,7 @@ pub struct Revision {
     pub change_id: String,
     pub description: String,
     pub author: String,
-    pub bookmarks: Vec<String>,
+    pub references: Vec<Reference>,
     pub parents: Vec<String>,
     pub working_copy: bool,
     pub empty: bool,
@@ -84,11 +161,18 @@ impl History {
                 }
             }
             revisions.push(Revision {
-                commit_id,
+                commit_id: commit_id.clone(),
                 change_id,
                 description,
                 author,
-                bookmarks,
+                references: bookmarks
+                    .into_iter()
+                    .map(|name| Reference {
+                        name,
+                        target: commit_id.clone(),
+                        kind: ReferenceKind::Local,
+                    })
+                    .collect(),
                 parents,
                 working_copy,
                 empty,
@@ -206,5 +290,37 @@ mod tests {
     #[test]
     fn malformed_history_ids_are_not_used_as_revsets() {
         assert!(History::parse("[\"all()\",\"id\",\"title\",\"author\",[],[]]").is_err());
+    }
+}
+
+#[cfg(test)]
+mod query_tests {
+    use super::{History, HistoryQuery, ReferenceKind};
+    #[test]
+    fn query_scope_and_reference_identity_are_independent_of_graph_geometry() {
+        let query = HistoryQuery::default();
+        assert_eq!(query.limit(), 200);
+        assert_eq!(
+            query.jj_revset("abc"),
+            "ancestors(visible_heads() | abc, 200)"
+        );
+        assert_eq!(
+            HistoryQuery::ancestors(vec!["abc".into(), "def".into()])
+                .unwrap()
+                .with_limit(12)
+                .unwrap()
+                .jj_revset("unused"),
+            "ancestors(abc | def, 12)"
+        );
+        assert!(query.with_limit(0).is_err());
+        assert!(HistoryQuery::ancestors(vec![]).is_err());
+        assert!(HistoryQuery::ancestors(vec!["all()".into()]).is_err());
+        let history =
+            History::parse(r#"["abc","change","title","author",["main","feature"],[]]"#).unwrap();
+        let references = &history.revisions[0].references;
+        assert_eq!(references.len(), 2);
+        assert_eq!(references[0].name, "main");
+        assert_eq!(references[0].target, "abc");
+        assert_eq!(references[0].kind, ReferenceKind::Local);
     }
 }
