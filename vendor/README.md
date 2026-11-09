@@ -37,3 +37,11 @@ comparisons keep their standalone host header.
 
 `DiffState::remeasure_preamble` invalidates the first list item's measured height
 when host-provided message disclosures change, retaining the list's scroll anchor.
+
+The default diff file header folds from its filename/status/statistics area as
+well as its caret. Header prefix/suffix controls and file annotations remain
+outside that click target, so actions such as opening a file do not also fold it.
+Both natural and sticky headers use the same rendering path.
+
+The diff state exposes a virtualized viewport offset and restoration method for
+retained overview views in the host's Back/Forward history.

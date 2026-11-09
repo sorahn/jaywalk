@@ -533,6 +533,15 @@ impl DiffState {
         self.row_position(self.list.logical_scroll_top().item_ix)
     }
 
+    /// Virtualized viewport position, for restoring a retained overview.
+    pub fn viewport_offset(&self) -> ListOffset {
+        self.list.logical_scroll_top()
+    }
+    pub fn restore_viewport_offset(&mut self, offset: ListOffset, cx: &mut Context<Self>) {
+        self.list.scroll_to(offset);
+        cx.notify();
+    }
+
     /// Remeasure host-provided overview content after a disclosure changes it.
     pub fn remeasure_preamble(&mut self, cx: &mut Context<Self>) {
         if self.list.item_count() > 0 {

@@ -76,6 +76,9 @@ pub(super) fn update_menus(cx: &mut App) {
             item(ResetInterface),
         ]),
         Menu::new("Go").items([
+            item(GoBack),
+            item(GoForward),
+            MenuItem::separator(),
             item(WholeBranch),
             item(Overview),
             MenuItem::separator(),

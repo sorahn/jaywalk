@@ -149,7 +149,48 @@ impl EvolutionPanel {
     }
 }
 
+#[derive(Clone)]
+pub(super) struct EvolutionCheckpoint {
+    panels: [Option<TimelinePresentation>; 2],
+    groups: [HashSet<String>; 2],
+    active: EvolutionKind,
+    header: Option<HeaderPresentation>,
+}
 impl Viewer {
+    pub(super) fn capture_evolution(&self) -> EvolutionCheckpoint {
+        EvolutionCheckpoint {
+            panels: [
+                self.evolution.presentation(),
+                self.file_evolution.presentation(),
+            ],
+            groups: [
+                self.evolution.expanded_groups.clone(),
+                self.file_evolution.expanded_groups.clone(),
+            ],
+            active: self.active_evolution,
+            header: self.evolution_header.clone(),
+        }
+    }
+    pub(super) fn restore_evolution(&mut self, checkpoint: EvolutionCheckpoint) -> bool {
+        let has_change = checkpoint.panels[0].is_some();
+        for ((panel, presentation), groups) in [&mut self.evolution, &mut self.file_evolution]
+            .into_iter()
+            .zip(checkpoint.panels)
+            .zip(checkpoint.groups)
+        {
+            panel.clear();
+            if let Some(presentation) = presentation {
+                panel.file_path = presentation.file_path;
+                panel.scroll = presentation.scroll;
+                panel.state = TimelineState::Loaded(presentation.session);
+                panel.expanded_groups = groups;
+                panel.rebuild();
+            }
+        }
+        self.active_evolution = checkpoint.active;
+        self.evolution_header = checkpoint.header;
+        has_change
+    }
     fn evolution_panel(&self, kind: EvolutionKind) -> &EvolutionPanel {
         match kind {
             EvolutionKind::Change => &self.evolution,
@@ -512,6 +553,7 @@ impl Viewer {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        self.checkpoint_navigation(cx);
         self.remember_evolution_header();
         self.active_evolution = kind;
         let panel = self.evolution_panel_mut(kind);

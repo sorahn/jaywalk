@@ -241,6 +241,12 @@ they do not detach. For example:
 The default view is the whole-branch overview. The outer left pane shows up to
 200 recorded jj revisions, one message per line. The graph column reserves
 space only for lanes in the visible rows, expanding and shrinking as you scroll.
+Back/Forward toolbar arrows, Cmd+Option+Left/Right and mouse navigation buttons
+retrace the views visited in each window, independently of file and graph ordering.
+They retain recorded comparisons and restore file/overview reading positions where
+possible. Restored views stay pinned until Refresh or another comparison selection.
+The in-memory limit is configured by `navigation.history_limit` (default 100).
+
 Selecting a revision updates the inner file pane to that commit's changes.
 Merge revisions compare against their first parent, as indicated in the view.
 The Whole branch button (Cmd+Shift+B on macOS) returns to the original
@@ -262,7 +268,8 @@ next/previous-change commands; Fluid and split controls belong to the file viewe
 The full overview message scrolls away with the diff, folding its subject into the existing
 comparison bar (for example, **Whole branch · Working copy**). Long subjects truncate with an ellipsis; scrolling back to
 the top reveals the full message. File headers stick below that subject, and
-the next file header pushes the current one away. The sidebar uses a reading tint for the top file,
+the next file header pushes the current one away. Click the caret or the
+filename/status area to fold a file; **Open file** remains a separate action. The sidebar uses a reading tint for the top file,
 separate from file selection, and scrolls only enough to keep that row visible.
 Collapsed folders stay collapsed and carry the indicator for a contained file.
 Tracking neither opens a file nor moves keyboard focus. List mode follows the

@@ -108,6 +108,9 @@ impl Viewer {
         }
         let previous_wrap = self.wrapping;
         let previous = std::mem::replace(&mut self.settings, settings);
+        self.navigation
+            .history
+            .set_limit(self.settings.navigation.history_limit);
         if previous.application != self.settings.application {
             crate::windows::apply_application_settings(&self.settings.application, cx);
         }

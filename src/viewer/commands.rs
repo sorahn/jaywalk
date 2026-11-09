@@ -140,6 +140,8 @@ impl Viewer {
         cx: &mut Context<Self>,
     ) {
         match command {
+            CommandId::GoBack => self.navigate_view(false, window, cx),
+            CommandId::GoForward => self.navigate_view(true, window, cx),
             CommandId::FindFile => self.open_palette(palette::PaletteKind::Files, window, cx),
             CommandId::ShowCommands => {
                 self.open_palette(palette::PaletteKind::Commands, window, cx)
@@ -153,12 +155,7 @@ impl Viewer {
             CommandId::OpenSettings => self.open_settings_file(window, cx),
             CommandId::WholeBranch => self.show_whole_branch(window, cx),
             CommandId::Overview => {
-                window.focus(&self.focus, cx);
-                self.remember_reading(cx);
-                self.clear_file();
-                self.rebuild_browser(cx);
-                self.focus_evolution_file(None);
-                cx.notify();
+                self.show_overview(window, cx);
             }
             CommandId::Refresh => {
                 self.invalidate_overview();

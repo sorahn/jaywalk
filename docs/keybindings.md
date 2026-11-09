@@ -10,6 +10,7 @@ The first shortcut in an array is the primary one shown in hints.
 
 | Action | macOS shortcut | Alternatives |
 | --- | --- | --- |
+| Back / forward through visited views | Cmd+Option+Left / Cmd+Option+Right | Mouse navigation buttons; toolbar arrows |
 | Previous / next change | Cmd+Up / Cmd+Down | Option+Shift+F5 / Option+F5; Shift+F7 / F7 |
 | Previous / next file | Cmd+[ / Cmd+] | Option+Up / Option+Down |
 | Previous / next history entry | Cmd+Shift+[ / Cmd+Shift+] | Cmd+Option+Up / Cmd+Option+Down |
@@ -34,6 +35,18 @@ retain their text-navigation behavior. Copy, selection and ordinary cursor
 movement retain the framework's normal context-sensitive behavior unless you
 remap them explicitly. macOS-reserved shortcuts, text composition and system
 application switching are outside Jaywalk's keymap.
+
+Back and Forward retrace visited comparisons, overviews and files in this window,
+including evolution version/mode selections. They are separate from next/previous
+file or graph ordering. Returning restores the recorded comparison and reading
+position where possible, including retained files absent from that comparison.
+Overview disclosures remain shared with their retained diff model; scrolling
+restores a bounded list position. Restored views stay pinned until you Refresh
+or explicitly select another comparison. Scrolling, repeated selection and live
+refresh do not create entries; leaving a restored location for a new destination
+clears the forward path. Back during a new pending load cancels it and restores
+the last displayed destination; unfinished destinations are not recorded.
+History is in memory, per window, capped by `navigation.history_limit`.
 
 ## Key notation
 
@@ -105,6 +118,8 @@ layout/reset/remote-management command merely to fill the table.
 | `keybindings.view_inline` | `["secondary-k 1"]` | View: inline |
 | `keybindings.view_side_by_side` | `["secondary-k 2"]` | View: side by side |
 | `keybindings.view_fluid` | `["secondary-k 3"]` | View: Fluid |
+| `keybindings.go_back` | `["secondary-alt-left"]` | Back through visited views |
+| `keybindings.go_forward` | `["secondary-alt-right"]` | Forward through visited views |
 | `keybindings.next_change` | `["secondary-down", "alt-f5", "f7"]` | Next change |
 | `keybindings.previous_change` | `["secondary-up", "alt-shift-f5", "shift-f7"]` | Previous change |
 | `keybindings.next_file` | `["secondary-]", "alt-down"]` | Next file |

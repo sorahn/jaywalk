@@ -1308,6 +1308,7 @@ fn render_file_header_content(
             _ => None,
         };
         let statistics = !document.is_single_column();
+        let fold_state = code.state.clone();
         h_flex()
             .w_full()
             .min_w_0()
@@ -1315,29 +1316,41 @@ fn render_file_header_content(
             .children(prefix)
             .child(
                 h_flex()
+                    .id("fold-file-title")
                     .min_w_0()
                     .flex_1()
                     .gap_2()
-                    .child(div().min_w_0().truncate().font_medium().child(name))
-                    .when_some(title_suffix, |this, suffix| {
-                        this.child(div().flex_shrink_0().child(suffix))
+                    .cursor_pointer()
+                    .on_click(move |_, _, cx| {
+                        fold_state.update(cx, |state, cx| state.toggle_file_collapsed(file, cx));
+                        cx.stop_propagation();
+                    })
+                    .child(
+                        h_flex()
+                            .min_w_0()
+                            .flex_1()
+                            .gap_2()
+                            .child(div().min_w_0().truncate().font_medium().child(name))
+                            .when_some(title_suffix, |this, suffix| {
+                                this.child(div().flex_shrink_0().child(suffix))
+                            }),
+                    )
+                    .when(statistics, |this| {
+                        this.child(div().text_xs().text_color(foreground).child(format!(
+                            "+{} −{}",
+                            document.additions(),
+                            document.deletions()
+                        )))
+                    })
+                    .when_some(status, |this, status| {
+                        this.child(
+                            div()
+                                .text_xs()
+                                .text_color(foreground)
+                                .child(status.to_string()),
+                        )
                     }),
             )
-            .when(statistics, |this| {
-                this.child(div().text_xs().text_color(foreground).child(format!(
-                    "+{} −{}",
-                    document.additions(),
-                    document.deletions()
-                )))
-            })
-            .when_some(status, |this, status| {
-                this.child(
-                    div()
-                        .text_xs()
-                        .text_color(foreground)
-                        .child(status.to_string()),
-                )
-            })
             .children(suffix)
             .into_any_element()
     };
