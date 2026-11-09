@@ -300,6 +300,7 @@ impl Viewer {
             .collect::<Vec<_>>();
         let notices = files.clone();
         let diff = Diff::new(&loaded.state)
+            .sticky_headers(true)
             .code_font(theme.mono_font_family.clone(), px(self.code_font_size))
             .font_features(typography::features(self.settings.editor.ligatures))
             .line_number(self.line_numbers)

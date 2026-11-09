@@ -16,3 +16,9 @@ The input highlighter adapter also exposes `PreparedInputHighlighter` in
 `src/highlighter/input_adapter.rs` and `src/highlighter/mod.rs`. It lets the host
 parse immutable comparison text on a background thread and install the complete
 parse before displaying it, avoiding a plain-text frame and delayed re-highlighting.
+
+The diff widget also supports opt-in sticky file headers (`Diff::sticky_headers`)
+and exposes `DiffState::viewport_file` for host reading indicators. Sticky header
+placement uses current-frame list geometry in `src/diff/sticky.rs`, reusing the
+normal interactive header without duplicating file annotations. The next file's
+header pushes it away; ordinary single-file views keep this feature disabled.
