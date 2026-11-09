@@ -23,6 +23,9 @@ impl ViewChoice {
     pub fn preferred(self) -> DiffView {
         self.preferred
     }
+    pub fn is_single_file(self) -> bool {
+        self.presentation == FilePresentation::SingleFile
+    }
     pub fn effective(self) -> DiffView {
         match self.presentation {
             FilePresentation::Comparison => self.preferred,

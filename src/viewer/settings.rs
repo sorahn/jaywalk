@@ -78,7 +78,11 @@ impl Viewer {
             {
                 return standard.read(cx).viewport_position();
             }
-            let state = code.after.read(cx);
+            let state = if self.view.is_single_file() {
+                code.before.read(cx)
+            } else {
+                code.after.read(cx)
+            };
             let line = state.visible_row_range().map_or(0, |range| range.start);
             let path = self.selected_path()?;
             Some(gpui::component::diff::DiffLinePosition::new(
@@ -157,8 +161,24 @@ impl Viewer {
         }
         if let Some(code) = self.code() {
             for (state, old, wrap) in [
-                (&code.before, previous_wrap.before, self.wrapping.before),
-                (&code.after, previous_wrap.after, self.wrapping.after),
+                (
+                    &code.before,
+                    if self.view.is_single_file() {
+                        previous_wrap.inline
+                    } else {
+                        previous_wrap.before
+                    },
+                    self.editor_wraps()[0],
+                ),
+                (
+                    &code.after,
+                    if self.view.is_single_file() {
+                        previous_wrap.inline
+                    } else {
+                        previous_wrap.after
+                    },
+                    self.editor_wraps()[1],
+                ),
             ] {
                 state.update(cx, |state, cx| {
                     state.set_line_number(self.line_numbers, window, cx)

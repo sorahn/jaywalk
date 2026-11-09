@@ -164,8 +164,8 @@ impl Viewer {
                 }
                 if let Some(code) = self.code() {
                     for (state, wrap) in [
-                        (&code.before, self.wrapping.before),
-                        (&code.after, self.wrapping.after),
+                        (&code.before, self.editor_wraps()[0]),
+                        (&code.after, self.editor_wraps()[1]),
                     ] {
                         state.update(cx, |state, cx| {
                             state.set_soft_wrap(wrap, window, cx);

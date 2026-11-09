@@ -166,7 +166,7 @@ impl Viewer {
 
     pub(super) fn select_path(&mut self, path: &str, window: &mut Window, cx: &mut Context<Self>) {
         if let Some(comparison) = self.comparison().cloned()
-            && let Some(file) = comparison.changed_file(path)
+            && let Some(file) = comparison.catalog.find(path).cloned()
         {
             self.load_file(comparison, file, FileLoad::Select, window, cx);
         }
@@ -190,7 +190,7 @@ impl Viewer {
     pub(super) fn follow_open_file(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if let Some(path) = self.selected_path()
             && let Some(comparison) = self.comparison().cloned()
-            && let Some(file) = comparison.changed_file(&path)
+            && let Some(file) = comparison.catalog.find(&path).cloned()
         {
             self.load_file(comparison, file, FileLoad::Follow, window, cx);
         }
@@ -259,6 +259,11 @@ impl Viewer {
                 if preserve && let Some(snapshot) = viewer.capture_reading(cx) {
                     viewer.live.restore = Some((path.clone(), snapshot));
                 }
+                viewer.view.present(if metadata.kind().is_none() {
+                    jaywalk::view_choice::FilePresentation::SingleFile
+                } else {
+                    jaywalk::view_choice::FilePresentation::Comparison
+                });
                 let content = match result {
                     Err(error) => LoadState::Failed(error),
                     Ok(prepared) => {
@@ -294,6 +299,7 @@ impl Viewer {
                                 .with_mode(mode)
                             }))
                         });
+                        let [before_wrap, after_wrap] = viewer.editor_wraps();
                         let mut make_editor = |text, wrap, cx: &mut Context<Self>| {
                             cx.new(|cx| {
                                 EditorState::new(window, cx)
@@ -308,8 +314,8 @@ impl Viewer {
                                     .default_value(text)
                             })
                         };
-                        let before = make_editor(prepared.before, viewer.wrapping.before, cx);
-                        let after = make_editor(prepared.after, viewer.wrapping.after, cx);
+                        let before = make_editor(prepared.before, before_wrap, cx);
+                        let after = make_editor(prepared.after, after_wrap, cx);
                         for (state, syntax) in [&before, &after].into_iter().zip(prepared.syntax) {
                             state.update(cx, |editor, cx| {
                                 editor.set_highlighter_factory(syntax.into_factory(), cx)
@@ -404,10 +410,14 @@ impl Viewer {
         let code = self.code().expect("a followed file has mounted editors");
         let before = code.before.clone();
         let after = code.after.clone();
+        let wraps = self.editor_wraps();
+        for (state, wrap) in [(&before, wraps[0]), (&after, wraps[1])] {
+            state.update(cx, |editor, cx| editor.set_soft_wrap(wrap, window, cx));
+        }
         if before.read(cx).value().as_ref() == prepared.before
             && after.read(cx).value().as_ref() == prepared.after
         {
-            self.live.restore = None;
+            self.restore_prepared_reading(&path, &prepared.before, &prepared.after);
             return;
         }
         self.restore_prepared_reading(&path, &prepared.before, &prepared.after);
@@ -454,7 +464,15 @@ impl Viewer {
                 cx,
             );
         }
-        if self.view.effective() == ViewMode::Fluid
+        let presentation_changed = self
+            .selected_file
+            .as_ref()
+            .is_some_and(|selected| selected.file.kind().is_none())
+            != self.view.is_single_file();
+        // A different pane width needs the new frame's measured wrap map. Leave
+        // its source anchors for the fluid/standard overlay to restore together.
+        if !presentation_changed
+            && (self.view.effective() == ViewMode::Fluid || self.view.is_single_file())
             && let Some((left, right, horizontal)) = self.live.pending_position.take()
         {
             // set_value updates the cached wrap map synchronously. Restore
@@ -462,7 +480,15 @@ impl Viewer {
             let geometry = comparison_geometry(before.read(cx), after.read(cx), &prepared.model);
             self.fluid.position = geometry.position_for_line(&prepared.model, left, true);
             for (state, positions, line) in [
-                (&before, &geometry.before, left),
+                (
+                    &before,
+                    &geometry.before,
+                    if self.view.is_single_file() {
+                        right
+                    } else {
+                        left
+                    },
+                ),
                 (&after, &geometry.after, right),
             ] {
                 state.update(cx, |editor, cx| {
