@@ -75,38 +75,15 @@ The [documentation index](docs/README.md) lists project guides.
 
 ## Keyboard commands
 
-Shortcuts follow familiar VS Code/Zed conventions where the actions correspond.
-`secondary` means Command on macOS and Control elsewhere. These are the defaults:
+Cmd+Up/Down moves between changes, Cmd+[ and Cmd+] between files, and
+Cmd+Shift+[ and Cmd+Shift+] through history. Whole-branch overview precedes the first history entry; going
+back from that first entry returns to overview. Cmd+P finds repository files;
+Cmd+Shift+P opens commands. Shortcuts follow the active focus context.
 
-| Action | macOS shortcut |
-| --- | --- |
-| Open repository in another window | Cmd+O |
-| Open settings in the system text editor | Cmd+, |
-| Find changed file | Cmd+P |
-| Command palette | Cmd+Shift+P or F1 |
-| Toggle History | Cmd+B |
-| Toggle Changed files | Cmd+Shift+E |
-| Toggle word wrap | Option+Z |
-| Increase/decrease/reset viewer font size | Cmd+= / Cmd+- / Cmd+0 |
-| Next/previous change | Option+F5 / Option+Shift+F5 (also F7 / Shift+F7) |
-| Next/previous file | Option+Down / Option+Up |
-| Next/previous revision | Cmd+Option+Down / Cmd+Option+Up |
-| Whole branch | Cmd+Shift+B |
-| Refresh | Cmd+R |
-| Close window / quit | Cmd+W / Cmd+Q |
-
-The command palette also includes line numbers, all three diff views, evolution
-review modes, and Reset panel layout. Bound commands display their current
-shortcut. The complete command IDs are listed under `[keybindings]` in
-`config/default.toml`. Override a command's array to replace its shortcuts;
-use `[]` to remove them. Space-separated strokes form a chord. Invalid shortcuts,
-unknown commands, and duplicate shortcuts assigned to different commands reject
-the entire update while retaining the last valid settings/keymap. Reloading keys
-preserves the toolkit's editing, selection, and copy bindings.
-
-Shortcut references: [VS Code defaults](https://code.visualstudio.com/docs/reference/default-keybindings)
-and [Zed keymaps](https://zed.dev/docs/key-bindings). Jaywalk-specific actions
-keep their existing shortcuts where there is no direct editor equivalent.
+Every application and widget shortcut can be remapped or disabled. See the
+[keybindings guide](docs/keybindings.md) for all defaults, remapping examples,
+input/tree/diff contexts and the conventions used to choose the defaults.
+The first shortcut in an array supplies the primary menu/palette hint.
 
 ## macOS application
 

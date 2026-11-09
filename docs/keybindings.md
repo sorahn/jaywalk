@@ -1,0 +1,287 @@
+# Keybindings
+
+Jaywalk uses the same commands for shortcuts, the command palette and native
+menus. All application shortcuts and framework/widget bindings can be remapped
+or disabled in your [TOML configuration](settings.md). Updates apply live, and
+menus, command-palette hints and action-aware tooltips follow the active keymap.
+The first shortcut in an array is the primary one shown in hints.
+
+## Default review navigation
+
+| Action | macOS shortcut | Alternatives |
+| --- | --- | --- |
+| Previous / next change | Cmd+Up / Cmd+Down | Option+Shift+F5 / Option+F5; Shift+F7 / F7 |
+| Previous / next file | Cmd+[ / Cmd+] | Option+Up / Option+Down |
+| Previous / next history entry | Cmd+Shift+[ / Cmd+Shift+] | Cmd+Option+Up / Cmd+Option+Down |
+| Whole branch | Cmd+Shift+B | |
+| Overview of the current comparison | Cmd+K, then O | |
+| Find any repository file | Cmd+P | |
+| Command palette | Cmd+Shift+P | F1 |
+| Open settings | Cmd+, | |
+| Toggle wrap | Option+Z | Cmd+K, then Z |
+| Toggle line numbers | Cmd+; | |
+| Inline / side-by-side / Fluid | Cmd+K, then 1 / 2 / 3 | |
+
+The overview is the position before the first entry in the visible history
+list. Cmd+Shift+] from whole-branch overview selects that first entry;
+Cmd+Shift+[ from the first entry returns to whole-branch overview. Navigation
+does not wrap at either end. Selecting a revision follows the graph's visible
+ordering and its current remote filters.
+
+Cmd+Up/Down review navigation overrides source movement in the read-only Fluid
+editors and standard diff, including overview. Editable search/picker inputs
+retain their text-navigation behavior. Copy, selection and ordinary cursor
+movement retain the framework's normal context-sensitive behavior unless you
+remap them explicitly. macOS-reserved shortcuts, text composition and system
+application switching are outside Jaywalk's keymap.
+
+## Key notation
+
+Use GPUI notation in strings:
+
+- `secondary` is Cmd on macOS and Ctrl elsewhere.
+- `ctrl`, `alt` and `shift` specify those modifiers explicitly. `alt` is Option
+  on macOS. This remains a macOS-first application; these aliases do not imply
+  every platform integration is implemented.
+- Hyphens join modifiers and a key, such as `"secondary-shift-p"`.
+- Shifted punctuation uses the produced character in GPUI's macOS event format:
+  `"secondary-}"` represents Cmd+Shift+] and `"secondary-{"` represents
+  Cmd+Shift+[ on a US-style layout. This is why the history defaults use braces;
+  do not spell these as `"secondary-shift-]"` or `"secondary-shift-["`.
+  Character placement can differ with your keyboard layout.
+- Spaces separate chord strokes: `"secondary-k 1"` is Cmd+K followed by 1,
+  without holding Cmd for the second stroke.
+- Multiple strings give alternatives, not a chord:
+  `["secondary-down", "f7"]` binds either shortcut to the same command.
+- A chord prefix can delay a matching single-stroke shortcut; avoid assigning
+  an immediate command to the prefix of another chord unless that is intended.
+
+## Remap application commands: `[keybindings]`
+
+Map a command ID to an array of shortcuts. An override replaces that command's
+entire array; unspecified commands inherit defaults. `[]` removes every
+shortcut for that command, while leaving its menu/palette action available.
+Remove the setting to restore defaults. Use `[]`, not `[""]`, to unbind.
+
+For example, use only F7 for changes and disable the history-panel shortcut:
+
+```toml
+[keybindings]
+next_change = ["f7"]
+previous_change = ["shift-f7"]
+toggle_history = []
+```
+
+Application shortcuts are active in repository windows, with context-specific
+source overrides for change navigation. Application-level commands such as
+Quit and Open repository also work without a repository window. Some commands
+require suitable content: an evolution command needs jj metadata, for example.
+Unbound commands remain remappable; no artificial default is assigned to every
+layout/reset/remote-management command merely to fill the table.
+
+| Setting | Default | Command |
+| --- | --- | --- |
+| `keybindings.about` | `[]` | About Jaywalk |
+| `keybindings.open_repository` | `["secondary-o"]` | Open repository… |
+| `keybindings.find_file` | `["secondary-p"]` | Find any repository file |
+| `keybindings.show_commands` | `["secondary-shift-p", "f1"]` | Command palette |
+| `keybindings.open_settings` | `["secondary-,"]` | Open settings |
+| `keybindings.version_patch` | `["secondary-k p"]` | Version patch |
+| `keybindings.since_previous` | `["secondary-k s"]` | Since previous version |
+| `keybindings.refresh` | `["secondary-r"]` | Refresh recorded changes |
+| `keybindings.whole_branch` | `["secondary-shift-b"]` | Whole branch |
+| `keybindings.overview` | `["secondary-k o"]` | Changeset overview |
+| `keybindings.show_references` | `["secondary-k r"]` | Browse references |
+| `keybindings.toggle_reference_labels` | `[]` | Toggle reference labels |
+| `keybindings.show_all_remotes` | `[]` | Show all remote history |
+| `keybindings.hide_all_remotes` | `[]` | Hide all remote history |
+| `keybindings.reveal_selected_revision` | `["secondary-k h"]` | Reveal inspected revision in history |
+| `keybindings.toggle_history` | `["secondary-b"]` | Toggle history panel |
+| `keybindings.toggle_files` | `["secondary-shift-e"]` | Toggle changed files panel |
+| `keybindings.toggle_change_evolution` | `["secondary-k e"]` | Toggle change evolution |
+| `keybindings.toggle_file_evolution` | `["secondary-k f"]` | Toggle file evolution |
+| `keybindings.toggle_wrap` | `["alt-z", "secondary-k z"]` | Toggle word wrap |
+| `keybindings.toggle_line_numbers` | `["secondary-;"]` | Toggle line numbers |
+| `keybindings.view_inline` | `["secondary-k 1"]` | View: inline |
+| `keybindings.view_side_by_side` | `["secondary-k 2"]` | View: side by side |
+| `keybindings.view_fluid` | `["secondary-k 3"]` | View: Fluid |
+| `keybindings.next_change` | `["secondary-down", "alt-f5", "f7"]` | Next change |
+| `keybindings.previous_change` | `["secondary-up", "alt-shift-f5", "shift-f7"]` | Previous change |
+| `keybindings.next_file` | `["secondary-]", "alt-down"]` | Next file |
+| `keybindings.previous_file` | `["secondary-[", "alt-up"]` | Previous file |
+| `keybindings.next_revision` | `["secondary-}", "secondary-alt-down"]` | Next revision |
+| `keybindings.previous_revision` | `["secondary-{", "secondary-alt-up"]` | Previous revision |
+| `keybindings.zoom_in` | `["secondary-="]` | Increase font size |
+| `keybindings.zoom_out` | `["secondary--"]` | Decrease font size |
+| `keybindings.reset_zoom` | `["secondary-0"]` | Reset font size |
+| `keybindings.reset_layout` | `[]` | Reset panel layout |
+| `keybindings.history_left` | `[]` | Move history to left |
+| `keybindings.history_right` | `[]` | Move history to right |
+| `keybindings.files_left` | `[]` | Move changed files to left |
+| `keybindings.files_right` | `[]` | Move changed files to right |
+| `keybindings.swap_sidebars` | `[]` | Swap sidebar order |
+| `keybindings.change_evolution_sidebar` | `[]` | Dock change evolution below history |
+| `keybindings.change_evolution_bottom` | `[]` | Dock change evolution at bottom |
+| `keybindings.file_evolution_sidebar` | `[]` | Dock file evolution below changed files |
+| `keybindings.file_evolution_bottom` | `[]` | Dock file evolution at bottom |
+| `keybindings.reset_interface` | `[]` | Reset repository interface choices |
+| `keybindings.quit` | `["secondary-q"]` | Quit Jaywalk |
+| `keybindings.close_window` | `["secondary-w"]` | Close window |
+| `keybindings.minimize` | `["secondary-m"]` | Minimize |
+| `keybindings.fullscreen` | `["ctrl-secondary-f"]` | Toggle full screen |
+| `keybindings.hide` | `["secondary-h"]` | Hide Jaywalk |
+| `keybindings.hide_others` | `["secondary-alt-h"]` | Hide others |
+| `keybindings.show_all` | `[]` | Show all |
+
+## Remap widget shortcuts: `[[keymap]]`
+
+Framework actions cover source editing/navigation, clipboard operations,
+selection, tree navigation, palette confirmation/cancellation and other
+controls. These are separate from application commands. Advanced overrides
+rebind existing actions in their original contexts, preserving their action
+parameters; they do not invent new actions or change a control's behavior.
+
+Each `[[keymap]]` entry has these fields:
+
+| Field | Required | Meaning |
+| --- | --- | --- |
+| action | Yes | Exact framework action name, such as `"input::Copy"` or `"ui::SelectDown"`. |
+| keys | Yes | Replacement shortcut array. `[]` disables matching defaults. |
+| context | No | Match one exact original context predicate. Omitted matches every original context for this action; `""` selects global bindings. |
+| from | No | Select one original shortcut, including a complete chord. Useful for actions whose original shortcuts carry different parameters. |
+
+If you copied the complete default template, remove its top-level `keymap = []`
+before adding `[[keymap]]` entries; TOML cannot define the same array twice.
+For a normal overrides-only file, just add the entries below. To restore every
+widget default, remove all `[[keymap]]` entries or set `keymap = []` at the root
+of the file, before any section headers. The array replaces defaults as a whole.
+
+### Copy without changing where it works
+
+This replaces the default Copy shortcuts in every original context, including
+source, diff and text input. It keeps the focus predicates rather than making
+Copy a global action everywhere:
+
+```toml
+[[keymap]]
+action = "input::Copy"
+keys = ["secondary-insert"]
+```
+
+### Tree-only navigation
+
+Limit plain J/K keys to the tree so they do not consume text typed into a search
+field or palette:
+
+```toml
+[[keymap]]
+action = "ui::SelectDown"
+context = "Tree"
+keys = ["j"]
+
+[[keymap]]
+action = "ui::SelectUp"
+context = "Tree"
+keys = ["k"]
+```
+
+### Replace one parameterized shortcut
+
+Some actions have several defaults with different parameters. Selecting the
+original shortcut preserves its payload and leaves other variants unchanged:
+
+```toml
+[[keymap]]
+action = "ui::Confirm"
+context = "Command"
+from = "enter"
+keys = ["ctrl-enter"]
+```
+
+Use a matching original predicate, not a new desired scope. `context = "Input"`
+selects defaults already bound in `Input`; it does not move bindings from
+`Diff` into `Input`. Predicates use GPUI expressions (`&&`, `||`, `!`, `>` and
+context values), but a selector must normalize to an existing predicate.
+`from` refers to the pristine default shortcut, even after earlier reloads.
+
+### Common framework actions and contexts
+
+| Actions | Typical original context | Purpose |
+| --- | --- | --- |
+| `input::Copy`, `input::SelectAll` | `Input`, `Diff`, and other registered contexts | Clipboard copy and select all; omit context to update every default. |
+| `input::MoveLeft`, `input::MoveRight`, `input::MoveUp`, `input::MoveDown` | `Input` | Cursor navigation. |
+| `input::MoveToStart`, `input::MoveToEnd` | `Input` | Start/end of source or text. Review change bindings take precedence in read-only source. |
+| `input::Search` | `Input` | The input component's search action where supported. This does not add search to views without that feature. |
+| `ui::SelectUp`, `ui::SelectDown` | `Tree`, `Command` and other controls | Navigate rows. |
+| `ui::SelectLeft`, `ui::SelectRight` | `Tree` | Collapse/expand or navigate tree hierarchy. |
+| `ui::Confirm` | `Command`, `Tree` and other controls | Confirm a choice; use `from` for parameterized variants. |
+| `ui::Cancel` | `Command` and other controls | Cancel/dismiss. |
+| `diff::ScrollUp`, `diff::ScrollDown`, `diff::ScrollLeft`, `diff::ScrollRight` | `Diff` | Scroll the standard/overview diff. |
+| `diff::PageUp`, `diff::PageDown`, `diff::First`, `diff::Last` | `Diff` | Page or endpoint navigation. |
+| `diff::ExtendUp`, `diff::ExtendDown` | `Diff` | Extend source-line selection. |
+
+Framework action names and original predicates follow the bundled GPUI Kit
+version. A rule that matches no original binding is an error, not a silently
+ignored customization. Other registered widget actions can be remapped using
+the same mechanism; the list above is a guide to common controls, not a whitelist.
+
+## Validation, priority and live updates
+
+- Invalid keystrokes/context expressions, unknown fields, empty shortcut strings
+  and duplicate application shortcuts assigned to different commands reject the
+  settings update. Unknown application command IDs are errors too.
+- Advanced rules are resolved against the app's actual toolkit defaults before
+  installing them. Unknown action/context/from combinations, overlapping rules,
+  or conflicting replacement keys in an identical context produce an error.
+  Unbind the competing action or narrow the rule with `context`/`from`.
+- Contexts can intentionally reuse keys. A plain arrow in a search input need
+  not do the same thing as that arrow in a tree. More specific/deeper widget
+  contexts take priority over application-wide commands. Review-specific
+  bindings override normal movement only in read-only source/diff contexts.
+- A rejected live update keeps the previous configuration and keymap active.
+  A startup error is reported through launch diagnostics; use `--foreground`
+  when investigating it. New-window requests with invalid rules are rejected
+  without replacing the active keymap.
+- Reload starts from retained pristine widget defaults, not the already-remapped
+  map. Removing a rule restores the original binding. Later component bindings
+  are incorporated when the keymap version changes; the app does not discard
+  them when rebuilding application shortcuts.
+- The keymap is application-wide. Opening with another config or saving changed
+  bindings applies that map to the shared app process. It is not part of the
+  remembered per-repository interface state.
+
+## Why these defaults
+
+The navigation grouping is deliberate: Cmd+arrows moves within a diff,
+Cmd+brackets moves between files, and adding Shift moves through history.
+The overview is the position before history entry one. These are Jaywalk's
+chosen defaults, not a claim that every diff app agrees.
+
+The comparison checked shipped resources from Fork 2.71.1, Kaleidoscope 3.9 and
+Sublime Merge Build 2132 without launching them, plus official shortcut references.
+This compares shipped defaults, not personal overrides or every dynamic menu.
+
+- Fork, Kaleidoscope and Sublime Merge share Cmd+F / Cmd+G / Cmd+Shift+G for
+  find/next/previous match. Cmd+, is the familiar settings shortcut.
+- Fork and Sublime Merge use Cmd+P for quick launch/palette-style access, while
+  Jaywalk keeps the VS Code/Zed distinction: Cmd+P for files, Cmd+Shift+P for
+  commands.
+- Kaleidoscope documents Cmd+Down/Up for change navigation. VS Code uses
+  Option+F5 / Option+Shift+F5, with F7-family accessible diff navigation. Jaywalk
+  uses Cmd+arrows as primary and retains the existing F5/F7 alternatives.
+- File/history navigation varies. Kaleidoscope's installed menu assigns
+  Ctrl+Cmd+Up/Down to files; Sublime Merge assigns Cmd+Shift+brackets to file
+  tabs and Option+Up/Down to commit ancestry. Jaywalk follows its explicit
+  grouping above instead of treating either convention as universal.
+- Zed's Cmd+; for line numbers and Cmd+K, Z for wrapping are useful precedents;
+  Option+Z remains the VS Code-style wrap shortcut. The Cmd+K number/evolution
+  chords are Jaywalk-specific choices. Less frequent placement/reset commands
+  stay unbound until the user assigns them.
+
+References:
+
+- [Fork's official macOS shortcuts](https://github.com/fork-dev/Docs/blob/master/keyboard-shortcuts-mac.md).
+- [Kaleidoscope change navigation](https://blog.kaleidoscope.app/2024/12/30/navigating-changes-and-conflicts/).
+- [Sublime Merge key bindings](https://www.sublimemerge.com/docs/key_bindings), including where its packaged defaults live.
+- [VS Code's default macOS keybindings](https://github.com/microsoft/vscode-docs/blob/main/build/keybindings/doc.keybindings.osx.json).
+- [Zed's default macOS keymap](https://github.com/zed-industries/zed/blob/main/assets/keymaps/default-macos.json).
