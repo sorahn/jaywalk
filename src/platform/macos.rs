@@ -45,6 +45,13 @@ pub(super) fn update_menus(cx: &mut App) {
             item(ToggleWrap),
             item(ToggleLineNumbers),
             MenuItem::separator(),
+            MenuItem::submenu(Menu::new("References").items([
+                item(ShowReferences),
+                item(ToggleReferenceLabels),
+                item(ShowAllRemotes),
+                item(HideAllRemotes),
+                item(RevealSelectedRevision),
+            ])),
             item(ToggleHistory),
             item(ToggleFiles),
             item(ToggleChangeEvolution),

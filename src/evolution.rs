@@ -1001,7 +1001,14 @@ mod tests {
         let evolution = Evolution::parse(&output, 100).unwrap();
         assert_eq!(evolution.event(0), Event::Combined);
         assert_eq!(evolution.graph.lane_count, 2);
-        assert_eq!(evolution.graph.graph[0].edges, vec![(0, 0), (0, 1)]);
+        assert_eq!(
+            evolution.graph.graph[0]
+                .strokes
+                .iter()
+                .map(|stroke| (stroke.from, stroke.to))
+                .collect::<Vec<_>>(),
+            vec![(0, 0), (0, 1)]
+        );
         assert!(Evolution::parse(&entry("all()", vec![]), 100).is_err());
     }
 }

@@ -2,10 +2,14 @@
 use super::*;
 use gpui::component::Sizable;
 use gpui::component::popover::Popover;
+use gpui::prelude::FluentBuilder;
 use jaywalk::history::{HistoryQuery, RemoteVisibility};
 
 pub(super) struct ReferenceState {
     pub(super) visibility: RemoteVisibility,
+    pub(super) labels: bool,
+    pub(super) open: bool,
+    pub(super) inspected: Option<jaywalk::history::Reference>,
     generation: u64,
     task: Option<Task<()>>,
     pub(super) error: Option<String>,
@@ -14,6 +18,9 @@ impl ReferenceState {
     pub(super) fn new() -> Self {
         Self {
             visibility: Default::default(),
+            labels: true,
+            open: false,
+            inspected: None,
             generation: 0,
             task: None,
             error: None,
@@ -64,6 +71,15 @@ impl Viewer {
                 .and_then(|s| s.history.as_ref().ok())
                 .is_some_and(|h| h.revisions.iter().any(|r| r.commit_id == commit))
         {
+            if let Some(index) = self
+                .repository
+                .ready()
+                .and_then(|session| session.history.as_ref().ok())
+                .and_then(|history| history.revisions.iter().position(|r| r.commit_id == commit))
+            {
+                self.history_scroll
+                    .scroll_to_item(index, ScrollStrategy::Nearest);
+            }
             self.select_revision(&commit, window, cx);
             return;
         }
@@ -104,6 +120,7 @@ impl Viewer {
         let query = self.history_query.clone();
         self.references.generation += 1;
         let generation = self.references.generation;
+        let selection_generation = self.repository_generation;
         self.references.task = Some(cx.spawn_in(window, async move |this, cx| {
             let result = cx
                 .background_spawn(async move { branch.current_history(&query) })
@@ -138,7 +155,9 @@ impl Viewer {
                                 },
                             );
                         }
-                        if let Some((commit, true)) = target {
+                        if let Some((commit, true)) = target
+                            && viewer.repository_generation == selection_generation
+                        {
                             viewer.select_revision(&commit, window, cx);
                         }
                     }
@@ -160,6 +179,7 @@ impl Viewer {
         };
         let remotes = history.references.remotes.clone();
         let visibility = self.references.visibility.clone();
+        let labels = self.references.labels;
         let viewer = cx.entity().downgrade();
         Popover::new("remote-history-sources")
             .trigger(
@@ -167,7 +187,7 @@ impl Viewer {
                     .ghost()
                     .small()
                     .compact()
-                    .label("Remotes")
+                    .icon(IconName::ListFilter)
                     .tooltip("Choose remote history sources"),
             )
             .content(move |_, _, _| {
@@ -175,7 +195,10 @@ impl Viewer {
                     .v_flex()
                     .gap_1()
                     .p_2()
-                    .w(px(300.))
+                    .w(px(320.))
+                    .max_h(px(450.))
+                    .id("remote-sources-list")
+                    .overflow_y_scroll()
                     .child("Remote history");
                 for (label, remote, visible) in [
                     ("Show all".to_string(), None, true),
@@ -208,6 +231,21 @@ impl Viewer {
                             }),
                     );
                 }
+                let toggle_viewer = viewer.clone();
+                content = content.child(
+                    Button::new("toggle-reference-labels")
+                        .ghost()
+                        .small()
+                        .label(if labels {
+                            "Hide reference labels"
+                        } else {
+                            "Show reference labels"
+                        })
+                        .on_click(move |_, _, cx| {
+                            let _ = toggle_viewer
+                                .update(cx, |viewer, cx| viewer.toggle_reference_labels(cx));
+                        }),
+                );
                 let viewer = viewer.clone();
                 content.child(
                     Button::new("reveal-selected")
@@ -223,4 +261,229 @@ impl Viewer {
             })
             .into_any_element()
     }
+}
+
+impl Viewer {
+    pub(super) fn toggle_reference_labels(&mut self, cx: &mut Context<Self>) {
+        self.references.labels = !self.references.labels;
+        self.save_layout(cx);
+        cx.notify();
+    }
+    pub(super) fn show_references(&mut self, cx: &mut Context<Self>) {
+        self.layout.saved.history_hidden = false;
+        self.rebuild_sidebar_layout(cx);
+        self.references.open = true;
+        self.save_layout(cx);
+        cx.notify();
+    }
+    pub(super) fn reference_controls(&self, cx: &mut Context<Self>) -> AnyElement {
+        let Some(history) = self
+            .repository
+            .ready()
+            .and_then(|s| s.history.as_ref().ok())
+        else {
+            return div().into_any_element();
+        };
+        let snapshot = history.references.clone();
+        let viewer = cx.entity().downgrade();
+        let visibility = self.references.visibility.clone();
+        let inspected = self
+            .references
+            .inspected
+            .clone()
+            .filter(|r| Some(&r.target) == self.selected_history_commit().as_ref());
+        Popover::new("all-reference-details")
+            .trigger(
+                Button::new("references-header")
+                    .ghost()
+                    .small()
+                    .compact()
+                    .icon(IconName::Tags)
+                    .tooltip("Browse local and remote references"),
+            )
+            .open(self.references.open)
+            .on_open_change(cx.listener(|viewer, open, _, cx| {
+                viewer.references.open = *open;
+                cx.notify();
+            }))
+            .content(move |_, _, cx| {
+                reference_content(
+                    &snapshot,
+                    None,
+                    &visibility,
+                    inspected.as_ref(),
+                    viewer.clone(),
+                    cx,
+                )
+            })
+            .into_any_element()
+    }
+}
+
+fn reference_content(
+    snapshot: &jaywalk::references::ReferenceSnapshot,
+    target: Option<&str>,
+    visibility: &RemoteVisibility,
+    inspected: Option<&jaywalk::history::Reference>,
+    viewer: WeakEntity<Viewer>,
+    cx: &Context<gpui::component::popover::PopoverState>,
+) -> AnyElement {
+    let mut content = div()
+        .id("reference-details-list")
+        .v_flex()
+        .gap_1()
+        .p_2()
+        .w(px(400.))
+        .max_h(px(460.))
+        .overflow_y_scroll();
+    let mut group = None;
+    let mut count = 0;
+    for reference in snapshot
+        .references
+        .iter()
+        .filter(|r| target.is_none_or(|target| r.target == target))
+    {
+        let name = reference.remote().unwrap_or("Local");
+        if group != Some(name) {
+            group = Some(name);
+            let suffix = reference
+                .remote()
+                .filter(|remote| !visibility.includes(remote))
+                .map_or("", |_| " · hidden from graph");
+            content = content.child(
+                div()
+                    .pt_1()
+                    .text_size(px(12.))
+                    .child(format!("{name}{suffix}")),
+            );
+        }
+        count += 1;
+        let target = reference.target.clone();
+        let label = reference.display_name();
+        let tracking = match &reference.kind {
+            jaywalk::history::ReferenceKind::Local => "local".to_owned(),
+            jaywalk::history::ReferenceKind::Remote {
+                tracking: Some(jaywalk::history::TrackingState::Untracked),
+                ..
+            } => "untracked".into(),
+            jaywalk::history::ReferenceKind::Remote { .. } if !reference.tracked_by.is_empty() => {
+                format!("tracked by {}", reference.tracked_by.join(", "))
+            }
+            _ => "tracking unknown".into(),
+        };
+        let detail = format!(
+            "{label}\n{target}\n{tracking}{}",
+            if reference.conflicted {
+                " · conflicted target"
+            } else {
+                ""
+            }
+        );
+        let navigation_viewer = viewer.clone();
+        let selected = inspected == Some(reference);
+        let reference = reference.clone();
+        let popup = cx.entity().downgrade();
+        let copy = label.clone();
+        let copy_id = format!("copy:{copy}:{target}");
+        content = content.child(
+            div()
+                .h_flex()
+                .items_center()
+                .gap_1()
+                .child(
+                    Button::new(SharedString::from(format!("open:{label}:{target}")))
+                        .ghost()
+                        .small()
+                        .selected(selected)
+                        .flex_1()
+                        .min_w_0()
+                        .label(label)
+                        .tooltip(detail)
+                        .on_click(move |_, window, cx| {
+                            let _ = popup.update(cx, |popup, cx| popup.dismiss(window, cx));
+                            let _ = navigation_viewer.update(cx, |viewer, cx| {
+                                viewer.references.inspected = Some(reference.clone());
+                                viewer.open_reference_target(target.clone(), true, window, cx);
+                            });
+                        }),
+                )
+                .child(
+                    Button::new(SharedString::from(copy_id))
+                        .ghost()
+                        .small()
+                        .compact()
+                        .label("Copy")
+                        .tooltip("Copy qualified reference name")
+                        .on_click(move |_, _, cx| {
+                            cx.write_to_clipboard(ClipboardItem::new_string(copy.clone()))
+                        }),
+                ),
+        );
+    }
+    if count == 0 {
+        content = content.child("No branch or bookmark references");
+    }
+    content.into_any_element()
+}
+
+pub(super) fn reference_badge(
+    history: &Rc<jaywalk::history::History>,
+    index: usize,
+    visibility: &RemoteVisibility,
+    viewer: WeakEntity<Viewer>,
+) -> Option<AnyElement> {
+    let revision = &history.revisions[index];
+    let visible: Vec<_> = revision
+        .references
+        .iter()
+        .filter(|r| r.remote().is_none_or(|remote| visibility.includes(remote)))
+        .collect();
+    let label = jaywalk::references::compact_label(&visible)?;
+    let summary = visible
+        .iter()
+        .map(|r| r.display_name())
+        .collect::<Vec<_>>()
+        .join("\n");
+    let target = revision.commit_id.clone();
+    let snapshot = history.references.clone();
+    let visibility = visibility.clone();
+    Some(
+        Popover::new(SharedString::from(format!("references:{target}")))
+            .trigger(
+                Button::new(SharedString::from(format!("reference-label:{target}")))
+                    .ghost()
+                    .small()
+                    .compact()
+                    .max_w(px(110.))
+                    .flex_shrink_0()
+                    .child(
+                        div()
+                            .h_flex()
+                            .items_center()
+                            .gap_1()
+                            .max_w(px(98.))
+                            .min_w_0()
+                            .child(div().min_w_0().truncate().child(label.name))
+                            .when(label.additional > 0, |row| {
+                                row.child(
+                                    div()
+                                        .flex_shrink_0()
+                                        .child(format!("+{}", label.additional)),
+                                )
+                            }),
+                    )
+                    .tooltip(summary),
+            )
+            .content(move |_, _, cx| {
+                reference_content(
+                    &snapshot,
+                    Some(&target),
+                    &visibility,
+                    None,
+                    viewer.clone(),
+                    cx,
+                )
+            })
+            .into_any_element(),
+    )
 }

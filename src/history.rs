@@ -215,12 +215,7 @@ struct Entry(
     #[serde(default)] bool,
 );
 
-#[derive(Clone, Debug)]
-pub struct GraphRow {
-    pub lane: usize,
-    pub incoming: bool,
-    pub edges: Vec<(usize, usize)>,
-}
+pub use crate::graph::GraphRow;
 
 #[derive(Debug)]
 pub struct History {
@@ -297,52 +292,29 @@ impl History {
         self.graph[start..end]
             .iter()
             .flat_map(|row| {
-                std::iter::once(row.lane)
-                    .chain(row.edges.iter().flat_map(|(from, to)| [*from, *to]))
+                std::iter::once(row.lane).chain(
+                    row.strokes
+                        .iter()
+                        .flat_map(|stroke| [stroke.from, stroke.to]),
+                )
             })
             .max()
             .map_or(1, |lane| lane + 1)
     }
 
     pub(crate) fn new(revisions: Vec<Revision>) -> Self {
-        let mut pending: Vec<String> = Vec::new();
-        let mut graph = Vec::new();
-        let mut lane_count = 1;
-        for revision in &revisions {
-            let incoming = pending.contains(&revision.commit_id);
-            let lane = if let Some(lane) = pending.iter().position(|id| id == &revision.commit_id) {
-                lane
-            } else {
-                pending.push(revision.commit_id.clone());
-                pending.len() - 1
-            };
-            let before = pending.clone();
-            pending.remove(lane);
-            for (index, parent) in revision.parents.iter().enumerate() {
-                if !pending.contains(parent) {
-                    pending.insert((lane + index).min(pending.len()), parent.clone());
-                }
-            }
-            let mut edges = Vec::new();
-            for (from, id) in before.iter().enumerate() {
-                let targets: &[String] = if id == &revision.commit_id {
-                    &revision.parents
-                } else {
-                    std::slice::from_ref(id)
-                };
-                for target in targets {
-                    if let Some(to) = pending.iter().position(|id| id == target) {
-                        edges.push((from, to));
-                    }
-                }
-            }
-            lane_count = lane_count.max(before.len()).max(pending.len());
-            graph.push(GraphRow {
-                lane,
-                incoming,
-                edges,
-            });
-        }
+        let graph = crate::graph::layout(&revisions);
+        let lane_count = graph
+            .iter()
+            .flat_map(|row| {
+                std::iter::once(row.lane).chain(
+                    row.strokes
+                        .iter()
+                        .flat_map(|stroke| [stroke.from, stroke.to]),
+                )
+            })
+            .max()
+            .map_or(1, |lane| lane + 1);
         Self {
             revisions,
             graph,
@@ -367,13 +339,22 @@ mod tests {
         .unwrap();
         assert_eq!(history.lane_count, 2);
         assert_eq!(history.visible_lane_count(0..1), 2);
-        assert_eq!(history.visible_lane_count(3..4), 1);
+        assert_eq!(history.visible_lane_count(3..4), 2);
         assert_eq!(history.visible_lane_count(20..30), 1);
-        assert_eq!(history.graph[0].edges, vec![(0, 0), (0, 1)]);
-        assert_eq!(history.graph[1].edges, vec![(0, 0), (1, 1)]);
-        assert_eq!(history.graph[2].edges, vec![(0, 0), (1, 0)]);
-        assert!(history.graph[3].incoming);
-        assert!(history.graph[3].edges.is_empty());
+        assert_eq!(
+            history.graph.iter().map(|row| row.lane).collect::<Vec<_>>(),
+            [0, 0, 1, 0]
+        );
+        let joins = &history.graph[3].strokes;
+        assert_eq!(
+            joins.iter().map(|s| (s.from, s.to)).collect::<Vec<_>>(),
+            [(0, 0), (1, 0)]
+        );
+        assert!(
+            joins
+                .iter()
+                .all(|stroke| stroke.half == crate::graph::GraphHalf::Incoming)
+        );
     }
 
     #[test]

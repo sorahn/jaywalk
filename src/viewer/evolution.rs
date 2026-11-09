@@ -976,32 +976,8 @@ impl Viewer {
                                     } else {
                                         0x7797bd
                                     });
-                                    for (from, to) in &row.edges {
-                                        let mut path = PathBuilder::stroke(px(1.));
-                                        path.move_to(point(
-                                            x(*from),
-                                            if *from == row.lane {
-                                                middle
-                                            } else {
-                                                bounds.top()
-                                            },
-                                        ));
-                                        path.cubic_bezier_to(
-                                            point(x(*to), bounds.bottom()),
-                                            point(x(*from), middle),
-                                            point(x(*to), middle),
-                                        );
-                                        if let Ok(path) = path.build() {
-                                            window.paint_path(path, color);
-                                        }
-                                    }
-                                    if row.incoming {
-                                        let mut path = PathBuilder::stroke(px(1.));
-                                        path.move_to(point(x(row.lane), bounds.top()));
-                                        path.line_to(point(x(row.lane), middle));
-                                        if let Ok(path) = path.build() {
-                                            window.paint_path(path, color);
-                                        }
+                                    for stroke in &row.strokes {
+                                        super::history::paint_graph_stroke(stroke,bounds,spacing,color.into(),1.,window);
                                     }
                                     let mut marker = PathBuilder::stroke(px(1.));
                                     let center = x(row.lane);

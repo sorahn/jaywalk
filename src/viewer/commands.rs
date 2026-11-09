@@ -96,6 +96,11 @@ impl Viewer {
             }
             CommandId::Refresh => self.refresh(window, cx),
             CommandId::ToggleWrap => self.toggle_wrap(window, cx),
+            CommandId::ShowReferences => self.show_references(cx),
+            CommandId::ToggleReferenceLabels => self.toggle_reference_labels(cx),
+            CommandId::ShowAllRemotes => self.set_remote_visibility(None, true, window, cx),
+            CommandId::HideAllRemotes => self.set_remote_visibility(None, false, window, cx),
+            CommandId::RevealSelectedRevision => self.reveal_history_selection(window, cx),
             CommandId::ToggleHistory => self.toggle_sidebar(true, window, cx),
             CommandId::ToggleFiles => self.toggle_sidebar(false, window, cx),
             CommandId::ToggleChangeEvolution => self.toggle_evolution(window, cx),

@@ -5,6 +5,7 @@ pub mod external;
 pub mod file_browser;
 pub mod fluid;
 mod git;
+pub mod graph;
 pub mod history;
 pub mod layout_state;
 pub mod live_refresh;

@@ -154,3 +154,59 @@ impl Comparison {
         }
     }
 }
+
+/// Local labels precede remote labels; the overflow counter has its own slot.
+#[derive(Debug, PartialEq, Eq)]
+pub struct ReferenceBadge {
+    pub name: String,
+    pub additional: usize,
+}
+pub fn compact_label(references: &[&Reference]) -> Option<ReferenceBadge> {
+    let preferred = references
+        .iter()
+        .min_by_key(|reference| (reference.remote().is_some(), reference.display_name()))?;
+    Some(ReferenceBadge {
+        name: format!(
+            "{}{}",
+            preferred.display_name(),
+            if preferred.conflicted { " !" } else { "" }
+        ),
+        additional: references.len() - 1,
+    })
+}
+#[cfg(test)]
+mod tests {
+    use super::{Reference, ReferenceBadge, ReferenceKind, compact_label};
+    #[test]
+    fn badge_prefers_local_and_keeps_overflow_bounded_to_one_label() {
+        let remote = Reference {
+            name: "main".into(),
+            target: "abc".into(),
+            kind: ReferenceKind::Remote {
+                remote: "origin".into(),
+                tracking: None,
+            },
+            tracked_by: vec![],
+            conflicted: false,
+        };
+        let local = Reference {
+            kind: ReferenceKind::Local,
+            ..remote.clone()
+        };
+        assert_eq!(
+            compact_label(&[&remote, &local]),
+            Some(ReferenceBadge {
+                name: "main".into(),
+                additional: 1
+            })
+        );
+        assert_eq!(
+            compact_label(&[&local, &remote]),
+            Some(ReferenceBadge {
+                name: "main".into(),
+                additional: 1
+            })
+        );
+        assert_eq!(compact_label(&[]), None);
+    }
+}
