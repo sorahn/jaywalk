@@ -293,6 +293,10 @@ impl Viewer {
                             cx.notify();
                             return;
                         }
+                        viewer.reveal_after_layout = reason == FileLoad::Select
+                            && viewer.live.restore.is_none()
+                            && viewer.live.pending_position.is_none()
+                            && prepared.model.blocks.iter().any(|block| block.changed);
                         viewer.restore_prepared_reading(&path, &prepared.before, &prepared.after);
                         let standard = prepared.standard.map(|files| {
                             if files.is_empty() {

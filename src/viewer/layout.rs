@@ -189,10 +189,7 @@ impl Render for Viewer {
                                     .label("↑")
                                     .disabled(
                                         self.code().is_none()
-                                            || (self.view.effective() == ViewMode::Fluid
-                                                && self
-                                                    .active_change
-                                                    .is_none_or(|index| index == 0))
+                                            || total == 0
                                             || (self.view.effective() != ViewMode::Fluid
                                                 && self.code().is_none_or(|code| {
                                                     !matches!(code.standard, Ok(Some(_)))
@@ -209,10 +206,7 @@ impl Render for Viewer {
                                     .label("↓")
                                     .disabled(
                                         self.code().is_none()
-                                            || (self.view.effective() == ViewMode::Fluid
-                                                && self
-                                                    .active_change
-                                                    .is_none_or(|index| index + 1 >= total))
+                                            || total == 0
                                             || (self.view.effective() != ViewMode::Fluid
                                                 && self.code().is_none_or(|code| {
                                                     !matches!(code.standard, Ok(Some(_)))

@@ -227,10 +227,7 @@ impl Viewer {
                         viewer.reveal_after_layout = false;
                         cx.notify();
                     }
-                    if viewer.reveal_after_layout {
-                        viewer.reveal_after_layout = false;
-                        viewer.navigate_change(0, cx);
-                    }
+                    viewer.reveal_initial_change(window, cx);
                     if viewer.active_change != active {
                         viewer.active_change = active;
                         cx.notify();

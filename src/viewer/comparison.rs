@@ -166,6 +166,7 @@ impl Viewer {
                         state.update(cx, |state, cx| state.scroll_horizontal(px(horizontal), cx));
                         viewer.horizontal_position = horizontal;
                     }
+                    viewer.reveal_initial_change(window, cx);
                 });
                 let viewer = viewer.clone();
                 window.on_mouse_event(move |event: &ScrollWheelEvent, phase, _, cx| {
@@ -325,7 +326,7 @@ impl Viewer {
                                             div()
                                                 .v_flex()
                                                 .size_full()
-                                                .child(div().px_3().py_1().child(
+                                                .child(div().flex_shrink_0().px_3().py_1().child(
                                                     if self.is_interdiff() {
                                                         "PREVIOUS (rebased)"
                                                     } else {
@@ -340,7 +341,8 @@ impl Viewer {
                                                         ))
                                                         .readonly(true)
                                                         .bordered(false)
-                                                        .h_full(),
+                                                        .flex_1()
+                                                        .min_h_0(),
                                                 ),
                                         ),
                                 )
@@ -373,7 +375,7 @@ impl Viewer {
                                             div()
                                                 .v_flex()
                                                 .size_full()
-                                                .child(div().px_3().py_1().child(
+                                                .child(div().flex_shrink_0().px_3().py_1().child(
                                                     if self.is_interdiff() {
                                                         "SELECTED VERSION"
                                                     } else {
@@ -388,7 +390,8 @@ impl Viewer {
                                                         ))
                                                         .readonly(true)
                                                         .bordered(false)
-                                                        .h_full(),
+                                                        .flex_1()
+                                                        .min_h_0(),
                                                 ),
                                         ),
                                 ),

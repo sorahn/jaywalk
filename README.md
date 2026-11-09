@@ -474,6 +474,11 @@ preview. Refresh notices and settings errors occupy the existing footer,
 truncate to one line, and expose their full text on hover; they never add a row
 or resize the panels.
 
+Opening a changed file without a remembered reading position reveals its first
+change. Returning to a file preserves your reading position. Fluid change arrows
+remain available at both ends, including a single-change file; if the current
+change is off-screen, either arrow reveals it before advancing.
+
 Both editors now emphasize changed words within modified lines, alongside
 syntax colors and full-row diff shading. Fluid computes Unicode-safe word
 ranges off the UI thread and applies native editor decorations. Insertions and
