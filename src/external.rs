@@ -1,5 +1,5 @@
 //! Read-only comparisons supplied by command-line diff tools.
-use crate::repository::{ChangedFile, Comparison, ContentSource};
+use crate::repository::{ChangedFile, Comparison, ContentSource, FileSide, next_capture};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -119,10 +119,11 @@ impl ExternalContents {
             tip: right.display().to_string(),
             files: files.into(),
             content: ContentSource::External(Arc::new(contents)),
+            capture: next_capture(),
         })
     }
 
-    pub(crate) fn read(&self, file: &ChangedFile) -> Result<(String, String), String> {
+    pub(crate) fn read_path(&self, path: &str, side: FileSide) -> Result<String, String> {
         let read = |paths: &BTreeMap<String, PathBuf>, name: &str| -> Result<String, String> {
             let Some(path) = paths.get(name) else {
                 return Ok(String::new());
@@ -134,9 +135,12 @@ impl ExternalContents {
             String::from_utf8(data)
                 .map_err(|error| format!("Non-UTF-8 text in {}: {error}", path.display()))
         };
-        Ok((
-            read(&self.left, &file.before_path)?,
-            read(&self.right, &file.after_path)?,
-        ))
+        read(
+            match side {
+                FileSide::Before => &self.left,
+                FileSide::After => &self.right,
+            },
+            path,
+        )
     }
 }

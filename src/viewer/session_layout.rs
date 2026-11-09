@@ -62,7 +62,7 @@ impl Viewer {
             self.file_evolution.visible = visible;
         }
         if let Some(view) = self.layout.saved.view {
-            self.view_mode = view;
+            self.view.select(view);
         }
         if let Some(view) = self.layout.saved.file_view {
             self.browser.mode = view;
@@ -105,7 +105,7 @@ impl Viewer {
             self.layout.saving = false;
             return;
         }
-        self.layout.saved.view = Some(self.view_mode);
+        self.layout.saved.view = Some(self.view.preferred());
         self.layout.saved.file_view = Some(self.browser.mode);
         self.layout.saved.wrap_before = Some(self.wrapping.before);
         self.layout.saved.wrap_after = Some(self.wrapping.after);

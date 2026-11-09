@@ -116,6 +116,7 @@ fn git_worktree_and_history_are_read_only_and_use_pinned_contents() {
     fixture.git(&["init", "-b", "main"]);
     fixture.write("a file.txt", "original\n");
     fixture.write("deleted.txt", "deleted\n");
+    fixture.write("unchanged.txt", "stable\n");
     fixture.git(&["add", "."]);
     fixture.git(&["commit", "-m", "initial"]);
     let initial = fixture.git(&["rev-parse", "HEAD"]);
@@ -128,6 +129,18 @@ fn git_worktree_and_history_are_read_only_and_use_pinned_contents() {
     let comparison = Comparison::load(&fixture.0, None, "@").unwrap();
     assert!(!comparison.supports_evolution());
     assert_eq!(comparison.files.len(), 3);
+    assert_eq!(comparison.identity(), comparison.clone().identity());
+    let next_capture = Comparison::load(&fixture.0, None, "@").unwrap();
+    assert_ne!(comparison.identity(), next_capture.identity());
+    // An uncaptured path must not silently fall through to a mutable worktree.
+    fixture.write("unchanged.txt", "changed after capture\n");
+    assert!(
+        comparison
+            .read_path("unchanged.txt", jaywalk::repository::FileSide::After)
+            .unwrap_err()
+            .contains("absent from captured")
+    );
+    fixture.write("unchanged.txt", "stable\n");
     fixture.write("a file.txt", "later\n");
     assert_eq!(
         content(&comparison, "a file.txt"),
@@ -136,8 +149,10 @@ fn git_worktree_and_history_are_read_only_and_use_pinned_contents() {
     fixture.write("a file.txt", "unstaged\n");
     assert_eq!(fixture.git(&["status", "--porcelain=v1"]), status);
     assert_eq!(fixture.git(&["rev-parse", "HEAD"]), initial);
-    let history = comparison.history().unwrap();
+    let history = comparison.history(&Default::default()).unwrap();
     assert_eq!(history.revisions.len(), 1);
+    let roots = jaywalk::history::HistoryQuery::ancestors(vec![initial.clone()]).unwrap();
+    assert_eq!(comparison.history(&roots).unwrap().revisions.len(), 1);
     let patch = comparison.for_revision(&history.revisions[0]).unwrap();
     assert_eq!(
         content(&patch, "a file.txt"),
@@ -147,10 +162,36 @@ fn git_worktree_and_history_are_read_only_and_use_pinned_contents() {
     fixture.git(&["commit", "-m", "second"]);
     let committed = Comparison::load(&fixture.0, Some(&initial), "HEAD").unwrap();
     assert_eq!(
+        committed.identity(),
+        Comparison::load(&fixture.0, Some(&initial), "HEAD")
+            .unwrap()
+            .identity()
+    );
+    assert_eq!(
         content(&committed, "a file.txt"),
         ("original\n".into(), "unstaged\n".into())
     );
-    assert_eq!(committed.history().unwrap().revisions.len(), 2);
+    assert_eq!(
+        committed
+            .history(&Default::default())
+            .unwrap()
+            .revisions
+            .len(),
+        2
+    );
+    assert_eq!(committed.history(&roots).unwrap().revisions.len(), 1);
+    assert_eq!(
+        committed
+            .history(
+                &jaywalk::history::HistoryQuery::default()
+                    .with_limit(1)
+                    .unwrap()
+            )
+            .unwrap()
+            .revisions
+            .len(),
+        1
+    );
     assert!(!Path::new(&fixture.0.join(".jj")).exists());
 }
 

@@ -44,7 +44,7 @@ fn history_row(
     let commit_id = revision.commit_id.clone();
     let description = revision.summary();
     div()
-        .id(("revision", index))
+        .id(SharedString::from(format!("revision:{commit_id}")))
         .h(px(height))
         .w_full()
         .h_flex()

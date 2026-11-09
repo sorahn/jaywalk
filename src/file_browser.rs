@@ -1,4 +1,4 @@
-//! Display-only paths and changed-file hierarchy. Original paths stay untouched.
+use crate::repository_file::FileEntry;
 use std::collections::{BTreeMap, BTreeSet};
 
 /// Resolve a followed file by its current path, then an explicit rename.
@@ -17,15 +17,15 @@ pub fn find_file(files: &[crate::repository::ChangedFile], path: &str) -> Option
 /// UI-only projection: retain one preview without changing the actual diff.
 pub fn with_preview(
     files: &[crate::repository::ChangedFile],
-    open: Option<&crate::repository::ChangedFile>,
-) -> (Vec<crate::repository::ChangedFile>, Option<usize>) {
-    let mut displayed = files.to_vec();
+    open: Option<&FileEntry>,
+) -> (Vec<FileEntry>, Option<usize>) {
+    let mut displayed: Vec<_> = files.iter().map(FileEntry::from).collect();
     let retained = open
-        .filter(|file| find_file(files, &file.after_path).is_none())
+        .filter(|file| find_file(files, file.path()).is_none())
         .map(|file| {
             let index = displayed
                 .iter()
-                .position(|entry| entry.after_path > file.after_path)
+                .position(|entry| entry.path() > file.path())
                 .unwrap_or(displayed.len());
             displayed.insert(index, file.clone());
             index
@@ -58,6 +58,7 @@ pub enum FileNode {
     File {
         index: usize,
         name: String,
+        path: String,
     },
 }
 
@@ -77,7 +78,7 @@ impl Directory {
                     .entry((*parent).to_owned())
                     .or_default();
             }
-            directory.files.push((index, display_component(name)));
+            directory.files.push((index, (*name).to_owned()));
         }
     }
 
@@ -100,11 +101,15 @@ impl Directory {
             .collect();
         let mut files = self.files;
         files.sort_by(|a, b| a.1.cmp(&b.1));
-        nodes.extend(
-            files
-                .into_iter()
-                .map(|(index, name)| FileNode::File { index, name }),
-        );
+        nodes.extend(files.into_iter().map(|(index, name)| FileNode::File {
+            index,
+            path: if parent.is_empty() {
+                name.clone()
+            } else {
+                format!("{parent}/{name}")
+            },
+            name: display_component(&name),
+        }));
         nodes
     }
 }
@@ -202,6 +207,7 @@ mod tests {
 mod preview_tests {
     use super::{find_file, with_preview};
     use crate::repository::ChangedFile;
+    use crate::repository_file::{FileEntry, find_entry};
     fn file(status: &str, before: &str, after: &str) -> ChangedFile {
         ChangedFile {
             status: status.into(),
@@ -213,15 +219,15 @@ mod preview_tests {
     fn preview_is_temporary_and_never_becomes_a_changed_file() {
         let open = file("modified", "src/open.rs", "src/open.rs");
         let changed = [file("modified", "other.rs", "other.rs")];
-        let (rows, retained) = with_preview(&changed, Some(&open));
+        let (rows, retained) = with_preview(&changed, Some(&FileEntry::from(&open)));
         assert_eq!(changed.len(), 1);
         assert_eq!(rows.len(), 2);
         assert_eq!(retained, Some(1));
-        let (rows, retained) = with_preview(&changed, Some(&changed[0]));
+        let (rows, retained) = with_preview(&changed, Some(&FileEntry::from(&changed[0])));
         assert_eq!(rows.len(), 1);
         assert_eq!(retained, None);
         assert_eq!(
-            with_preview(std::slice::from_ref(&open), Some(&open)).1,
+            with_preview(std::slice::from_ref(&open), Some(&FileEntry::from(&open))).1,
             None
         );
     }
@@ -233,23 +239,17 @@ mod preview_tests {
         ];
         for (path, expected) in [("Cargo.lock", 0), ("README.md", 1), ("zz.txt", 2)] {
             let open = file("modified", path, path);
-            let (rows, retained) = with_preview(&changed, Some(&open));
+            let (rows, retained) = with_preview(&changed, Some(&FileEntry::from(&open)));
             assert_eq!(retained, Some(expected));
-            assert_eq!(rows[expected].after_path, path);
-            assert!(
-                rows.windows(2)
-                    .all(|pair| pair[0].after_path < pair[1].after_path)
-            );
+            assert_eq!(rows[expected].path(), path);
+            assert!(rows.windows(2).all(|pair| pair[0].path() < pair[1].path()));
             // Inserting a preview shifts display indices, never comparison indices.
-            let row = find_file(&rows, "src/main.rs").unwrap();
-            assert_eq!(find_file(&changed, &rows[row].after_path), Some(1));
+            let row = find_entry(&rows, "src/main.rs").unwrap();
+            assert_eq!(find_file(&changed, rows[row].path()), Some(1));
             let (closed, retained) = with_preview(&changed, None);
             assert_eq!(retained, None);
             assert_eq!(
-                closed
-                    .iter()
-                    .map(|file| file.after_path.as_str())
-                    .collect::<Vec<_>>(),
+                closed.iter().map(|file| file.path()).collect::<Vec<_>>(),
                 vec!["Cargo.toml", "src/main.rs"]
             );
         }
@@ -258,15 +258,15 @@ mod preview_tests {
     #[test]
     fn empty_comparison_can_retain_a_file_until_it_reappears_or_is_closed() {
         let open = file("modified", "old.rs", "old.rs");
-        let (rows, retained) = with_preview(&[], Some(&open));
+        let (rows, retained) = with_preview(&[], Some(&FileEntry::from(&open)));
         assert_eq!(retained, Some(0));
-        assert_eq!(rows[0].after_path, "old.rs");
+        assert_eq!(rows[0].path(), "old.rs");
         assert!(with_preview(&[], None).0.is_empty());
         let renamed = [file("renamed", "old.rs", "new.rs")];
-        let (rows, retained) = with_preview(&renamed, Some(&open));
+        let (rows, retained) = with_preview(&renamed, Some(&FileEntry::from(&open)));
         assert_eq!(rows.len(), 1);
         assert_eq!(retained, None);
-        assert_eq!(find_file(&rows, &open.after_path), Some(0));
+        assert_eq!(find_entry(&rows, &open.after_path), Some(0));
     }
 
     #[test]

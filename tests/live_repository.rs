@@ -67,6 +67,7 @@ fn follows_stable_changes_without_following_the_checkout_or_snapshotting_files()
             change_id: change.clone(),
             working_copy: true,
         }),
+        &Default::default(),
     )
     .unwrap();
     assert_eq!(refreshed.branch.tip, latest.tip);
@@ -112,7 +113,8 @@ fn workspace_following_survives_an_abandoned_working_copy_and_keeps_explicit_tar
     jj(&root, &["describe", "-m", "feature"]);
     jj(&root, &["bookmark", "create", "feature"]);
     jj(&root, &["new"]);
-    let initial = RecordedRefresh::load(&root, Some("main"), "@", None).unwrap();
+    let initial =
+        RecordedRefresh::load(&root, Some("main"), "@", None, &Default::default()).unwrap();
     let old = initial.branch.revision(&initial.branch.tip).unwrap();
     assert!(old.working_copy);
     let selected = FollowedChange {
@@ -125,7 +127,14 @@ fn workspace_following_survives_an_abandoned_working_copy_and_keeps_explicit_tar
         &["squash", "--into", "@-", "--use-destination-message"],
     );
     let operation = Comparison::current_operation(&root).unwrap();
-    let latest = RecordedRefresh::load(&root, Some("main"), "@", Some(&selected)).unwrap();
+    let latest = RecordedRefresh::load(
+        &root,
+        Some("main"),
+        "@",
+        Some(&selected),
+        &Default::default(),
+    )
+    .unwrap();
     let followed = latest.revision.as_ref().unwrap();
     assert_ne!(latest.branch.tip, initial.branch.tip);
     assert_eq!(followed.commit_id, latest.branch.tip);
@@ -136,9 +145,16 @@ fn workspace_following_survives_an_abandoned_working_copy_and_keeps_explicit_tar
         latest.branch.contents(&latest.branch.files[0]).unwrap().1,
         "const value = 3;\n"
     );
-    let explicit = RecordedRefresh::load(&root, Some("main"), "feature", None).unwrap();
+    let explicit =
+        RecordedRefresh::load(&root, Some("main"), "feature", None, &Default::default()).unwrap();
     assert_ne!(explicit.branch.tip, latest.branch.tip);
-    let failure = match RecordedRefresh::load(&root, Some("main"), &old.change_id, None) {
+    let failure = match RecordedRefresh::load(
+        &root,
+        Some("main"),
+        &old.change_id,
+        None,
+        &Default::default(),
+    ) {
         Err(failure) => failure,
         Ok(_) => panic!("an explicit abandoned target must not silently follow @"),
     };
@@ -147,7 +163,13 @@ fn workspace_following_survives_an_abandoned_working_copy_and_keeps_explicit_tar
         change_id: old.change_id.clone(),
         working_copy: false,
     };
-    let failure = match RecordedRefresh::load(&root, Some("main"), "@", Some(&missing_selection)) {
+    let failure = match RecordedRefresh::load(
+        &root,
+        Some("main"),
+        "@",
+        Some(&missing_selection),
+        &Default::default(),
+    ) {
         Err(failure) => failure,
         Ok(_) => {
             panic!("an abandoned historical selection must not silently become another commit")
@@ -159,7 +181,8 @@ fn workspace_following_survives_an_abandoned_working_copy_and_keeps_explicit_tar
             .contains("selected change is no longer visible")
     );
     std::fs::write(root.join("file.ts"), "unsnapshotted\n").unwrap();
-    let read_only = RecordedRefresh::load(&root, Some("main"), "@", None).unwrap();
+    let read_only =
+        RecordedRefresh::load(&root, Some("main"), "@", None, &Default::default()).unwrap();
     assert_eq!(
         read_only
             .branch

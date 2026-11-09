@@ -46,6 +46,7 @@ impl Viewer {
             focus,
             panels: panels::PanelLayout::new(cx),
             history_scroll: UniformListScrollHandle::new(),
+            history_query: Default::default(),
             evolution,
             evolution_header: None,
             file_evolution,
@@ -60,7 +61,7 @@ impl Viewer {
             file_task: None,
             active_change: None,
             navigation_target: None,
-            view_mode,
+            view: jaywalk::view_choice::ViewChoice::new(view_mode),
             wrapping,
             horizontal_position: 0.,
             reveal_after_layout: false,
@@ -97,6 +98,7 @@ impl Viewer {
         self.begin_loading(LoadingKind::Comparison, window, cx);
         self.rebuild_browser(cx);
         let arguments = self.arguments.clone();
+        let history_query = self.history_query.clone();
         self.repository_task = Some(cx.spawn_in(window, async move |this, cx| {
             let result = cx
                 .background_spawn(async move {
@@ -104,7 +106,7 @@ impl Viewer {
                     let history = if arguments.diff.is_some() {
                         jaywalk::history::History::parse("")
                     } else {
-                        comparison.history()
+                        comparison.history(&history_query)
                     };
                     Ok::<_, String>((comparison, history))
                 })
@@ -163,11 +165,10 @@ impl Viewer {
     }
 
     pub(super) fn select_path(&mut self, path: &str, window: &mut Window, cx: &mut Context<Self>) {
-        if let Some(index) = self
-            .comparison()
-            .and_then(|comparison| jaywalk::file_browser::find_file(&comparison.files, path))
+        if let Some(comparison) = self.comparison().cloned()
+            && let Some(file) = comparison.changed_file(path)
         {
-            self.select_file(index, window, cx);
+            self.load_file(comparison, file, FileLoad::Select, window, cx);
         }
     }
 
@@ -177,25 +178,20 @@ impl Viewer {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let Some(comparison) = self.comparison() else {
-            return;
-        };
-        let Some(file) = comparison.files.get(index).cloned() else {
-            return;
-        };
-        let comparison = comparison.clone();
-        self.load_file(comparison, file, FileLoad::Select, window, cx);
+        if let Some(path) = self
+            .comparison()
+            .and_then(|comparison| comparison.files.get(index))
+            .map(|file| file.after_path.clone())
+        {
+            self.select_path(&path, window, cx);
+        }
     }
 
     pub(super) fn follow_open_file(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(path) = self.selected_path() else {
-            return;
-        };
-        let Some(comparison) = self.comparison().cloned() else {
-            return;
-        };
-        if let Some(index) = jaywalk::file_browser::find_file(&comparison.files, &path) {
-            let file = comparison.files[index].clone();
+        if let Some(path) = self.selected_path()
+            && let Some(comparison) = self.comparison().cloned()
+            && let Some(file) = comparison.changed_file(&path)
+        {
             self.load_file(comparison, file, FileLoad::Follow, window, cx);
         }
     }
@@ -215,7 +211,7 @@ impl Viewer {
     fn load_file(
         &mut self,
         comparison: Comparison,
-        file: jaywalk::repository::ChangedFile,
+        file: jaywalk::repository_file::FileEntry,
         reason: FileLoad,
         window: &mut Window,
         cx: &mut Context<Self>,
@@ -235,22 +231,28 @@ impl Viewer {
             self.horizontal_position = 0.;
         }
         self.begin_loading(LoadingKind::File, window, cx);
-        self.recall_reading(&file.after_path);
+        self.recall_reading(file.path());
         let generation = self.file_generation;
-        self.focus_evolution_file(Some(&file.after_path));
+        let repository_generation = self.repository_generation;
+        self.focus_evolution_file(Some(file.path()));
         self.rebuild_browser(cx);
+        if reason == FileLoad::Select {
+            self.reveal_browser_selection(cx);
+        }
         self.reveal_after_layout = false;
         let source = comparison.clone();
         let metadata = file.clone();
         let tab_size = self.settings.editor.tab_size;
         self.file_task = Some(cx.spawn_in(window, async move |this, cx| {
-            let language = file_language(&file.after_path);
-            let path = file.after_path.clone();
+            let language = file_language(file.path());
+            let path = file.path().to_owned();
             let result = cx
                 .background_spawn(async move { PreparedFile::load(&comparison, &file, tab_size) })
                 .await;
             let _ = this.update_in(cx, |viewer, window, cx| {
-                if viewer.file_generation != generation {
+                if viewer.file_generation != generation
+                    || viewer.repository_generation != repository_generation
+                {
                     return;
                 }
                 viewer.finish_loading(LoadingKind::File);
@@ -282,7 +284,7 @@ impl Viewer {
                             if files.is_empty() {
                                 return None;
                             }
-                            let mode = standard_mode(viewer.view_mode);
+                            let mode = standard_mode(viewer.view.effective());
                             Some(cx.new(|cx| {
                                 DiffState::new(
                                     files.into_iter().map(|file| file.with_language(language)),
@@ -337,7 +339,7 @@ impl Viewer {
                                 )
                             })
                         });
-                        if viewer.view_mode != ViewMode::Fluid
+                        if viewer.view.effective() != ViewMode::Fluid
                             && let Some((before, after, horizontal)) =
                                 viewer.live.pending_position.take()
                             && let Ok(Some(state)) = &standard
@@ -452,7 +454,7 @@ impl Viewer {
                 cx,
             );
         }
-        if self.view_mode == ViewMode::Fluid
+        if self.view.effective() == ViewMode::Fluid
             && let Some((left, right, horizontal)) = self.live.pending_position.take()
         {
             // set_value updates the cached wrap map synchronously. Restore
@@ -479,7 +481,7 @@ impl Viewer {
             Ok(files) if files.is_empty() => Ok(None),
             Ok(files) => {
                 let language = before.read(cx).language_name();
-                let mode = standard_mode(self.view_mode);
+                let mode = standard_mode(self.view.effective());
                 let state = cx.new(|cx| {
                     DiffState::new(
                         files
@@ -490,7 +492,7 @@ impl Viewer {
                     .with_context_lines(None)
                     .with_mode(mode)
                 });
-                if self.view_mode != ViewMode::Fluid
+                if self.view.effective() != ViewMode::Fluid
                     && let Some((left, right, horizontal)) = self.live.pending_position.take()
                     && let Some(path) = state
                         .read(cx)

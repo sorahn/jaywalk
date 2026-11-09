@@ -9,7 +9,10 @@ pub(super) enum PaletteKind {
 }
 #[derive(Clone)]
 enum Choice {
-    File(String),
+    File {
+        path: String,
+        source: Rc<jaywalk::repository::ComparisonIdentity>,
+    },
     Command(jaywalk::commands::CommandId),
 }
 pub(super) struct PaletteState {
@@ -64,6 +67,7 @@ impl Viewer {
             PaletteKind::Files => self
                 .comparison()
                 .map(|comparison| {
+                    let source = Rc::new(comparison.identity());
                     comparison
                         .files
                         .iter()
@@ -76,7 +80,13 @@ impl Viewer {
                                     file.after_path, file.before_path, file.status
                                 )
                             };
-                            (label, Choice::File(file.after_path.clone()))
+                            (
+                                label,
+                                Choice::File {
+                                    path: file.after_path.clone(),
+                                    source: source.clone(),
+                                },
+                            )
                         })
                         .collect()
                 })
@@ -109,7 +119,14 @@ impl Viewer {
                 let choice = choice.clone();
                 this.close_palette(window, cx);
                 match choice {
-                    Choice::File(path) => this.select_path(&path, window, cx),
+                    Choice::File { path, source } => {
+                        if this
+                            .comparison()
+                            .is_some_and(|comparison| comparison.identity() == *source)
+                        {
+                            this.select_path(&path, window, cx);
+                        }
+                    }
                     Choice::Command(command) => this.execute_command(command, window, cx),
                 }
             },

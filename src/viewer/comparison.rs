@@ -7,7 +7,7 @@ impl Viewer {
             .selected_file
             .as_ref()
             .map(|selected| &selected.file)
-            .map(|file| file.status.as_str());
+            .and_then(|file| file.status());
         match status {
             Some("renamed") => "Renamed · contents unchanged",
             Some("copied") => "Copied · contents unchanged",
@@ -55,14 +55,14 @@ impl Viewer {
                             .flex_1()
                             .min_w_0()
                             .truncate()
-                            .child(file.after_path.clone()),
+                            .child(file.path().to_owned()),
                     )
                     .children(updating.then(|| div().flex_shrink_0().text_sm().child("Updating…"))),
             );
-        let detail = match file.status.as_str() {
+        let detail = match file.status().unwrap_or("unchanged") {
             "renamed" => Some(format!(
                 "Renamed from {}{}",
-                file.before_path,
+                file.before_path(),
                 if contents_unchanged {
                     " · contents unchanged"
                 } else {
@@ -71,7 +71,7 @@ impl Viewer {
             )),
             "copied" => Some(format!(
                 "Copied from {}{}",
-                file.before_path,
+                file.before_path(),
                 if contents_unchanged {
                     " · contents unchanged"
                 } else {
@@ -165,7 +165,7 @@ impl Viewer {
                     .compact()
                     .icon(icon)
                     .tooltip(label)
-                    .selected(self.view_mode == mode)
+                    .selected(self.view.effective() == mode)
                     .on_click(cx.listener(move |this, _, _, cx| this.set_view_mode(mode, cx))),
             );
         }
@@ -174,7 +174,7 @@ impl Viewer {
 
     pub(super) fn render_comparison(&self, cx: &mut Context<Self>) -> AnyElement {
         let theme = gpui::component::Theme::global(cx);
-        let file_background = if self.view_mode == ViewMode::Fluid {
+        let file_background = if self.view.effective() == ViewMode::Fluid {
             theme
                 .highlight_theme
                 .style
@@ -214,7 +214,7 @@ impl Viewer {
             ..
         }) = self.code()
         {
-            if self.view_mode != ViewMode::Fluid {
+            if self.view.effective() != ViewMode::Fluid {
                 let body = if let Err(error) = standard {
                     div().p_6().child(error.clone()).into_any_element()
                 } else if let Some(Ok(Some(state))) = self.code().map(|code| &code.standard) {
