@@ -84,7 +84,9 @@ impl PreparedOverview {
         })
     }
 }
+#[derive(Clone)]
 struct LoadedOverview {
+    request: Request,
     series: Option<Arc<OverviewSeries>>,
     operation: String,
     scope: String,
@@ -102,8 +104,53 @@ pub(super) struct OverviewState {
     task: Option<Task<()>>,
     generation: u64,
     pub(super) error: Option<String>,
+    restore_offset: Option<ListOffset>,
+}
+#[derive(Clone)]
+pub(super) struct OverviewCheckpoint {
+    loaded: LoadedOverview,
+    offset: ListOffset,
+    horizontal: Pixels,
 }
 impl Viewer {
+    pub(super) fn capture_overview_identity(&self) -> Option<ComparisonIdentity> {
+        self.overview
+            .current
+            .as_ref()
+            .map(|loaded| loaded.request.source.clone())
+    }
+    pub(super) fn capture_overview(&self, cx: &App) -> Option<OverviewCheckpoint> {
+        let loaded = self.overview.current.as_ref()?;
+        if loaded.request.source != self.comparison()?.identity() {
+            return None;
+        }
+        let state = loaded.state.read(cx);
+        Some(OverviewCheckpoint {
+            loaded: loaded.clone(),
+            offset: state.viewport_offset(),
+            horizontal: state.horizontal_offset(),
+        })
+    }
+    pub(super) fn restore_overview(
+        &mut self,
+        checkpoint: Option<OverviewCheckpoint>,
+        cx: &mut Context<Self>,
+    ) {
+        self.invalidate_overview();
+        self.finish_loading(LoadingKind::Overview);
+        self.overview.restore_offset = None;
+        if let Some(checkpoint) = checkpoint {
+            checkpoint.loaded.state.update(cx, |state, cx| {
+                state.restore_viewport_offset(checkpoint.offset, cx);
+                state.scroll_horizontal(checkpoint.horizontal - state.horizontal_offset(), cx);
+            });
+            if checkpoint.loaded.request.tab_size != self.settings.editor.tab_size {
+                self.overview.restore_offset = Some(checkpoint.offset);
+            }
+            self.overview.requested = Some(checkpoint.loaded.request.clone());
+            self.overview.current = Some(checkpoint.loaded);
+        }
+    }
     pub(super) fn overview_revision(
         &self,
         id: &str,
@@ -226,7 +273,11 @@ impl Viewer {
                                 .with_context_lines(Some(context))
                                 .with_expansion_lines(expansion)
                         });
+                        if let Some(offset) = viewer.overview.restore_offset.take() {
+                            state.update(cx, |state, cx| state.restore_viewport_offset(offset, cx));
+                        }
                         viewer.overview.current = Some(LoadedOverview {
+                            request: request.clone(),
                             series: prepared.series,
                             operation: comparison_operation,
                             scope,

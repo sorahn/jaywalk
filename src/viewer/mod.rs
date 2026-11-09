@@ -27,6 +27,7 @@ mod history;
 mod layout;
 mod live;
 mod loading;
+mod navigation;
 mod overview;
 mod palette;
 mod panels;
@@ -190,6 +191,7 @@ pub(crate) struct Viewer {
     focus: FocusHandle,
     panels: panels::PanelLayout,
     overview: overview::OverviewState,
+    navigation: navigation::NavigationState,
     history_scroll: UniformListScrollHandle,
     history_query: jaywalk::history::HistoryQuery,
     references: references::ReferenceState,

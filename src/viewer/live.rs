@@ -164,7 +164,8 @@ impl Viewer {
                             let Some(session) = viewer.repository.ready() else {
                                 return;
                             };
-                            let pinned = matches!(session.scope, ComparisonScope::Evolution { .. });
+                            let pinned = viewer.navigation.pinned
+                                || matches!(session.scope, ComparisonScope::Evolution { .. });
                             let operation_changed =
                                 stamp.operation.as_ref().is_some_and(|operation| {
                                     viewer
@@ -194,7 +195,13 @@ impl Viewer {
         }));
     }
 
+    pub(super) fn cancel_live_refresh(&mut self) {
+        self.live.refresh = None;
+        self.live.busy = false;
+        self.finish_loading(LoadingKind::Live);
+    }
     pub(super) fn resume_live_refresh(&mut self) {
+        self.navigation.pinned = false;
         self.live.retry.clear();
         if !self.live.busy {
             self.live.message = None;
@@ -202,6 +209,7 @@ impl Viewer {
     }
 
     pub(super) fn refresh_live(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.navigation.pinned = false;
         self.live.retry.clear();
         self.refresh_recorded(window, cx);
     }

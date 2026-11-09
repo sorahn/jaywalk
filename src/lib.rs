@@ -27,3 +27,5 @@ pub mod repository_file;
 pub mod view_choice;
 
 pub mod references;
+
+pub mod navigation;

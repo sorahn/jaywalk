@@ -33,6 +33,7 @@ pub struct LiveSettings {
 #[serde(deny_unknown_fields)]
 pub struct Settings {
     pub application: ApplicationSettings,
+    pub navigation: NavigationSettings,
     pub keybindings: BTreeMap<CommandId, Vec<String>>,
     #[serde(default)]
     pub keymap: Vec<crate::keymap::Override>,
@@ -49,6 +50,12 @@ pub struct Settings {
     pub overview: OverviewSettings,
     pub evolution: EvolutionSettings,
     pub file_evolution: FileEvolutionSettings,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct NavigationSettings {
+    pub history_limit: usize,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq)]
@@ -336,6 +343,9 @@ impl Settings {
             self.layout.min_bottom_height,
             self.layout.max_bottom_height,
         )?;
+        if !(1..=1000).contains(&self.navigation.history_limit) {
+            return Err("navigation.history_limit must be between 1 and 1000".into());
+        }
         bounded("window.width", self.window.width, 320., 10000.)?;
         bounded("window.height", self.window.height, 240., 10000.)?;
         if self.ui.loading_delay_ms > 5000 {
@@ -553,6 +563,20 @@ pub fn default_path() -> Result<PathBuf, String> {
 #[cfg(test)]
 mod tests {
     use super::{DiffView, Settings};
+
+    #[test]
+    fn navigation_history_is_bounded_and_configurable() {
+        assert_eq!(Settings::parse("").unwrap().navigation.history_limit, 100);
+        assert_eq!(
+            Settings::parse("[navigation]\nhistory_limit=1")
+                .unwrap()
+                .navigation
+                .history_limit,
+            1
+        );
+        assert!(Settings::parse("[navigation]\nhistory_limit=0").is_err());
+        assert!(Settings::parse("[navigation]\nhistory_limit=1001").is_err());
+    }
 
     #[test]
     fn references_have_independent_defaults_and_typed_remote_overrides() {

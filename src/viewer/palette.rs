@@ -262,10 +262,7 @@ impl Viewer {
         };
         let index = match step {
             HistoryStep::Overview => {
-                self.remember_reading(cx);
-                self.clear_file();
-                self.show_whole_branch(window, cx);
-                window.focus(&self.focus, cx);
+                self.show_whole_branch_overview(window, cx);
                 return;
             }
             HistoryStep::Revision(index) => index,

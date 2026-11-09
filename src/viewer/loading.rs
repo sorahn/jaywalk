@@ -1,7 +1,7 @@
 use super::*;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum FileLoad {
+pub(super) enum FileLoad {
     Select,
     Follow,
     Reflow,
@@ -35,6 +35,7 @@ impl Viewer {
         let palette = palette::PaletteState::new(window, cx);
         let layout = session_layout::SessionLayout::load(&arguments, &settings);
         let references = references::ReferenceState::new(&settings.history);
+        let navigation = navigation::NavigationState::new(settings.navigation.history_limit);
         let mut viewer = Self {
             code_font_size: settings.editor.font_size,
             line_numbers: settings.editor.line_numbers,
@@ -48,6 +49,7 @@ impl Viewer {
             focus,
             panels: panels::PanelLayout::new(cx),
             overview: overview::OverviewState::default(),
+            navigation,
             history_scroll: UniformListScrollHandle::new(),
             history_query: jaywalk::history::HistoryQuery::sources(Default::default(), None)
                 .expect("default source query has no unvalidated IDs"),
@@ -218,7 +220,7 @@ impl Viewer {
         }
     }
 
-    fn load_file(
+    pub(super) fn load_file(
         &mut self,
         comparison: Comparison,
         file: jaywalk::repository_file::FileEntry,
@@ -227,6 +229,9 @@ impl Viewer {
         cx: &mut Context<Self>,
     ) {
         let preserve = reason != FileLoad::Select;
+        if reason == FileLoad::Select {
+            self.checkpoint_navigation(cx);
+        }
         self.remember_reading(cx);
         if preserve {
             self.file_generation += 1;
@@ -576,6 +581,7 @@ impl Viewer {
         if self.repository.ready().is_none() {
             return;
         }
+        self.checkpoint_navigation(cx);
         self.remember_reading(cx);
         self.invalidate_history_reload();
         self.resume_live_refresh();
@@ -642,6 +648,7 @@ impl Viewer {
                     .ok()
                     .and_then(|history| history.references.operation.clone())
             });
+        self.checkpoint_navigation(cx);
         self.resume_live_refresh();
         self.remember_evolution_header();
         self.remember_reading(cx);

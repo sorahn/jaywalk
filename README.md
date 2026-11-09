@@ -241,6 +241,12 @@ they do not detach. For example:
 The default view is the whole-branch overview. The outer left pane shows up to
 200 recorded jj revisions, one message per line. The graph column reserves
 space only for lanes in the visible rows, expanding and shrinking as you scroll.
+Back/Forward toolbar arrows, Cmd+Option+Left/Right and mouse navigation buttons
+retrace the views visited in each window, independently of file and graph ordering.
+They retain recorded comparisons and restore file/overview reading positions where
+possible. Restored views stay pinned until Refresh or another comparison selection.
+The in-memory limit is configured by `navigation.history_limit` (default 100).
+
 Selecting a revision updates the inner file pane to that commit's changes.
 Merge revisions compare against their first parent, as indicated in the view.
 The Whole branch button (Cmd+Shift+B on macOS) returns to the original

@@ -9,6 +9,7 @@ impl Render for Viewer {
             self.config.error = Some(format!("Could not reapply keymap: {error}"));
         }
         self.sync_overview(window, cx);
+        self.sync_navigation(cx);
         div()
             .id("viewer-root")
             .key_context("Jaywalk")
@@ -24,6 +25,20 @@ impl Render for Viewer {
                         | jaywalk::commands::CommandId::ShowAll => cx.propagate(),
                         _ => this.execute_command(action.command, window, cx),
                     }
+                }),
+            )
+            .on_mouse_down(
+                MouseButton::Navigate(NavigationDirection::Back),
+                cx.listener(|this, _, window, cx| {
+                    this.navigate_view(false, window, cx);
+                    cx.stop_propagation();
+                }),
+            )
+            .on_mouse_down(
+                MouseButton::Navigate(NavigationDirection::Forward),
+                cx.listener(|this, _, window, cx| {
+                    this.navigate_view(true, window, cx);
+                    cx.stop_propagation();
                 }),
             )
             .relative()
@@ -47,6 +62,7 @@ impl Render for Viewer {
                     .border_b_1()
                     .border_color(gpui::component::Theme::global(cx).border)
                     .bg(gpui::component::Theme::global(cx).muted)
+                    .child(self.render_navigation_buttons(cx))
                     .child(div().flex_1().min_w_0().truncate().child(format!(
                         "Jaywalk  /  {}",
                         self.arguments.diff.as_ref().map_or_else(
@@ -104,12 +120,7 @@ impl Render for Viewer {
                             )
                             .child(Button::new("overview").ghost().label("Overview").on_click(
                                 cx.listener(|this, _, window, cx| {
-                                    window.focus(&this.focus, cx);
-                                    this.remember_reading(cx);
-                                    this.clear_file();
-                                    this.rebuild_browser(cx);
-                                    this.focus_evolution_file(None);
-                                    cx.notify();
+                                    this.show_overview(window, cx);
                                 }),
                             ))
                             .child(Button::new("refresh").ghost().label("Refresh").on_click(

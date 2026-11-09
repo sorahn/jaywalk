@@ -96,6 +96,12 @@ section header, for example `[editor]` followed by `font_size = 14`.
 | --- | --- | --- |
 | `application.quit_on_last_window` | `true` | Quit when the final actual window closes, including About. `false` keeps the app available with no windows. This is application-wide: opening another config or editing this value updates the shared policy; CLI waiters are notified before shutdown. |
 
+### `navigation`
+
+| Setting | Default | Meaning and allowed values |
+| --- | --- | --- |
+| `navigation.history_limit` | `100` | Maximum in-memory visited views per window, including the current view; 1–1000. Changes apply live, retaining the current location while trimming old or forward entries. History is not persisted across launches. Snapshots retain recorded comparisons for Back/Forward. |
+
 ### `window`
 
 | Setting | Default | Meaning and allowed values |

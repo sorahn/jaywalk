@@ -8,6 +8,10 @@ keymap = []
 [application]
 quit_on_last_window = true
 
+# In-memory visited views per window; reducing the limit trims old entries live.
+[navigation]
+history_limit = 100
+
 [window]
 width = 1500
 height = 950
@@ -143,6 +147,9 @@ poll_interval_ms = 500
 # Replace a command's entire array to rebind it; [] removes its shortcuts.
 # Space-separated keystrokes form chords, e.g. "secondary-k secondary-s".
 [keybindings]
+# Back/forward through visited views, independent of file/commit ordering.
+go_back = ["secondary-alt-left"]
+go_forward = ["secondary-alt-right"]
 about = []
 open_repository = ["secondary-o"]
 find_file = ["secondary-p"]
