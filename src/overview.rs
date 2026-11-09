@@ -64,7 +64,7 @@ impl Comparison {
             Ok(commit) => (commit, None),
             Err(error) => (None, Some(error)),
         };
-        let files = self
+        let mut files: Vec<_> = self
             .files
             .iter()
             .map(|file| {
@@ -102,6 +102,9 @@ impl Comparison {
                 }
             })
             .collect();
+        files.sort_by(|a, b| {
+            crate::file_browser::compare_paths(&a.file.after_path, &b.file.after_path)
+        });
         OverviewSnapshot {
             commit,
             metadata_error,

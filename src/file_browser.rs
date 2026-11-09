@@ -29,17 +29,34 @@ pub fn with_entries(
     open: Option<&FileEntry>,
 ) -> (Vec<FileEntry>, Option<usize>) {
     let mut displayed = files.to_vec();
-    let retained = open
+    let retained_path = open
         .filter(|file| crate::repository_file::find_entry(files, file.path()).is_none())
         .map(|file| {
-            let index = displayed
-                .iter()
-                .position(|entry| entry.path() > file.path())
-                .unwrap_or(displayed.len());
-            displayed.insert(index, file.clone());
-            index
+            displayed.push(file.clone());
+            file.path()
         });
+    displayed.sort_by(|a, b| compare_paths(a.path(), b.path()));
+    let retained =
+        retained_path.and_then(|path| displayed.iter().position(|file| file.path() == path));
     (displayed, retained)
+}
+
+/// Directory-first depth-first order, shared by the flat list and overview.
+/// Compare each directory level before comparing the leaf filenames.
+pub fn compare_paths(a: &str, b: &str) -> std::cmp::Ordering {
+    let mut a = a.split('/').peekable();
+    let mut b = b.split('/').peekable();
+    while let (Some(left), Some(right)) = (a.next(), b.next()) {
+        let order = a
+            .peek()
+            .is_none()
+            .cmp(&b.peek().is_none())
+            .then_with(|| left.cmp(right));
+        if !order.is_eq() {
+            return order;
+        }
+    }
+    std::cmp::Ordering::Equal
 }
 
 #[derive(Debug)]
@@ -231,7 +248,7 @@ mod preview_tests {
         let (rows, retained) = with_preview(&changed, Some(&FileEntry::from(&open)));
         assert_eq!(changed.len(), 1);
         assert_eq!(rows.len(), 2);
-        assert_eq!(retained, Some(1));
+        assert_eq!(retained, Some(0));
         let (rows, retained) = with_preview(&changed, Some(&FileEntry::from(&changed[0])));
         assert_eq!(rows.len(), 1);
         assert_eq!(retained, None);
@@ -246,12 +263,15 @@ mod preview_tests {
             file("modified", "Cargo.toml", "Cargo.toml"),
             file("modified", "src/main.rs", "src/main.rs"),
         ];
-        for (path, expected) in [("Cargo.lock", 0), ("README.md", 1), ("zz.txt", 2)] {
+        for (path, expected) in [("Cargo.lock", 1), ("README.md", 2), ("zz.txt", 2)] {
             let open = file("modified", path, path);
             let (rows, retained) = with_preview(&changed, Some(&FileEntry::from(&open)));
             assert_eq!(retained, Some(expected));
             assert_eq!(rows[expected].path(), path);
-            assert!(rows.windows(2).all(|pair| pair[0].path() < pair[1].path()));
+            assert!(
+                rows.windows(2)
+                    .all(|pair| super::compare_paths(pair[0].path(), pair[1].path()).is_lt())
+            );
             // Inserting a preview shifts display indices, never comparison indices.
             let row = find_entry(&rows, "src/main.rs").unwrap();
             assert_eq!(find_file(&changed, rows[row].path()), Some(1));
@@ -259,7 +279,7 @@ mod preview_tests {
             assert_eq!(retained, None);
             assert_eq!(
                 closed.iter().map(|file| file.path()).collect::<Vec<_>>(),
-                vec!["Cargo.toml", "src/main.rs"]
+                vec!["src/main.rs", "Cargo.toml"]
             );
         }
     }
@@ -316,5 +336,49 @@ mod filtered_entries_tests {
         assert_eq!(rows[1].path(), "src/z.rs");
         assert_eq!(with_entries(&filtered, None).0.len(), 1);
         assert!(with_entries(&rows, Some(&open)).1.is_none());
+    }
+}
+
+#[cfg(test)]
+mod ordering_tests {
+    use super::*;
+    #[test]
+    fn flat_paths_match_directory_first_tree_traversal() {
+        let mut paths = vec![
+            "z.rs",
+            "src/a.rs",
+            "a.txt",
+            "src/z/z.rs",
+            "docs/漢.md",
+            ".hidden/config",
+            "src/a/test.rs",
+            "docs/a.md",
+        ];
+        let (_, tree) = present_paths(&paths);
+        fn visit(nodes: &[FileNode], result: &mut Vec<String>) {
+            for node in nodes {
+                match node {
+                    FileNode::Directory { children, .. } => visit(children, result),
+                    FileNode::File { path, .. } => result.push(path.clone()),
+                }
+            }
+        }
+        let mut expected = Vec::new();
+        visit(&tree, &mut expected);
+        paths.sort_by(|a, b| compare_paths(a, b));
+        assert_eq!(paths, expected);
+        assert_eq!(
+            paths,
+            [
+                ".hidden/config",
+                "docs/a.md",
+                "docs/漢.md",
+                "src/a/test.rs",
+                "src/z/z.rs",
+                "src/a.rs",
+                "a.txt",
+                "z.rs"
+            ]
+        );
     }
 }
