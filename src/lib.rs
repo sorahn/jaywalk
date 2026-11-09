@@ -21,3 +21,5 @@ pub mod panel_layout;
 pub mod repository_file;
 
 pub mod view_choice;
+
+pub mod references;

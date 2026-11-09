@@ -287,7 +287,7 @@ impl Comparison {
                 crate::history::TEMPLATE,
             ],
         )?;
-        crate::history::History::parse(&output)
+        Ok(crate::history::History::parse(&output)?.with_references(self.reference_snapshot()?))
     }
 
     pub(crate) fn with_catalog(mut self) -> Result<Self, String> {

@@ -1,13 +1,13 @@
 //! Recorded revisions, typed references and explicit history query scope.
 const DEFAULT_HISTORY_LIMIT: usize = 200;
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum TrackingState {
     Tracked,
     Untracked,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum ReferenceKind {
     Local,
     Remote {
@@ -15,11 +15,13 @@ pub enum ReferenceKind {
         tracking: Option<TrackingState>,
     },
 }
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct Reference {
     pub name: String,
     pub target: String,
     pub kind: ReferenceKind,
+    pub tracked_by: Vec<String>,
+    pub conflicted: bool,
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum HistoryScope {
@@ -75,7 +77,7 @@ impl HistoryQuery {
     }
 }
 
-pub(crate) const TEMPLATE: &str = r#""[" ++ json(commit_id) ++ "," ++ json(change_id) ++ "," ++ json(description.first_line()) ++ "," ++ json(author.name()) ++ ",[" ++ bookmarks.map(|b| json(b.name())).join(",") ++ "],[" ++ parents.map(|p| json(p.commit_id())).join(",") ++ "]," ++ json(current_working_copy) ++ "," ++ json(empty) ++ "]\n""#;
+pub(crate) const TEMPLATE: &str = r#""[" ++ json(commit_id) ++ "," ++ json(change_id) ++ "," ++ json(description.first_line()) ++ "," ++ json(author.name()) ++ ",[" ++ local_bookmarks.map(|b| json(b.name())).join(",") ++ "],[" ++ parents.map(|p| json(p.commit_id())).join(",") ++ "]," ++ json(current_working_copy) ++ "," ++ json(empty) ++ "]\n""#;
 // Recorded revision metadata and topological graph lanes, independent of UI.
 
 #[derive(Clone, Debug)]
@@ -138,6 +140,7 @@ pub struct History {
     pub revisions: Vec<Revision>,
     pub graph: Vec<GraphRow>,
     pub lane_count: usize,
+    pub references: std::sync::Arc<crate::references::ReferenceSnapshot>,
 }
 
 impl History {
@@ -171,6 +174,8 @@ impl History {
                         name,
                         target: commit_id.clone(),
                         kind: ReferenceKind::Local,
+                        tracked_by: Vec::new(),
+                        conflicted: false,
                     })
                     .collect(),
                 parents,
@@ -179,6 +184,22 @@ impl History {
             });
         }
         Ok(Self::new(revisions))
+    }
+
+    pub(crate) fn with_references(
+        mut self,
+        references: crate::references::ReferenceSnapshot,
+    ) -> Self {
+        for revision in &mut self.revisions {
+            revision.references = references
+                .references
+                .iter()
+                .filter(|reference| reference.target == revision.commit_id)
+                .cloned()
+                .collect();
+        }
+        self.references = std::sync::Arc::new(references);
+        self
     }
 
     /// Space only for lanes drawn in the current visible row range. Edges
@@ -239,6 +260,7 @@ impl History {
             revisions,
             graph,
             lane_count,
+            references: Default::default(),
         }
     }
 }
