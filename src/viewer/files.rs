@@ -12,6 +12,8 @@ use jaywalk::settings::{FileView as FileListMode, TreeScope};
 pub(super) struct FileBrowser {
     pub(super) files: std::sync::Arc<[jaywalk::repository_file::FileEntry]>,
     retained: Option<usize>,
+    pub(super) reading: Option<String>,
+    reading_reveal: bool,
     pub(super) mode: FileListMode,
     pub(super) scope: TreeScope,
     labels: Vec<CompactPath>,
@@ -36,6 +38,8 @@ impl FileBrowser {
         Self {
             files: std::sync::Arc::from([]),
             retained: None,
+            reading: None,
+            reading_reveal: false,
             mode,
             scope,
             labels: Vec::new(),
@@ -228,6 +232,59 @@ impl Viewer {
             });
         } else if let Some(index) = self.selected_index() {
             self.select_browser_file(index, cx);
+        } else {
+            self.browser
+                .tree
+                .update(cx, |tree, cx| tree.set_selected_index(None, cx));
+        }
+        if self.selected_file.is_none() {
+            self.browser.reading_reveal = self.browser.reading.is_some();
+        }
+    }
+
+    pub(super) fn track_overview_file(&mut self, path: Option<String>, cx: &mut Context<Self>) {
+        if self.browser.reading == path {
+            return;
+        }
+        self.browser.reading = path;
+        self.browser.reading_reveal = true;
+        cx.notify();
+    }
+
+    fn reading_tree_target(&self, cx: &App) -> Option<String> {
+        let path = self.browser.reading.as_deref()?;
+        let tree = self.browser.tree.read(cx);
+        jaywalk::file_browser::reading_tree_target(path, |id| {
+            tree.index_of(&SharedString::from(id.to_owned())).is_some()
+        })
+    }
+
+    fn reveal_reading_file(&self, cx: &mut Context<Self>) {
+        if self.browser.mode == FileListMode::Tree {
+            if let Some(id) = self.reading_tree_target(cx) {
+                self.browser.tree.update(cx, |tree, _| {
+                    if let Some(index) = tree.index_of(&id.into()) {
+                        tree.scroll_to_item(index, ScrollStrategy::Nearest);
+                    }
+                });
+            }
+        } else if let Some(index) = self.browser.reading.as_ref().and_then(|path| {
+            self.browser
+                .files
+                .iter()
+                .position(|file| file.path() == path)
+        }) {
+            let scroll = &self.browser.list_scroll;
+            if let Some(row) = scroll.bounds_for_item(index) {
+                let viewport = scroll.bounds();
+                let offset = scroll.offset();
+                let y = jaywalk::file_browser::reveal_offset(
+                    f32::from(viewport.top())..f32::from(viewport.bottom()),
+                    f32::from(row.top())..f32::from(row.bottom()),
+                    f32::from(offset.y),
+                );
+                scroll.set_offset(point(offset.x, px(y)));
+            }
         }
     }
 
@@ -285,7 +342,13 @@ impl Viewer {
         }
     }
 
-    fn render_tree(&self) -> AnyElement {
+    fn render_tree(&self, cx: &App) -> AnyElement {
+        let reading = self
+            .selected_file
+            .is_none()
+            .then(|| self.reading_tree_target(cx))
+            .flatten();
+        let reading_tint = gpui::component::Theme::global(cx).secondary;
         let files = self.browser.files.clone();
         let retained = self.browser.retained;
         let indices = self.browser.tree_indices.clone();
@@ -330,6 +393,10 @@ impl Viewer {
                 .text_size(px(font_size))
                 .pl(px(entry.depth() as f32 * indent_width + 8.))
                 .text_color(rgb(color))
+                .when(
+                    reading.as_deref() == Some(entry.item().id.as_ref()),
+                    |row| row.bg(reading_tint),
+                )
                 .child(content)
         })
         .w(px(self.browser.tree_width.max(self.browser.width)))
@@ -468,7 +535,7 @@ impl Viewer {
         }
         if !self.browser.files.is_empty() {
             if self.browser.mode == FileListMode::Tree {
-                panel = panel.child(div().flex_1().min_h_0().child(self.render_tree()));
+                panel = panel.child(div().flex_1().min_h_0().child(self.render_tree(cx)));
             } else {
                 let wrap = self.settings.files.list_word_wrap;
                 let mut list = div()
@@ -518,6 +585,10 @@ impl Viewer {
                             .when(!wrap, |row| row.whitespace_nowrap())
                             .bg(if self.selected_index() == Some(index) {
                                 gpui::component::Theme::global(cx).list_active
+                            } else if self.selected_file.is_none()
+                                && self.browser.reading.as_deref() == Some(file.path())
+                            {
+                                gpui::component::Theme::global(cx).secondary
                             } else {
                                 gpui::component::Theme::global(cx).sidebar
                             })
@@ -557,6 +628,11 @@ impl Viewer {
                     move |bounds, _, cx| {
                         let _ = viewer.update(cx, |viewer, cx| {
                             let width = f32::from(bounds.size.width);
+                            if viewer.browser.reading_reveal && viewer.selected_file.is_none() {
+                                viewer.browser.reading_reveal = false;
+                                viewer.reveal_reading_file(cx);
+                                cx.notify();
+                            }
                             if (viewer.browser.width - width).abs() > 1. {
                                 viewer.browser.width = width;
                                 cx.notify();

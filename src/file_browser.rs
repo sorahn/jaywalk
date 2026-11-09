@@ -14,6 +14,39 @@ pub fn find_file(files: &[crate::repository::ChangedFile], path: &str) -> Option
         })
 }
 
+/// Exact visible file, or the nearest collapsed ancestor containing it.
+/// This does not expand folders or change the tree's selection.
+pub fn reading_tree_target(path: &str, visible: impl Fn(&str) -> bool) -> Option<String> {
+    let file = format!("file:{path}");
+    if visible(&file) {
+        return Some(file);
+    }
+    let mut ancestor = path;
+    while let Some((parent, _)) = ancestor.rsplit_once('/') {
+        let id = format!("dir:{parent}");
+        if visible(&id) {
+            return Some(id);
+        }
+        ancestor = parent;
+    }
+    None
+}
+
+/// Minimal vertical adjustment; coordinates are pixels before scrolling.
+pub fn reveal_offset(
+    viewport: std::ops::Range<f32>,
+    row: std::ops::Range<f32>,
+    offset: f32,
+) -> f32 {
+    if row.start + offset < viewport.start {
+        viewport.start - row.start
+    } else if row.end + offset > viewport.end {
+        viewport.end - row.end
+    } else {
+        offset
+    }
+}
+
 /// UI-only projection: retain one preview without changing the actual diff.
 pub fn with_preview(
     files: &[crate::repository::ChangedFile],
@@ -380,5 +413,32 @@ mod ordering_tests {
                 "z.rs"
             ]
         );
+    }
+}
+
+#[cfg(test)]
+mod reading_tests {
+    use super::*;
+    #[test]
+    fn collapsed_ancestors_are_marked_without_selecting_or_expanding() {
+        let visible = ["dir:src", "dir:src/viewer", "file:src/viewer/mod.rs"];
+        let find = |path| reading_tree_target(path, |id| visible.contains(&id));
+        assert_eq!(
+            find("src/viewer/mod.rs").as_deref(),
+            Some("file:src/viewer/mod.rs")
+        );
+        assert_eq!(
+            find("src/viewer/hidden/file.rs").as_deref(),
+            Some("dir:src/viewer")
+        );
+        assert_eq!(find("src/other/file.rs").as_deref(), Some("dir:src"));
+        assert_eq!(find("src-other/file.rs"), None);
+        assert_eq!(find("README.md"), None);
+    }
+    #[test]
+    fn reveal_keeps_visible_rows_still_and_moves_only_to_the_nearest_edge() {
+        assert_eq!(reveal_offset(100.0..300.0, 150.0..180.0, -20.0), -20.0);
+        assert_eq!(reveal_offset(100.0..300.0, 100.0..130.0, -20.0), 0.0);
+        assert_eq!(reveal_offset(100.0..300.0, 310.0..340.0, -20.0), -40.0);
     }
 }

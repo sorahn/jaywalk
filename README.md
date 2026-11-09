@@ -339,6 +339,14 @@ header to switch to the regular viewer. Empty files, renames and unavailable tex
 previews remain listed. Overview uses the inline wrapping preference and existing
 next/previous-change commands; Fluid and split controls belong to the file viewer.
 
+Overview file headers stick to the top of the diff viewport; the next header
+pushes the current one away. The sidebar uses a reading tint for the top file,
+separate from file selection, and scrolls only enough to keep that row visible.
+Collapsed folders stay collapsed and carry the indicator for a contained file.
+Tracking neither opens a file nor moves keyboard focus. List mode follows the
+same directory-first traversal as tree mode, omitting directory rows; the overview
+uses that ordering too.
+
 The `[overview]` settings control `context_lines` (default 3), `expansion_lines`
 (default 20) and `message_max_height` (default 220 logical pixels). They apply
 live. Overview preparation runs in the background and keeps the previous complete
