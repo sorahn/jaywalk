@@ -10,6 +10,7 @@ pub mod history;
 pub mod layout_state;
 pub mod live_refresh;
 pub mod loading_feedback;
+pub mod overview;
 pub mod reading;
 pub mod repository;
 pub mod settings;

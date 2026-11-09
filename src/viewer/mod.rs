@@ -27,6 +27,7 @@ mod history;
 mod layout;
 mod live;
 mod loading;
+mod overview;
 mod palette;
 mod panels;
 mod references;
@@ -188,6 +189,7 @@ pub(crate) struct Viewer {
     settings: Settings,
     focus: FocusHandle,
     panels: panels::PanelLayout,
+    overview: overview::OverviewState,
     history_scroll: UniformListScrollHandle,
     history_query: jaywalk::history::HistoryQuery,
     references: references::ReferenceState,
@@ -348,7 +350,11 @@ impl Viewer {
 
     fn toggle_wrap(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.preserve_reflow_position(cx);
-        self.wrapping.toggle(self.view.effective());
+        self.wrapping.toggle(if self.selected_file.is_none() {
+            ViewMode::Inline
+        } else {
+            self.view.effective()
+        });
         self.horizontal_position = 0.;
         self.reveal_after_layout = false;
         if let Some(CodeComparison { before, after, .. }) = self.code() {
@@ -472,6 +478,10 @@ impl Viewer {
     }
 
     fn navigate_change(&mut self, direction: i32, cx: &mut Context<Self>) {
+        if self.selected_file.is_none() {
+            self.navigate_overview_change(direction, cx);
+            return;
+        }
         if self.view.effective() != ViewMode::Fluid {
             if let Some(Ok(Some(state))) = self.code().map(|code| &code.standard) {
                 state.update(cx, |state, cx| {

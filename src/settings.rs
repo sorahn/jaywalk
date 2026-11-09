@@ -43,6 +43,7 @@ pub struct Settings {
     pub history: HistorySettings,
     pub files: FileSettings,
     pub diff: DiffSettings,
+    pub overview: OverviewSettings,
     pub evolution: EvolutionSettings,
     pub file_evolution: FileEvolutionSettings,
 }
@@ -140,6 +141,14 @@ pub struct SidebarSettings {
 pub struct DiffPanelSettings {
     pub gutter_width: f32,
     pub min_code_width: f32,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct OverviewSettings {
+    pub context_lines: usize,
+    pub expansion_lines: usize,
+    pub message_max_height: f32,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq)]
@@ -457,6 +466,18 @@ impl Settings {
             self.history.reference_badge_width,
             40.,
             300.,
+        )?;
+        if self.overview.context_lines > 100 || !(1..=1000).contains(&self.overview.expansion_lines)
+        {
+            return Err(
+                "overview context must be 0–100 lines and expansion must be 1–1000 lines".into(),
+            );
+        }
+        bounded(
+            "overview.message_max_height",
+            self.overview.message_max_height,
+            80.,
+            1200.,
         )?;
         bounded("history.lane_spacing", self.history.lane_spacing, 4., 48.)?;
         if !(250..=60000).contains(&self.live.poll_interval_ms) {

@@ -88,13 +88,17 @@ impl Viewer {
             CommandId::OpenSettings => self.open_settings_file(window, cx),
             CommandId::WholeBranch => self.show_whole_branch(window, cx),
             CommandId::Overview => {
+                window.focus(&self.focus, cx);
                 self.remember_reading(cx);
                 self.clear_file();
                 self.rebuild_browser(cx);
                 self.focus_evolution_file(None);
                 cx.notify();
             }
-            CommandId::Refresh => self.refresh(window, cx),
+            CommandId::Refresh => {
+                self.invalidate_overview();
+                self.refresh(window, cx);
+            }
             CommandId::ToggleWrap => self.toggle_wrap(window, cx),
             CommandId::ShowReferences => self.show_references(cx),
             CommandId::ToggleReferenceLabels => self.toggle_reference_labels(cx),

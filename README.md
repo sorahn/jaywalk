@@ -329,8 +329,21 @@ Selecting a revision updates the inner file pane to that commit's changes.
 Merge revisions compare against their first parent, as indicated in the view.
 The Whole branch button (Cmd+Shift+B on macOS) returns to the original
 branch comparison. Overview clears the selected file within the current
-comparison. Refresh reloads recorded changes while preserving the selected
-change, file, and content-based reading anchors.
+comparison. The overview shows the selected commit's full message, author and
+recorded time, followed by a unified diff for every changed file. Whole-branch
+comparisons identify their scope and show the tip commit's message; working-tree
+and external comparisons have no recorded commit message. Unchanged ranges fold
+to three context lines by default. Use the range disclosures to reveal more
+context, **Show full files** to expand everything, and **Open file** in a file
+header to switch to the regular viewer. Empty files, renames and unavailable text
+previews remain listed. Overview uses the inline wrapping preference and existing
+next/previous-change commands; Fluid and split controls belong to the file viewer.
+
+The `[overview]` settings control `context_lines` (default 3), `expansion_lines`
+(default 20) and `message_max_height` (default 220 logical pixels). They apply
+live. Overview preparation runs in the background and keeps the previous complete
+view visible until the new comparison is ready. Refresh reloads recorded changes
+while preserving the selected change, file, and content-based reading anchors.
 
 Click **Evolution** in the history header to open **Change evolution** below
 it. Select a history row to load recorded versions of that logical change.

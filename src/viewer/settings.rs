@@ -257,6 +257,7 @@ impl Viewer {
         {
             self.reload_open_file(window, cx);
         }
+        self.apply_overview_settings(&previous, cx);
         self.save_layout(cx);
         // Fonts and wrapping invalidate text measurements as well as paint.
         window.refresh();

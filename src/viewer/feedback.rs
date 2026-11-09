@@ -65,6 +65,7 @@ impl Viewer {
     pub(super) fn reschedule_feedback(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         for kind in [
             LoadingKind::Comparison,
+            LoadingKind::Overview,
             LoadingKind::File,
             LoadingKind::Evolution,
             LoadingKind::Live,

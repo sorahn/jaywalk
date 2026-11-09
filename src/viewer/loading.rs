@@ -47,6 +47,7 @@ impl Viewer {
             settings,
             focus,
             panels: panels::PanelLayout::new(cx),
+            overview: overview::OverviewState::default(),
             history_scroll: UniformListScrollHandle::new(),
             history_query: jaywalk::history::HistoryQuery::sources(Default::default(), None)
                 .expect("default source query has no unvalidated IDs"),

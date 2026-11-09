@@ -405,49 +405,6 @@ impl Viewer {
                 )
                 .into_any_element();
         }
-        // Keep the overview surface identical in pending, failed, and ready
-        // states instead of exposing the dark parent for a loading frame.
-        let overview = div()
-            .v_flex()
-            .size_full()
-            .bg(gpui::component::Theme::global(cx).background)
-            .gap_4()
-            .p_6();
-        match self.comparison_state() {
-            LoadState::Loading => overview
-                .child(if self.loading_visible(LoadingKind::Comparison) {
-                    "Loading comparison…"
-                } else {
-                    ""
-                })
-                .into_any_element(),
-            LoadState::Failed(error) => overview.child(error).into_any_element(),
-            LoadState::Loaded(comparison) => {
-                let heading = self
-                    .selected_path()
-                    .unwrap_or_else(|| "Changeset overview".into());
-                overview
-                    .child(div().text_xl().child(heading))
-                    .child(if self.is_interdiff() && comparison.files.is_empty() {
-                        "No patch changes between these versions.".to_owned()
-                    } else {
-                        format!("{} changed files", comparison.files.len())
-                    })
-                    .child(format!("Base: {}", comparison.base))
-                    .child(format!("Tip: {}", comparison.tip))
-                    .children(comparison.supports_evolution().then(|| {
-                        div().child(format!(
-                            "Operation: {}",
-                            &comparison.operation[..comparison.operation.len().min(12)]
-                        ))
-                    }))
-                    .child(if comparison.supports_evolution() {
-                        "Choose a file from the list. Each refresh reads one recorded jj operation."
-                    } else {
-                        "Choose a file from the list. Use Refresh to reread the comparison."
-                    })
-                    .into_any_element()
-            }
-        }
+        self.render_overview(cx)
     }
 }

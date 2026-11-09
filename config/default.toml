@@ -69,6 +69,11 @@ default_visible = true
 # [history.remotes.overrides]
 # origin = false
 
+[overview]
+context_lines = 3
+expansion_lines = 20
+message_max_height = 220
+
 [files]
 default_view = "list"
 # Cmd+P always searches the entire repository, independently of this tree filter.
