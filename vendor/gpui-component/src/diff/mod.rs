@@ -9,6 +9,8 @@ mod parser_tests;
 mod presentation;
 mod selection;
 mod state;
+mod sticky;
+mod sticky_geometry;
 
 pub use conflict::{DiffConflict, DiffConflictResolution};
 pub use document::{DiffFile, DiffFileStatus, DiffLinePosition, DiffLineRange, DiffSide};
@@ -208,6 +210,7 @@ pub struct Diff {
     line_number: bool,
     syntax_highlight: bool,
     header_visible: bool,
+    sticky_headers: bool,
     hover_highlight: DiffHoverHighlight,
     hunk_separator: DiffHunkSeparator,
     change_indicator: DiffChangeIndicator,
@@ -240,6 +243,7 @@ impl Diff {
             line_number: true,
             syntax_highlight: true,
             header_visible: true,
+            sticky_headers: false,
             hover_highlight: DiffHoverHighlight::default(),
             hunk_separator: DiffHunkSeparator::default(),
             change_indicator: DiffChangeIndicator::default(),
@@ -276,6 +280,12 @@ impl Diff {
         self.syntax_highlight = value;
         self
     }
+    /// Pin the current file header to the viewport until the next header pushes it away.
+    pub fn sticky_headers(mut self, enabled: bool) -> Self {
+        self.sticky_headers = enabled;
+        self
+    }
+
     /// Shows a header above each file. Default is true.
     pub fn header_visible(mut self, visible: bool) -> Self {
         self.header_visible = visible;
@@ -616,6 +626,7 @@ fn render_diff(
         [file] => t!("Diff.Viewer", name = file.path().as_str()).to_string(),
         files => t!("Diff.ViewerFiles", count = files.len()).to_string(),
     };
+    let list_code = code.clone();
     let body = div()
         .id("diff-body")
         .relative()
@@ -640,7 +651,7 @@ fn render_diff(
                         div()
                             .id(("diff-file", row.file()))
                             .w_full()
-                            .child(render_row(row, code.clone(), window, cx))
+                            .child(render_row(row, list_code.clone(), window, cx))
                             .into_any_element()
                     })
                     .w(content_width)
@@ -652,6 +663,9 @@ fn render_diff(
             state.selection().clone(),
             state.geometry().clone(),
         ))
+        .when(props.sticky_headers && props.header_visible, |this| {
+            this.child(div().absolute().inset_0().child(sticky::StickyHeader::new(code.clone())))
+        })
         .when(has_rows && !soft_wrap && mode != DiffMode::Split, |this| {
             this.child(
                 ScrollableMask::new(Axis::Horizontal, &horizontal).id("diff-horizontal-wheel"),
@@ -1201,6 +1215,16 @@ fn render_file_header(
     window: &mut Window,
     cx: &mut App,
 ) -> AnyElement {
+    render_file_header_content(file, code, true, window, cx)
+}
+
+fn render_file_header_content(
+    file: usize,
+    code: &CodePresentation,
+    annotations: bool,
+    window: &mut Window,
+    cx: &mut App,
+) -> AnyElement {
     if !code.header_visible {
         return div()
             .children(file_annotations(file, code, window, cx))
@@ -1304,7 +1328,7 @@ fn render_file_header(
                 )
                 .child(div().flex_1().min_w_0().child(content)),
         )
-        .children(file_annotations(file, code, window, cx))
+        .when(annotations, |header| header.children(file_annotations(file, code, window, cx)))
         .into_any_element()
 }
 

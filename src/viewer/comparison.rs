@@ -315,6 +315,8 @@ impl Viewer {
             }
             let gutter_bounds = Rc::new(Cell::new(None));
             let measured_gutter = gutter_bounds.clone();
+            let before_viewport = Rc::new(Cell::new(None));
+            let after_viewport = Rc::new(Cell::new(None));
             return file_surface
                 .child(self.render_file_header(cx))
                 .child(
@@ -343,15 +345,29 @@ impl Viewer {
                                                     },
                                                 ))
                                                 .child(
-                                                    Editor::new(left)
-                                                        .text_size(px(self.code_font_size))
-                                                        .font_features(typography::features(
-                                                            self.settings.editor.ligatures,
-                                                        ))
-                                                        .readonly(true)
-                                                        .bordered(false)
+                                                    div()
+                                                        .relative()
+                                                        .v_flex()
                                                         .flex_1()
-                                                        .min_h_0(),
+                                                        .min_h_0()
+                                                        .child(
+                                                            Editor::new(left)
+                                                                .text_size(px(self.code_font_size))
+                                                                .font_features(
+                                                                    typography::features(
+                                                                        self.settings
+                                                                            .editor
+                                                                            .ligatures,
+                                                                    ),
+                                                                )
+                                                                .readonly(true)
+                                                                .bordered(false)
+                                                                .flex_1()
+                                                                .min_h_0(),
+                                                        )
+                                                        .child(fluid_view::measure_viewport(
+                                                            before_viewport.clone(),
+                                                        )),
                                                 ),
                                         ),
                                 )
@@ -392,25 +408,39 @@ impl Viewer {
                                                     },
                                                 ))
                                                 .child(
-                                                    Editor::new(right)
-                                                        .text_size(px(self.code_font_size))
-                                                        .font_features(typography::features(
-                                                            self.settings.editor.ligatures,
-                                                        ))
-                                                        .readonly(true)
-                                                        .bordered(false)
+                                                    div()
+                                                        .relative()
+                                                        .v_flex()
                                                         .flex_1()
-                                                        .min_h_0(),
+                                                        .min_h_0()
+                                                        .child(
+                                                            Editor::new(right)
+                                                                .text_size(px(self.code_font_size))
+                                                                .font_features(
+                                                                    typography::features(
+                                                                        self.settings
+                                                                            .editor
+                                                                            .ligatures,
+                                                                    ),
+                                                                )
+                                                                .readonly(true)
+                                                                .bordered(false)
+                                                                .flex_1()
+                                                                .min_h_0(),
+                                                        )
+                                                        .child(fluid_view::measure_viewport(
+                                                            after_viewport.clone(),
+                                                        )),
                                                 ),
                                         ),
                                 ),
                         )
-                        .child(
-                            div()
-                                .absolute()
-                                .inset_0()
-                                .child(self.render_fluid_gutter(gutter_bounds, cx)),
-                        ),
+                        .child(div().absolute().inset_0().child(self.render_fluid_gutter(
+                            gutter_bounds,
+                            before_viewport,
+                            after_viewport,
+                            cx,
+                        ))),
                 )
                 .into_any_element();
         }

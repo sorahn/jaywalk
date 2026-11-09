@@ -1,6 +1,9 @@
 # Copy this file to ~/.config/jaywalk/config.toml and edit it directly.
 # Unspecified values inherit these defaults. Saved edits apply automatically.
 
+[application]
+quit_on_last_window = true
+
 [window]
 width = 1500
 height = 950

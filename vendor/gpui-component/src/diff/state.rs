@@ -531,6 +531,17 @@ impl DiffState {
         self.row_position(self.list.logical_scroll_top().item_ix)
     }
 
+    /// File owning the top displayed row, including headers, folds and notices.
+    pub fn viewport_file(&self) -> Option<&SharedString> {
+        self.rows.get(self.list.logical_scroll_top().item_ix)
+            .and_then(|row| self.files.get(row.file()))
+            .map(DiffFile::path)
+    }
+
+    pub(crate) fn header_row(&self, file: usize) -> Option<usize> {
+        self.header_rows.get(file).copied()
+    }
+
     pub(crate) fn list(&self) -> &ListState {
         &self.list
     }

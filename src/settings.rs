@@ -32,6 +32,7 @@ pub struct LiveSettings {
 #[derive(Clone, Debug, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct Settings {
+    pub application: ApplicationSettings,
     pub keybindings: BTreeMap<CommandId, Vec<String>>,
     pub settings: ReloadSettings,
     pub live: LiveSettings,
@@ -46,6 +47,12 @@ pub struct Settings {
     pub overview: OverviewSettings,
     pub evolution: EvolutionSettings,
     pub file_evolution: FileEvolutionSettings,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct ApplicationSettings {
+    pub quit_on_last_window: bool,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq)]
@@ -707,5 +714,20 @@ mod row_tests {
         ] {
             assert!(Settings::parse(input).is_err());
         }
+    }
+}
+
+#[cfg(test)]
+mod application_tests {
+    use super::Settings;
+    #[test]
+    fn closing_the_last_window_quits_by_default_and_can_be_disabled() {
+        let defaults = Settings::parse("").unwrap();
+        assert!(defaults.application.quit_on_last_window);
+        let settings = Settings::parse("[application]\nquit_on_last_window=false").unwrap();
+        assert!(!settings.application.quit_on_last_window);
+        assert_eq!(settings.window, defaults.window);
+        assert!(Settings::parse("[application]\nquit_on_last_window=1").is_err());
+        assert!(Settings::parse("[application]\nquit_when_last_window_closes=false").is_err());
     }
 }

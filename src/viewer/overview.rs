@@ -300,6 +300,7 @@ impl Viewer {
             .collect::<Vec<_>>();
         let notices = files.clone();
         let diff = Diff::new(&loaded.state)
+            .sticky_headers(true)
             .code_font(theme.mono_font_family.clone(), px(self.code_font_size))
             .font_features(typography::features(self.settings.editor.ligatures))
             .line_number(self.line_numbers)
@@ -342,20 +343,60 @@ impl Viewer {
                     })
             })
             .size_full();
+        let state = loaded.state.clone();
+        let tracking_viewer = cx.entity().downgrade();
+        let tracking = canvas(
+            |_, _, _| (),
+            move |_, _, window, cx| {
+                let path = state.read(cx).viewport_file().map(ToString::to_string);
+                let Some(viewer) = tracking_viewer.upgrade() else {
+                    return;
+                };
+                if viewer.read(cx).selected_file.is_some()
+                    || viewer.read(cx).browser.reading == path
+                {
+                    return;
+                }
+                let state_id = state.entity_id();
+                let viewer = tracking_viewer.clone();
+                window.defer(cx, move |_, cx| {
+                    let _ = viewer.update(cx, |viewer, cx| {
+                        if viewer.selected_file.is_none()
+                            && viewer
+                                .overview
+                                .current
+                                .as_ref()
+                                .is_some_and(|loaded| loaded.state.entity_id() == state_id)
+                        {
+                            viewer.track_overview_file(path, cx);
+                        }
+                    });
+                });
+            },
+        )
+        .absolute()
+        .size_full();
         surface
             .child(header)
-            .child(div().flex_1().min_h_0().child(if loaded.files.is_empty() {
+            .child(
                 div()
-                    .p_6()
-                    .child(if self.is_interdiff() {
-                        "No patch changes between these versions."
+                    .relative()
+                    .flex_1()
+                    .min_h_0()
+                    .child(if loaded.files.is_empty() {
+                        div()
+                            .p_6()
+                            .child(if self.is_interdiff() {
+                                "No patch changes between these versions."
+                            } else {
+                                "No changed files."
+                            })
+                            .into_any_element()
                     } else {
-                        "No changed files."
+                        diff.into_any_element()
                     })
-                    .into_any_element()
-            } else {
-                diff.into_any_element()
-            }))
+                    .child(tracking),
+            )
             .into_any_element()
     }
 }

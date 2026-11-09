@@ -1,9 +1,23 @@
 use super::*;
 
+/// The editor exposes inner text bounds; measure its full painted viewport so
+/// tint includes partially visible rows in the editor padding at either edge.
+pub(super) fn measure_viewport(measured: Rc<Cell<Option<Bounds<Pixels>>>>) -> AnyElement {
+    canvas(
+        move |bounds, _, _| measured.set(Some(bounds)),
+        |_, _, _, _| {},
+    )
+    .absolute()
+    .size_full()
+    .into_any_element()
+}
+
 impl Viewer {
     pub(super) fn render_fluid_gutter(
         &self,
         gutter_bounds: Rc<Cell<Option<Bounds<Pixels>>>>,
+        before_viewport: Rc<Cell<Option<Bounds<Pixels>>>>,
+        after_viewport: Rc<Cell<Option<Bounds<Pixels>>>>,
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let CodeComparison {
@@ -27,8 +41,8 @@ impl Viewer {
                 };
                 let before_state = before.read(cx);
                 let after_state = after.read(cx);
-                let before_bounds = before_state.input_bounds();
-                let after_bounds = after_state.input_bounds();
+                let before_bounds = before_viewport.get().unwrap_or(before_state.input_bounds());
+                let after_bounds = after_viewport.get().unwrap_or(after_state.input_bounds());
                 let line_height = before_state.line_height().unwrap_or(px(20.));
                 let before_origin = before_state.text_bounds().unwrap_or(before_bounds).origin.y;
                 let after_origin = after_state.text_bounds().unwrap_or(after_bounds).origin.y;
@@ -129,9 +143,14 @@ impl Viewer {
                                 continue;
                             }
                             let color = rgba(rgb | if selected { 0x30 } else { 0x20 });
-                            let top = (origin + px(positions[lines.start])).max(viewport.top());
-                            let bottom = (origin + px(positions[lines.end])).min(viewport.bottom());
-                            if bottom > top {
+                            let visible = jaywalk::fluid::clipped_tint(
+                                f32::from(origin) + positions[lines.start]
+                                    ..f32::from(origin) + positions[lines.end],
+                                f32::from(viewport.top())..f32::from(viewport.bottom()),
+                            );
+                            if let Some(visible) = visible {
+                                let top = px(visible.start);
+                                let bottom = px(visible.end);
                                 window.paint_quad(fill(
                                     Bounds::from_corners(
                                         point(viewport.left(), top),
