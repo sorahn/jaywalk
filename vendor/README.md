@@ -22,3 +22,8 @@ and exposes `DiffState::viewport_file` for host reading indicators. Sticky heade
 placement uses current-frame list geometry in `src/diff/sticky.rs`, reusing the
 normal interactive header without duplicating file annotations. The next file's
 header pushes it away; ordinary single-file views keep this feature disabled.
+
+The input facade scopes code bodies as `Editor` or `ReadonlyEditor` in
+`src/input/input.rs`, leaving the editable search panel outside that scope.
+This lets host review shortcuts override source navigation without intercepting
+normal text movement in search inputs.

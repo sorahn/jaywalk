@@ -521,11 +521,18 @@ impl Input {
         input_state: TextInputState,
         search_panel: Option<AnyElement>,
         _: &Window,
+        cx: &App,
     ) -> impl IntoElement {
+        let presentation = input_state.presentation(cx);
+        let editor = presentation.is_code_editor();
+        let readonly = !presentation.is_editable();
         v_flex().size_full().children(search_panel).child(
             div()
                 .relative()
                 .flex_1()
+                // Scope host review keys to source, excluding the editable
+                // search panel above it even when the code editor is readonly.
+                .when(editor, |this| this.key_context(if readonly { "ReadonlyEditor" } else { "Editor" }))
                 .child(input_state.into_any_element()),
         )
     }
@@ -824,7 +831,7 @@ impl RenderOnce for Input {
                     .child(p)
             }))
             .when(presentation.is_multi_line(), |this| {
-                this.child(Self::render_editor(state.clone(), overlays.search, window))
+                this.child(Self::render_editor(state.clone(), overlays.search, window, cx))
             })
             .when(!presentation.is_multi_line(), |this| {
                 this.child(state.clone().into_any_element())

@@ -55,13 +55,24 @@ fn configured_bindings(settings: &Settings) -> Vec<KeyBinding> {
             | CommandId::ShowAll => None,
             _ => Some("Jaywalk"),
         };
-        for binding in bindings {
+        // Register the first configured shortcut last so native menus and
+        // palette hints show it as the primary shortcut.
+        for binding in bindings.iter().rev() {
             // Settings::validate has parsed every keystroke, and the context is static.
             result.push(KeyBinding::new(
                 binding,
                 ExecuteCommand { command: *command },
                 context,
             ));
+            if matches!(command, CommandId::NextChange | CommandId::PreviousChange) {
+                for context in ["JaywalkDiff > ReadonlyEditor > Input", "JaywalkDiff > Diff"] {
+                    result.push(KeyBinding::new(
+                        binding,
+                        ExecuteCommand { command: *command },
+                        Some(context),
+                    ));
+                }
+            }
         }
     }
     result
@@ -274,6 +285,58 @@ mod tests {
     use gpui::{KeyBinding, KeyContext, Keymap, Keystroke};
     use jaywalk::commands::CommandId;
     use jaywalk::settings::Settings;
+
+    #[test]
+    fn macos_shifted_bracket_events_navigate_history() {
+        let map = Keymap::new(configured_bindings(&Settings::parse("").unwrap()));
+        let contexts = [KeyContext::parse("Jaywalk").unwrap()];
+        // GPUI's macOS adapter emits shifted punctuation with Shift consumed.
+        for (event, expected) in [
+            ("secondary-}", CommandId::NextRevision),
+            ("secondary-{", CommandId::PreviousRevision),
+        ] {
+            let bindings = map
+                .bindings_for_input(&[Keystroke::parse(event).unwrap()], &contexts)
+                .0;
+            assert_eq!(
+                bindings[0]
+                    .action()
+                    .as_any()
+                    .downcast_ref::<ExecuteCommand>()
+                    .unwrap()
+                    .command,
+                expected
+            );
+        }
+    }
+
+    #[test]
+    fn change_keys_override_readonly_source_but_keep_editable_input_navigation() {
+        let settings = Settings::parse("").unwrap();
+        let mut map = Keymap::new(vec![KeyBinding::new(
+            "secondary-down",
+            gpui::base::input::MoveToEnd,
+            Some("Input"),
+        )]);
+        map.add_bindings(configured_bindings(&settings));
+        let readonly = ["Jaywalk", "JaywalkDiff", "ReadonlyEditor", "Input"]
+            .map(|context| KeyContext::parse(context).unwrap());
+        let search =
+            ["Jaywalk", "JaywalkDiff", "Input"].map(|context| KeyContext::parse(context).unwrap());
+        let input = [Keystroke::parse("secondary-down").unwrap()];
+        assert!(
+            map.bindings_for_input(&input, &readonly).0[0]
+                .action()
+                .as_any()
+                .is::<ExecuteCommand>()
+        );
+        assert!(
+            map.bindings_for_input(&input, &search).0[0]
+                .action()
+                .as_any()
+                .is::<gpui::base::input::MoveToEnd>()
+        );
+    }
 
     #[test]
     fn live_keymap_replacement_keeps_late_toolkit_bindings_and_removes_old_app_shortcuts() {

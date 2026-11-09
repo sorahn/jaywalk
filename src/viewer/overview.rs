@@ -186,7 +186,11 @@ impl Viewer {
     }
     pub(super) fn render_overview(&self, cx: &mut Context<Self>) -> AnyElement {
         let theme = gpui::component::Theme::global(cx);
-        let surface = div().v_flex().size_full().bg(theme.background);
+        let surface = div()
+            .key_context("JaywalkDiff")
+            .v_flex()
+            .size_full()
+            .bg(theme.background);
         if let LoadState::Failed(error) = self.comparison_state() {
             return surface
                 .child(

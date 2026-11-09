@@ -45,6 +45,27 @@ fn file_rank(query: &str, path: &str, changed: bool) -> Option<(usize, bool)> {
     fuzzy_score(query, path).map(|score| (score, !changed))
 }
 
+#[derive(Debug, PartialEq, Eq)]
+enum HistoryStep {
+    Overview,
+    Revision(usize),
+}
+
+fn history_step(current: Option<usize>, delta: i32, count: usize) -> Option<HistoryStep> {
+    if count == 0 {
+        return None;
+    }
+    match current {
+        None if delta > 0 => Some(HistoryStep::Revision(0)),
+        None => None,
+        Some(0) if delta < 0 => Some(HistoryStep::Overview),
+        Some(index) => {
+            let next = index.saturating_add_signed(delta as isize).min(count - 1);
+            (next != index).then_some(HistoryStep::Revision(next))
+        }
+    }
+}
+
 impl Viewer {
     pub(super) fn open_palette(
         &mut self,
@@ -230,20 +251,25 @@ impl Viewer {
             ComparisonScope::Revision { commit_id, .. } => Some(commit_id),
             ComparisonScope::Evolution { anchor, .. } => Some(anchor),
         };
-        let current = selected
-            .and_then(|id| {
-                history
-                    .revisions
-                    .iter()
-                    .position(|revision| &revision.commit_id == id)
-            })
-            .map(|index| index as i32)
-            .unwrap_or(if delta > 0 {
-                -1
-            } else {
-                history.revisions.len() as i32
-            });
-        let index = (current + delta).clamp(0, history.revisions.len() as i32 - 1) as usize;
+        let current = selected.and_then(|id| {
+            history
+                .revisions
+                .iter()
+                .position(|revision| &revision.commit_id == id)
+        });
+        let Some(step) = history_step(current, delta, history.revisions.len()) else {
+            return;
+        };
+        let index = match step {
+            HistoryStep::Overview => {
+                self.remember_reading(cx);
+                self.clear_file();
+                self.show_whole_branch(window, cx);
+                window.focus(&self.focus, cx);
+                return;
+            }
+            HistoryStep::Revision(index) => index,
+        };
         let commit = history.revisions[index].commit_id.clone();
         self.history_scroll
             .scroll_to_item(index, ScrollStrategy::Nearest);
@@ -292,5 +318,20 @@ mod tests {
         assert!(fuzzy_score("svcfg", "src/viewer/config.rs").is_some());
         assert!(fuzzy_score("CAFÉ", "src/café.ts").is_some());
         assert!(fuzzy_score("zq", "src/main.rs").is_none());
+    }
+}
+
+#[cfg(test)]
+mod history_navigation_tests {
+    use super::{HistoryStep, history_step};
+    #[test]
+    fn overview_precedes_the_first_history_entry_without_wrapping() {
+        assert_eq!(history_step(None, 1, 3), Some(HistoryStep::Revision(0)));
+        assert_eq!(history_step(Some(0), -1, 3), Some(HistoryStep::Overview));
+        assert_eq!(history_step(None, -1, 3), None);
+        assert_eq!(history_step(Some(0), 1, 3), Some(HistoryStep::Revision(1)));
+        assert_eq!(history_step(Some(2), 1, 3), None);
+        assert_eq!(history_step(None, 1, 0), None);
+        assert_eq!(history_step(Some(0), -1, 1), Some(HistoryStep::Overview));
     }
 }
