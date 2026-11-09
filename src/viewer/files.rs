@@ -7,15 +7,17 @@ use gpui::prelude::FluentBuilder;
 use jaywalk::file_browser::{CompactPath, FileNode, present_paths};
 use std::collections::HashMap;
 
-use jaywalk::settings::FileView as FileListMode;
+use jaywalk::settings::{FileView as FileListMode, TreeScope};
 
 pub(super) struct FileBrowser {
     pub(super) files: std::sync::Arc<[jaywalk::repository_file::FileEntry]>,
     retained: Option<usize>,
     pub(super) mode: FileListMode,
+    pub(super) scope: TreeScope,
     labels: Vec<CompactPath>,
     tree: Entity<TreeState>,
     roots: Vec<TreeItem>,
+    expansion: HashMap<SharedString, bool>,
     tree_indices: HashMap<SharedString, usize>,
     observer: Option<Subscription>,
     horizontal: ScrollHandle,
@@ -25,14 +27,21 @@ pub(super) struct FileBrowser {
 }
 
 impl FileBrowser {
-    pub(super) fn new(default_width: f32, mode: FileListMode, cx: &mut App) -> Self {
+    pub(super) fn new(
+        default_width: f32,
+        mode: FileListMode,
+        scope: TreeScope,
+        cx: &mut App,
+    ) -> Self {
         Self {
             files: std::sync::Arc::from([]),
             retained: None,
             mode,
+            scope,
             labels: Vec::new(),
             tree: cx.new(|cx| TreeState::new(cx)),
             roots: Vec::new(),
+            expansion: HashMap::new(),
             tree_indices: HashMap::new(),
             observer: None,
             horizontal: ScrollHandle::new(),
@@ -49,6 +58,7 @@ fn file_style(status: &str) -> (&'static str, u32) {
         "removed" => ("D", 0xe58a83),
         "renamed" => ("R", 0x86b4ed),
         "copied" => ("C", 0x86b4ed),
+        "unchanged" => ("", 0xa4b4c2),
         _ => ("M", 0xe5c07b),
     }
 }
@@ -100,7 +110,11 @@ fn tree_items(
 
 // TreeItem clones share expansion state. Retain all roots, including descendants
 // hidden behind collapsed parents, and transfer state only for surviving IDs.
-fn preserve_expansion(items: &[TreeItem], previous: &[TreeItem]) {
+fn preserve_expansion(
+    items: &[TreeItem],
+    previous: &[TreeItem],
+    states: &mut HashMap<SharedString, bool>,
+) {
     fn visit(items: &[TreeItem], states: &mut HashMap<SharedString, bool>) {
         for item in items {
             if item.is_folder() {
@@ -117,9 +131,8 @@ fn preserve_expansion(items: &[TreeItem], previous: &[TreeItem]) {
             apply(&item.children, states);
         }
     }
-    let mut states = HashMap::new();
-    visit(previous, &mut states);
-    apply(items, &states);
+    visit(previous, states);
+    apply(items, states);
 }
 
 impl Viewer {
@@ -153,7 +166,10 @@ impl Viewer {
     }
 
     pub(super) fn is_retained_preview(&self) -> bool {
-        self.browser.retained.is_some() && self.browser.retained == self.selected_index()
+        self.selected_path().is_some_and(|path| {
+            self.comparison()
+                .is_some_and(|comparison| comparison.catalog.find(&path).is_none())
+        })
     }
 
     pub(super) fn rebuild_browser(&mut self, cx: &mut Context<Self>) {
@@ -163,11 +179,26 @@ impl Viewer {
         if matches!(self.comparison_state(), LoadState::Loading) {
             return;
         }
-        let (files, retained) = jaywalk::file_browser::with_preview(
+        let entries: Vec<_> = self
+            .comparison()
+            .map(|comparison| {
+                if self.browser.mode == FileListMode::Tree && self.browser.scope == TreeScope::All {
+                    comparison.catalog.entries().cloned().collect()
+                } else {
+                    comparison
+                        .files
+                        .iter()
+                        .map(jaywalk::repository_file::FileEntry::from)
+                        .collect()
+                }
+            })
+            .unwrap_or_default();
+        let open = self.selected_file.as_ref().map(|selected| {
             self.comparison()
-                .map_or(&[], |comparison| comparison.files.as_ref()),
-            self.selected_file.as_ref().map(|selected| &selected.file),
-        );
+                .and_then(|comparison| comparison.catalog.find(selected.file.path()))
+                .unwrap_or(&selected.file)
+        });
+        let (files, retained) = jaywalk::file_browser::with_entries(&entries, open);
         self.browser.retained = retained;
         self.browser.files = files.into();
         let paths: Vec<_> = self.browser.files.iter().map(|file| file.path()).collect();
@@ -183,7 +214,7 @@ impl Viewer {
             self.settings.panels.files.font.size * 0.5,
             self.settings.files.indent_width,
         );
-        preserve_expansion(&items, &self.browser.roots);
+        preserve_expansion(&items, &self.browser.roots, &mut self.browser.expansion);
         let selected_tree = self.browser.tree.read(cx).selected_item().cloned();
         self.browser.roots = items.clone();
         self.browser
@@ -202,6 +233,7 @@ impl Viewer {
 
     pub(super) fn apply_file_view(&mut self) {
         self.browser.mode = self.settings.files.default_view;
+        self.browser.scope = self.settings.files.tree_scope;
     }
 
     pub(super) fn refresh_browser_metrics(&mut self) {
@@ -334,9 +366,9 @@ impl Viewer {
                                 if matches!(self.comparison_state(), LoadState::Loading)
                                     && self.loading_visible(LoadingKind::Comparison)
                                 {
-                                    "CHANGED FILES · Loading…"
+                                    "FILES · Loading…"
                                 } else {
-                                    "CHANGED FILES"
+                                    "FILES"
                                 },
                             ),
                     )
@@ -345,6 +377,29 @@ impl Viewer {
                             .h_flex()
                             .gap_1()
                             .child(self.panel_menu(jaywalk::panel_layout::PanelId::Files))
+                            .children((self.browser.mode == FileListMode::Tree).then(|| {
+                                Button::new("file-tree-scope")
+                                    .ghost()
+                                    .small()
+                                    .compact()
+                                    .label(if self.browser.scope == TreeScope::All {
+                                        "All"
+                                    } else {
+                                        "Changed"
+                                    })
+                                    .tooltip("Toggle changed files / all repository files")
+                                    .on_click(cx.listener(|this, _, _, cx| {
+                                        this.browser.scope = if this.browser.scope == TreeScope::All
+                                        {
+                                            TreeScope::Changed
+                                        } else {
+                                            TreeScope::All
+                                        };
+                                        this.rebuild_browser(cx);
+                                        this.save_layout(cx);
+                                        cx.notify();
+                                    }))
+                            }))
                             .child(
                                 Button::new("file-evolution-toggle")
                                     .ghost()
@@ -372,6 +427,7 @@ impl Viewer {
                                     .selected(self.browser.mode == FileListMode::List)
                                     .on_click(cx.listener(|this, _, _, cx| {
                                         this.browser.mode = FileListMode::List;
+                                        this.rebuild_browser(cx);
                                         this.save_layout(cx);
                                         cx.notify();
                                     })),
@@ -386,6 +442,7 @@ impl Viewer {
                                     .selected(self.browser.mode == FileListMode::Tree)
                                     .on_click(cx.listener(|this, _, _, cx| {
                                         this.browser.mode = FileListMode::Tree;
+                                        this.rebuild_browser(cx);
                                         this.save_layout(cx);
                                         cx.notify();
                                     })),
@@ -394,7 +451,11 @@ impl Viewer {
             );
         match self.comparison_state() {
             LoadState::Failed(error) => panel = panel.child(div().p_3().child(error)),
-            LoadState::Loaded(comparison) if comparison.files.is_empty() => {
+            LoadState::Loaded(comparison)
+                if comparison.files.is_empty()
+                    && !(self.browser.mode == FileListMode::Tree
+                        && self.browser.scope == TreeScope::All) =>
+            {
                 panel = panel.child(div().p_3().child("No changed files"));
             }
             _ => {}
@@ -557,6 +618,7 @@ impl Viewer {
 #[cfg(test)]
 mod identity_tests {
     use super::{TreeItem, preserve_expansion};
+    use std::collections::HashMap;
     #[test]
     fn expansion_survives_reordering_and_collapsed_ancestors() {
         let previous = vec![
@@ -576,9 +638,18 @@ mod identity_tests {
                     .child(TreeItem::new("file:src/nested/b.rs", "b.rs")),
             ),
         ];
-        preserve_expansion(&next, &previous);
+        let mut states = HashMap::new();
+        preserve_expansion(&next, &previous, &mut states);
         assert!(next[0].is_expanded());
         assert!(!next[1].is_expanded());
         assert!(!next[1].children[0].is_expanded());
+        preserve_expansion(&[], &next, &mut states);
+        let restored = vec![
+            TreeItem::new("dir:src", "src")
+                .expanded(true)
+                .child(TreeItem::new("file:src/a", "a")),
+        ];
+        preserve_expansion(&restored, &[], &mut states);
+        assert!(!restored[0].is_expanded());
     }
 }

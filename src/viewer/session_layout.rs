@@ -67,6 +67,9 @@ impl Viewer {
         if let Some(view) = self.layout.saved.file_view {
             self.browser.mode = view;
         }
+        if let Some(scope) = self.layout.saved.file_scope {
+            self.browser.scope = scope;
+        }
         if let Some(wrap) = self.layout.saved.wrap_before {
             self.wrapping.before = wrap;
         }
@@ -107,6 +110,7 @@ impl Viewer {
         }
         self.layout.saved.view = Some(self.view.preferred());
         self.layout.saved.file_view = Some(self.browser.mode);
+        self.layout.saved.file_scope = Some(self.browser.scope);
         self.layout.saved.wrap_before = Some(self.wrapping.before);
         self.layout.saved.wrap_after = Some(self.wrapping.after);
         self.layout.saved.wrap_inline = Some(self.wrapping.inline);

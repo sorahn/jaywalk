@@ -137,7 +137,15 @@ impl Viewer {
             commands::install_bindings(&self.settings, cx);
         }
         if previous.files.default_view != self.settings.files.default_view {
-            self.apply_file_view();
+            self.browser.mode = self.settings.files.default_view;
+        }
+        if previous.files.tree_scope != self.settings.files.tree_scope {
+            self.browser.scope = self.settings.files.tree_scope;
+        }
+        if previous.files.tree_scope != self.settings.files.tree_scope
+            || previous.files.default_view != self.settings.files.default_view
+        {
+            self.rebuild_browser(cx);
         }
         if previous.ui != self.settings.ui || previous.editor != self.settings.editor {
             Theme::update(cx, |theme| {

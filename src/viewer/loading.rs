@@ -19,6 +19,7 @@ impl Viewer {
         let wrapping = Wrapping::from_settings(&settings.diff);
         let file_width = settings.panels.files.default_width;
         let file_mode = settings.files.default_view;
+        let file_scope = settings.files.tree_scope;
         let focus = cx.focus_handle();
         window.focus(&focus, cx);
         let evolution = evolution::EvolutionPanel::new(
@@ -54,7 +55,7 @@ impl Viewer {
             repository: LoadState::Loading,
             selected_file: None,
             pending_file: None,
-            browser: files::FileBrowser::new(file_width, file_mode, cx),
+            browser: files::FileBrowser::new(file_width, file_mode, file_scope, cx),
             repository_generation: 0,
             file_generation: 0,
             repository_task: None,
