@@ -58,6 +58,7 @@ pub enum FileNode {
     File {
         index: usize,
         name: String,
+        path: String,
     },
 }
 
@@ -77,7 +78,7 @@ impl Directory {
                     .entry((*parent).to_owned())
                     .or_default();
             }
-            directory.files.push((index, display_component(name)));
+            directory.files.push((index, (*name).to_owned()));
         }
     }
 
@@ -100,11 +101,15 @@ impl Directory {
             .collect();
         let mut files = self.files;
         files.sort_by(|a, b| a.1.cmp(&b.1));
-        nodes.extend(
-            files
-                .into_iter()
-                .map(|(index, name)| FileNode::File { index, name }),
-        );
+        nodes.extend(files.into_iter().map(|(index, name)| FileNode::File {
+            index,
+            path: if parent.is_empty() {
+                name.clone()
+            } else {
+                format!("{parent}/{name}")
+            },
+            name: display_component(&name),
+        }));
         nodes
     }
 }

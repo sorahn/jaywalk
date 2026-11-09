@@ -15,6 +15,7 @@ pub(super) struct FileBrowser {
     pub(super) mode: FileListMode,
     labels: Vec<CompactPath>,
     tree: Entity<TreeState>,
+    roots: Vec<TreeItem>,
     tree_indices: HashMap<SharedString, usize>,
     observer: Option<Subscription>,
     horizontal: ScrollHandle,
@@ -31,6 +32,7 @@ impl FileBrowser {
             mode,
             labels: Vec::new(),
             tree: cx.new(|cx| TreeState::new(cx)),
+            roots: Vec::new(),
             tree_indices: HashMap::new(),
             observer: None,
             horizontal: ScrollHandle::new(),
@@ -83,8 +85,8 @@ fn tree_items(
                             .expanded(true),
                     )
                 }
-                FileNode::File { index, name } => {
-                    let id: SharedString = format!("file:{index}").into();
+                FileNode::File { index, name, path } => {
+                    let id: SharedString = format!("file:{path}").into();
                     indices.insert(id.clone(), index);
                     (name.clone(), TreeItem::new(id, name))
                 }
@@ -94,6 +96,30 @@ fn tree_items(
             item
         })
         .collect()
+}
+
+// TreeItem clones share expansion state. Retain all roots, including descendants
+// hidden behind collapsed parents, and transfer state only for surviving IDs.
+fn preserve_expansion(items: &[TreeItem], previous: &[TreeItem]) {
+    fn visit(items: &[TreeItem], states: &mut HashMap<SharedString, bool>) {
+        for item in items {
+            if item.is_folder() {
+                states.insert(item.id.clone(), item.is_expanded());
+                visit(&item.children, states);
+            }
+        }
+    }
+    fn apply(items: &[TreeItem], states: &HashMap<SharedString, bool>) {
+        for item in items {
+            if let Some(expanded) = states.get(&item.id) {
+                item.clone().expanded(*expanded);
+            }
+            apply(&item.children, states);
+        }
+    }
+    let mut states = HashMap::new();
+    visit(previous, &mut states);
+    apply(items, &states);
 }
 
 impl Viewer {
@@ -157,11 +183,19 @@ impl Viewer {
             self.settings.panels.files.font.size * 0.5,
             self.settings.files.indent_width,
         );
-        self.browser.horizontal.set_offset(point(px(0.), px(0.)));
+        preserve_expansion(&items, &self.browser.roots);
+        let selected_tree = self.browser.tree.read(cx).selected_item().cloned();
+        self.browser.roots = items.clone();
         self.browser
             .tree
             .update(cx, |tree, cx| tree.set_items(items, cx));
-        if let Some(index) = self.selected_index() {
+        if let Some(selected) = selected_tree.filter(|item| item.id.starts_with("dir:")) {
+            self.browser.tree.update(cx, |tree, cx| {
+                if let Some(index) = tree.index_of(&selected.id) {
+                    tree.set_selected_index(Some(index), cx);
+                }
+            });
+        } else if let Some(index) = self.selected_index() {
             self.select_browser_file(index, cx);
         }
     }
@@ -186,7 +220,10 @@ impl Viewer {
     }
 
     pub(super) fn select_browser_file(&self, index: usize, cx: &mut Context<Self>) {
-        let id: SharedString = format!("file:{index}").into();
+        let Some(file) = self.browser.files.get(index) else {
+            return;
+        };
+        let id: SharedString = format!("file:{}", file.path()).into();
         self.browser.tree.update(cx, |tree, cx| {
             if let Some(row) = tree.index_of(&id) {
                 tree.set_selected_index(Some(row), cx);
@@ -194,20 +231,40 @@ impl Viewer {
         });
     }
 
+    pub(super) fn reveal_browser_selection(&self, cx: &mut Context<Self>) {
+        fn find<'a>(items: &'a [TreeItem], id: &str) -> Option<&'a TreeItem> {
+            for item in items {
+                if item.id.as_ref() == id {
+                    return Some(item);
+                }
+                if let Some(found) = find(&item.children, id) {
+                    return Some(found);
+                }
+            }
+            None
+        }
+        let Some(path) = self.selected_path() else {
+            return;
+        };
+        if let Some(item) = find(&self.browser.roots, &format!("file:{path}")) {
+            self.browser
+                .tree
+                .update(cx, |tree, cx| tree.set_selected_item(Some(item), cx));
+        }
+    }
+
     fn render_tree(&self) -> AnyElement {
         let files = self.browser.files.clone();
         let retained = self.browser.retained;
+        let indices = self.browser.tree_indices.clone();
         let row_height = self.settings.row_height(
             self.settings.files.tree_row_height,
             self.settings.panels.files.font.size,
         );
         let indent_width = self.settings.files.indent_width;
         let font_size = self.settings.panels.files.font.size;
-        let tree = Tree::new(&self.browser.tree, move |index, entry, _, _, _| {
-            let file_index = entry.item().id.strip_prefix("file:").map(|id| {
-                id.parse::<usize>()
-                    .expect("file tree IDs are built from file indices")
-            });
+        let tree = Tree::new(&self.browser.tree, move |_, entry, _, _, _| {
+            let file_index = indices.get(&entry.item().id).copied();
             let temporary = file_index.is_some() && file_index == retained;
             let color = if temporary {
                 0xa4b4c2
@@ -235,7 +292,7 @@ impl Viewer {
                     .when(temporary, |label| label.italic())
                     .child(entry.item().label.clone()),
             );
-            ListItem::new(("file-tree", index))
+            ListItem::new(entry.item().id.clone())
                 .h(px(row_height))
                 .py_0()
                 .text_size(px(font_size))
@@ -375,9 +432,11 @@ impl Viewer {
                             .to_owned()
                         },
                     );
+                    let path = file.path().to_owned();
+                    let source = self.comparison().map(Comparison::identity);
                     list = list.child(
                         div()
-                            .id(("file", index))
+                            .id(SharedString::from(format!("file:{}", file.path())))
                             .h_flex()
                             .items_center()
                             .gap_2()
@@ -412,7 +471,12 @@ impl Viewer {
                                     .child(label),
                             )
                             .on_click(cx.listener(move |this, _, window, cx| {
-                                this.select_browser_entry(index, window, cx)
+                                if source.as_ref().is_some_and(|source| {
+                                    this.comparison()
+                                        .is_some_and(|comparison| comparison.identity() == *source)
+                                }) {
+                                    this.select_path(&path, window, cx);
+                                }
                             })),
                     );
                 }
@@ -487,5 +551,34 @@ impl Viewer {
             let index = self.browser.list_scroll.logical_scroll_top().0;
             self.browser.list_scroll.scroll_to_top_of_item(index);
         }
+    }
+}
+
+#[cfg(test)]
+mod identity_tests {
+    use super::{TreeItem, preserve_expansion};
+    #[test]
+    fn expansion_survives_reordering_and_collapsed_ancestors() {
+        let previous = vec![
+            TreeItem::new("dir:src", "src").expanded(false).child(
+                TreeItem::new("dir:src/nested", "nested")
+                    .expanded(false)
+                    .child(TreeItem::new("file:src/nested/a.rs", "a.rs")),
+            ),
+        ];
+        let next = vec![
+            TreeItem::new("dir:new", "new")
+                .child(TreeItem::new("file:new/a", "a"))
+                .expanded(true),
+            TreeItem::new("dir:src", "src").expanded(true).child(
+                TreeItem::new("dir:src/nested", "nested")
+                    .expanded(true)
+                    .child(TreeItem::new("file:src/nested/b.rs", "b.rs")),
+            ),
+        ];
+        preserve_expansion(&next, &previous);
+        assert!(next[0].is_expanded());
+        assert!(!next[1].is_expanded());
+        assert!(!next[1].children[0].is_expanded());
     }
 }

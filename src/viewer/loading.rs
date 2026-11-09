@@ -231,8 +231,12 @@ impl Viewer {
         self.begin_loading(LoadingKind::File, window, cx);
         self.recall_reading(file.path());
         let generation = self.file_generation;
+        let repository_generation = self.repository_generation;
         self.focus_evolution_file(Some(file.path()));
         self.rebuild_browser(cx);
+        if reason == FileLoad::Select {
+            self.reveal_browser_selection(cx);
+        }
         self.reveal_after_layout = false;
         let source = comparison.clone();
         let metadata = file.clone();
@@ -244,7 +248,9 @@ impl Viewer {
                 .background_spawn(async move { PreparedFile::load(&comparison, &file, tab_size) })
                 .await;
             let _ = this.update_in(cx, |viewer, window, cx| {
-                if viewer.file_generation != generation {
+                if viewer.file_generation != generation
+                    || viewer.repository_generation != repository_generation
+                {
                     return;
                 }
                 viewer.finish_loading(LoadingKind::File);
