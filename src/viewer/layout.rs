@@ -195,26 +195,7 @@ impl Render for Viewer {
                                     })),
                             )
                             .child(self.render_view_toggle(cx))
-                            .child(
-                                div()
-                                    .max_w(px(self.settings.ui.footer_font_size * 18.))
-                                    .truncate()
-                                    .child(if self.code().is_some() {
-                                        if total == 0 {
-                                            self.unchanged_file_summary().to_owned()
-                                        } else if self.view.effective() == ViewMode::Fluid {
-                                            format!(
-                                                "Change {} of {}",
-                                                self.active_change.map_or(0, |index| index + 1),
-                                                total
-                                            )
-                                        } else {
-                                            format!("{total} changes")
-                                        }
-                                    } else {
-                                        String::new()
-                                    }),
-                            )
+                            .child(self.render_change_counter(total, window, cx))
                             .child(
                                 Button::new("previous-change")
                                     .ghost()
@@ -256,6 +237,60 @@ impl Render for Viewer {
 }
 
 impl Viewer {
+    fn render_change_counter(&self, total: usize, window: &Window, cx: &App) -> AnyElement {
+        if self.view.effective() == ViewMode::Fluid && total > 0 && self.code().is_some() {
+            let mut features = typography::features(self.settings.ui.ligatures)
+                .0
+                .as_ref()
+                .clone();
+            features.push(("tnum".into(), 1));
+            let features = FontFeatures(std::sync::Arc::new(features));
+            let font = Font {
+                family: gpui::component::Theme::global(cx).font_family.clone(),
+                features: features.clone(),
+                ..Default::default()
+            };
+            let font_size = px(self.settings.ui.footer_font_size);
+            let digits = total.to_string().len();
+            // Measure every repeated digit rather than assuming 8 is widest:
+            // custom UI fonts may lack tabular figures or use different widths.
+            let width = ('0'..='9')
+                .map(|digit| {
+                    let label = format!("Change {} of {total}", digit.to_string().repeat(digits));
+                    let run = TextRun {
+                        len: label.len(),
+                        font: font.clone(),
+                        ..Default::default()
+                    };
+                    window
+                        .text_system()
+                        .shape_line(label.into(), font_size, &[run], None)
+                        .width
+                })
+                .fold(px(0.), Pixels::max);
+            return div()
+                .w(px(f32::from(width).ceil()))
+                .flex_shrink_0()
+                .font_features(features)
+                .child(format!(
+                    "Change {} of {total}",
+                    self.active_change.map_or(0, |index| index + 1).min(total)
+                ))
+                .into_any_element();
+        }
+        let label = if self.code().is_none() {
+            String::new()
+        } else if total == 0 {
+            self.unchanged_file_summary().to_owned()
+        } else {
+            format!("{total} changes")
+        };
+        div()
+            .max_w(px(self.settings.ui.footer_font_size * 18.))
+            .truncate()
+            .child(label)
+            .into_any_element()
+    }
     fn status_notice(&self) -> Option<AnyElement> {
         let (message, color): (&str, _) = if let Some(message) = &self.config.error {
             (message, 0xf48771)
