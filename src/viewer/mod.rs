@@ -260,6 +260,8 @@ impl Viewer {
         self.file_task = None;
         self.finish_loading(LoadingKind::File);
         self.selected_file = None;
+        self.view
+            .present(jaywalk::view_choice::FilePresentation::Comparison);
         self.live.pending_position = None;
         self.live.restore = None;
         self.active_change = None;
@@ -330,13 +332,24 @@ impl Viewer {
         cx.notify();
     }
 
+    fn editor_wraps(&self) -> [bool; 2] {
+        if self.view.is_single_file() {
+            [self.wrapping.inline; 2]
+        } else {
+            [self.wrapping.before, self.wrapping.after]
+        }
+    }
+
     fn toggle_wrap(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.preserve_reflow_position(cx);
         self.wrapping.toggle(self.view.effective());
         self.horizontal_position = 0.;
         self.reveal_after_layout = false;
         if let Some(CodeComparison { before, after, .. }) = self.code() {
-            for (state, wrap) in [(before, self.wrapping.before), (after, self.wrapping.after)] {
+            for (state, wrap) in [
+                (before, self.editor_wraps()[0]),
+                (after, self.editor_wraps()[1]),
+            ] {
                 state.update(cx, |state, cx| {
                     state.set_soft_wrap(wrap, window, cx);
                     let offset = state.scroll_offset();
@@ -373,6 +386,11 @@ impl Viewer {
             }
         } else if let Some(Ok(Some(state))) = self.code().map(|code| &code.standard) {
             state.update(cx, |state, cx| state.scroll_horizontal(px(delta), cx));
+        } else if let Some(code) = self.code() {
+            code.before.update(cx, |editor, cx| {
+                let offset = editor.scroll_offset();
+                editor.set_scroll_offset(point((offset.x - px(delta)).min(px(0.)), offset.y), cx);
+            });
         }
         cx.notify();
     }
@@ -388,7 +406,11 @@ impl Viewer {
             {
                 return position.line().saturating_sub(1);
             }
-            let state = code.after.read(cx);
+            let state = if self.view.is_single_file() {
+                code.before.read(cx)
+            } else {
+                code.after.read(cx)
+            };
             state.visible_row_range().map_or(0, |range| range.start)
         });
         self.view.select(mode);

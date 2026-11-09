@@ -78,8 +78,19 @@ impl Viewer {
                     ""
                 }
             )),
-            _ if contents_unchanged => Some(self.unchanged_file_summary().to_owned()),
+            _ if contents_unchanged && file.kind().is_some() => {
+                Some(self.unchanged_file_summary().to_owned())
+            }
             _ => None,
+        };
+        let detail = match file.content_kind() {
+            jaywalk::repository_file::FileKind::Regular => detail,
+            jaywalk::repository_file::FileKind::Symlink => Some("Symbolic link · target".into()),
+            jaywalk::repository_file::FileKind::Conflict => Some("Conflicted file".into()),
+            jaywalk::repository_file::FileKind::Submodule => Some("Git submodule".into()),
+            jaywalk::repository_file::FileKind::Other(kind) => {
+                Some(format!("Unsupported entry: {kind}"))
+            }
         };
         if let Some(detail) = detail {
             header = header.child(
@@ -101,6 +112,47 @@ impl Viewer {
                 // Restore after the widget has updated its font/wrap layout.
                 // Scrolling before remeasurement can reinterpret old row heights.
                 let _ = viewer.update(cx, |viewer, cx| {
+                    if viewer.view.is_single_file() {
+                        if let Some((_, line, horizontal)) = viewer.live.pending_position.take()
+                            && let Some(code) = viewer.code()
+                        {
+                            let geometry = comparison_geometry(
+                                code.before.read(cx),
+                                code.after.read(cx),
+                                &code.model,
+                            );
+                            let y = geometry.before[line.min(geometry.before.len() - 1)];
+                            // Let the editor finish publishing/clearing its paint state
+                            // before setting the deferred scroll for the next layout.
+                            let editor = code.before.clone();
+                            window.defer(cx, move |_, cx| {
+                                editor.update(cx, |editor, cx| {
+                                    editor.set_scroll_offset(point(px(-horizontal), px(-y)), cx)
+                                })
+                            });
+                        }
+                        if let Some(position) = viewer.config.pending_standard.take()
+                            && let Some(code) = viewer.code()
+                        {
+                            let geometry = comparison_geometry(
+                                code.before.read(cx),
+                                code.after.read(cx),
+                                &code.model,
+                            );
+                            let y = geometry.before[position
+                                .line()
+                                .saturating_sub(1)
+                                .min(geometry.before.len() - 1)];
+                            let editor = code.before.clone();
+                            window.defer(cx, move |_, cx| {
+                                editor.update(cx, |editor, cx| {
+                                    let offset = editor.scroll_offset();
+                                    editor.set_scroll_offset(point(offset.x, px(-y)), cx);
+                                })
+                            });
+                        }
+                    }
+
                     if let Some(position) = viewer.config.pending_standard.take()
                         && let Some(Ok(Some(state))) =
                             viewer.code().map(|code| code.standard.clone())

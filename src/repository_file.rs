@@ -42,14 +42,23 @@ struct FileChange {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct FileEntry {
     path: String,
+    content_kind: FileKind,
     change: Option<FileChange>,
 }
 impl FileEntry {
     pub fn unchanged(path: impl Into<String>) -> Self {
         Self {
             path: path.into(),
+            content_kind: FileKind::Regular,
             change: None,
         }
+    }
+    pub fn with_content_kind(mut self, kind: FileKind) -> Self {
+        self.content_kind = kind;
+        self
+    }
+    pub fn content_kind(&self) -> &FileKind {
+        &self.content_kind
     }
     pub fn path(&self) -> &str {
         &self.path
@@ -77,6 +86,7 @@ impl From<&ChangedFile> for FileEntry {
     fn from(file: &ChangedFile) -> Self {
         Self {
             path: file.after_path.clone(),
+            content_kind: FileKind::Regular,
             change: Some(FileChange {
                 kind: file.status.as_str().into(),
                 before_path: file.before_path.clone(),
@@ -119,5 +129,123 @@ mod tests {
         assert_eq!(find_entry(&entries, "copy.rs"), Some(0));
         entries.pop();
         assert_eq!(find_entry(&entries, "src/lib.rs"), Some(0));
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum FileKind {
+    Regular,
+    Symlink,
+    Submodule,
+    Conflict,
+    Other(String),
+}
+impl From<&str> for FileKind {
+    fn from(value: &str) -> Self {
+        match value {
+            "file" | "100644" | "100755" => Self::Regular,
+            "symlink" | "120000" => Self::Symlink,
+            "git-submodule" | "160000" => Self::Submodule,
+            "conflict" => Self::Conflict,
+            other => Self::Other(other.into()),
+        }
+    }
+}
+
+/// Complete target-tree entries plus deleted paths, independent of diff counts.
+#[derive(Clone, Debug, Default)]
+pub struct FileCatalog {
+    entries: std::collections::BTreeMap<String, FileEntry>,
+    renames: std::collections::BTreeMap<String, String>,
+}
+impl FileCatalog {
+    pub(crate) fn new(
+        paths: std::collections::BTreeMap<String, FileKind>,
+        changes: &[ChangedFile],
+    ) -> Self {
+        let mut entries: std::collections::BTreeMap<_, _> = paths
+            .into_iter()
+            .map(|(path, kind)| {
+                (
+                    path.clone(),
+                    FileEntry::unchanged(path).with_content_kind(kind),
+                )
+            })
+            .collect();
+        let mut renames = std::collections::BTreeMap::new();
+        for file in changes {
+            let kind = entries
+                .get(&file.after_path)
+                .map_or(FileKind::Regular, |entry| entry.content_kind.clone());
+            entries.insert(
+                file.after_path.clone(),
+                FileEntry::from(file).with_content_kind(kind),
+            );
+            if file.status == "renamed" {
+                renames.insert(file.before_path.clone(), file.after_path.clone());
+            }
+        }
+        Self { entries, renames }
+    }
+    pub fn entries(&self) -> impl ExactSizeIterator<Item = &FileEntry> {
+        self.entries.values()
+    }
+    pub fn find(&self, path: &str) -> Option<&FileEntry> {
+        self.entries.get(path).or_else(|| {
+            self.renames
+                .get(path)
+                .and_then(|target| self.entries.get(target))
+        })
+    }
+}
+
+#[cfg(test)]
+mod catalog_tests {
+    use super::{ChangeKind, FileCatalog, FileKind};
+    use crate::repository::ChangedFile;
+    #[test]
+    fn full_tree_preserves_unchanged_sources_deleted_paths_and_rename_aliases() {
+        let paths = ["original.rs", "renamed.rs", "never.rs", "link"]
+            .into_iter()
+            .map(|path| {
+                (
+                    path.into(),
+                    if path == "link" {
+                        FileKind::Symlink
+                    } else {
+                        FileKind::Regular
+                    },
+                )
+            })
+            .collect();
+        let changes = [
+            ChangedFile {
+                status: "renamed".into(),
+                before_path: "old.rs".into(),
+                after_path: "renamed.rs".into(),
+            },
+            ChangedFile {
+                status: "removed".into(),
+                before_path: "gone.rs".into(),
+                after_path: "gone.rs".into(),
+            },
+            ChangedFile {
+                status: "copied".into(),
+                before_path: "original.rs".into(),
+                after_path: "copy.rs".into(),
+            },
+        ];
+        let catalog = FileCatalog::new(paths, &changes);
+        assert_eq!(catalog.entries().len(), 6);
+        assert_eq!(catalog.find("old.rs").unwrap().path(), "renamed.rs");
+        assert!(catalog.find("original.rs").unwrap().kind().is_none());
+        assert_eq!(
+            catalog.find("gone.rs").unwrap().kind(),
+            Some(&ChangeKind::Removed)
+        );
+        assert_eq!(
+            catalog.find("link").unwrap().content_kind(),
+            &FileKind::Symlink
+        );
     }
 }

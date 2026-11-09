@@ -157,6 +157,7 @@ impl Viewer {
                 self.wrapping = Wrapping::from_settings(&self.settings.diff);
                 self.line_numbers = self.settings.editor.line_numbers;
                 self.apply_file_view();
+                self.rebuild_browser(cx);
                 for panel in [&mut self.evolution, &mut self.file_evolution] {
                     panel.collapse_repeats = self.settings.evolution.collapse_repeats;
                     panel.show_unchanged_rebases = self.settings.evolution.show_unchanged_rebases;
@@ -164,8 +165,8 @@ impl Viewer {
                 }
                 if let Some(code) = self.code() {
                     for (state, wrap) in [
-                        (&code.before, self.wrapping.before),
-                        (&code.after, self.wrapping.after),
+                        (&code.before, self.editor_wraps()[0]),
+                        (&code.after, self.editor_wraps()[1]),
                     ] {
                         state.update(cx, |state, cx| {
                             state.set_soft_wrap(wrap, window, cx);

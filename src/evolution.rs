@@ -407,7 +407,7 @@ impl EvolutionContents {
         let Some(id) = &value.object else {
             return Ok(String::new());
         };
-        if value.kind != "file" {
+        if value.kind != "file" && value.kind != "symlink" {
             return Err(format!(
                 "Text interdiff unavailable for {} entries.",
                 value.kind
@@ -439,6 +439,12 @@ impl EvolutionContents {
         Ok(text)
     }
 
+    pub(crate) fn contains(&self, path: &str, side: FileSide) -> bool {
+        match side {
+            FileSide::Before => self.before_paths.contains_key(path),
+            FileSide::After => self.entries.contains_key(path),
+        }
+    }
     pub(crate) fn read_path(&self, path: &str, side: FileSide) -> Result<String, String> {
         let key = match side {
             FileSide::Before => self.before_paths.get(path).map(String::as_str),
@@ -570,7 +576,7 @@ impl Comparison {
             .into_iter()
             .map(|entry| (entry.after_path, (entry.before, entry.after)))
             .collect();
-        Ok(Self {
+        Self {
             root: self.root.clone(),
             operation: self.operation.clone(),
             base: version.predecessors.join(","),
@@ -582,7 +588,9 @@ impl Comparison {
                 entries: Arc::new(entries),
                 before_paths,
             }),
-        })
+            catalog: Arc::default(),
+        }
+        .with_catalog()
     }
 }
 
@@ -688,6 +696,12 @@ mod tests {
         let evolution = current.evolution(&current.tip, 100).unwrap();
         assert_eq!(evolution.event(0), Event::Edited);
         let diff = current.for_evolution(&evolution.versions[0]).unwrap();
+        let unchanged = diff.catalog.find("upstream.ts").unwrap();
+        assert!(unchanged.kind().is_none());
+        assert_eq!(
+            diff.read_file(unchanged).unwrap(),
+            ("ancestor two\n".into(), "ancestor two\n".into())
+        );
         assert!(
             !diff
                 .files

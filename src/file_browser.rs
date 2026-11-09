@@ -19,9 +19,18 @@ pub fn with_preview(
     files: &[crate::repository::ChangedFile],
     open: Option<&FileEntry>,
 ) -> (Vec<FileEntry>, Option<usize>) {
-    let mut displayed: Vec<_> = files.iter().map(FileEntry::from).collect();
+    let entries: Vec<_> = files.iter().map(FileEntry::from).collect();
+    with_entries(&entries, open)
+}
+
+/// Add one temporary row without changing the catalog or comparison membership.
+pub fn with_entries(
+    files: &[FileEntry],
+    open: Option<&FileEntry>,
+) -> (Vec<FileEntry>, Option<usize>) {
+    let mut displayed = files.to_vec();
     let retained = open
-        .filter(|file| find_file(files, file.path()).is_none())
+        .filter(|file| crate::repository_file::find_entry(files, file.path()).is_none())
         .map(|file| {
             let index = displayed
                 .iter()
@@ -285,5 +294,27 @@ mod preview_tests {
             find_file(&[rename, file("added", "old.rs", "old.rs")], "old.rs"),
             Some(1)
         );
+    }
+}
+
+#[cfg(test)]
+mod filtered_entries_tests {
+    use super::with_entries;
+    use crate::repository_file::FileEntry;
+    #[test]
+    fn a_filtered_unchanged_file_is_temporary_without_becoming_a_fake_change() {
+        let changed = crate::repository::ChangedFile {
+            status: "modified".into(),
+            before_path: "src/z.rs".into(),
+            after_path: "src/z.rs".into(),
+        };
+        let filtered = [FileEntry::from(&changed)];
+        let open = FileEntry::unchanged("src/a.rs");
+        let (rows, temporary) = with_entries(&filtered, Some(&open));
+        assert_eq!(temporary, Some(0));
+        assert!(rows[0].kind().is_none());
+        assert_eq!(rows[1].path(), "src/z.rs");
+        assert_eq!(with_entries(&filtered, None).0.len(), 1);
+        assert!(with_entries(&rows, Some(&open)).1.is_none());
     }
 }

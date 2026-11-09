@@ -1,7 +1,7 @@
 //! Local UI state is separate from hand-edited startup settings.
 use crate::{
     panel_layout::Placement,
-    settings::{DiffView, FileView, Settings},
+    settings::{DiffView, FileView, Settings, TreeScope},
 };
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
@@ -23,6 +23,7 @@ pub struct LayoutState {
     pub bottom_fraction: Option<f32>,
     pub view: Option<DiffView>,
     pub file_view: Option<FileView>,
+    pub file_scope: Option<TreeScope>,
     pub wrap_before: Option<bool>,
     pub wrap_after: Option<bool>,
     pub wrap_inline: Option<bool>,
@@ -70,6 +71,18 @@ impl LayoutState {
 #[cfg(test)]
 mod tests {
     use super::LayoutState;
+    #[test]
+    fn saved_tree_scope_roundtrips_and_older_state_keeps_the_configured_default() {
+        let old: LayoutState = toml::from_str("file_view='tree'").unwrap();
+        assert!(old.file_scope.is_none());
+        let state = LayoutState {
+            file_scope: Some(crate::settings::TreeScope::All),
+            ..old
+        };
+        let restored: LayoutState = toml::from_str(&toml::to_string(&state).unwrap()).unwrap();
+        assert_eq!(restored.file_scope, state.file_scope);
+    }
+
     #[test]
     fn invalid_saved_geometry_is_rejected() {
         for state in [

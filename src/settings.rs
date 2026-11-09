@@ -153,6 +153,7 @@ pub struct HistorySettings {
 #[serde(deny_unknown_fields)]
 pub struct FileSettings {
     pub default_view: FileView,
+    pub tree_scope: TreeScope,
     pub tree_row_height: Option<f32>,
     pub list_row_height: Option<f32>,
     pub indent_width: f32,
@@ -167,6 +168,14 @@ pub struct FontSettings {
     #[serde(default)]
     pub family: Option<String>,
     pub ligatures: bool,
+}
+
+#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum TreeScope {
+    #[default]
+    Changed,
+    All,
 }
 
 #[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
@@ -508,6 +517,18 @@ mod tests {
         assert_eq!(settings.diff.default_view, DiffView::Fluid);
         assert!(settings.diff.before.word_wrap);
         assert!(!settings.diff.after.word_wrap);
+    }
+
+    #[test]
+    fn tree_scope_defaults_and_overrides_are_independent_of_list_mode() {
+        assert_eq!(
+            Settings::parse("").unwrap().files.tree_scope,
+            super::TreeScope::Changed
+        );
+        let settings = Settings::parse("[files]\ntree_scope='all'\n").unwrap();
+        assert_eq!(settings.files.tree_scope, super::TreeScope::All);
+        assert_eq!(settings.files.default_view, super::FileView::List);
+        assert!(Settings::parse("[files]\ntree_scope='unknown'").is_err());
     }
 
     #[test]

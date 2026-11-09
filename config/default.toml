@@ -61,6 +61,8 @@ lane_spacing = 12
 
 [files]
 default_view = "list"
+# Cmd+P always searches the entire repository, independently of this tree filter.
+tree_scope = "changed"
 # tree_row_height = 30
 # list_row_height = 30
 indent_width = 12

@@ -11,6 +11,7 @@ pub(super) enum PaletteKind {
 enum Choice {
     File {
         path: String,
+        status: Option<String>,
         source: Rc<jaywalk::repository::ComparisonIdentity>,
     },
     Command(jaywalk::commands::CommandId),
@@ -39,6 +40,11 @@ fn fuzzy_score(query: &str, label: &str) -> Option<usize> {
     }
     Some(score)
 }
+// Status is a tie-breaker only; neither status text nor UI labels are searchable.
+fn file_rank(query: &str, path: &str, changed: bool) -> Option<(usize, bool)> {
+    fuzzy_score(query, path).map(|score| (score, !changed))
+}
+
 impl Viewer {
     pub(super) fn open_palette(
         &mut self,
@@ -69,21 +75,14 @@ impl Viewer {
                 .map(|comparison| {
                     let source = Rc::new(comparison.identity());
                     comparison
-                        .files
-                        .iter()
+                        .catalog
+                        .entries()
                         .map(|file| {
-                            let label = if file.before_path == file.after_path {
-                                format!("{} · {}", file.after_path, file.status)
-                            } else {
-                                format!(
-                                    "{} ← {} · {}",
-                                    file.after_path, file.before_path, file.status
-                                )
-                            };
                             (
-                                label,
+                                file.path().to_owned(),
                                 Choice::File {
-                                    path: file.after_path.clone(),
+                                    path: file.path().to_owned(),
+                                    status: file.status().map(str::to_owned),
                                     source: source.clone(),
                                 },
                             )
@@ -106,8 +105,21 @@ impl Viewer {
                 .map(|command| (command.label().to_owned(), Choice::Command(*command)))
                 .collect(),
         };
-        choices.retain(|(label, _)| fuzzy_score(&query, label).is_some());
-        choices.sort_by_key(|(label, _)| fuzzy_score(&query, label));
+        let mut ranked: Vec<_> = choices
+            .drain(..)
+            .filter_map(|(label, choice)| {
+                let rank = match &choice {
+                    Choice::File { path, status, .. } => file_rank(&query, path, status.is_some()),
+                    Choice::Command(_) => fuzzy_score(&query, &label).map(|score| (score, false)),
+                }?;
+                Some((rank, label, choice))
+            })
+            .collect();
+        ranked.sort_by(|a, b| a.0.cmp(&b.0).then_with(|| a.1.cmp(&b.1)));
+        let choices: Vec<_> = ranked
+            .into_iter()
+            .map(|(_, label, choice)| (label, choice))
+            .collect();
         let choices = Rc::new(choices);
         let selected = choices.clone();
         let cancel = cx.listener(|this, _: &(), window, cx| this.close_palette(window, cx));
@@ -119,7 +131,7 @@ impl Viewer {
                 let choice = choice.clone();
                 this.close_palette(window, cx);
                 match choice {
-                    Choice::File { path, source } => {
+                    Choice::File { path, source, .. } => {
                         if this
                             .comparison()
                             .is_some_and(|comparison| comparison.identity() == *source)
@@ -134,13 +146,17 @@ impl Viewer {
         let command = Command::new(&self.palette.state)
             .filterable(false)
             .placeholder(match kind {
-                PaletteKind::Files => "Find a changed file…",
+                PaletteKind::Files => "Find any repository file…",
                 PaletteKind::Commands => "Run a command…",
             })
             .items(choices.iter().map(|(label, choice)| {
                 let label: SharedString = label.clone().into();
                 let command = match choice {
                     Choice::Command(command) => Some(*command),
+                    _ => None,
+                };
+                let status = match choice {
+                    Choice::File { status, .. } => status.clone(),
                     _ => None,
                 };
                 CommandItem::new()
@@ -158,7 +174,12 @@ impl Viewer {
                             .w_full()
                             .items_center()
                             .justify_between()
-                            .child(label.clone())
+                            .child(div().flex_1().min_w_0().truncate().child(label.clone()))
+                            .children(
+                                status
+                                    .clone()
+                                    .map(|status| div().flex_shrink_0().text_sm().child(status)),
+                            )
                             .children(shortcut)
                     })
             }))
@@ -255,7 +276,17 @@ impl Viewer {
 }
 #[cfg(test)]
 mod tests {
-    use super::fuzzy_score;
+    use super::{file_rank, fuzzy_score};
+    #[test]
+    fn file_ranking_keeps_path_relevance_ahead_of_change_status() {
+        assert!(
+            file_rank("readme", "README.md", false).unwrap()
+                < file_rank("readme", "docs/README.md", true).unwrap()
+        );
+        assert!(file_rank("", "a.rs", true).unwrap() < file_rank("", "b.rs", false).unwrap());
+        assert!(file_rank("modified", "src/lib.rs", true).is_none());
+    }
+
     #[test]
     fn fuzzy_paths_support_unicode_and_noncontiguous_queries() {
         assert!(fuzzy_score("svcfg", "src/viewer/config.rs").is_some());
