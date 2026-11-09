@@ -59,6 +59,19 @@ pub(crate) fn init(cx: &mut App) {
     .detach();
 }
 
+/// Use the native policy so all actual windows count, including About, and
+/// close observers release --wait clients before GPUI shuts down the app.
+pub(crate) fn apply_application_settings(
+    settings: &jaywalk::settings::ApplicationSettings,
+    cx: &mut App,
+) {
+    cx.set_quit_mode(if settings.quit_on_last_window {
+        QuitMode::LastWindowClosed
+    } else {
+        QuitMode::Explicit
+    });
+}
+
 pub(crate) fn listen(receiver: async_channel::Receiver<Request>, cx: &mut App) {
     cx.spawn(async move |cx| {
         while let Ok(Request {
@@ -111,6 +124,7 @@ pub(crate) fn open(
             .map_err(|error| format!("Could not focus the repository window: {error}"))?;
         window.window_id()
     } else {
+        apply_application_settings(&settings.application, cx);
         let options = WindowOptions {
             titlebar: Some(TitlebarOptions {
                 title: Some(match &arguments.diff {

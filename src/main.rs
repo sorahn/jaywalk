@@ -69,6 +69,7 @@ fn run() -> std::result::Result<(), String> {
         .run(move |cx| {
             gpui::init(cx);
             windows::init(cx);
+            windows::apply_application_settings(&settings.application, cx);
             viewer::init(&arguments, &settings, cx);
             Theme::change(ThemeMode::Dark, None, cx);
             configure_code_theme(cx);
@@ -93,7 +94,7 @@ fn run() -> std::result::Result<(), String> {
     Ok(())
 }
 
-// Keep File > Open Repository usable after the last native window closes.
+// Keep File > Open Repository usable when the app is configured to stay open.
 fn choose_repository(mut arguments: Arguments, cx: &mut App) {
     let receiver = cx.prompt_for_paths(PathPromptOptions {
         files: false,

@@ -183,7 +183,7 @@ keep their existing shortcuts where there is no direct editor equivalent.
 The macOS integration provides native Jaywalk, File, Edit, View, Go, Window,
 and Help menus through GPUI's AppKit bridge. Menus, shortcuts, and the palette
 use the same commands. Open repository creates another window in the same
-process, and remains available after the last window closes. Edit exposes
+process. By default, closing the last window quits Jaywalk. Edit exposes
 Copy and Select All for the focused source/picker. Settings opens the current
 config file and creates a default config if none exists.
 
@@ -248,8 +248,17 @@ process, including concurrent cold launches and File > Open repository.
 
 `--wait` belongs to the requested window: closing another window does not
 release it, and reusing an existing window waits for that window to close.
-Quitting the application releases waiting clients as well. On macOS the app
-remains available after its last window closes. Stale launch endpoints from a
+Quitting the application releases waiting clients as well. To keep the app
+running after its last window closes, set the application-wide option below;
+it applies live to subsequent window closes, and About counts as a window:
+
+```toml
+[application]
+quit_on_last_window = false # default: true
+```
+
+Opening a window with another config applies that config's application policy;
+editing this setting live updates the shared application policy. Stale launch endpoints from a
 crash are recovered automatically. The local transport currently supports
 macOS and Linux; a Windows transport remains future work.
 
