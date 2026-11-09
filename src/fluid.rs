@@ -1,5 +1,16 @@
 use crate::diff_model::FileDiff;
 
+/// Intersect the complete changed-row span with the painted viewport. Do not
+/// round to fully visible rows: both edges can contain part of a source row.
+pub fn clipped_tint(
+    changed: std::ops::Range<f32>,
+    viewport: std::ops::Range<f32>,
+) -> Option<std::ops::Range<f32>> {
+    let top = changed.start.max(viewport.start);
+    let bottom = changed.end.min(viewport.end);
+    (bottom > top).then_some(top..bottom)
+}
+
 /// Experimental centre-anchored comparison coordinate. Each pane clamps its
 /// displayed offset independently; input continues until both reach the end.
 #[derive(Default)]
@@ -239,5 +250,20 @@ mod wrapped_tests {
         // At virtual row 100 the first source line ends on both sides.
         assert_eq!(scroll.advance(90., &diff, &geometry, 20.), (90., 10.));
         assert_eq!(scroll.advance(10000., &diff, &geometry, 20.), (120., 80.));
+    }
+}
+
+#[cfg(test)]
+mod tint_tests {
+    use super::clipped_tint;
+    #[test]
+    fn partial_rows_retain_tint_without_spilling_into_unchanged_rows() {
+        assert_eq!(clipped_tint(140.0..180.0, 100.0..157.0), Some(140.0..157.0));
+        assert_eq!(clipped_tint(90.0..120.0, 100.0..157.0), Some(100.0..120.0));
+        assert_eq!(clipped_tint(90.0..180.0, 100.0..157.0), Some(100.0..157.0));
+        assert_eq!(clipped_tint(120.0..145.0, 100.0..157.0), Some(120.0..145.0));
+        assert_eq!(clipped_tint(157.0..180.0, 100.0..157.0), None);
+        assert_eq!(clipped_tint(90.0..100.0, 100.0..157.0), None);
+        assert_eq!(clipped_tint(120.0..120.0, 100.0..157.0), None);
     }
 }
