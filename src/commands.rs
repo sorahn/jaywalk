@@ -107,7 +107,7 @@ impl CommandId {
         match self {
             Self::About => "About Jaywalk",
             Self::OpenRepository => "Open repository…",
-            Self::FindFile => "Find changed file",
+            Self::FindFile => "Find any repository file",
             Self::ShowCommands => "Command palette",
             Self::VersionPatch => "Version patch",
             Self::SincePrevious => "Since previous version",

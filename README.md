@@ -583,7 +583,29 @@ File identity and optional change metadata are independent. Changed-file counts
 and navigation use the actual comparison change list, while source reads use
 explicit before/after paths. Recorded jj reads remain pinned to their operation;
 evolution reads use the interdiff's synthesized objects. Git working-tree
-comparisons capture changed contents when loaded and reject uncaptured paths
-instead of reading later filesystem edits into that comparison. Full-tree
-browsing must preserve that consistency policy when it is added. External diff
+comparisons capture changed contents when loaded and read unchanged files from
+pinned base objects instead of mixing in later filesystem edits. External diff
 inputs retain their supplied-path, read-on-selection behavior.
+
+### Browsing the repository
+
+Cmd+P searches the entire repository at the selected revision, including files
+untouched by the branch. Its scope is independent of the file sidebar, collapsed
+directories, and panel visibility. Change status appears separately and breaks
+otherwise-equal fuzzy matches. Deleted files remain available from the before
+side of the comparison.
+
+In tree mode, use the Changed/All button to switch between changed files and the
+full repository tree. `files.tree_scope = "changed"` is the default; `"all"`
+shows unchanged files with subdued styling. The flat list stays focused on
+changes. This preference reloads live and is remembered per repository when
+`layout.remember_per_repository` is enabled; Reset interface uses TOML defaults.
+
+Unchanged files open as one syntax-highlighted, read-only document with no change
+markers. They use inline wrapping and preserve the preferred diff mode for the
+next changed file. A file opened outside the sidebar filter appears temporarily
+in italics; a genuinely absent retained file also shows the preview indicator.
+Counts and next/previous-change navigation continue to describe actual changes.
+Full-tree metadata is read in the background and shared by comparison identity.
+Git working-tree unchanged files use pinned base objects, while changed files
+retain captured bytes; later filesystem edits require refreshing the comparison.
