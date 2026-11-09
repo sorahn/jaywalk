@@ -59,9 +59,17 @@ impl Element for StickyHeader {
             return;
         };
         let file = row.file();
-        if state.header_row(file) == Some(top.item_ix) && top.offset_in_item <= px(0.) {
-            return;
-        }
+        let natural_top = if file == 0 && self.code.preamble.is_some() {
+            self.code
+                .first_header_bounds
+                .get()
+                .map(|header| header.top() - bounds.top())
+        } else {
+            state
+                .header_row(file)
+                .and_then(|ix| list.bounds_for_item(ix))
+                .map(|header| header.top() - bounds.top())
+        };
         let next_top = state
             .header_row(file + 1)
             .and_then(|ix| list.bounds_for_item(ix))
@@ -101,14 +109,14 @@ impl Element for StickyHeader {
             window,
             cx,
         );
-        let origin = point(
-            bounds.left(),
-            bounds.top()
-                + px(super::sticky_geometry::push_offset(
-                    next_top.map(f32::from),
-                    f32::from(measured.height),
-                )),
-        );
+        let Some(top) = super::sticky_geometry::file_header_top(
+            natural_top.map(f32::from),
+            next_top.map(f32::from),
+            f32::from(measured.height),
+        ) else {
+            return;
+        };
+        let origin = point(bounds.left(), bounds.top() + px(top));
         window.with_content_mask(Some(ContentMask { bounds }), |window| {
             header.prepaint_at(origin, window, cx)
         });

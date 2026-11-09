@@ -206,7 +206,7 @@ origin = true
 | --- | --- | --- |
 | `overview.context_lines` | `3` | Unchanged context around overview edits; integer 0–100. Range disclosures reveal more; Show full files temporarily unfolds everything. |
 | `overview.expansion_lines` | `20` | Lines revealed by each directional context-expansion action; integer 1–1000. |
-| `overview.message_max_height` | `220` | Maximum height of the scrollable commit-message area; 80–1200. |
+| `overview.message_max_height` | `220` | Maximum height of the scrollable message area when there are no changed files; 80–1200. With files, the full message scrolls with the overview and folds its subject into the existing comparison bar while scrolling. |
 
 ### `files`
 
@@ -318,80 +318,16 @@ editor appear in the viewer. Removing `editor` restores the platform default.
 | `layout.placement.change_evolution` | `"sidebar"` | `"sidebar"` below history, or `"bottom"` below the workspace. |
 | `layout.placement.file_evolution` | `"sidebar"` | `"sidebar"` below files, or `"bottom"` below the workspace. Two bottom timelines appear beside each other. |
 
-## Keyboard shortcuts: `[keybindings]`
+## Keyboard shortcuts: `[keybindings]` and `[[keymap]]`
 
-Every command below accepts an array of GPUI keystroke strings. `[]` means no
-shortcut; the command can still be available through menus or the command
-palette. A list gives alternative shortcuts, while spaces within a string make
-a multi-keystroke chord. `secondary` means Cmd on macOS and Ctrl elsewhere;
-`ctrl`, `alt` and `shift` name modifiers explicitly (`alt` is Option on macOS).
-For example, `"secondary-k secondary-p"` means Cmd+K, then Cmd+P on macOS.
+The [keybindings guide](keybindings.md) lists every application command and its
+shipped shortcuts, plus the notation, focus contexts, advanced widget overrides,
+validation rules and rationale for the defaults. Application commands use
+`[keybindings]`; a command's array replaces its defaults and `[]` unbinds it.
 
-Changing a command replaces its entire shortcut array, not the whole keymap.
-Unspecified commands inherit defaults. Invalid/empty keystrokes and conflicting
-shortcuts assigned to different commands reject the full settings update.
-Use `[]`, not `[""]`, to unbind. Toolkit text-editing bindings are retained.
-
-```toml
-[keybindings]
-find_file = ["secondary-k secondary-p"]
-toggle_history = ["secondary-j"]
-show_commands = []
-```
-
-| Setting | Default | Command |
+| Setting | Default | Meaning and allowed values |
 | --- | --- | --- |
-| `keybindings.about` | `[]` | About Jaywalk |
-| `keybindings.open_repository` | `["secondary-o"]` | Open repository… |
-| `keybindings.find_file` | `["secondary-p"]` | Find any repository file |
-| `keybindings.show_commands` | `["secondary-shift-p", "f1"]` | Command palette |
-| `keybindings.open_settings` | `["secondary-,"]` | Open settings |
-| `keybindings.version_patch` | `[]` | Version patch |
-| `keybindings.since_previous` | `[]` | Since previous version |
-| `keybindings.refresh` | `["secondary-r"]` | Refresh recorded changes |
-| `keybindings.whole_branch` | `["secondary-shift-b"]` | Whole branch |
-| `keybindings.overview` | `[]` | Changeset overview |
-| `keybindings.show_references` | `[]` | Browse references |
-| `keybindings.toggle_reference_labels` | `[]` | Toggle reference labels |
-| `keybindings.show_all_remotes` | `[]` | Show all remote history |
-| `keybindings.hide_all_remotes` | `[]` | Hide all remote history |
-| `keybindings.reveal_selected_revision` | `[]` | Reveal inspected revision in history |
-| `keybindings.toggle_history` | `["secondary-b"]` | Toggle history panel |
-| `keybindings.toggle_files` | `["secondary-shift-e"]` | Toggle changed files panel |
-| `keybindings.toggle_change_evolution` | `[]` | Toggle change evolution |
-| `keybindings.toggle_file_evolution` | `[]` | Toggle file evolution |
-| `keybindings.toggle_wrap` | `["alt-z"]` | Toggle word wrap |
-| `keybindings.toggle_line_numbers` | `[]` | Toggle line numbers |
-| `keybindings.view_inline` | `[]` | View: inline |
-| `keybindings.view_side_by_side` | `[]` | View: side by side |
-| `keybindings.view_fluid` | `[]` | View: Fluid |
-| `keybindings.next_change` | `["alt-f5", "f7"]` | Next change |
-| `keybindings.previous_change` | `["alt-shift-f5", "shift-f7"]` | Previous change |
-| `keybindings.next_file` | `["alt-down"]` | Next file |
-| `keybindings.previous_file` | `["alt-up"]` | Previous file |
-| `keybindings.next_revision` | `["secondary-alt-down"]` | Next revision |
-| `keybindings.previous_revision` | `["secondary-alt-up"]` | Previous revision |
-| `keybindings.zoom_in` | `["secondary-="]` | Increase font size |
-| `keybindings.zoom_out` | `["secondary--"]` | Decrease font size |
-| `keybindings.reset_zoom` | `["secondary-0"]` | Reset font size |
-| `keybindings.reset_layout` | `[]` | Reset panel layout |
-| `keybindings.history_left` | `[]` | Move history to left |
-| `keybindings.history_right` | `[]` | Move history to right |
-| `keybindings.files_left` | `[]` | Move changed files to left |
-| `keybindings.files_right` | `[]` | Move changed files to right |
-| `keybindings.swap_sidebars` | `[]` | Swap sidebar order |
-| `keybindings.change_evolution_sidebar` | `[]` | Dock change evolution below history |
-| `keybindings.change_evolution_bottom` | `[]` | Dock change evolution at bottom |
-| `keybindings.file_evolution_sidebar` | `[]` | Dock file evolution below changed files |
-| `keybindings.file_evolution_bottom` | `[]` | Dock file evolution at bottom |
-| `keybindings.reset_interface` | `[]` | Reset repository interface choices |
-| `keybindings.quit` | `["secondary-q"]` | Quit Jaywalk |
-| `keybindings.close_window` | `["secondary-w"]` | Close window |
-| `keybindings.minimize` | `["secondary-m"]` | Minimize |
-| `keybindings.fullscreen` | `["ctrl-secondary-f"]` | Toggle full screen |
-| `keybindings.hide` | `["secondary-h"]` | Hide Jaywalk |
-| `keybindings.hide_others` | `["secondary-alt-h"]` | Hide others |
-| `keybindings.show_all` | `[]` | Show all |
+| `keymap` | `[]` | Array of advanced widget-action overrides. Each record requires `action` and `keys`; optional `context` and `from` select original bindings. See the full guide before adding `[[keymap]]` entries. |
 
 ## Scope and limits
 

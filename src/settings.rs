@@ -34,6 +34,8 @@ pub struct LiveSettings {
 pub struct Settings {
     pub application: ApplicationSettings,
     pub keybindings: BTreeMap<CommandId, Vec<String>>,
+    #[serde(default)]
+    pub keymap: Vec<crate::keymap::Override>,
     pub settings: ReloadSettings,
     pub live: LiveSettings,
     pub window: WindowSettings,
@@ -366,6 +368,7 @@ impl Settings {
                 return Err(format!("{name} must name a font, or be omitted"));
             }
         }
+        crate::keymap::validate(&self.keymap)?;
         let mut shortcuts = BTreeMap::new();
         for (command, bindings) in &self.keybindings {
             for binding in bindings {
@@ -729,5 +732,25 @@ mod application_tests {
         assert_eq!(settings.window, defaults.window);
         assert!(Settings::parse("[application]\nquit_on_last_window=1").is_err());
         assert!(Settings::parse("[application]\nquit_when_last_window_closes=false").is_err());
+    }
+}
+
+#[cfg(test)]
+mod advanced_keymap_tests {
+    use super::Settings;
+    #[test]
+    fn widget_overrides_are_typed_replaceable_and_validate_before_installation() {
+        assert!(Settings::parse("").unwrap().keymap.is_empty());
+        let settings = Settings::parse("[[keymap]]\naction='input::Copy'\nkeys=['secondary-insert']\ncontext='Input'\nfrom='secondary-c'").unwrap();
+        assert_eq!(settings.keymap.len(), 1);
+        assert_eq!(settings.keymap[0].from.as_deref(), Some("secondary-c"));
+        for invalid in [
+            "[[keymap]]\naction='input::Copy'\nkeys=['']",
+            "[[keymap]]\naction='input::Copy'\nkeys=[]\ncontext='Input &&'",
+            "[[keymap]]\naction='input::Copy'\nkeys=[]\nunknown=true",
+            "[[keymap]]\naction='jaywalk::ExecuteCommand'\nkeys=[]",
+        ] {
+            assert!(Settings::parse(invalid).is_err(), "{invalid}");
+        }
     }
 }

@@ -180,8 +180,8 @@ impl PreparedFile {
     }
 }
 
-pub(crate) fn init(arguments: &Arguments, settings: &Settings, cx: &mut App) {
-    commands::init(arguments, settings, cx);
+pub(crate) fn init(arguments: &Arguments, settings: &Settings, cx: &mut App) -> Result<(), String> {
+    commands::init(arguments, settings, cx)
 }
 
 pub(crate) struct Viewer {

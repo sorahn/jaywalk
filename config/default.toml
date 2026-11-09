@@ -1,6 +1,10 @@
 # Copy this file to ~/.config/jaywalk/config.toml and edit it directly.
 # Unspecified values inherit these defaults. Saved edits apply automatically.
 
+# Optional advanced framework-action remapping; see docs/keybindings.md.
+# Each [[keymap]] entry replaces matching default shortcuts while keeping scope.
+keymap = []
+
 [application]
 quit_on_last_window = true
 
@@ -75,6 +79,7 @@ default_visible = true
 [overview]
 context_lines = 3
 expansion_lines = 20
+# For overviews without changed files; otherwise the message scrolls with the diff.
 message_max_height = 220
 
 [files]
@@ -143,31 +148,31 @@ open_repository = ["secondary-o"]
 find_file = ["secondary-p"]
 show_commands = ["secondary-shift-p", "f1"]
 open_settings = ["secondary-,"]
-version_patch = []
-since_previous = []
+version_patch = ["secondary-k p"]
+since_previous = ["secondary-k s"]
 refresh = ["secondary-r"]
 whole_branch = ["secondary-shift-b"]
-overview = []
-show_references = []
+overview = ["secondary-k o"]
+show_references = ["secondary-k r"]
 toggle_reference_labels = []
 show_all_remotes = []
 hide_all_remotes = []
-reveal_selected_revision = []
+reveal_selected_revision = ["secondary-k h"]
 toggle_history = ["secondary-b"]
 toggle_files = ["secondary-shift-e"]
-toggle_change_evolution = []
-toggle_file_evolution = []
-toggle_wrap = ["alt-z"]
-toggle_line_numbers = []
-view_inline = []
-view_side_by_side = []
-view_fluid = []
-next_change = ["alt-f5", "f7"]
-previous_change = ["alt-shift-f5", "shift-f7"]
-next_file = ["alt-down"]
-previous_file = ["alt-up"]
-next_revision = ["secondary-alt-down"]
-previous_revision = ["secondary-alt-up"]
+toggle_change_evolution = ["secondary-k e"]
+toggle_file_evolution = ["secondary-k f"]
+toggle_wrap = ["alt-z", "secondary-k z"]
+toggle_line_numbers = ["secondary-;"]
+view_inline = ["secondary-k 1"]
+view_side_by_side = ["secondary-k 2"]
+view_fluid = ["secondary-k 3"]
+next_change = ["secondary-down", "alt-f5", "f7"]
+previous_change = ["secondary-up", "alt-shift-f5", "shift-f7"]
+next_file = ["secondary-]", "alt-down"]
+previous_file = ["secondary-[", "alt-up"]
+next_revision = ["secondary-}", "secondary-alt-down"]
+previous_revision = ["secondary-{", "secondary-alt-up"]
 zoom_in = ["secondary-="]
 zoom_out = ["secondary--"]
 reset_zoom = ["secondary-0"]

@@ -70,7 +70,11 @@ fn run() -> std::result::Result<(), String> {
             gpui::init(cx);
             windows::init(cx);
             windows::apply_application_settings(&settings.application, cx);
-            viewer::init(&arguments, &settings, cx);
+            if let Err(error) = viewer::init(&arguments, &settings, cx) {
+                eprintln!("Could not apply keymap: {error}");
+                cx.quit();
+                return;
+            }
             Theme::change(ThemeMode::Dark, None, cx);
             configure_code_theme(cx);
             Theme::update(cx, |theme| {

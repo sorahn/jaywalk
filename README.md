@@ -75,38 +75,15 @@ The [documentation index](docs/README.md) lists project guides.
 
 ## Keyboard commands
 
-Shortcuts follow familiar VS Code/Zed conventions where the actions correspond.
-`secondary` means Command on macOS and Control elsewhere. These are the defaults:
+Cmd+Up/Down moves between changes, Cmd+[ and Cmd+] between files, and
+Cmd+Shift+[ and Cmd+Shift+] through history. Whole-branch overview precedes the first history entry; going
+back from that first entry returns to overview. Cmd+P finds repository files;
+Cmd+Shift+P opens commands. Shortcuts follow the active focus context.
 
-| Action | macOS shortcut |
-| --- | --- |
-| Open repository in another window | Cmd+O |
-| Open settings in the system text editor | Cmd+, |
-| Find changed file | Cmd+P |
-| Command palette | Cmd+Shift+P or F1 |
-| Toggle History | Cmd+B |
-| Toggle Changed files | Cmd+Shift+E |
-| Toggle word wrap | Option+Z |
-| Increase/decrease/reset viewer font size | Cmd+= / Cmd+- / Cmd+0 |
-| Next/previous change | Option+F5 / Option+Shift+F5 (also F7 / Shift+F7) |
-| Next/previous file | Option+Down / Option+Up |
-| Next/previous revision | Cmd+Option+Down / Cmd+Option+Up |
-| Whole branch | Cmd+Shift+B |
-| Refresh | Cmd+R |
-| Close window / quit | Cmd+W / Cmd+Q |
-
-The command palette also includes line numbers, all three diff views, evolution
-review modes, and Reset panel layout. Bound commands display their current
-shortcut. The complete command IDs are listed under `[keybindings]` in
-`config/default.toml`. Override a command's array to replace its shortcuts;
-use `[]` to remove them. Space-separated strokes form a chord. Invalid shortcuts,
-unknown commands, and duplicate shortcuts assigned to different commands reject
-the entire update while retaining the last valid settings/keymap. Reloading keys
-preserves the toolkit's editing, selection, and copy bindings.
-
-Shortcut references: [VS Code defaults](https://code.visualstudio.com/docs/reference/default-keybindings)
-and [Zed keymaps](https://zed.dev/docs/key-bindings). Jaywalk-specific actions
-keep their existing shortcuts where there is no direct editor equivalent.
+Every application and widget shortcut can be remapped or disabled. See the
+[keybindings guide](docs/keybindings.md) for all defaults, remapping examples,
+input/tree/diff contexts and the conventions used to choose the defaults.
+The first shortcut in an array supplies the primary menu/palette hint.
 
 ## macOS application
 
@@ -268,18 +245,24 @@ Selecting a revision updates the inner file pane to that commit's changes.
 Merge revisions compare against their first parent, as indicated in the view.
 The Whole branch button (Cmd+Shift+B on macOS) returns to the original
 branch comparison. Overview clears the selected file within the current
-comparison. The overview shows the selected commit's full message, author and
+comparison. An individual commit's overview shows its full message, author and
 recorded time, followed by a unified diff for every changed file. Whole-branch
-comparisons identify their scope and show the tip commit's message; working-tree
-and external comparisons have no recorded commit message. Unchanged ranges fold
+overviews instead list all commits in the exact base-to-tip range, oldest first,
+including commits brought in by merges. Subjects are clickable; message bodies
+start collapsed and can be expanded independently. Nonempty working-copy changes
+appear separately; empty jj working copies are omitted. The compact comparison
+bar shows the commit count after scrolling. This list is independent of history
+limits and remote filters. External comparisons have no recorded commit message. Unchanged ranges fold
 to three context lines by default. Use the range disclosures to reveal more
 context, **Show full files** to expand everything, and **Open file** in a file
 header to switch to the regular viewer. Empty files, renames and unavailable text
 previews remain listed. Overview uses the inline wrapping preference and existing
 next/previous-change commands; Fluid and split controls belong to the file viewer.
 
-Overview file headers stick to the top of the diff viewport; the next header
-pushes the current one away. The sidebar uses a reading tint for the top file,
+The full overview message scrolls away with the diff, folding its subject into the existing
+comparison bar (for example, **Whole branch · Working copy**). Long subjects truncate with an ellipsis; scrolling back to
+the top reveals the full message. File headers stick below that subject, and
+the next file header pushes the current one away. The sidebar uses a reading tint for the top file,
 separate from file selection, and scrolls only enough to keep that row visible.
 Collapsed folders stay collapsed and carry the indicator for a contained file.
 Tracking neither opens a file nor moves keyboard focus. List mode follows the
@@ -287,7 +270,8 @@ same directory-first traversal as tree mode, omitting directory rows; the overvi
 uses that ordering too.
 
 The `[overview]` settings control `context_lines` (default 3), `expansion_lines`
-(default 20) and `message_max_height` (default 220 logical pixels). They apply
+(default 20) and `message_max_height` (default 220 logical pixels for overviews
+without changed files). They apply
 live. Overview preparation runs in the background and keeps the previous complete
 view visible until the new comparison is ready. Refresh reloads recorded changes
 while preserving the selected change, file, and content-based reading anchors.

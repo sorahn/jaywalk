@@ -8,6 +8,76 @@ pub struct CommitDetails {
     pub timestamp: String,
     pub working_copy: bool,
 }
+/// One entry in the exact base-exclusive, tip-inclusive review series.
+#[derive(Clone, Debug)]
+pub struct SeriesCommit {
+    pub details: CommitDetails,
+    pub revision: Option<crate::history::Revision>,
+}
+#[derive(Clone, Debug, Default)]
+pub struct OverviewSeries {
+    pub commits: Vec<SeriesCommit>,
+}
+impl OverviewSeries {
+    pub fn commit_count(&self) -> usize {
+        self.commits
+            .iter()
+            .filter(|commit| !commit.details.working_copy)
+            .count()
+    }
+    pub fn has_working_changes(&self) -> bool {
+        self.commits
+            .iter()
+            .any(|commit| commit.details.working_copy)
+    }
+    pub fn caption(&self) -> String {
+        let count = self.commit_count();
+        format!(
+            "{count} commit{}{}",
+            if count == 1 { "" } else { "s" },
+            if self.has_working_changes() {
+                " · working copy changes"
+            } else {
+                ""
+            }
+        )
+    }
+}
+#[derive(serde::Deserialize)]
+struct SeriesEntry {
+    #[serde(flatten)]
+    details: CommitDetails,
+    change_id: String,
+    parents: Vec<String>,
+    empty: bool,
+}
+impl SeriesEntry {
+    fn into_commit(self) -> Option<SeriesCommit> {
+        if self.details.working_copy && self.empty {
+            return None;
+        }
+        let revision = crate::history::Revision {
+            commit_id: self.details.id.clone(),
+            change_id: self.change_id,
+            description: self
+                .details
+                .message
+                .lines()
+                .next()
+                .unwrap_or_default()
+                .into(),
+            author: self.details.author.clone(),
+            references: vec![],
+            parents: self.parents,
+            working_copy: self.details.working_copy,
+            empty: self.empty,
+        };
+        Some(SeriesCommit {
+            details: self.details,
+            revision: Some(revision),
+        })
+    }
+}
 pub struct OverviewFile {
     pub file: ChangedFile,
     pub patch: String,
@@ -19,6 +89,88 @@ pub struct OverviewSnapshot {
     pub files: Vec<OverviewFile>,
 }
 impl Comparison {
+    /// Use immutable endpoints and the recorded jj operation, independently of
+    /// history limits and remote visibility. Parents precede descendants.
+    pub fn overview_series(&self) -> Result<Option<OverviewSeries>, String> {
+        let mut commits = match &self.content {
+            ContentSource::External(_) | ContentSource::Evolution(_) => return Ok(None),
+            ContentSource::Git(contents) => {
+                let tip = if self.tip == "working tree" {
+                    contents.recorded_tip.as_str()
+                } else {
+                    &self.tip
+                };
+                let range = format!("{}..{tip}", self.base);
+                let output = crate::git::output(
+                    &self.root,
+                    &[
+                        "log",
+                        "--reverse",
+                        "--topo-order",
+                        "-z",
+                        "--format=%H%x00%P%x00%B%x00%an%x00%aI",
+                        &range,
+                        "--",
+                    ],
+                )?;
+                let fields: Vec<_> = output.split_terminator('\0').collect();
+                if !fields.len().is_multiple_of(5) {
+                    return Err("Incomplete Git series metadata".into());
+                }
+                let mut commits = Vec::with_capacity(fields.len() / 5);
+                for fields in fields.chunks_exact(5) {
+                    let entry = SeriesEntry {
+                        details: CommitDetails {
+                            id: fields[0].into(),
+                            message: fields[2].trim_end().into(),
+                            author: fields[3].into(),
+                            timestamp: fields[4].into(),
+                            working_copy: false,
+                        },
+                        change_id: fields[0].into(),
+                        parents: fields[1].split_whitespace().map(str::to_owned).collect(),
+                        empty: false,
+                    };
+                    if let Some(commit) = entry.into_commit() {
+                        commits.push(commit);
+                    }
+                }
+                if self.tip == "working tree" && contents.working_changes {
+                    commits.push(SeriesCommit {
+                        details: CommitDetails {
+                            id: String::new(),
+                            message: "Working copy changes".into(),
+                            author: String::new(),
+                            timestamp: String::new(),
+                            working_copy: true,
+                        },
+                        revision: None,
+                    });
+                }
+                return Ok(Some(OverviewSeries { commits }));
+            }
+            ContentSource::Recorded => {
+                let range = format!("{}..{}", self.base, self.tip);
+                let template = r#""{" ++ '"id":' ++ json(commit_id) ++ ',"message":' ++ json(description) ++ ',"author":' ++ json(author.name()) ++ ',"timestamp":' ++ json(author.timestamp().local().format("%Y-%m-%d %H:%M:%S")) ++ ',"working_copy":' ++ json(current_working_copy) ++ ',"change_id":' ++ json(change_id) ++ ',"parents":[' ++ parents.map(|p| json(p.commit_id())).join(",") ++ '],"empty":' ++ json(empty) ++ "}\n""#;
+                let output = query(
+                    &self.root,
+                    &self.operation,
+                    &["log", "-G", "-r", &range, "-T", template],
+                )?;
+                let mut commits = Vec::new();
+                for line in output.lines() {
+                    let entry: SeriesEntry = serde_json::from_str(line)
+                        .map_err(|error| format!("Invalid jj series metadata: {error}"))?;
+                    if let Some(commit) = entry.into_commit() {
+                        commits.push(commit);
+                    }
+                }
+                commits
+            }
+        };
+        commits.reverse();
+        Ok(Some(OverviewSeries { commits }))
+    }
     pub fn commit_details(&self) -> Result<Option<CommitDetails>, String> {
         match &self.content {
             ContentSource::External(_) => Ok(None),

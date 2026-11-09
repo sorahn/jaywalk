@@ -236,7 +236,11 @@ impl Viewer {
         } else {
             theme.background
         };
-        let file_surface = div().v_flex().size_full().bg(file_background);
+        let file_surface = div()
+            .key_context("JaywalkDiff")
+            .v_flex()
+            .size_full()
+            .bg(file_background);
         if let Some(selected) = &self.selected_file {
             match &selected.content {
                 LoadState::Loading => {

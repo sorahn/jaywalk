@@ -605,14 +605,23 @@ impl Viewer {
         let Some(session) = self.repository.ready() else {
             return;
         };
-        let Ok(history) = &session.history else {
-            return;
-        };
-        let Some(revision) = history
-            .revisions
-            .iter()
-            .find(|revision| revision.commit_id == commit_id)
-            .cloned()
+        let overview_revision = self.overview_revision(commit_id);
+        let Some(revision) = session
+            .history
+            .as_ref()
+            .ok()
+            .and_then(|history| {
+                history
+                    .revisions
+                    .iter()
+                    .find(|revision| revision.commit_id == commit_id)
+                    .cloned()
+            })
+            .or_else(|| {
+                overview_revision
+                    .as_ref()
+                    .map(|(revision, _)| revision.clone())
+            })
         else {
             return;
         };
@@ -624,7 +633,15 @@ impl Viewer {
         let already_loading = matches!(&session.scope, ComparisonScope::Revision {commit_id: current, ..} if current == commit_id)
             && matches!(session.comparison, LoadState::Loading);
         let branch = session.branch.as_ref().clone();
-        let history_operation = history.references.operation.clone();
+        let history_operation = overview_revision
+            .map(|(_, operation)| operation)
+            .unwrap_or_else(|| {
+                session
+                    .history
+                    .as_ref()
+                    .ok()
+                    .and_then(|history| history.references.operation.clone())
+            });
         self.resume_live_refresh();
         self.remember_evolution_header();
         self.remember_reading(cx);

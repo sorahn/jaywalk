@@ -8,8 +8,8 @@ pub(crate) struct ExecuteCommand {
     pub(crate) command: CommandId,
 }
 
-pub(crate) fn init(arguments: &Arguments, settings: &Settings, cx: &mut App) {
-    install_bindings(settings, cx);
+pub(crate) fn init(arguments: &Arguments, settings: &Settings, cx: &mut App) -> Result<(), String> {
+    install_bindings(settings, cx)?;
     let arguments = arguments.clone();
     cx.on_action(move |action: &ExecuteCommand, cx| match action.command {
         CommandId::About => cx.defer(|cx| {
@@ -26,21 +26,75 @@ pub(crate) fn init(arguments: &Arguments, settings: &Settings, cx: &mut App) {
         CommandId::ShowAll => cx.unhide_other_apps(),
         _ => cx.propagate(),
     });
+    Ok(())
 }
 
-pub(super) fn install_bindings(settings: &Settings, cx: &mut App) {
-    // Keep framework bindings registered after startup as well as initial ones.
-    let toolkit: Vec<_> = cx
-        .key_bindings()
-        .borrow()
-        .bindings()
-        .filter(|binding| !binding.action().as_any().is::<ExecuteCommand>())
-        .cloned()
-        .collect();
+#[derive(Default)]
+struct InstalledKeymap {
+    defaults: Vec<KeyBinding>,
+    settings: Option<Settings>,
+    version: Option<KeymapVersion>,
+}
+impl Global for InstalledKeymap {}
+
+fn collect_defaults(
+    previous: &[KeyBinding],
+    current: impl Iterator<Item = KeyBinding>,
+) -> Vec<KeyBinding> {
+    let mut defaults = previous.to_vec();
+    for binding in current {
+        if binding.action().as_any().is::<ExecuteCommand>()
+            || binding.meta() == Some(jaywalk::keymap::OVERRIDE_META)
+        {
+            continue;
+        }
+        if !defaults
+            .iter()
+            .any(|old| jaywalk::keymap::same_binding(old, &binding))
+        {
+            defaults.push(binding);
+        }
+    }
+    defaults
+}
+
+pub(crate) fn install_bindings(settings: &Settings, cx: &mut App) -> Result<(), String> {
+    let previous = cx
+        .try_global::<InstalledKeymap>()
+        .map_or(&[][..], |state| state.defaults.as_slice());
+    let defaults = collect_defaults(previous, cx.key_bindings().borrow().bindings().cloned());
+    // Prepare everything before mutating the active map. Failed overrides must
+    // leave both bindings and the previous settings intact.
+    let toolkit = jaywalk::keymap::remap(&defaults, &settings.keymap)?;
     cx.clear_key_bindings();
     cx.bind_keys(toolkit);
     cx.bind_keys(configured_bindings(settings));
+    let version = cx.key_bindings().borrow().version();
+    cx.set_global(InstalledKeymap {
+        defaults,
+        settings: Some(settings.clone()),
+        version: Some(version),
+    });
     crate::platform::update_menus(cx);
+    Ok(())
+}
+
+/// Components can register bindings after startup. Reapply only when the
+/// framework map's version changes, retaining the last applied app-wide config.
+pub(super) fn refresh_bindings(cx: &mut App) -> Result<(), String> {
+    let version = cx.key_bindings().borrow().version();
+    let settings = cx.try_global::<InstalledKeymap>().and_then(|state| {
+        (state.version != Some(version))
+            .then(|| state.settings.clone())
+            .flatten()
+    });
+    if let Some(settings) = settings
+        && let Err(error) = install_bindings(&settings, cx)
+    {
+        cx.global_mut::<InstalledKeymap>().version = Some(version);
+        return Err(error);
+    }
+    Ok(())
 }
 
 fn configured_bindings(settings: &Settings) -> Vec<KeyBinding> {
@@ -55,13 +109,24 @@ fn configured_bindings(settings: &Settings) -> Vec<KeyBinding> {
             | CommandId::ShowAll => None,
             _ => Some("Jaywalk"),
         };
-        for binding in bindings {
+        // Register the first configured shortcut last so native menus and
+        // palette hints show it as the primary shortcut.
+        for binding in bindings.iter().rev() {
             // Settings::validate has parsed every keystroke, and the context is static.
             result.push(KeyBinding::new(
                 binding,
                 ExecuteCommand { command: *command },
                 context,
             ));
+            if matches!(command, CommandId::NextChange | CommandId::PreviousChange) {
+                for context in ["JaywalkDiff > ReadonlyEditor > Input", "JaywalkDiff > Diff"] {
+                    result.push(KeyBinding::new(
+                        binding,
+                        ExecuteCommand { command: *command },
+                        Some(context),
+                    ));
+                }
+            }
         }
     }
     result
@@ -274,6 +339,94 @@ mod tests {
     use gpui::{KeyBinding, KeyContext, Keymap, Keystroke};
     use jaywalk::commands::CommandId;
     use jaywalk::settings::Settings;
+
+    #[test]
+    fn macos_shifted_bracket_events_navigate_history() {
+        let map = Keymap::new(configured_bindings(&Settings::parse("").unwrap()));
+        let contexts = [KeyContext::parse("Jaywalk").unwrap()];
+        // GPUI's macOS adapter emits shifted punctuation with Shift consumed.
+        for (event, expected) in [
+            ("secondary-}", CommandId::NextRevision),
+            ("secondary-{", CommandId::PreviousRevision),
+        ] {
+            let bindings = map
+                .bindings_for_input(&[Keystroke::parse(event).unwrap()], &contexts)
+                .0;
+            assert_eq!(
+                bindings[0]
+                    .action()
+                    .as_any()
+                    .downcast_ref::<ExecuteCommand>()
+                    .unwrap()
+                    .command,
+                expected
+            );
+        }
+    }
+
+    #[test]
+    fn pristine_defaults_survive_remapping_removal_and_late_widget_registration() {
+        use gpui::base::input::{Copy, SelectAll};
+        let defaults = vec![KeyBinding::new("secondary-c", Copy, Some("Input"))];
+        let rule = jaywalk::keymap::Override {
+            action: "input::Copy".into(),
+            keys: vec!["secondary-insert".into()],
+            context: None,
+            from: None,
+        };
+        let mut current = jaywalk::keymap::remap(&defaults, &[rule]).unwrap();
+        current.push(KeyBinding::new("secondary-a", SelectAll, Some("Input")));
+        let collected = super::collect_defaults(&defaults, current.into_iter());
+        assert_eq!(collected.len(), 2);
+        let restored = Keymap::new(jaywalk::keymap::remap(&collected, &[]).unwrap());
+        let context = [KeyContext::parse("Input").unwrap()];
+        assert!(
+            !restored
+                .bindings_for_input(&[Keystroke::parse("secondary-c").unwrap()], &context)
+                .0
+                .is_empty()
+        );
+        assert!(
+            !restored
+                .bindings_for_input(&[Keystroke::parse("secondary-a").unwrap()], &context)
+                .0
+                .is_empty()
+        );
+        assert!(
+            restored
+                .bindings_for_input(&[Keystroke::parse("secondary-insert").unwrap()], &context)
+                .0
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn change_keys_override_readonly_source_but_keep_editable_input_navigation() {
+        let settings = Settings::parse("").unwrap();
+        let mut map = Keymap::new(vec![KeyBinding::new(
+            "secondary-down",
+            gpui::base::input::MoveToEnd,
+            Some("Input"),
+        )]);
+        map.add_bindings(configured_bindings(&settings));
+        let readonly = ["Jaywalk", "JaywalkDiff", "ReadonlyEditor", "Input"]
+            .map(|context| KeyContext::parse(context).unwrap());
+        let search =
+            ["Jaywalk", "JaywalkDiff", "Input"].map(|context| KeyContext::parse(context).unwrap());
+        let input = [Keystroke::parse("secondary-down").unwrap()];
+        assert!(
+            map.bindings_for_input(&input, &readonly).0[0]
+                .action()
+                .as_any()
+                .is::<ExecuteCommand>()
+        );
+        assert!(
+            map.bindings_for_input(&input, &search).0[0]
+                .action()
+                .as_any()
+                .is::<gpui::base::input::MoveToEnd>()
+        );
+    }
 
     #[test]
     fn live_keymap_replacement_keeps_late_toolkit_bindings_and_removes_old_app_shortcuts() {

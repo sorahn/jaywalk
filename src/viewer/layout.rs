@@ -5,6 +5,9 @@ use gpui::prelude::FluentBuilder;
 
 impl Render for Viewer {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        if let Err(error) = commands::refresh_bindings(cx) {
+            self.config.error = Some(format!("Could not reapply keymap: {error}"));
+        }
         self.sync_overview(window, cx);
         div()
             .id("viewer-root")
@@ -62,7 +65,13 @@ impl Render for Viewer {
                                     .ghost()
                                     .compact()
                                     .icon(IconName::Search)
-                                    .tooltip("Find changed file (Cmd+P)")
+                                    .tooltip_with_action(
+                                        "Find any repository file",
+                                        &commands::ExecuteCommand {
+                                            command: jaywalk::commands::CommandId::FindFile,
+                                        },
+                                        None,
+                                    )
                                     .on_click(cx.listener(|this, _, window, cx| {
                                         this.open_palette(palette::PaletteKind::Files, window, cx)
                                     })),
@@ -82,7 +91,13 @@ impl Render for Viewer {
                                         self.repository.ready().map(|session| &session.scope),
                                         Some(ComparisonScope::WholeBranch)
                                     ))
-                                    .tooltip("Whole branch (Cmd+Shift+B)")
+                                    .tooltip_with_action(
+                                        "Whole branch",
+                                        &commands::ExecuteCommand {
+                                            command: jaywalk::commands::CommandId::WholeBranch,
+                                        },
+                                        None,
+                                    )
                                     .on_click(cx.listener(|this, _, window, cx| {
                                         this.show_whole_branch(window, cx)
                                     })),

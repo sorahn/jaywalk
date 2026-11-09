@@ -105,7 +105,8 @@ surface.
 When adding or changing a setting, update `docs/settings.md` together with
 `config/default.toml` and the typed settings schema/validation. Document its
 default, accepted values or range, scope, and live-application behavior. Include
-new configurable commands in the keybindings reference. The shipped TOML remains
+new configurable commands and shortcut/context changes in `docs/keybindings.md`.
+The shipped TOML remains
 the canonical source of defaults; optional values and dynamic maps also need
 reference entries.
 

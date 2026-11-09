@@ -22,3 +22,18 @@ and exposes `DiffState::viewport_file` for host reading indicators. Sticky heade
 placement uses current-frame list geometry in `src/diff/sticky.rs`, reusing the
 normal interactive header without duplicating file annotations. The next file's
 header pushes it away; ordinary single-file views keep this feature disabled.
+
+The input facade scopes code bodies as `Editor` or `ReadonlyEditor` in
+`src/input/input.rs`, leaving the editable search panel outside that scope.
+This lets host review shortcuts override source navigation without intercepting
+normal text movement in search inputs.
+
+The diff widget's `render_preamble` slot lets overview metadata scroll with the
+first file. The first file header's bounds are recorded during list prepaint and
+consumed by the sticky layer in the same frame. `DiffState::preamble_scrolled`
+lets the host fold the subject into its existing comparison bar; the host
+prepaints that bar after the diff to avoid a deferred caption update. Empty
+comparisons keep their standalone host header.
+
+`DiffState::remeasure_preamble` invalidates the first list item's measured height
+when host-provided message disclosures change, retaining the list's scroll anchor.
