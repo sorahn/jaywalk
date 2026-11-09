@@ -260,3 +260,134 @@ fn overview_settings_validate_context_and_live_geometry() {
         );
     }
 }
+
+#[test]
+fn jj_series_is_ordered_and_operation_pinned_and_skips_empty_working_copies() {
+    let fixture = Fixture::new();
+    fixture.jj(&["git", "init"]);
+    fixture.write("file", "base\n");
+    fixture.jj(&["commit", "-m", "baseline"]);
+    let base = fixture.jj(&["log", "-G", "-r", "@-", "-T", "commit_id"]);
+    fixture.write("file", "first\n");
+    fixture.jj(&["commit", "-m", "first subject\n\nDetailed 漢字 body."]);
+    fixture.write("file", "second\n");
+    fixture.jj(&["commit", "-m", "second subject"]);
+    let comparison = Comparison::load(&fixture.0, Some(&base), "@").unwrap();
+    let series = comparison.overview_series().unwrap().unwrap();
+    assert_eq!(series.commit_count(), 2);
+    assert!(!series.has_working_changes());
+    assert_eq!(
+        series.commits[0].details.message.trim_end(),
+        "first subject\n\nDetailed 漢字 body."
+    );
+    assert_eq!(
+        series.commits[1].revision.as_ref().unwrap().description,
+        "second subject"
+    );
+    let operation = Comparison::current_operation(&fixture.0).unwrap();
+    fixture.write("file", "unsnapshotted edit\n");
+    assert!(
+        !comparison
+            .overview_series()
+            .unwrap()
+            .unwrap()
+            .has_working_changes()
+    );
+    assert_eq!(
+        Comparison::current_operation(&fixture.0).unwrap(),
+        operation
+    );
+    fixture.jj(&["status"]);
+    let changed = Comparison::load(&fixture.0, Some(&base), "@").unwrap();
+    let series = changed.overview_series().unwrap().unwrap();
+    assert_eq!(series.commit_count(), 2);
+    assert!(series.has_working_changes());
+    assert!(series.commits.last().unwrap().details.working_copy);
+    assert!(series.commits.last().unwrap().revision.is_some());
+}
+
+#[test]
+fn git_series_includes_merged_commits_and_retains_the_captured_head() {
+    let fixture = Fixture::new();
+    fixture.run("git", &["init", "-b", "main"]);
+    fixture.write("base", "base\n");
+    fixture.run("git", &["add", "."]);
+    fixture.run("git", &["commit", "-m", "baseline"]);
+    let base = fixture.run("git", &["rev-parse", "HEAD"]);
+    fixture.write("first", "first\n");
+    fixture.run("git", &["add", "."]);
+    fixture.run("git", &["commit", "-m", "first subject\n\nDetailed body."]);
+    fixture.run("git", &["checkout", "-b", "side", &base]);
+    fixture.write("side", "side\n");
+    fixture.run("git", &["add", "."]);
+    fixture.run("git", &["commit", "-m", "side subject"]);
+    fixture.run("git", &["checkout", "main"]);
+    fixture.run("git", &["merge", "--no-ff", "side", "-m", "merge subject"]);
+    let comparison = Comparison::load(&fixture.0, Some(&base), "@").unwrap();
+    let series = comparison.overview_series().unwrap().unwrap();
+    assert_eq!(series.commit_count(), 3);
+    assert!(!series.has_working_changes());
+    assert_eq!(
+        series.commits.last().unwrap().details.message,
+        "merge subject"
+    );
+    assert!(
+        series
+            .commits
+            .iter()
+            .any(|commit| commit.details.message.contains("Detailed body."))
+    );
+    assert_eq!(
+        series
+            .commits
+            .last()
+            .unwrap()
+            .revision
+            .as_ref()
+            .unwrap()
+            .parents
+            .len(),
+        2
+    );
+    fixture.write("base", "dirty\n");
+    let dirty = Comparison::load(&fixture.0, Some(&base), "@").unwrap();
+    assert!(
+        dirty
+            .overview_series()
+            .unwrap()
+            .unwrap()
+            .has_working_changes()
+    );
+    fixture.run("git", &["add", "."]);
+    fixture.run("git", &["commit", "-m", "later edit"]);
+    assert_eq!(
+        comparison
+            .overview_series()
+            .unwrap()
+            .unwrap()
+            .commit_count(),
+        3
+    );
+    assert!(
+        !comparison
+            .overview_series()
+            .unwrap()
+            .unwrap()
+            .has_working_changes()
+    );
+    assert_eq!(dirty.overview_series().unwrap().unwrap().commit_count(), 3);
+    assert!(
+        dirty
+            .overview_series()
+            .unwrap()
+            .unwrap()
+            .has_working_changes()
+    );
+    let single = comparison
+        .for_revision(series.commits[0].revision.as_ref().unwrap())
+        .unwrap();
+    assert_eq!(
+        single.commit_details().unwrap().unwrap().message,
+        series.commits[0].details.message
+    );
+}

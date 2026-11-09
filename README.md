@@ -245,10 +245,14 @@ Selecting a revision updates the inner file pane to that commit's changes.
 Merge revisions compare against their first parent, as indicated in the view.
 The Whole branch button (Cmd+Shift+B on macOS) returns to the original
 branch comparison. Overview clears the selected file within the current
-comparison. The overview shows the selected commit's full message, author and
+comparison. An individual commit's overview shows its full message, author and
 recorded time, followed by a unified diff for every changed file. Whole-branch
-comparisons identify their scope and show the tip commit's message; working-tree
-and external comparisons have no recorded commit message. Unchanged ranges fold
+overviews instead list all commits in the exact base-to-tip range, oldest first,
+including commits brought in by merges. Subjects are clickable; message bodies
+start collapsed and can be expanded independently. Nonempty working-copy changes
+appear separately; empty jj working copies are omitted. The compact comparison
+bar shows the commit count after scrolling. This list is independent of history
+limits and remote filters. External comparisons have no recorded commit message. Unchanged ranges fold
 to three context lines by default. Use the range disclosures to reveal more
 context, **Show full files** to expand everything, and **Open file** in a file
 header to switch to the regular viewer. Empty files, renames and unavailable text

@@ -34,3 +34,6 @@ consumed by the sticky layer in the same frame. `DiffState::preamble_scrolled`
 lets the host fold the subject into its existing comparison bar; the host
 prepaints that bar after the diff to avoid a deferred caption update. Empty
 comparisons keep their standalone host header.
+
+`DiffState::remeasure_preamble` invalidates the first list item's measured height
+when host-provided message disclosures change, retaining the list's scroll anchor.

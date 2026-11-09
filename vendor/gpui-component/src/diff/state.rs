@@ -533,6 +533,14 @@ impl DiffState {
         self.row_position(self.list.logical_scroll_top().item_ix)
     }
 
+    /// Remeasure host-provided overview content after a disclosure changes it.
+    pub fn remeasure_preamble(&mut self, cx: &mut Context<Self>) {
+        if self.list.item_count() > 0 {
+            self.list.remeasure_items(0..1);
+        }
+        cx.notify();
+    }
+
     /// Whether the overview preamble has begun scrolling out of view. Read
     /// after the list prepaints to compose host chrome in the same frame.
     pub fn preamble_scrolled(&self) -> bool {

@@ -17,6 +17,8 @@ struct GitValue {
 type TextPair = Result<(String, String), String>;
 #[derive(Clone, Debug)]
 pub(crate) struct GitContents {
+    pub(crate) recorded_tip: String,
+    pub(crate) working_changes: bool,
     files: BTreeMap<String, TextPair>,
     root: PathBuf,
     trees: [BTreeMap<String, GitValue>; 2],
@@ -94,6 +96,17 @@ fn tree(root: &Path, revision: &str) -> Result<BTreeMap<String, GitValue>, Strin
 
 pub(crate) fn between(root: PathBuf, base: String, tip: String) -> Result<Comparison, String> {
     let working = tip == "working tree";
+    let recorded_tip = if working {
+        resolve(&root, "HEAD")?
+    } else {
+        tip.clone()
+    };
+    let working_changes = working
+        && !output(
+            &root,
+            &["status", "--porcelain", "--untracked-files=normal"],
+        )?
+        .is_empty();
     let mut args = vec![
         "diff",
         "--no-ext-diff",
@@ -218,6 +231,8 @@ pub(crate) fn between(root: PathBuf, base: String, tip: String) -> Result<Compar
         tip,
         files: files.into(),
         content: ContentSource::Git(Arc::new(GitContents {
+            recorded_tip,
+            working_changes,
             files: contents,
             root,
             trees: [before_tree, after_tree],
