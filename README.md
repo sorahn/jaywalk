@@ -679,3 +679,10 @@ Counts and next/previous-change navigation continue to describe actual changes.
 Full-tree metadata is read in the background and shared by comparison identity.
 Git working-tree unchanged files use pinned base objects, while changed files
 retain captured bytes; later filesystem edits require refreshing the comparison.
+
+On macOS, repository subprocesses preserve the app's inherited PATH and append
+standard Homebrew (`/opt/homebrew/bin`, `/usr/local/bin`), Cargo
+(`~/.cargo/bin`) and system tool directories when absent. This lets an app
+started through Finder locate jj and Git when `jw` later reuses that instance.
+The app does not run shell startup files or change its process-wide environment.
+Custom tool locations must be present in the app's launch environment.

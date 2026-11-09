@@ -5,6 +5,7 @@ use crate::repository::{ChangedFile, Comparison, ContentSource, FileSide, query}
 use serde::Deserialize;
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
+#[cfg(test)]
 use std::process::Command;
 use std::sync::Arc;
 
@@ -419,7 +420,7 @@ impl EvolutionContents {
         if !valid_id(id) {
             return Err("Invalid interdiff object ID".into());
         }
-        let output = Command::new("git")
+        let output = crate::tools::command("git")?
             .arg("--git-dir")
             .arg(&self.git_dir)
             .args(["cat-file", "blob", id])

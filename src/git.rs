@@ -3,7 +3,7 @@ use crate::history::{History, HistoryQuery, Revision};
 use crate::repository::{ChangedFile, Comparison, ContentSource, FileSide, next_capture};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+
 use std::sync::Arc;
 
 use crate::repository_file::FileKind;
@@ -23,7 +23,7 @@ pub(crate) struct GitContents {
 }
 
 fn run(root: &Path, args: &[&str]) -> Result<Vec<u8>, String> {
-    let result = Command::new("git")
+    let result = crate::tools::command("git")?
         .current_dir(root)
         .args(["--no-pager", "--literal-pathspecs"])
         .args(args)

@@ -16,6 +16,7 @@ pub mod repository;
 pub mod settings;
 pub mod settings_reload;
 pub mod syntax;
+mod tools;
 pub mod version;
 
 pub mod panel_layout;

@@ -1,5 +1,6 @@
 use crate::repository_file::{ChangeKind, FileCatalog, FileEntry, FileKind};
 use std::path::{Path, PathBuf};
+#[cfg(test)]
 use std::process::Command;
 use std::sync::Arc;
 
@@ -60,7 +61,7 @@ pub(crate) enum ContentSource {
 }
 
 pub(crate) fn query(root: &Path, operation: &str, arguments: &[&str]) -> Result<String, String> {
-    let result = Command::new("jj")
+    let result = crate::tools::command("jj")?
         .current_dir(root)
         .args([
             "--ignore-working-copy",
@@ -476,7 +477,7 @@ impl Comparison {
             return Err("Symbolic link is absent or conflicted in this source".into());
         }
         let git_dir = query(&self.root, &self.operation, &["git", "root"])?;
-        let output = Command::new("git")
+        let output = crate::tools::command("git")?
             .arg("--git-dir")
             .arg(git_dir.trim())
             .args(["cat-file", "blob", object])

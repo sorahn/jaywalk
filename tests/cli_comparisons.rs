@@ -228,3 +228,38 @@ fn git_null_device_inputs_represent_additions_and_deletions() {
         assert_eq!(before + &after, "content\n");
     }
 }
+
+#[cfg(target_os = "macos")]
+#[test]
+fn finder_environment_can_read_a_jj_repository_without_launching_a_window() {
+    let fixture = Fixture::new();
+    fixture.git(&["init", "-b", "main"]);
+    fixture.write("file.txt", "recorded\n");
+    fixture.git(&["add", "."]);
+    fixture.git(&["commit", "-m", "baseline"]);
+    let result = Command::new("jj")
+        .current_dir(&fixture.0)
+        .args(["git", "init", "--colocate"])
+        .output()
+        .unwrap();
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    let result = Command::new(env!("CARGO_BIN_EXE_jaywalk"))
+        .env("PATH", "/usr/bin:/bin:/usr/sbin:/sbin")
+        .args(["--inspect", fixture.0.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    assert!(
+        String::from_utf8(result.stdout)
+            .unwrap()
+            .contains("changed files")
+    );
+}
