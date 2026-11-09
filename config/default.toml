@@ -1,6 +1,10 @@
 # Copy this file to ~/.config/jaywalk/config.toml and edit it directly.
 # Unspecified values inherit these defaults. Saved edits apply automatically.
 
+# Optional advanced framework-action remapping; see docs/keybindings.md.
+# Each [[keymap]] entry replaces matching default shortcuts while keeping scope.
+keymap = []
+
 [application]
 quit_on_last_window = true
 

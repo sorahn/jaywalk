@@ -97,6 +97,15 @@ impl Viewer {
         if self.settings == settings {
             return;
         }
+        if (self.settings.keybindings != settings.keybindings
+            || self.settings.keymap != settings.keymap)
+            && let Err(error) = commands::install_bindings(&settings, cx)
+        {
+            self.config.error = Some(format!(
+                "Settings not applied; keeping previous configuration. {error}"
+            ));
+            return;
+        }
         let previous_wrap = self.wrapping;
         let previous = std::mem::replace(&mut self.settings, settings);
         if previous.application != self.settings.application {
@@ -135,9 +144,6 @@ impl Viewer {
         }
         if previous.editor.line_numbers != self.settings.editor.line_numbers {
             self.line_numbers = self.settings.editor.line_numbers;
-        }
-        if previous.keybindings != self.settings.keybindings {
-            commands::install_bindings(&self.settings, cx);
         }
         if previous.history.show_reference_labels != self.settings.history.show_reference_labels {
             self.references.labels = self.settings.history.show_reference_labels;

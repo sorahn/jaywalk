@@ -106,6 +106,7 @@ pub(crate) fn open(
     reply: Option<Sender<Response>>,
     cx: &mut App,
 ) -> std::result::Result<(), String> {
+    crate::viewer::commands::install_bindings(&settings, cx)?;
     let key = Key::new(&arguments);
     let existing = cx
         .global::<Windows>()
