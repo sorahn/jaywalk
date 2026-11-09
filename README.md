@@ -60,88 +60,18 @@ releases begin.
 
 ## Settings
 
-Edit `~/.config/jaywalk/config.toml` directly. When `XDG_CONFIG_HOME` is set,
-the path is `$XDG_CONFIG_HOME/jaywalk/config.toml`. Use `--config PATH` for a
-separate settings file. Saved changes reload automatically, including when the
-file is created after launch or replaced by an editor's atomic save. Configuration
-polling is independent of repository refresh and controlled by
-`settings.poll_interval_ms` (500 ms by default). Two matching reads let saves
-settle, so updates normally appear within about a second.
+Edit `~/.config/jaywalk/config.toml`, or press Cmd+, to open it. With
+`XDG_CONFIG_HOME`, the path is `$XDG_CONFIG_HOME/jaywalk/config.toml`.
+Use `--config PATH` for a separate file. Keep only your overrides; omitted
+values inherit the [shipped defaults](config/default.toml).
 
-Cmd+, opens this file in your default text editor. Choose another app or command
-with `settings.editor`:
+Saved changes apply live. Invalid settings retain the last valid configuration
+and show an error. Session controls and remembered per-repository interface
+choices are stored separately from your settings file.
 
-```toml
-[settings]
-editor = "Zed" # macOS app name or absolute .app path
-# Or an executable plus arguments, on any supported platform:
-# editor = ["code", "--reuse-window"]
-```
-
-A string selects a native app on macOS (an executable on other platforms).
-An array runs a command directly without a shell, appending the config filename
-as one argument. Paths with spaces need no shell escaping. Omit `editor` to
-restore the default. Changes apply to the next Cmd+, or Settings menu action;
-opening errors appear in the viewer.
-
-All current settings apply live; no restart is required. Invalid TOML, unknown
-keys, invalid values, or unreadable explicit files show a settings error while
-the last valid configuration remains in effect. Fixing the file clears the
-error. Removing the optional default config restores shipped defaults; removing
-an explicit `--config` file retains the last valid settings and reports an error.
-
-Only changed settings override runtime choices. For example, changing a font
-preserves toolbar view/wrapping choices and panel visibility. Editing a default
-view, wrap flag, panel visibility, width, or height applies that value immediately;
-unchanged panel sizes retain manual adjustments. Dimension limits clamp the
-current layout. These changes preserve the selected comparison/file and reading
-position. Reducing the evolution limit retains the versions selected in either
-dock even when they fall outside the new limit. Future startup-only settings
-must identify themselves with a restart-required notice.
-
-`config/default.toml` documents the shipped defaults and available keys. A user
-file can override only the values it needs; omitted values inherit defaults.
-Unknown keys, malformed TOML, and invalid sizes produce an error with the
-config path. An explicitly supplied config file must exist.
-
-Settings cover window size, independent fonts for application controls, source
-code, History, and Changed files, panel sizes, history density, file-list/tree
-defaults, diff modes, line numbers, tab width, and per-pane word wrapping.
-Sidebar evolution docks inherit their sidebar's font. Font sizes are logical
-pixels. Ligature controls enable or disable OpenType `liga`, `clig`, and `calt`;
-the visible effect depends on the selected installed font.
-
-```toml
-[editor]
-font_family = "Menlo"
-font_size = 14
-line_numbers = true
-tab_size = 4
-ligatures = false
-
-[panels.history.font]
-size = 15
-# family = "Helvetica Neue"
-ligatures = true
-
-[panels.files.font]
-size = 14
-ligatures = true
-
-[files]
-default_view = "tree"
-
-[keybindings]
-toggle_history = ["secondary-j"]
-find_file = ["secondary-k secondary-p"]
-```
-
-`ui.font_family`, `ui.font_size`, and `ui.ligatures` style application controls.
-The toolbar wrap/line-number/view controls and viewer font-size commands are
-session choices; they do not rewrite TOML. A later edit to the corresponding
-setting overrides that choice. Viewer font-size commands leave sidebar sizes
-unchanged. Changing tab width re-prepares the selected file in the background,
-retaining source text and reading position.
+See the [complete settings reference](docs/settings.md) for every setting,
+default, allowed range, font/wrapping option, keyboard binding and reload rule.
+The [documentation index](docs/README.md) lists project guides.
 
 ## Keyboard commands
 
