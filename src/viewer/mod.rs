@@ -133,7 +133,7 @@ struct CodeComparison {
 }
 
 struct SelectedFile {
-    file: jaywalk::repository::ChangedFile,
+    file: jaywalk::repository_file::FileEntry,
     source: Comparison,
     content: LoadState<CodeComparison>,
 }
@@ -149,12 +149,16 @@ struct PreparedFile {
 impl PreparedFile {
     fn load(
         comparison: &Comparison,
-        file: &jaywalk::repository::ChangedFile,
+        file: &jaywalk::repository_file::FileEntry,
         tab_size: usize,
     ) -> Result<Self, String> {
-        let (before, after) = comparison.contents(file)?;
+        let (before, after) = comparison.contents(
+            &file
+                .changed()
+                .ok_or("File is not part of this comparison")?,
+        )?;
         let model = FileDiff::new(&before, &after);
-        let language = file_language(&file.after_path);
+        let language = file_language(file.path());
         let syntax = [&before, &after].map(|text| {
             gpui::component::highlighter::PreparedInputHighlighter::new(language, text)
         });
@@ -234,18 +238,18 @@ impl Viewer {
 
     fn selected_index(&self) -> Option<usize> {
         let file = &self.selected_file.as_ref()?.file;
-        jaywalk::file_browser::find_file(&self.browser.files, &file.after_path)
+        jaywalk::repository_file::find_entry(&self.browser.files, file.path())
     }
 
     fn selected_changed_index(&self) -> Option<usize> {
         let file = &self.selected_file.as_ref()?.file;
-        jaywalk::file_browser::find_file(&self.comparison()?.files, &file.after_path)
+        jaywalk::file_browser::find_file(&self.comparison()?.files, file.path())
     }
 
     fn selected_path(&self) -> Option<String> {
         self.selected_file
             .as_ref()
-            .map(|selected| selected.file.after_path.clone())
+            .map(|selected| selected.file.path().to_owned())
     }
 
     fn code(&self) -> Option<&CodeComparison> {

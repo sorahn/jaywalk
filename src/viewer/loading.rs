@@ -184,6 +184,7 @@ impl Viewer {
             return;
         };
         let comparison = comparison.clone();
+        let file = jaywalk::repository_file::FileEntry::from(&file);
         self.load_file(comparison, file, FileLoad::Select, window, cx);
     }
 
@@ -195,7 +196,7 @@ impl Viewer {
             return;
         };
         if let Some(index) = jaywalk::file_browser::find_file(&comparison.files, &path) {
-            let file = comparison.files[index].clone();
+            let file = jaywalk::repository_file::FileEntry::from(&comparison.files[index]);
             self.load_file(comparison, file, FileLoad::Follow, window, cx);
         }
     }
@@ -215,7 +216,7 @@ impl Viewer {
     fn load_file(
         &mut self,
         comparison: Comparison,
-        file: jaywalk::repository::ChangedFile,
+        file: jaywalk::repository_file::FileEntry,
         reason: FileLoad,
         window: &mut Window,
         cx: &mut Context<Self>,
@@ -235,17 +236,17 @@ impl Viewer {
             self.horizontal_position = 0.;
         }
         self.begin_loading(LoadingKind::File, window, cx);
-        self.recall_reading(&file.after_path);
+        self.recall_reading(file.path());
         let generation = self.file_generation;
-        self.focus_evolution_file(Some(&file.after_path));
+        self.focus_evolution_file(Some(file.path()));
         self.rebuild_browser(cx);
         self.reveal_after_layout = false;
         let source = comparison.clone();
         let metadata = file.clone();
         let tab_size = self.settings.editor.tab_size;
         self.file_task = Some(cx.spawn_in(window, async move |this, cx| {
-            let language = file_language(&file.after_path);
-            let path = file.after_path.clone();
+            let language = file_language(file.path());
+            let path = file.path().to_owned();
             let result = cx
                 .background_spawn(async move { PreparedFile::load(&comparison, &file, tab_size) })
                 .await;

@@ -10,7 +10,7 @@ use std::collections::HashMap;
 use jaywalk::settings::FileView as FileListMode;
 
 pub(super) struct FileBrowser {
-    pub(super) files: std::sync::Arc<[jaywalk::repository::ChangedFile]>,
+    pub(super) files: std::sync::Arc<[jaywalk::repository_file::FileEntry]>,
     retained: Option<usize>,
     pub(super) mode: FileListMode,
     labels: Vec<CompactPath>,
@@ -120,7 +120,7 @@ impl Viewer {
             .browser
             .files
             .get(index)
-            .map(|file| file.after_path.clone())
+            .map(|file| file.path().to_owned())
         {
             self.select_path(&path, window, cx);
         }
@@ -144,12 +144,7 @@ impl Viewer {
         );
         self.browser.retained = retained;
         self.browser.files = files.into();
-        let paths: Vec<_> = self
-            .browser
-            .files
-            .iter()
-            .map(|file| file.after_path.as_str())
-            .collect();
+        let paths: Vec<_> = self.browser.files.iter().map(|file| file.path()).collect();
         let (labels, nodes) = present_paths(&paths);
         self.browser.labels = labels;
         self.browser.tree_indices.clear();
@@ -183,7 +178,7 @@ impl Viewer {
             .files
             .iter()
             .flat_map(|file| {
-                file.after_path.split('/').enumerate().map(|(depth, name)| {
+                file.path().split('/').enumerate().map(|(depth, name)| {
                     name.chars().count() as f32 * glyph_width + depth as f32 * indent + 64.
                 })
             })
@@ -219,7 +214,9 @@ impl Viewer {
             } else {
                 file_index
                     .and_then(|index| files.get(index))
-                    .map_or(0xa4b4c2, |file| file_style(&file.status).1)
+                    .map_or(0xa4b4c2, |file| {
+                        file_style(file.status().unwrap_or("unchanged")).1
+                    })
             };
             let mut content = div().h_flex().items_center().gap_1().whitespace_nowrap();
             if entry.is_folder() {
@@ -365,10 +362,10 @@ impl Viewer {
                     let (marker, color) = if temporary {
                         ("·", 0xa4b4c2)
                     } else {
-                        file_style(&file.status)
+                        file_style(file.status().unwrap_or("unchanged"))
                     };
                     let label = self.browser.labels.get(index).map_or_else(
-                        || file.after_path.clone(),
+                        || file.path().to_owned(),
                         |path| {
                             path.label(if self.settings.files.compact_paths && !wrap {
                                 columns

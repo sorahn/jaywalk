@@ -7,7 +7,7 @@ impl Viewer {
             .selected_file
             .as_ref()
             .map(|selected| &selected.file)
-            .map(|file| file.status.as_str());
+            .and_then(|file| file.status());
         match status {
             Some("renamed") => "Renamed · contents unchanged",
             Some("copied") => "Copied · contents unchanged",
@@ -55,14 +55,14 @@ impl Viewer {
                             .flex_1()
                             .min_w_0()
                             .truncate()
-                            .child(file.after_path.clone()),
+                            .child(file.path().to_owned()),
                     )
                     .children(updating.then(|| div().flex_shrink_0().text_sm().child("Updating…"))),
             );
-        let detail = match file.status.as_str() {
+        let detail = match file.status().unwrap_or("unchanged") {
             "renamed" => Some(format!(
                 "Renamed from {}{}",
-                file.before_path,
+                file.before_path(),
                 if contents_unchanged {
                     " · contents unchanged"
                 } else {
@@ -71,7 +71,7 @@ impl Viewer {
             )),
             "copied" => Some(format!(
                 "Copied from {}{}",
-                file.before_path,
+                file.before_path(),
                 if contents_unchanged {
                     " · contents unchanged"
                 } else {
