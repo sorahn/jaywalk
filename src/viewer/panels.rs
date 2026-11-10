@@ -625,6 +625,25 @@ impl Viewer {
                 (CommandId::FilesLeft, placement.files_side == Side::Left),
                 (CommandId::FilesRight, placement.files_side == Side::Right),
                 (CommandId::SwapSidebars, false),
+                (
+                    CommandId::FileList,
+                    self.browser.mode == jaywalk::settings::FileView::List,
+                ),
+                (
+                    CommandId::FileTree,
+                    self.browser.mode == jaywalk::settings::FileView::Tree,
+                ),
+                (
+                    CommandId::TreeChanged,
+                    self.browser.scope == jaywalk::settings::TreeScope::Changed,
+                ),
+                (
+                    CommandId::TreeAll,
+                    self.browser.scope == jaywalk::settings::TreeScope::All,
+                ),
+                (CommandId::RevealFile, false),
+                (CommandId::CollapseFiles, false),
+                (CommandId::ExpandFiles, false),
             ],
             PanelId::ChangeEvolution => vec![
                 (

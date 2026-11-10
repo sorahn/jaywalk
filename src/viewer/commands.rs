@@ -160,6 +160,39 @@ impl Viewer {
             return;
         }
         match command {
+            CommandId::OpenFile
+            | CommandId::CopyPath
+            | CommandId::CopyRelativePath
+            | CommandId::CopyFileName
+            | CommandId::RevealInFileManager => {
+                if let Some(target) = self.keyboard_file_target(window, cx) {
+                    self.execute_file_action(command, &target, window, cx);
+                }
+            }
+            CommandId::CollapseFiles | CommandId::ExpandFiles => {
+                self.set_directory_expansion(None, command == CommandId::ExpandFiles, cx);
+            }
+            CommandId::RevealFile => self.reveal_active_file(cx),
+            CommandId::FileList | CommandId::FileTree => {
+                self.set_file_mode(
+                    if command == CommandId::FileList {
+                        jaywalk::settings::FileView::List
+                    } else {
+                        jaywalk::settings::FileView::Tree
+                    },
+                    cx,
+                );
+            }
+            CommandId::TreeChanged | CommandId::TreeAll => {
+                self.set_tree_scope(
+                    if command == CommandId::TreeAll {
+                        jaywalk::settings::TreeScope::All
+                    } else {
+                        jaywalk::settings::TreeScope::Changed
+                    },
+                    cx,
+                );
+            }
             CommandId::OpenRepository => {
                 crate::choose_repository(self.arguments.clone(), Some(cx.entity().downgrade()), cx)
             }

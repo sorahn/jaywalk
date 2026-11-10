@@ -378,3 +378,24 @@ References:
 - [Sublime Merge key bindings](https://www.sublimemerge.com/docs/key_bindings), including where its packaged defaults live.
 - [VS Code's default macOS keybindings](https://github.com/microsoft/vscode-docs/blob/main/build/keybindings/doc.keybindings.osx.json).
 - [Zed's default macOS keymap](https://github.com/zed-industries/zed/blob/main/assets/keymaps/default-macos.json).
+
+## Panel and context commands
+
+These commands are unbound by default and can be assigned in a profile. File
+actions use the active file from keyboard/palette; row menus retain their own
+subject. See [context menus](context-menus.md).
+
+| Profile key | Default | Meaning |
+| --- | --- | --- |
+| `keybindings.open_file` | `[]` | Open file diff |
+| `keybindings.copy_path` | `[]` | Copy working-tree path |
+| `keybindings.copy_relative_path` | `[]` | Copy relative path |
+| `keybindings.copy_file_name` | `[]` | Copy file name |
+| `keybindings.reveal_in_file_manager` | `[]` | Reveal working-tree location |
+| `keybindings.collapse_files` | `[]` | Collapse all folders |
+| `keybindings.expand_files` | `[]` | Expand all folders |
+| `keybindings.reveal_file` | `[]` | Reveal active file in sidebar |
+| `keybindings.file_list` | `[]` | Show file list |
+| `keybindings.file_tree` | `[]` | Show directory tree |
+| `keybindings.tree_changed` | `[]` | Show changed files |
+| `keybindings.tree_all` | `[]` | Show all repository files |

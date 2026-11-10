@@ -67,6 +67,19 @@ hide = ["secondary-h"]
 hide_others = ["secondary-alt-h"]
 show_all = []
 
+open_file = []
+copy_path = []
+copy_relative_path = []
+copy_file_name = []
+reveal_in_file_manager = []
+collapse_files = []
+expand_files = []
+reveal_file = []
+file_list = []
+file_tree = []
+tree_changed = []
+tree_all = []
+
 # Platform defaults are applied before sparse user overrides.
 # On Linux, secondary and ctrl both mean Ctrl, unlike macOS.
 [platform.linux]
