@@ -9,6 +9,7 @@ mod about;
 mod cli;
 mod instance;
 mod recents;
+mod settings_service;
 mod windows;
 use cli::Arguments;
 mod launcher;
@@ -78,6 +79,7 @@ fn run() -> std::result::Result<(), String> {
     application.run(move |cx| {
         gpui::init(cx);
         windows::init(cx);
+        settings_service::init(cx);
         recents::init(recent_store, cx);
         windows::apply_application_settings(&settings.application, cx);
         if let Err(error) = viewer::init(&arguments, &settings, cx) {

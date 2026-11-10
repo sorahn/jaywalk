@@ -143,7 +143,10 @@ pub(crate) fn open_with_disposition(
     disposition: OpenDisposition,
     cx: &mut App,
 ) -> Result<(), String> {
-    crate::viewer::commands::install_bindings(&settings, cx)?;
+    let source = SettingsSource::resolve(arguments.config.as_deref())?;
+    let state = crate::settings_service::source(source.clone(), &settings, cx)?;
+    crate::settings_service::publish(source, settings.clone(), cx)?;
+    let settings = (*state.read(cx).current).clone();
     let key = Key::new(&arguments);
     let existing = cx
         .global::<Windows>()
@@ -173,7 +176,6 @@ pub(crate) fn open_with_disposition(
                 let replace =
                     different_subject || (viewer.read(cx).is_welcome() && !arguments.welcome);
                 if replace {
-                    apply_application_settings(&settings.application, cx);
                     window.set_window_title(&window_title(&arguments));
                     viewer.update(cx, |viewer, cx| {
                         *viewer = Viewer::new(arguments.clone(), settings, window, cx)
@@ -196,7 +198,6 @@ pub(crate) fn open_with_disposition(
         record.last_opened = std::time::Instant::now();
         window.window_id()
     } else {
-        apply_application_settings(&settings.application, cx);
         let options = WindowOptions {
             titlebar: Some(TitlebarOptions {
                 title: Some(window_title(&arguments).into()),

@@ -3,7 +3,7 @@ use crate::keybinding_profiles::{self as profiles, Profile};
 use crate::settings::{Config, Settings, default_path};
 use std::path::{Path, PathBuf};
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq, Eq, Hash)]
 pub struct SettingsSource {
     path: PathBuf,
     optional: bool,
