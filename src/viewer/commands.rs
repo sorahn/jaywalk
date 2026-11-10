@@ -19,7 +19,10 @@ pub(crate) fn init(arguments: &Arguments, settings: &Settings, cx: &mut App) -> 
                 eprintln!("Could not open About Jaywalk: {error}");
             }
         }),
-        CommandId::OpenRepository => crate::choose_repository(arguments.clone(), cx),
+        CommandId::OpenRepository => crate::choose_repository(arguments.clone(), None, cx),
+        CommandId::ComparePaths => crate::choose_comparison(arguments.clone(), None, cx),
+        CommandId::ShowWelcome => crate::open_arguments(arguments.for_welcome(), None, false, cx),
+        CommandId::ClearRecent => crate::recents::clear(cx),
         CommandId::Quit => cx.quit(),
         CommandId::Hide => cx.hide(),
         CommandId::HideOthers => cx.hide_other_apps(),
@@ -103,6 +106,9 @@ fn configured_bindings(settings: &Settings) -> Vec<KeyBinding> {
         let context = match command {
             CommandId::About
             | CommandId::OpenRepository
+            | CommandId::ComparePaths
+            | CommandId::ShowWelcome
+            | CommandId::ClearRecent
             | CommandId::Quit
             | CommandId::Hide
             | CommandId::HideOthers
@@ -139,7 +145,23 @@ impl Viewer {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if self.is_welcome() && !command.available_without_repository() {
+            return;
+        }
         match command {
+            CommandId::OpenRepository => {
+                crate::choose_repository(self.arguments.clone(), Some(cx.entity().downgrade()), cx)
+            }
+            CommandId::ComparePaths => {
+                crate::choose_comparison(self.arguments.clone(), Some(cx.entity().downgrade()), cx)
+            }
+            CommandId::ShowWelcome => crate::open_arguments(
+                self.arguments.for_welcome(),
+                Some(cx.entity().downgrade()),
+                false,
+                cx,
+            ),
+            CommandId::ClearRecent => crate::recents::clear(cx),
             CommandId::GoBack => self.navigate_view(false, window, cx),
             CommandId::GoForward => self.navigate_view(true, window, cx),
             CommandId::FindFile => self.open_palette(palette::PaletteKind::Files, window, cx),
@@ -260,7 +282,6 @@ impl Viewer {
             CommandId::Minimize => window.minimize_window(),
             CommandId::Fullscreen => window.toggle_fullscreen(),
             CommandId::About
-            | CommandId::OpenRepository
             | CommandId::Quit
             | CommandId::Hide
             | CommandId::HideOthers

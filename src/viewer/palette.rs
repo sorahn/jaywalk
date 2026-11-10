@@ -114,14 +114,15 @@ impl Viewer {
             PaletteKind::Commands => jaywalk::commands::CommandId::ALL
                 .iter()
                 .filter(|command| {
-                    self.supports_evolution()
-                        || !matches!(
-                            command,
-                            jaywalk::commands::CommandId::ToggleChangeEvolution
-                                | jaywalk::commands::CommandId::ToggleFileEvolution
-                                | jaywalk::commands::CommandId::VersionPatch
-                                | jaywalk::commands::CommandId::SincePrevious
-                        )
+                    (!self.is_welcome() || command.available_without_repository())
+                        && (self.supports_evolution()
+                            || !matches!(
+                                command,
+                                jaywalk::commands::CommandId::ToggleChangeEvolution
+                                    | jaywalk::commands::CommandId::ToggleFileEvolution
+                                    | jaywalk::commands::CommandId::VersionPatch
+                                    | jaywalk::commands::CommandId::SincePrevious
+                            ))
                 })
                 .map(|command| (command.label().to_owned(), Choice::Command(*command)))
                 .collect(),

@@ -249,7 +249,7 @@ impl Viewer {
         } else {
             None
         };
-        let directory = self.arguments.directory.clone();
+        let directory = self.arguments.directory().to_owned();
         let base = self.arguments.base.clone();
         // Preserve the requested reference. In particular, @ follows the recorded
         // workspace even when jj abandons and replaces its working-copy change.

@@ -96,6 +96,9 @@ layout/reset/remote-management command merely to fill the table.
 | --- | --- | --- |
 | `keybindings.about` | `[]` | About Jaywalk |
 | `keybindings.open_repository` | `["secondary-o"]` | Open repository… |
+| `keybindings.compare_paths` | `[]` | Compare files or folders |
+| `keybindings.show_welcome` | `[]` | Welcome |
+| `keybindings.clear_recent` | `[]` | Clear recent repositories |
 | `keybindings.find_file` | `["secondary-p"]` | Find any repository file |
 | `keybindings.show_commands` | `["secondary-shift-p", "f1"]` | Command palette |
 | `keybindings.open_settings` | `["secondary-,"]` | Open settings |

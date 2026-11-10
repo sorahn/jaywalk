@@ -96,6 +96,12 @@ section header, for example `[editor]` followed by `font_size = 14`.
 | --- | --- | --- |
 | `application.quit_on_last_window` | `true` | Quit when the final actual window closes, including About. `false` keeps the app available with no windows. This is application-wide: opening another config or editing this value updates the shared policy; CLI waiters are notified before shutdown. |
 
+### `welcome`
+
+| Setting | Default | Meaning and allowed values |
+| --- | --- | --- |
+| `welcome.recent_count` | `5` | Number of recent repositories shown on the welcome page; 1–50. Applies live. This changes only the preview count, not the saved repository history. |
+
 ### `navigation`
 
 | Setting | Default | Meaning and allowed values |

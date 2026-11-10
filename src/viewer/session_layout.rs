@@ -31,10 +31,11 @@ impl SessionLayout {
             }
         };
         if settings.layout.remember_per_repository
+            && !arguments.welcome
             && arguments.diff.is_none()
             && let Some(path) = &path
         {
-            match RepositoryLayoutStore::new(path.clone(), &arguments.directory)
+            match RepositoryLayoutStore::new(path.clone(), arguments.directory())
                 .and_then(|store| store.read())
             {
                 Ok(Some(state)) => saved = state,
@@ -44,7 +45,7 @@ impl SessionLayout {
         }
         Self {
             path,
-            repository: arguments.directory.clone(),
+            repository: arguments.directory().to_owned(),
             saved,
             error,
             saving: false,
@@ -112,6 +113,9 @@ impl Viewer {
         }
     }
     pub(super) fn save_layout(&mut self, cx: &mut Context<Self>) {
+        if self.is_welcome() {
+            return;
+        }
         if !self.settings.layout.remember_per_repository || self.arguments.diff.is_some() {
             self.layout.task = None;
             self.layout.saving = false;

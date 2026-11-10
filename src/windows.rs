@@ -10,6 +10,7 @@ use std::sync::mpsc::Sender;
 
 #[derive(Clone, PartialEq, Eq)]
 enum Subject {
+    Welcome,
     Repository {
         directory: PathBuf,
         base: Option<String>,
@@ -25,13 +26,17 @@ struct Key {
 impl Key {
     fn new(arguments: &Arguments) -> Self {
         Self {
-            subject: match &arguments.diff {
-                Some(paths) => Subject::Diff(paths.clone()),
-                None => Subject::Repository {
-                    directory: arguments.directory.clone(),
-                    base: arguments.base.clone(),
-                    tip: arguments.tip.clone(),
-                },
+            subject: if arguments.welcome {
+                Subject::Welcome
+            } else {
+                match &arguments.diff {
+                    Some(paths) => Subject::Diff(paths.clone()),
+                    None => Subject::Repository {
+                        directory: arguments.directory().to_owned(),
+                        base: arguments.base.clone(),
+                        tip: arguments.tip.clone(),
+                    },
+                }
             },
             config: arguments.config.clone(),
         }
@@ -113,27 +118,44 @@ pub(crate) fn open(
         .0
         .values()
         .find(|record| record.key == key)
-        .map(|record| (record.window, record.viewer.clone()));
-    let id = if let Some((window, viewer)) = existing {
-        window
+        .or_else(|| {
+            cx.global::<Windows>().0.values().find(|record| {
+                record.key.config == key.config && record.viewer.read(cx).is_welcome()
+            })
+        })
+        .map(|record| (record.window, record.viewer.clone(), record.key != key));
+    let id = if let Some((window, viewer, different_subject)) = existing {
+        let root = window
             .update(cx, |_, window, cx| {
                 window.activate_window();
-                if let Some(path) = &arguments.file {
+                let replace =
+                    different_subject || (viewer.read(cx).is_welcome() && !arguments.welcome);
+                if replace {
+                    apply_application_settings(&settings.application, cx);
+                    window.set_window_title(&window_title(&arguments));
+                    viewer.update(cx, |viewer, cx| {
+                        *viewer = Viewer::new(arguments.clone(), settings, window, cx)
+                    });
+                } else if let Some(path) = &arguments.file {
                     viewer.update(cx, |viewer, cx| viewer.reveal_file(path, window, cx));
                 }
+                viewer.read(cx).repository_directory()
             })
             .map_err(|error| format!("Could not focus the repository window: {error}"))?;
+        if let Some(root) = root {
+            crate::recents::record(&root, cx);
+        }
+        cx.global_mut::<Windows>()
+            .0
+            .get_mut(&window.window_id())
+            .expect("the reused window remains registered")
+            .key = key;
         window.window_id()
     } else {
         apply_application_settings(&settings.application, cx);
         let options = WindowOptions {
             titlebar: Some(TitlebarOptions {
-                title: Some(match &arguments.diff {
-                    Some(paths) => {
-                        format!("{} ↔ {} — Jaywalk", paths[0].display(), paths[1].display()).into()
-                    }
-                    None => format!("{} — Jaywalk", arguments.directory.display()).into(),
-                }),
+                title: Some(window_title(&arguments).into()),
                 ..Default::default()
             }),
             window_bounds: Some(WindowBounds::Windowed(Bounds::centered(
@@ -198,6 +220,35 @@ mod tests {
         assert!(Key::new(&repository) == Key::new(&normalize(&root.join("repo/src"))));
         alias.base = Some("main".into());
         assert!(Key::new(&repository) != Key::new(&alias));
+        assert!(Key::new(&repository.for_welcome()) == Key::new(&normalize(&root).for_welcome()));
+        assert!(Key::new(&repository.for_welcome()) != Key::new(&repository));
         std::fs::remove_dir_all(root).unwrap();
+    }
+}
+
+fn window_title(arguments: &Arguments) -> String {
+    if arguments.welcome {
+        return "Welcome — Jaywalk".into();
+    }
+    match &arguments.diff {
+        Some(paths) => format!("{} ↔ {} — Jaywalk", paths[0].display(), paths[1].display()),
+        None => format!("{} — Jaywalk", arguments.directory().display()),
+    }
+}
+
+pub(crate) fn has_viewer_windows(cx: &App) -> bool {
+    cx.try_global::<Windows>()
+        .is_some_and(|windows| !windows.0.is_empty())
+}
+pub(crate) fn report_welcome_error(arguments: &Arguments, error: String, cx: &mut App) {
+    let key = Key::new(arguments);
+    let viewer = cx
+        .global::<Windows>()
+        .0
+        .values()
+        .find(|record| record.key == key)
+        .map(|record| record.viewer.clone());
+    if let Some(viewer) = viewer {
+        viewer.update(cx, |viewer, cx| viewer.report_open_error(error, cx));
     }
 }

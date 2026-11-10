@@ -6,6 +6,9 @@ use serde::Deserialize;
 pub enum CommandId {
     About,
     OpenRepository,
+    ComparePaths,
+    ShowWelcome,
+    ClearRecent,
     FindFile,
     ShowCommands,
     OpenSettings,
@@ -61,9 +64,31 @@ pub enum CommandId {
 }
 
 impl CommandId {
+    pub fn available_without_repository(self) -> bool {
+        matches!(
+            self,
+            Self::OpenRepository
+                | Self::ComparePaths
+                | Self::ShowWelcome
+                | Self::ClearRecent
+                | Self::ShowCommands
+                | Self::OpenSettings
+                | Self::About
+                | Self::Quit
+                | Self::CloseWindow
+                | Self::Minimize
+                | Self::Fullscreen
+                | Self::Hide
+                | Self::HideOthers
+                | Self::ShowAll
+        )
+    }
     pub const ALL: &[Self] = &[
         Self::About,
         Self::OpenRepository,
+        Self::ComparePaths,
+        Self::ShowWelcome,
+        Self::ClearRecent,
         Self::FindFile,
         Self::ShowCommands,
         Self::OpenSettings,
@@ -121,6 +146,9 @@ impl CommandId {
         match self {
             Self::About => "About Jaywalk",
             Self::OpenRepository => "Open repository…",
+            Self::ComparePaths => "Compare files or folders…",
+            Self::ShowWelcome => "Welcome",
+            Self::ClearRecent => "Clear recent repositories",
             Self::FindFile => "Find any repository file",
             Self::ShowCommands => "Command palette",
             Self::VersionPatch => "Version patch",
