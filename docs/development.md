@@ -6,11 +6,47 @@ development target. Read the [coding standards](../CONTRIBUTING.md) before makin
 ## Prerequisites
 
 - Rust and Cargo.
+- [just](https://just.systems/) for the task recipes (`brew install just` on macOS).
+  It is a separate developer tool; Cargo does not install it for this project.
 - Full Xcode on macOS, including the tools used to compile the Icon Composer asset.
 - jj 0.47+ for Jujutsu repositories, and Git for plain Git repositories and jj interdiffs.
 
-Use the full Xcode developer directory per command without changing the machine's
-global developer-directory selection:
+## Common actions
+
+Run `just` or `just --list` to see the available recipes:
+
+```sh
+just check                 # formatting check, tests, strict Clippy; no GUI
+just build                 # build both executables
+just build release
+just bundle                # build/sign the debug macOS app
+just bundle release
+just verify-bundle         # verify an existing debug bundle's signature
+just install-cli           # build and install jw into ~/.local/bin
+just run                   # launch the welcome page
+just run .                 # launch this repository
+just run . --file src/main.rs
+```
+
+`just fmt` formats Rust sources; `just fmt-check` only checks them. `just test`
+accepts Cargo test arguments, for example `just test profile_paths`. Launching is
+an explicit recipe: `just check`, `just build` and `just bundle` do not open the app.
+
+On macOS, recipes default `DEVELOPER_DIR` to
+`/Applications/Xcode.app/Contents/Developer`. An existing environment value takes
+precedence, so an alternate Xcode install can be selected per invocation:
+
+```sh
+DEVELOPER_DIR=/Applications/Xcode-beta.app/Contents/Developer just build
+```
+
+This selects Apple's build tools; it does not change the Rust installation or
+the machine's global developer-directory selection. Cargo and the scripts below
+remain usable directly. The justfile delegates bundling and launcher installation
+to those scripts rather than duplicating them. Recipe arguments use quoted shell
+positional parameters, preserving paths with spaces and literal special characters.
+
+## Build directly with Cargo
 
 ```sh
 DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer cargo build --locked
@@ -57,6 +93,9 @@ codesign --verify --deep --strict target/debug/Jaywalk.app
 ```
 
 ## Install the development launcher
+
+The short form is `just install-cli [BIN_DIRECTORY] [debug|release]`, for example
+`just install-cli /usr/local/bin release`. The direct script invocation is:
 
 ```sh
 DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer scripts/install-cli.sh

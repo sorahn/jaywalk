@@ -74,7 +74,8 @@ repository-wide refactor into a feature.
 - Exercise relevant Unicode, empty-file, final-newline, endpoint, resizing,
   and wrapping cases for diff/geometry changes. Verify interaction and visual
   behavior in the native window; passing unit tests cannot establish UI feel.
-- Run `cargo fmt --check`, `cargo test`, and
+- `just check` runs the required background checks with the project build environment.
+  Alternatively, run `cargo fmt --check`, `cargo test`, and
   `cargo clippy --all-targets -- -D warnings` for relevant Rust changes. On
   macOS, use the full Xcode developer directory as described in
   [the development guide](docs/development.md).
