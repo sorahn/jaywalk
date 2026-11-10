@@ -2,18 +2,14 @@
 use super::*;
 use jaywalk::layout_state::{LayoutState, RepositoryLayoutStore};
 use std::path::PathBuf;
-use std::time::Duration;
-pub(super) struct SessionLayout {
+pub(crate) struct SessionLayout {
     pub(super) saved: LayoutState,
     path: Option<PathBuf>,
     repository: PathBuf,
     pub(super) error: Option<String>,
-    saving: bool,
-    revision: u64,
-    task: Option<Task<()>>,
 }
 impl SessionLayout {
-    pub(super) fn load(arguments: &Arguments, settings: &Settings) -> Self {
+    pub(crate) fn load(arguments: &Arguments, settings: &Settings) -> Self {
         let path = arguments
             .config
             .as_ref()
@@ -48,9 +44,16 @@ impl SessionLayout {
             repository: arguments.directory().to_owned(),
             saved,
             error,
-            saving: false,
-            revision: 0,
-            task: None,
+        }
+    }
+}
+impl SessionLayout {
+    pub(crate) fn use_latest(&mut self, settings: &Settings, cx: &App) {
+        if settings.layout.remember_per_repository
+            && let Some(path) = &self.path
+            && let Some(saved) = crate::interface_state::latest(path, &self.repository, cx)
+        {
+            self.saved = saved;
         }
     }
 }
@@ -117,8 +120,6 @@ impl Viewer {
             return;
         }
         if !self.settings.layout.remember_per_repository || self.arguments.diff.is_some() {
-            self.layout.task = None;
-            self.layout.saving = false;
             return;
         }
         self.layout.saved.history_labels = Some(self.references.labels);
@@ -136,59 +137,28 @@ impl Viewer {
         self.layout.saved.file_rebases = Some(self.file_evolution.show_unchanged_rebases);
         self.layout.saved.change_evolution = Some(self.evolution.visible);
         self.layout.saved.file_evolution = Some(self.file_evolution.visible);
-        self.layout.revision += 1;
-        if self.layout.saving {
-            return;
-        }
-        let Some(path) = self.layout.path.clone() else {
-            return;
-        };
-        let repository = self.layout.repository.clone();
-        self.layout.saving = true;
-        self.layout.task = Some(cx.spawn(async move |this, cx| {
-            loop {
-                cx.background_executor()
-                    .timer(Duration::from_millis(250))
-                    .await;
-                let Ok((saved, revision)) = this.update(cx, |viewer, _| {
-                    (viewer.layout.saved.clone(), viewer.layout.revision)
-                }) else {
-                    break;
-                };
-                let path = path.clone();
-                let repository = repository.clone();
-                let result = cx
-                    .background_executor()
-                    .spawn(async move {
-                        RepositoryLayoutStore::new(path, &repository)
-                            .and_then(|store| store.save(&saved))
-                    })
-                    .await;
-                let Ok(again) = this.update(cx, |viewer, cx| {
-                    match result {
-                        Err(error) => {
-                            viewer.layout.error = Some(error);
-                            cx.notify();
-                        }
-                        Ok(()) => {
-                            if viewer.layout.error.take().is_some() {
-                                cx.notify();
-                            }
-                        }
-                    }
-                    let again = viewer.layout.revision != revision;
-                    if !again {
-                        viewer.layout.saving = false;
-                    }
-                    again
-                }) else {
-                    break;
-                };
-                if !again {
-                    break;
-                }
+        if let Some(path) = &self.layout.path {
+            let key = crate::interface_state::StoreKey {
+                path: path.clone(),
+                repository: self.layout.repository.clone(),
+            };
+            if let Err(error) = crate::interface_state::save(key, self.layout.saved.clone(), cx) {
+                self.layout.error = Some(error);
+                cx.notify();
             }
-        }));
+        }
+    }
+    pub(crate) fn layout_saved(
+        &mut self,
+        key: &crate::interface_state::StoreKey,
+        error: Option<String>,
+        cx: &mut Context<Self>,
+    ) {
+        if self.layout.path.as_ref() == Some(&key.path) && self.layout.repository == key.repository
+        {
+            self.layout.error = error;
+            cx.notify();
+        }
     }
     pub(super) fn toggle_sidebar(
         &mut self,

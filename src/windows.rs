@@ -111,13 +111,11 @@ pub(crate) fn listen(receiver: async_channel::Receiver<Request>, cx: &mut App) {
                 .background_spawn(async move {
                     arguments.normalize()?;
                     let settings = SettingsSource::resolve(arguments.config.as_deref())?.read()?;
-                    Ok::<_, String>((arguments, settings))
+                    Ok::<_, String>(PreparedWindow::load(arguments, settings))
                 })
                 .await;
             let result = match prepared {
-                Ok((arguments, settings)) => {
-                    cx.update(|cx| open(arguments, settings, Some(reply.clone()), cx))
-                }
+                Ok(prepared) => cx.update(|cx| open(prepared, Some(reply.clone()), cx)),
                 Err(error) => Err(error),
             };
             if let Err(error) = result {
@@ -128,22 +126,47 @@ pub(crate) fn listen(receiver: async_channel::Receiver<Request>, cx: &mut App) {
     .detach();
 }
 
-pub(crate) fn open(
-    arguments: Arguments,
+pub(crate) struct PreparedWindow {
+    pub(crate) arguments: Arguments,
     settings: Settings,
+    layout: crate::viewer::SessionLayout,
+}
+impl PreparedWindow {
+    /// Read persistence before entering the window/UI update.
+    pub(crate) fn load(arguments: Arguments, settings: Settings) -> Self {
+        let layout = crate::viewer::SessionLayout::load(&arguments, &settings);
+        Self {
+            arguments,
+            settings,
+            layout,
+        }
+    }
+}
+pub(crate) fn open(
+    prepared: PreparedWindow,
     reply: Option<Sender<Response>>,
     cx: &mut App,
-) -> std::result::Result<(), String> {
-    open_with_disposition(arguments, settings, reply, OpenDisposition::Reuse, cx)
+) -> Result<(), String> {
+    open_with_disposition(prepared, reply, OpenDisposition::Reuse, cx)
 }
 pub(crate) fn open_with_disposition(
-    arguments: Arguments,
-    settings: Settings,
+    prepared: PreparedWindow,
     reply: Option<Sender<Response>>,
     disposition: OpenDisposition,
     cx: &mut App,
 ) -> Result<(), String> {
-    crate::viewer::commands::install_bindings(&settings, cx)?;
+    let PreparedWindow {
+        arguments,
+        settings,
+        mut layout,
+    } = prepared;
+    if !arguments.welcome && arguments.diff.is_none() {
+        layout.use_latest(&settings, cx);
+    }
+    let source = SettingsSource::resolve(arguments.config.as_deref())?;
+    let state = crate::settings_service::source(source.clone(), &settings, cx)?;
+    crate::settings_service::publish(source, settings.clone(), cx)?;
+    let settings = (*state.read(cx).current).clone();
     let key = Key::new(&arguments);
     let existing = cx
         .global::<Windows>()
@@ -173,10 +196,9 @@ pub(crate) fn open_with_disposition(
                 let replace =
                     different_subject || (viewer.read(cx).is_welcome() && !arguments.welcome);
                 if replace {
-                    apply_application_settings(&settings.application, cx);
                     window.set_window_title(&window_title(&arguments));
                     viewer.update(cx, |viewer, cx| {
-                        *viewer = Viewer::new(arguments.clone(), settings, window, cx)
+                        *viewer = Viewer::new(arguments.clone(), settings, layout, window, cx)
                     });
                 } else if let Some(path) = &arguments.file {
                     viewer.update(cx, |viewer, cx| viewer.reveal_file(path, window, cx));
@@ -196,7 +218,6 @@ pub(crate) fn open_with_disposition(
         record.last_opened = std::time::Instant::now();
         window.window_id()
     } else {
-        apply_application_settings(&settings.application, cx);
         let options = WindowOptions {
             titlebar: Some(TitlebarOptions {
                 title: Some(window_title(&arguments).into()),
@@ -210,7 +231,7 @@ pub(crate) fn open_with_disposition(
             ..Default::default()
         };
         let (window, viewer) = gpui::open_window(options, cx, |window, cx| {
-            cx.new(|cx| Viewer::new(arguments.clone(), settings, window, cx))
+            cx.new(|cx| Viewer::new(arguments.clone(), settings, layout, window, cx))
         })
         .map_err(|error| format!("Could not open the viewer window: {error}"))?;
         cx.global_mut::<Windows>().0.insert(
@@ -360,4 +381,20 @@ pub(crate) fn dispatch_command(
             viewer.update(cx, |viewer, cx| viewer.execute_command(command, window, cx))
         })
         .map_err(|error| format!("Could not dispatch the window command: {error}"))
+}
+
+pub(crate) fn layout_saved(
+    key: &crate::interface_state::StoreKey,
+    error: Option<String>,
+    cx: &mut App,
+) {
+    let viewers: Vec<_> = cx
+        .global::<Windows>()
+        .0
+        .values()
+        .map(|record| record.viewer.clone())
+        .collect();
+    for viewer in viewers {
+        viewer.update(cx, |viewer, cx| viewer.layout_saved(key, error.clone(), cx));
+    }
 }

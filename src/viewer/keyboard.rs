@@ -78,6 +78,7 @@ impl Viewer {
     ) {
         let source = SettingsSource::resolve(self.arguments.config.as_deref());
         self.config.profile_task = Some(cx.spawn_in(window, async move |this, cx| {
+            let publish_source = source.clone();
             let result = cx
                 .background_spawn(async move {
                     let source = source?;
@@ -97,11 +98,15 @@ impl Viewer {
                 }
                 Err(error) => Err(error),
             };
-            let _ = this.update_in(cx, |viewer, window, cx| {
+            let _ = this.update_in(cx, |viewer, _window, cx| {
                 match result {
                     Ok(settings) => {
-                        viewer.config.error = None;
-                        viewer.apply_settings(settings, window, cx);
+                        let result = publish_source.and_then(|source| {
+                            crate::settings_service::publish(source, settings, cx)
+                        });
+                        if let Err(error) = result {
+                            viewer.config.error = Some(error);
+                        }
                     }
                     Err(error) => {
                         viewer.config.error =

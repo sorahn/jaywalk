@@ -18,7 +18,11 @@ use crate::Arguments;
 mod chrome;
 pub(crate) mod commands;
 mod comparison;
+mod editor_presentation;
 mod evolution;
+#[cfg(test)]
+use editor_presentation::standard_patch;
+use editor_presentation::{CodeComparison, PreparedFile};
 mod feedback;
 mod files;
 mod fluid_view;
@@ -33,7 +37,9 @@ mod overview;
 mod palette;
 mod panels;
 mod references;
+mod review;
 mod session_layout;
+pub(crate) use session_layout::SessionLayout;
 mod settings;
 mod typography;
 mod welcome;
@@ -82,14 +88,6 @@ impl Wrapping {
     }
 }
 
-fn standard_patch(before: &str, after: &str) -> String {
-    similar::TextDiff::from_lines(before, after)
-        .unified_diff()
-        .context_radius(before.lines().count().max(after.lines().count()))
-        .header("a/source", "b/source")
-        .to_string()
-}
-
 enum LoadState<T> {
     Loading,
     Loaded(T),
@@ -131,56 +129,10 @@ struct RepositorySession {
     revision_comparison: Option<Rc<Comparison>>,
 }
 
-struct CodeComparison {
-    before: Entity<EditorState>,
-    after: Entity<EditorState>,
-    model: Rc<FileDiff>,
-    decorations: [gpui::base::input::TextDecorationCollection; 2],
-    standard: Result<Option<Entity<DiffState>>, String>,
-}
-
 struct SelectedFile {
     file: jaywalk::repository_file::FileEntry,
     source: Comparison,
     content: LoadState<CodeComparison>,
-}
-
-struct PreparedFile {
-    before: String,
-    after: String,
-    model: FileDiff,
-    syntax: [gpui::component::highlighter::PreparedInputHighlighter; 2],
-    standard: Result<Vec<DiffFile>, String>,
-}
-
-impl PreparedFile {
-    fn load(
-        comparison: &Comparison,
-        file: &jaywalk::repository_file::FileEntry,
-        tab_size: usize,
-    ) -> Result<Self, String> {
-        let (before, after) = comparison.read_file(file)?;
-        let model = FileDiff::new(&before, &after);
-        let language = file_language(file.path());
-        let syntax = [&before, &after].map(|text| {
-            gpui::component::highlighter::PreparedInputHighlighter::new(language, text)
-        });
-        let standard = DiffFile::parse(&standard_patch(&before, &after))
-            .map(|files| {
-                files
-                    .into_iter()
-                    .map(|file| file.with_tab_size(tab_size))
-                    .collect()
-            })
-            .map_err(|error| error.to_string());
-        Ok(Self {
-            before,
-            after,
-            model,
-            syntax,
-            standard,
-        })
-    }
 }
 
 pub(crate) fn init(arguments: &Arguments, settings: &Settings, cx: &mut App) -> Result<(), String> {
@@ -207,10 +159,7 @@ pub(crate) struct Viewer {
     selected_file: Option<SelectedFile>,
     pending_file: Option<String>,
     browser: files::FileBrowser,
-    repository_generation: u64,
-    file_generation: u64,
-    repository_task: Option<Task<()>>,
-    file_task: Option<Task<()>>,
+    requests: review::ReviewRequests,
     active_change: Option<usize>,
     navigation_target: Option<usize>,
     view: jaywalk::view_choice::ViewChoice,
@@ -268,8 +217,8 @@ impl Viewer {
     fn clear_file(&mut self) {
         self.config.pending_standard = None;
         self.config.pending_horizontal = None;
-        self.file_generation += 1;
-        self.file_task = None;
+        self.requests.invalidate_file();
+        self.requests.file_task = None;
         self.finish_loading(LoadingKind::File);
         self.selected_file = None;
         self.view
@@ -470,13 +419,13 @@ impl Viewer {
             return;
         }
         self.reveal_after_layout = false;
-        let generation = self.file_generation;
+        let generation = self.requests.file();
         let viewer = cx.entity().downgrade();
         // Editor paint can clear a scroll requested during that same paint.
         // Wait until measured wrapping and the widget's scroll state settle.
         window.defer(cx, move |_, cx| {
             let _ = viewer.update(cx, |viewer, cx| {
-                if viewer.file_generation == generation {
+                if viewer.requests.file() == generation {
                     viewer.navigate_change(0, cx);
                 }
             });

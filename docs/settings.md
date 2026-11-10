@@ -19,7 +19,8 @@ The schema and validation live in [src/settings.rs](../src/settings.rs).
   behavior. Commented font/row-height examples in the template are not defaults.
 
 All current settings apply live; none requires an app restart. The settings
-watcher is independent of repository refresh. It polls at
+watcher is independent of repository refresh. One application-owned watcher serves
+all windows using the same config source, including while those windows are closed. It polls at
 `settings.poll_interval_ms` and requires two matching reads, so the default
 interval usually applies a saved change in about one second. Creation, deletion
 and atomic file replacement are detected. Invalid TOML, unknown keys, invalid

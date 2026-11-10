@@ -6,11 +6,47 @@ development target. Read the [coding standards](../CONTRIBUTING.md) before makin
 ## Prerequisites
 
 - Rust and Cargo.
+- [just](https://just.systems/) for the task recipes (`brew install just` on macOS).
+  It is a separate developer tool; Cargo does not install it for this project.
 - Full Xcode on macOS, including the tools used to compile the Icon Composer asset.
 - jj 0.47+ for Jujutsu repositories, and Git for plain Git repositories and jj interdiffs.
 
-Use the full Xcode developer directory per command without changing the machine's
-global developer-directory selection:
+## Common actions
+
+Run `just` or `just --list` to see the available recipes:
+
+```sh
+just check                 # formatting check, tests, strict Clippy; no GUI
+just build                 # build both executables
+just build release
+just bundle                # build/sign the debug macOS app
+just bundle release
+just verify-bundle         # verify an existing debug bundle's signature
+just install-cli           # build and install jw into ~/.local/bin
+just run                   # launch the welcome page
+just run .                 # launch this repository
+just run . --file src/main.rs
+```
+
+`just fmt` formats Rust sources; `just fmt-check` only checks them. `just test`
+accepts Cargo test arguments, for example `just test profile_paths`. Launching is
+an explicit recipe: `just check`, `just build` and `just bundle` do not open the app.
+
+On macOS, recipes default `DEVELOPER_DIR` to
+`/Applications/Xcode.app/Contents/Developer`. An existing environment value takes
+precedence, so an alternate Xcode install can be selected per invocation:
+
+```sh
+DEVELOPER_DIR=/Applications/Xcode-beta.app/Contents/Developer just build
+```
+
+This selects Apple's build tools; it does not change the Rust installation or
+the machine's global developer-directory selection. Cargo and the scripts below
+remain usable directly. The justfile delegates bundling and launcher installation
+to those scripts rather than duplicating them. Recipe arguments use quoted shell
+positional parameters, preserving paths with spaces and literal special characters.
+
+## Build directly with Cargo
 
 ```sh
 DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer cargo build --locked
@@ -58,6 +94,9 @@ codesign --verify --deep --strict target/debug/Jaywalk.app
 
 ## Install the development launcher
 
+The short form is `just install-cli [BIN_DIRECTORY] [debug|release]`, for example
+`just install-cli /usr/local/bin release`. The direct script invocation is:
+
 ```sh
 DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer scripts/install-cli.sh
 # Optional destination and build profile:
@@ -97,7 +136,8 @@ diff, and panel widgets; Jaywalk does not implement its own UI framework.
 Shipped settings and shortcuts are separate canonical files:
 [`config/default.toml`](../config/default.toml) and
 [`config/keybindings.toml`](../config/keybindings.toml). Sparse user templates
-live alongside them. Update the typed schema, defaults, and corresponding
+live alongside them. `settings::Config` models the main file; resolved `Settings`
+combines that configuration with an independently validated keyboard profile. Update the typed schema, defaults, and corresponding
 [settings](settings.md) or [keybinding](keybindings.md) documentation together.
 
 ## Versions and diagnostics
@@ -141,3 +181,25 @@ synthesized objects. Git worktree comparisons capture changed contents when load
 and read unchanged files from pinned base objects. External comparison inputs
 retain read-on-selection behavior. Preserve these boundaries when changing file
 browsing or refresh so one comparison cannot silently mix different snapshots.
+
+
+## State ownership
+
+The application owns one settings watcher per resolved config source and the
+shared keymap, menus, theme defaults and quit policy. Windows subscribe to validated
+updates and keep their own reading, selection and panel state. The existing
+last-applied-config policy remains application-wide; project config layering is
+not implemented by this separation.
+
+Window preparation reads remembered interface choices before entering the UI
+update. An application-owned writer coalesces owned layout snapshots, preserves
+other repositories, and flushes pending changes on quit. Closing a window does
+not cancel its queued snapshot. Newly opened windows can use the latest queued
+snapshot before it reaches disk.
+
+`review_requests::RequestClock` ties every file request to its comparison as
+well as its own sequence. The native review coordinator owns task cancellation
+and reconciles overview/navigation state on notifications, outside `render()`.
+Viewport restoration remains tied to measured editor layout. The editor
+presentation module owns background preparation, editor mounting and in-place
+updates, shared standard-diff construction and word decorations.

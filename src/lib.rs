@@ -32,3 +32,5 @@ pub mod references;
 pub mod navigation;
 
 pub mod recent;
+
+pub mod review_requests;

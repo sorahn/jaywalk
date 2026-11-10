@@ -31,15 +31,11 @@ pub struct LiveSettings {
 
 #[derive(Clone, Debug, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
-pub struct Settings {
+pub struct Config {
     pub application: ApplicationSettings,
     pub navigation: NavigationSettings,
     pub welcome: WelcomeSettings,
     pub keyboard: KeyboardSettings,
-    #[serde(skip, default = "crate::keybinding_profiles::default_bindings")]
-    pub keybindings: BTreeMap<CommandId, Vec<String>>,
-    #[serde(skip)]
-    pub keymap: Vec<crate::keymap::Override>,
     pub settings: ReloadSettings,
     pub live: LiveSettings,
     pub window: WindowSettings,
@@ -254,9 +250,70 @@ pub struct PaneSettings {
     pub word_wrap: bool,
 }
 
-impl Default for Settings {
+impl Default for Config {
     fn default() -> Self {
         toml::from_str(DEFAULT_CONFIG).expect("the shipped settings schema is validated in tests")
+    }
+}
+
+/// Validated application configuration plus resolved keyboard overrides.
+/// Only Config is deserialized from config.toml.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Settings {
+    config: Config,
+    pub keybindings: BTreeMap<CommandId, Vec<String>>,
+    pub keymap: Vec<crate::keymap::Override>,
+}
+impl std::ops::Deref for Settings {
+    type Target = Config;
+    fn deref(&self) -> &Config {
+        &self.config
+    }
+}
+impl std::ops::DerefMut for Settings {
+    fn deref_mut(&mut self) -> &mut Config {
+        &mut self.config
+    }
+}
+impl Default for Settings {
+    fn default() -> Self {
+        Self::resolve(
+            Config::default(),
+            crate::keybinding_profiles::Profile::default(),
+        )
+        .expect("shipped configuration and bindings are valid")
+    }
+}
+impl Settings {
+    pub fn resolve(
+        config: Config,
+        profile: crate::keybinding_profiles::Profile,
+    ) -> Result<Self, String> {
+        config.validate()?;
+        profile.validate()?;
+        Ok(Self {
+            config,
+            keybindings: profile.keybindings,
+            keymap: profile.keymap,
+        })
+    }
+    pub fn parse(input: &str) -> Result<Self, String> {
+        Self::resolve(
+            Config::parse(input)?,
+            crate::keybinding_profiles::Profile::default(),
+        )
+    }
+    pub fn read(path: &Path) -> Result<Self, String> {
+        crate::settings_reload::SettingsSource::resolve(Some(path))?.read()
+    }
+    pub fn load_default() -> Result<Self, String> {
+        crate::settings_reload::SettingsSource::resolve(None)?.read()
+    }
+    pub fn with_keybindings(
+        self,
+        profile: crate::keybinding_profiles::Profile,
+    ) -> Result<Self, String> {
+        Self::resolve(self.config, profile)
     }
 }
 
@@ -276,7 +333,7 @@ fn merge_defaults(base: &mut toml::Value, overrides: toml::Value) {
     }
 }
 
-impl Settings {
+impl Config {
     pub fn footer_height(&self) -> f32 {
         self.ui
             .footer_height
@@ -305,24 +362,6 @@ impl Settings {
             .map_err(|error| format!("Invalid setting: {error}"))?;
         settings.validate()?;
         Ok(settings)
-    }
-
-    pub fn read(path: &Path) -> Result<Self, String> {
-        crate::settings_reload::SettingsSource::resolve(Some(path))?.read()
-    }
-
-    pub fn load_default() -> Result<Self, String> {
-        crate::settings_reload::SettingsSource::resolve(None)?.read()
-    }
-
-    pub fn with_keybindings(
-        mut self,
-        profile: crate::keybinding_profiles::Profile,
-    ) -> Result<Self, String> {
-        self.keybindings = profile.keybindings;
-        self.keymap = profile.keymap;
-        self.validate()?;
-        Ok(self)
     }
 
     fn validate(&self) -> Result<(), String> {
@@ -406,37 +445,6 @@ impl Settings {
                 .is_some_and(|family| family.trim().is_empty())
             {
                 return Err(format!("{name} must name a font, or be omitted"));
-            }
-        }
-        crate::keymap::validate(&self.keymap)?;
-        let mut shortcuts = BTreeMap::new();
-        for (command, bindings) in &self.keybindings {
-            for binding in bindings {
-                if binding.trim().is_empty() {
-                    return Err(format!(
-                        "Empty shortcut for {}; use [] to unbind it",
-                        command.label()
-                    ));
-                }
-                let mut normalized = Vec::new();
-                for stroke in binding.split_whitespace() {
-                    let stroke = gpui_kit::Keystroke::parse(stroke).map_err(|error| {
-                        format!(
-                            "Invalid shortcut {binding:?} for {}: {error}",
-                            command.label()
-                        )
-                    })?;
-                    normalized.push(stroke.unparse());
-                }
-                if let Some(previous) = shortcuts.insert(normalized, command)
-                    && previous != command
-                {
-                    return Err(format!(
-                        "Shortcut {binding:?} is assigned to both {} and {}; unbind or reassign one",
-                        previous.label(),
-                        command.label()
-                    ));
-                }
             }
         }
         for (name, panel) in [
@@ -822,5 +830,22 @@ mod advanced_keymap_tests {
                 "{invalid}"
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod resolved_config_tests {
+    use super::{Config, Settings};
+    use crate::keybinding_profiles::Profile;
+    #[test]
+    fn resolution_rejects_invalid_raw_config_and_preserves_independent_profile_overrides() {
+        let mut config = Config::default();
+        config.editor.tab_size = 0;
+        assert!(Settings::resolve(config, Profile::default()).is_err());
+        let config = Config::parse("[editor]\nfont_family='Example'").unwrap();
+        let profile = Profile::parse("[keybindings]\nfind_file=[]").unwrap();
+        let settings = Settings::resolve(config, profile).unwrap();
+        assert_eq!(settings.editor.font_family.as_deref(), Some("Example"));
+        assert!(settings.keybindings[&crate::commands::CommandId::FindFile].is_empty());
     }
 }

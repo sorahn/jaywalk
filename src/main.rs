@@ -8,7 +8,9 @@ use jaywalk::settings_reload::SettingsSource;
 mod about;
 mod cli;
 mod instance;
+mod interface_state;
 mod recents;
+mod settings_service;
 mod windows;
 use cli::Arguments;
 mod launcher;
@@ -67,7 +69,8 @@ fn run() -> std::result::Result<(), String> {
     let recent_store = jaywalk::recent::RecentStore::load(recent_path.clone())
         .unwrap_or_else(|error| jaywalk::recent::RecentStore::preserve_failed(recent_path, error));
     let receiver = server.start();
-    let initial = (!arguments.instance_server).then(|| arguments.clone());
+    let initial = (!arguments.instance_server)
+        .then(|| windows::PreparedWindow::load(arguments.clone(), settings.clone()));
     let reopen_arguments = arguments.for_welcome();
     let application = gpui::application().with_assets(gpui::assets::AllAssets);
     application.on_reopen(move |cx| {
@@ -78,6 +81,8 @@ fn run() -> std::result::Result<(), String> {
     application.run(move |cx| {
         gpui::init(cx);
         windows::init(cx);
+        interface_state::init(cx);
+        settings_service::init(cx);
         recents::init(recent_store, cx);
         windows::apply_application_settings(&settings.application, cx);
         if let Err(error) = viewer::init(&arguments, &settings, cx) {
@@ -98,8 +103,8 @@ fn run() -> std::result::Result<(), String> {
             }
         });
         windows::listen(receiver, cx);
-        if let Some(arguments) = initial
-            && let Err(error) = windows::open(arguments, settings, None, cx)
+        if let Some(prepared) = initial
+            && let Err(error) = windows::open(prepared, None, cx)
         {
             eprintln!("{error}");
             cx.quit();
@@ -165,12 +170,13 @@ fn open_arguments_after(
                     return Err("The selected folder is not a Git or Jujutsu repository.".into());
                 }
                 let settings = SettingsSource::resolve(arguments.config.as_deref())?.read()?;
-                Ok::<_, String>((arguments, settings))
+                Ok::<_, String>(windows::PreparedWindow::load(arguments, settings))
             })
             .await;
         let result = match result {
-            Ok((arguments, settings)) => cx.update(|cx| {
-                windows::open_with_disposition(arguments.clone(), settings, None, disposition, cx)?;
+            Ok(prepared) => cx.update(|cx| {
+                let arguments = prepared.arguments.clone();
+                windows::open_with_disposition(prepared, None, disposition, cx)?;
                 if let Some(command) = after_open {
                     windows::dispatch_command(&arguments, command, cx)?;
                 }
@@ -197,20 +203,20 @@ fn report_open_error(
     let arguments = arguments.for_welcome();
     cx.spawn(async move |cx| {
         let config = arguments.config.clone();
+        let requested = arguments.clone();
         let settings = cx
-            .background_spawn(async move { SettingsSource::resolve(config.as_deref())?.read() })
+            .background_spawn(async move {
+                let settings = SettingsSource::resolve(config.as_deref())?.read()?;
+                Ok::<_, String>(windows::PreparedWindow::load(requested, settings))
+            })
             .await;
         match settings {
-            Ok(settings) => {
-                cx.update(
-                    |cx| match windows::open(arguments.clone(), settings, None, cx) {
-                        Ok(()) => windows::report_welcome_error(&arguments, error, cx),
-                        Err(open_error) => {
-                            eprintln!("{error}; could not show welcome: {open_error}")
-                        }
-                    },
-                )
-            }
+            Ok(prepared) => cx.update(|cx| match windows::open(prepared, None, cx) {
+                Ok(()) => windows::report_welcome_error(&arguments, error, cx),
+                Err(open_error) => {
+                    eprintln!("{error}; could not show welcome: {open_error}")
+                }
+            }),
             Err(settings_error) => eprintln!("{error}; could not read settings: {settings_error}"),
         }
     })

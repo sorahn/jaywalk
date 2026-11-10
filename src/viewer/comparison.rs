@@ -167,6 +167,8 @@ impl Viewer {
                         viewer.horizontal_position = horizontal;
                     }
                     viewer.reveal_initial_change(window, cx);
+                    // Navigation records only the viewport after layout restoration.
+                    cx.defer_in(window, |viewer, _, cx| viewer.sync_navigation(cx));
                 });
                 let viewer = viewer.clone();
                 window.on_mouse_event(move |event: &ScrollWheelEvent, phase, _, cx| {

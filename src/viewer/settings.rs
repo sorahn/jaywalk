@@ -1,11 +1,9 @@
 //! Apply validated configuration without reloading the selected comparison.
 use super::*;
-use gpui::component::Theme;
-use jaywalk::settings_reload::{SettingsSource, SettingsWatcher};
-use std::time::Duration;
+use jaywalk::settings_reload::SettingsSource;
 
 pub(super) struct ConfigState {
-    task: Option<Task<()>>,
+    subscription: Option<Subscription>,
     pub(super) profile_task: Option<Task<()>>,
     pub(super) error: Option<String>,
     pub(super) pending_horizontal: Option<f32>,
@@ -15,7 +13,7 @@ pub(super) struct ConfigState {
 impl ConfigState {
     pub(super) fn new() -> Self {
         Self {
-            task: None,
+            subscription: None,
             profile_task: None,
             error: None,
             pending_standard: None,
@@ -33,40 +31,36 @@ impl Viewer {
                 return;
             }
         };
-        self.config.task = Some(cx.spawn_in(window, async move |this, cx| {
-            let mut watcher = SettingsWatcher::new(source);
-            loop {
-                let Ok(interval) = this.update(cx, |viewer, _| viewer.settings.settings.poll_interval_ms) else {
-                    break;
-                };
-                cx.background_executor().timer(Duration::from_millis(interval)).await;
-                let result = cx.background_spawn(async move {
-                    let result = watcher.poll();
-                    (watcher, result)
-                }).await;
-                watcher = result.0;
-                if let Some(result) = result.1
-                    && this.update_in(cx, |viewer, window, cx| {
-                        match result {
-                            Ok(settings) => {
-                                viewer.config.error = None;
-                                viewer.apply_settings(settings, window, cx);
-                            }
-                            Err(error) => {
-                                eprintln!("Settings reload: {error}");
-                                let mut lines = error.lines().filter(|line| !line.trim().is_empty());
-                                let first = lines.next().unwrap_or(&error);
-                                let detail = lines.next_back().map_or(String::new(), |last| format!(" · {last}"));
-                                viewer.config.error = Some(format!("Settings not applied; keeping the last valid configuration. {first}{detail}"));
-                            }
-                        }
-                        cx.notify();
-                    }).is_err()
-                {
-                    break;
-                }
+        match crate::settings_service::source(source, &self.settings, cx) {
+            Ok(source) => {
+                let state = source.read(cx);
+                let current = state.current.clone();
+                let error = state.error.clone();
+                self.receive_settings((*current).clone(), error, window, cx);
+                self.config.subscription =
+                    Some(
+                        cx.observe_in(&source, window, |viewer, source, window, cx| {
+                            let source = source.read(cx);
+                            let settings = source.current.clone();
+                            let error = source.error.clone();
+                            viewer.receive_settings((*settings).clone(), error, window, cx);
+                        }),
+                    );
             }
-        }));
+            Err(error) => self.config.error = Some(error),
+        }
+    }
+
+    pub(crate) fn receive_settings(
+        &mut self,
+        settings: Settings,
+        error: Option<String>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.config.error = error;
+        self.apply_settings(settings, window, cx);
+        cx.notify();
     }
 
     pub(super) fn prepare_display_reflow(
@@ -104,23 +98,11 @@ impl Viewer {
         if self.settings == settings {
             return;
         }
-        if (self.settings.keybindings != settings.keybindings
-            || self.settings.keymap != settings.keymap)
-            && let Err(error) = commands::install_bindings(&settings, cx)
-        {
-            self.config.error = Some(format!(
-                "Settings not applied; keeping previous configuration. {error}"
-            ));
-            return;
-        }
         let previous_wrap = self.wrapping;
         let previous = std::mem::replace(&mut self.settings, settings);
         self.navigation
             .history
             .set_limit(self.settings.navigation.history_limit);
-        if previous.application != self.settings.application {
-            crate::windows::apply_application_settings(&self.settings.application, cx);
-        }
         let position = self.prepare_display_reflow(cx);
         self.preserve_row_positions(&previous, cx);
         // A changed default is an explicit config edit. Unchanged fields leave
@@ -175,26 +157,6 @@ impl Viewer {
             || previous.files.default_view != self.settings.files.default_view
         {
             self.rebuild_browser(cx);
-        }
-        if previous.ui != self.settings.ui || previous.editor != self.settings.editor {
-            Theme::update(cx, |theme| {
-                theme.font_size = px(self.settings.ui.font_size);
-                theme.mono_font_size = px(self.code_font_size);
-                theme.font_family = self
-                    .settings
-                    .ui
-                    .font_family
-                    .clone()
-                    .map(SharedString::from)
-                    .unwrap_or_else(|| Theme::default().font_family);
-                theme.mono_font_family = self
-                    .settings
-                    .editor
-                    .font_family
-                    .clone()
-                    .map(SharedString::from)
-                    .unwrap_or_else(|| Theme::default().mono_font_family);
-            });
         }
         if let Some(code) = self.code() {
             for (state, old, wrap) in [

@@ -207,8 +207,8 @@ impl Viewer {
         self.navigation.suppress = true;
         self.invalidate_history_reload();
         self.cancel_live_refresh();
-        self.repository_generation += 1;
-        self.repository_task = None;
+        self.invalidate_comparison_request();
+        self.requests.comparison_task = None;
         self.pending_file = None;
         self.finish_loading(LoadingKind::Comparison);
         self.finish_loading(LoadingKind::Evolution);

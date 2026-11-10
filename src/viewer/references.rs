@@ -124,7 +124,7 @@ impl Viewer {
         let query = self.history_query.clone();
         self.references.generation += 1;
         let generation = self.references.generation;
-        let selection_generation = self.repository_generation;
+        let selection_generation = self.requests.comparison();
         self.references.task = Some(cx.spawn_in(window, async move |this, cx| {
             let result = cx
                 .background_spawn(async move { branch.current_history(&query) })
@@ -160,7 +160,7 @@ impl Viewer {
                             );
                         }
                         if let Some((commit, true)) = target
-                            && viewer.repository_generation == selection_generation
+                            && viewer.requests.comparison() == selection_generation
                         {
                             viewer.select_revision(&commit, window, cx);
                         }

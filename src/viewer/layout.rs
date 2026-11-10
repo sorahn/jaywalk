@@ -5,13 +5,6 @@ use gpui::prelude::FluentBuilder;
 
 impl Render for Viewer {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        if let Err(error) = commands::refresh_bindings(cx) {
-            self.config.error = Some(format!("Could not reapply keymap: {error}"));
-        }
-        if !self.is_welcome() {
-            self.sync_overview(window, cx);
-            self.sync_navigation(cx);
-        }
         let root = div()
             .id("viewer-root")
             .key_context("Jaywalk")
