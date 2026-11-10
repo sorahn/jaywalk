@@ -35,7 +35,11 @@ windows and launches, in `~/.config/jaywalk/recent-repositories.toml` (under
 `XDG_CONFIG_HOME/jaywalk` when set). External file comparisons and failed opens
 are not recorded. Unavailable repository paths remain until history is cleared.
 `welcome.recent_count` controls the preview; File → Clear recent repositories
-resets the saved history. An unreadable history file is preserved until Clear
+resets the saved history. Ctrl+R opens a searchable picker for the complete
+history from any viewer window; the welcome page's More action opens the same
+picker. Enter opens a result and Escape dismisses it. The shortcut is remappable
+as `keybindings.open_recent`. View → Welcome opens or focuses a welcome window.
+An unreadable history file is preserved until Clear
 is explicitly chosen. Settings and command shortcuts remain live in welcome mode.
 
 ## Reading across comparisons

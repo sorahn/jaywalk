@@ -25,6 +25,7 @@ pub(super) fn update_menus(cx: &mut App) {
         ]),
         Menu::new("File").items([
             item(OpenRepository),
+            item(OpenRecent),
             item(ComparePaths),
             item(ClearRecent),
             item(Refresh),

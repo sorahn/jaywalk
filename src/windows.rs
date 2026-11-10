@@ -8,6 +8,28 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::mpsc::Sender;
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum OpenDisposition {
+    Reuse,
+    NewWindow,
+}
+fn reuse_priority(
+    disposition: OpenDisposition,
+    existing: &Key,
+    requested: &Key,
+    welcome: bool,
+) -> Option<u8> {
+    if disposition == OpenDisposition::NewWindow {
+        None
+    } else if existing == requested {
+        Some(0)
+    } else if welcome && existing.config == requested.config {
+        Some(1)
+    } else {
+        None
+    }
+}
+
 #[derive(Clone, PartialEq, Eq)]
 enum Subject {
     Welcome,
@@ -47,6 +69,7 @@ struct Record {
     window: AnyWindowHandle,
     viewer: Entity<Viewer>,
     waiting: Vec<Sender<Response>>,
+    last_opened: std::time::Instant,
 }
 #[derive(Default)]
 struct Windows(HashMap<WindowId, Record>);
@@ -111,19 +134,38 @@ pub(crate) fn open(
     reply: Option<Sender<Response>>,
     cx: &mut App,
 ) -> std::result::Result<(), String> {
+    open_with_disposition(arguments, settings, reply, OpenDisposition::Reuse, cx)
+}
+pub(crate) fn open_with_disposition(
+    arguments: Arguments,
+    settings: Settings,
+    reply: Option<Sender<Response>>,
+    disposition: OpenDisposition,
+    cx: &mut App,
+) -> Result<(), String> {
     crate::viewer::commands::install_bindings(&settings, cx)?;
     let key = Key::new(&arguments);
     let existing = cx
         .global::<Windows>()
         .0
         .values()
-        .find(|record| record.key == key)
-        .or_else(|| {
-            cx.global::<Windows>().0.values().find(|record| {
-                record.key.config == key.config && record.viewer.read(cx).is_welcome()
-            })
+        .filter_map(|record| {
+            let priority = reuse_priority(
+                disposition,
+                &record.key,
+                &key,
+                record.viewer.read(cx).is_welcome(),
+            )?;
+            Some((
+                priority,
+                std::cmp::Reverse(record.last_opened),
+                record.window,
+                record.viewer.clone(),
+                record.key != key,
+            ))
         })
-        .map(|record| (record.window, record.viewer.clone(), record.key != key));
+        .min_by_key(|(priority, opened, ..)| (*priority, *opened))
+        .map(|(_, _, window, viewer, different)| (window, viewer, different));
     let id = if let Some((window, viewer, different_subject)) = existing {
         let root = window
             .update(cx, |_, window, cx| {
@@ -145,11 +187,13 @@ pub(crate) fn open(
         if let Some(root) = root {
             crate::recents::record(&root, cx);
         }
-        cx.global_mut::<Windows>()
+        let record = cx
+            .global_mut::<Windows>()
             .0
             .get_mut(&window.window_id())
-            .expect("the reused window remains registered")
-            .key = key;
+            .expect("the reused window remains registered");
+        record.key = key;
+        record.last_opened = std::time::Instant::now();
         window.window_id()
     } else {
         apply_application_settings(&settings.application, cx);
@@ -176,6 +220,7 @@ pub(crate) fn open(
                 window,
                 viewer,
                 waiting: Vec::new(),
+                last_opened: std::time::Instant::now(),
             },
         );
         window.window_id()
@@ -197,9 +242,53 @@ pub(crate) fn open(
 
 #[cfg(all(test, unix))]
 mod tests {
-    use super::Key;
+    use super::{Key, OpenDisposition, Subject, reuse_priority};
     use crate::Arguments;
     use clap::Parser;
+    #[test]
+    fn explicit_new_window_bypasses_matching_and_welcome_windows() {
+        let repo = Key {
+            subject: Subject::Repository {
+                directory: "/repo".into(),
+                base: None,
+                tip: "@".into(),
+            },
+            config: None,
+        };
+        let welcome = Key {
+            subject: Subject::Welcome,
+            config: None,
+        };
+        assert_eq!(
+            reuse_priority(OpenDisposition::Reuse, &repo, &repo, false),
+            Some(0)
+        );
+        assert_eq!(
+            reuse_priority(OpenDisposition::Reuse, &welcome, &repo, true),
+            Some(1)
+        );
+        assert_eq!(
+            reuse_priority(OpenDisposition::NewWindow, &repo, &repo, false),
+            None
+        );
+        assert_eq!(
+            reuse_priority(OpenDisposition::NewWindow, &welcome, &repo, true),
+            None
+        );
+        assert_eq!(
+            reuse_priority(OpenDisposition::Reuse, &welcome, &repo, false),
+            None
+        );
+        let other_profile = Key {
+            config: Some("/other.toml".into()),
+            ..welcome
+        };
+        assert_eq!(
+            reuse_priority(OpenDisposition::Reuse, &other_profile, &repo, true),
+            None
+        );
+    }
+
     #[test]
     fn aliases_and_subdirectories_reuse_a_window_but_other_comparisons_do_not() {
         let root = std::env::temp_dir().join(format!("jw-window-key-{}", std::process::id()));
@@ -251,4 +340,24 @@ pub(crate) fn report_welcome_error(arguments: &Arguments, error: String, cx: &mu
     if let Some(viewer) = viewer {
         viewer.update(cx, |viewer, cx| viewer.report_open_error(error, cx));
     }
+}
+
+pub(crate) fn dispatch_command(
+    arguments: &Arguments,
+    command: jaywalk::commands::CommandId,
+    cx: &mut App,
+) -> Result<(), String> {
+    let key = Key::new(arguments);
+    let (window, viewer) = cx
+        .global::<Windows>()
+        .0
+        .values()
+        .find(|record| record.key == key)
+        .map(|record| (record.window, record.viewer.clone()))
+        .ok_or("The requested viewer window is no longer open")?;
+    window
+        .update(cx, |_, window, cx| {
+            viewer.update(cx, |viewer, cx| viewer.execute_command(command, window, cx))
+        })
+        .map_err(|error| format!("Could not dispatch the window command: {error}"))
 }

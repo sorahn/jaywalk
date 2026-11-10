@@ -109,9 +109,51 @@ fn run() -> std::result::Result<(), String> {
 }
 
 fn open_arguments(
+    arguments: Arguments,
+    origin: Option<WeakEntity<Viewer>>,
+    require_repository: bool,
+    cx: &mut App,
+) {
+    open_arguments_after(
+        arguments,
+        origin,
+        require_repository,
+        None,
+        windows::OpenDisposition::Reuse,
+        cx,
+    );
+}
+fn open_arguments_in_new_window(
+    arguments: Arguments,
+    origin: Option<WeakEntity<Viewer>>,
+    require_repository: bool,
+    cx: &mut App,
+) {
+    open_arguments_after(
+        arguments,
+        origin,
+        require_repository,
+        None,
+        windows::OpenDisposition::NewWindow,
+        cx,
+    );
+}
+fn show_recent_repository_picker(arguments: Arguments, cx: &mut App) {
+    open_arguments_after(
+        arguments.for_welcome(),
+        None,
+        false,
+        Some(jaywalk::commands::CommandId::OpenRecent),
+        windows::OpenDisposition::Reuse,
+        cx,
+    );
+}
+fn open_arguments_after(
     mut arguments: Arguments,
     origin: Option<WeakEntity<Viewer>>,
     require_repository: bool,
+    after_open: Option<jaywalk::commands::CommandId>,
+    disposition: windows::OpenDisposition,
     cx: &mut App,
 ) {
     let error_arguments = arguments.for_welcome();
@@ -127,9 +169,13 @@ fn open_arguments(
             })
             .await;
         let result = match result {
-            Ok((arguments, settings)) => {
-                cx.update(|cx| windows::open(arguments, settings, None, cx))
-            }
+            Ok((arguments, settings)) => cx.update(|cx| {
+                windows::open_with_disposition(arguments.clone(), settings, None, disposition, cx)?;
+                if let Some(command) = after_open {
+                    windows::dispatch_command(&arguments, command, cx)?;
+                }
+                Ok(())
+            }),
             Err(error) => Err(error),
         };
         if let Err(error) = result {
@@ -172,6 +218,21 @@ fn report_open_error(
 }
 // Keep File > Open Repository usable when the app stays open without windows.
 fn choose_repository(arguments: Arguments, origin: Option<WeakEntity<Viewer>>, cx: &mut App) {
+    choose_repository_with_disposition(arguments, origin, windows::OpenDisposition::Reuse, cx);
+}
+fn choose_repository_in_new_window(
+    arguments: Arguments,
+    origin: Option<WeakEntity<Viewer>>,
+    cx: &mut App,
+) {
+    choose_repository_with_disposition(arguments, origin, windows::OpenDisposition::NewWindow, cx);
+}
+fn choose_repository_with_disposition(
+    arguments: Arguments,
+    origin: Option<WeakEntity<Viewer>>,
+    disposition: windows::OpenDisposition,
+    cx: &mut App,
+) {
     let receiver = cx.prompt_for_paths(PathPromptOptions {
         files: false,
         directories: true,
@@ -181,7 +242,16 @@ fn choose_repository(arguments: Arguments, origin: Option<WeakEntity<Viewer>>, c
     cx.spawn(async move |cx| match receiver.await {
         Ok(Ok(Some(paths))) => {
             if let Some(path) = paths.into_iter().next() {
-                cx.update(|cx| open_arguments(arguments.for_repository(path), origin, true, cx));
+                cx.update(|cx| {
+                    open_arguments_after(
+                        arguments.for_repository(path),
+                        origin,
+                        true,
+                        None,
+                        disposition,
+                        cx,
+                    )
+                });
             }
         }
         Ok(Ok(None)) => {}

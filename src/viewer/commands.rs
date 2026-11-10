@@ -20,6 +20,7 @@ pub(crate) fn init(arguments: &Arguments, settings: &Settings, cx: &mut App) -> 
             }
         }),
         CommandId::OpenRepository => crate::choose_repository(arguments.clone(), None, cx),
+        CommandId::OpenRecent => crate::show_recent_repository_picker(arguments.clone(), cx),
         CommandId::ComparePaths => crate::choose_comparison(arguments.clone(), None, cx),
         CommandId::ShowWelcome => crate::open_arguments(arguments.for_welcome(), None, false, cx),
         CommandId::ClearRecent => crate::recents::clear(cx),
@@ -104,8 +105,10 @@ fn configured_bindings(settings: &Settings) -> Vec<KeyBinding> {
     let mut result = Vec::new();
     for (command, bindings) in &settings.keybindings {
         let context = match command {
+            CommandId::OpenInNewWindow => Some("JaywalkRecent"),
             CommandId::About
             | CommandId::OpenRepository
+            | CommandId::OpenRecent
             | CommandId::ComparePaths
             | CommandId::ShowWelcome
             | CommandId::ClearRecent
@@ -139,7 +142,7 @@ fn configured_bindings(settings: &Settings) -> Vec<KeyBinding> {
 }
 
 impl Viewer {
-    pub(super) fn execute_command(
+    pub(crate) fn execute_command(
         &mut self,
         command: CommandId,
         window: &mut Window,
@@ -151,6 +154,10 @@ impl Viewer {
         match command {
             CommandId::OpenRepository => {
                 crate::choose_repository(self.arguments.clone(), Some(cx.entity().downgrade()), cx)
+            }
+            CommandId::OpenInNewWindow => self.open_selected_recent_in_new_window(window, cx),
+            CommandId::OpenRecent => {
+                self.open_palette(palette::PaletteKind::Repositories, window, cx)
             }
             CommandId::ComparePaths => {
                 crate::choose_comparison(self.arguments.clone(), Some(cx.entity().downgrade()), cx)
@@ -357,6 +364,45 @@ mod tests {
     use gpui::{KeyBinding, KeyContext, Keymap, Keystroke};
     use jaywalk::commands::CommandId;
     use jaywalk::settings::Settings;
+
+    #[test]
+    fn new_window_shortcut_is_remappable_and_scoped_to_recents() {
+        for (config, shortcut) in [
+            ("", "secondary-enter"),
+            (
+                "[keybindings]\nopen_in_new_window=['alt-enter']",
+                "alt-enter",
+            ),
+        ] {
+            let settings = Settings::parse(config).unwrap();
+            let map = Keymap::new(configured_bindings(&settings));
+            let matches = |key: &str, recent: bool| {
+                let mut contexts = vec![KeyContext::parse("Jaywalk").unwrap()];
+                if recent {
+                    contexts.push(KeyContext::parse("JaywalkRecent").unwrap());
+                }
+                contexts.extend([
+                    KeyContext::parse("Command").unwrap(),
+                    KeyContext::parse("Input").unwrap(),
+                ]);
+                map.bindings_for_input(&[Keystroke::parse(key).unwrap()], &contexts)
+                    .0
+                    .iter()
+                    .any(|binding| {
+                        binding
+                            .action()
+                            .as_any()
+                            .downcast_ref::<ExecuteCommand>()
+                            .is_some_and(|action| action.command == CommandId::OpenInNewWindow)
+                    })
+            };
+            assert!(matches(shortcut, true));
+            assert!(!matches(shortcut, false));
+            if !config.is_empty() {
+                assert!(!matches("secondary-enter", true));
+            }
+        }
+    }
 
     #[test]
     fn macos_shifted_bracket_events_navigate_history() {

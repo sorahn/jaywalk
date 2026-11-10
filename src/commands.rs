@@ -6,6 +6,8 @@ use serde::Deserialize;
 pub enum CommandId {
     About,
     OpenRepository,
+    OpenRecent,
+    OpenInNewWindow,
     ComparePaths,
     ShowWelcome,
     ClearRecent,
@@ -68,6 +70,8 @@ impl CommandId {
         matches!(
             self,
             Self::OpenRepository
+                | Self::OpenRecent
+                | Self::OpenInNewWindow
                 | Self::ComparePaths
                 | Self::ShowWelcome
                 | Self::ClearRecent
@@ -86,6 +90,8 @@ impl CommandId {
     pub const ALL: &[Self] = &[
         Self::About,
         Self::OpenRepository,
+        Self::OpenRecent,
+        Self::OpenInNewWindow,
         Self::ComparePaths,
         Self::ShowWelcome,
         Self::ClearRecent,
@@ -146,6 +152,8 @@ impl CommandId {
         match self {
             Self::About => "About Jaywalk",
             Self::OpenRepository => "Open repository…",
+            Self::OpenRecent => "Open recent repository…",
+            Self::OpenInNewWindow => "Open in new window",
             Self::ComparePaths => "Compare files or folders…",
             Self::ShowWelcome => "Welcome",
             Self::ClearRecent => "Clear recent repositories",

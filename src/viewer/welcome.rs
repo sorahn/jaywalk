@@ -34,17 +34,26 @@ impl Viewer {
     pub(super) fn open_repository_path(
         &mut self,
         directory: std::path::PathBuf,
+        disposition: crate::windows::OpenDisposition,
         cx: &mut Context<Self>,
     ) {
         if let Some(welcome) = &mut self.welcome {
             welcome.error = None;
         }
-        crate::open_arguments(
-            self.arguments.for_repository(directory),
-            Some(cx.entity().downgrade()),
-            true,
-            cx,
-        );
+        match disposition {
+            crate::windows::OpenDisposition::Reuse => crate::open_arguments(
+                self.arguments.for_repository(directory),
+                Some(cx.entity().downgrade()),
+                true,
+                cx,
+            ),
+            crate::windows::OpenDisposition::NewWindow => crate::open_arguments_in_new_window(
+                self.arguments.for_repository(directory),
+                Some(cx.entity().downgrade()),
+                true,
+                cx,
+            ),
+        }
         cx.notify();
     }
     pub(super) fn render_welcome(&self, cx: &mut Context<Self>) -> AnyElement {
@@ -139,9 +148,43 @@ impl Viewer {
                             .text_color(muted)
                             .child(parent),
                     )
-                    .on_click(cx.listener(move |viewer, _, _, cx| {
-                        viewer.open_repository_path(path.clone(), cx)
+                    .on_click(cx.listener(move |viewer, event: &ClickEvent, _, cx| {
+                        let disposition = if event.modifiers().secondary() {
+                            crate::windows::OpenDisposition::NewWindow
+                        } else {
+                            crate::windows::OpenDisposition::Reuse
+                        };
+                        viewer.open_repository_path(path.clone(), disposition, cx)
                     })),
+            );
+        }
+        if !recent.repositories.is_empty() {
+            start = start.child(
+                div().h_flex().child(
+                    Button::new("welcome-more")
+                        .ghost()
+                        .label(
+                            if recent.repositories.len() > self.settings.welcome.recent_count {
+                                "More…"
+                            } else {
+                                "Search recent repositories…"
+                            },
+                        )
+                        .tooltip_with_action(
+                            "Open recent repository",
+                            &commands::ExecuteCommand {
+                                command: jaywalk::commands::CommandId::OpenRecent,
+                            },
+                            None,
+                        )
+                        .on_click(cx.listener(|viewer, _, window, cx| {
+                            viewer.execute_command(
+                                jaywalk::commands::CommandId::OpenRecent,
+                                window,
+                                cx,
+                            )
+                        })),
+                ),
             );
         }
         let error = self
