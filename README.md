@@ -1,6 +1,6 @@
 # Jaywalk
 
-A native Git and Jujutsu diff viewer for macOS. Review a whole branch, an
+A native Git and Jujutsu diff viewer for macOS and Linux. Review a whole branch, an
 individual commit, or the evolution of a jj change without leaving the viewer.
 
 - Switch between inline, side-by-side, and Fluid diffs. Fluid keeps each file
@@ -11,9 +11,10 @@ individual commit, or the evolution of a jj change without leaving the viewer.
 - Read a complete changeset as a collapsed overview, then open a file for a closer look.
 - Adjust panels, fonts, wrapping, and keyboard shortcuts through live TOML settings.
 
-Jaywalk is in early development. macOS is the current target; there is no
-packaged installer or notarized release yet. See the [development guide](docs/development.md)
-for building the app and installing the `jw` command from source.
+Jaywalk is in early development. macOS builds use a local app bundle; Fedora
+Linux builds can be installed as a local RPM, including a desktop launcher and
+the `jw` command. There is no published installer or notarized macOS release yet.
+See the [development guide](docs/development.md) for building and installing.
 
 ## Open a comparison
 
@@ -29,6 +30,7 @@ jw diff /path/to/before /path/to/after    # two directory trees
 You can also open repositories or compare files from the welcome page.
 Ctrl+R searches your recent repositories. Reopening a repository focuses its
 existing window; Command+Enter in the recent picker opens a separate window.
+On Linux, use Ctrl+Shift+R for recents and Ctrl in place of Command in shortcuts.
 Other repositories open additional windows in the same application.
 
 A repository opens to the whole-branch overview. Select a commit to review its

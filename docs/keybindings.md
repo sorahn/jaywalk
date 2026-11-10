@@ -7,6 +7,23 @@ or disabled in a separate TOML keybindings profile, selected by your
 menus, command-palette hints and action-aware tooltips follow the active keymap.
 The first shortcut in an array is the primary one shown in hints.
 
+On Linux, `secondary` means Ctrl. The shipped `[platform.linux]` defaults use
+Ctrl+Shift+R for refresh (leaving Ctrl+R for recent repositories) and F11 for
+fullscreen. They apply before sparse user profiles, including profiles containing
+only a few overrides. macOS retains Ctrl+R for recents and Ctrl+Cmd+F for fullscreen.
+The tables below show the common/macOS defaults; these two Linux defaults replace
+the corresponding entries. User overrides always take precedence over shipped defaults. Profiles can also
+contain `[platform.linux]` or `[platform.macos]` command tables; the matching table
+overrides that file's common `[keybindings]` values, and other tables are ignored.
+The shipped keybindings file can be copied or selected directly as a profile.
+
+The shipped platform-specific entries are:
+
+| Profile key | Default | Meaning |
+| --- | --- | --- |
+| `platform.linux.refresh` | `["secondary-shift-r"]` | Linux refresh shortcut. |
+| `platform.linux.fullscreen` | `["f11"]` | Linux fullscreen shortcut. |
+
 ## Files and profile selection
 
 On first use, Jaywalk creates `~/.config/jaywalk/config.toml` and a sparse
@@ -83,8 +100,8 @@ clears the forward path. Back during a new pending load cancels it and restores
 the last displayed destination; unfinished destinations are not recorded.
 History is in memory, per window, capped by `navigation.history_limit`.
 
-Ctrl+R searches all saved recent repositories, independent of the welcome preview
-count. An empty query preserves most-recent-first ordering; typing filters names
+Ctrl+R works from the welcome screen and repository views. It searches all saved
+recent repositories, independent of the welcome preview count. An empty query preserves most-recent-first ordering; typing filters names
 and paths. Enter opens the selected repository and Escape dismisses the picker.
 Cmd+Enter (`secondary-enter`, remappable as `open_in_new_window`) opens the selected
 result in a new window in the same app process, even if that repository is already

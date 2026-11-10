@@ -383,7 +383,9 @@ pub(crate) fn history(root: &Path, query: &HistoryQuery) -> Result<History, Stri
         return Err("Incomplete Git history entry".into());
     }
     let revisions = fields
-        .chunks_exact(4)
+        .as_chunks::<4>()
+        .0
+        .iter()
         .map(|entry| Revision {
             commit_id: entry[0].into(),
             change_id: entry[0].into(),

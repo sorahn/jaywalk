@@ -332,6 +332,22 @@ mod tests {
     use jaywalk::settings::Settings;
 
     #[test]
+    fn recent_shortcut_is_available_in_the_repository_free_welcome_context() {
+        assert!(CommandId::OpenRecent.available_without_repository());
+        let map = Keymap::new(configured_bindings(&Settings::default()));
+        // Welcome uses the same root context, without any repository panels.
+        let contexts = [KeyContext::parse("Jaywalk").unwrap()];
+        let bindings = map.bindings_for_input(&[Keystroke::parse("ctrl-r").unwrap()], &contexts);
+        assert!(bindings.0.iter().any(|binding| {
+            binding
+                .action()
+                .as_any()
+                .downcast_ref::<ExecuteCommand>()
+                .is_some_and(|action| action.command == CommandId::OpenRecent)
+        }));
+    }
+
+    #[test]
     fn new_window_shortcut_is_remappable_and_scoped_to_recents() {
         for (config, shortcut) in [
             ("", "secondary-enter"),

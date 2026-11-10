@@ -1,7 +1,7 @@
 # Development
 
-Jaywalk is a native Rust application built with GPUI Kit. macOS is the current
-development target. Read the [coding standards](../CONTRIBUTING.md) before making changes.
+Jaywalk is a native Rust application built with GPUI Kit for macOS and Linux.
+Read the [coding standards](../CONTRIBUTING.md) before making changes.
 
 ## Prerequisites
 
@@ -65,6 +65,54 @@ GUI diagnostics, run the built executable with `--foreground`:
 `--inspect` prints a comparison summary without opening a window. `--help` and
 `--version` also remain terminal commands. GUI commands open native windows;
 do not use them as unattended checks that might interrupt someone's desktop.
+
+## Build and install on Fedora Linux
+
+Run in a graphical Wayland or X11 session with a working Vulkan driver. Rust,
+Cargo, a C/C++ toolchain, Clang, CMake and the platform development libraries
+are needed. GPUI Kit's [installation guide](https://gpui-kit.com/docs/installation/)
+describes the platform dependencies. On Fedora, the corresponding core packages are:
+
+```sh
+sudo dnf install cargo rust gcc gcc-c++ clang cmake pkgconf-pkg-config \
+  fontconfig-devel wayland-devel libxkbcommon-x11-devel libX11-devel \
+  libxcb-devel openssl-devel libzstd-devel vulkan-loader-devel \
+  rpm-build desktop-file-utils
+```
+
+Build and package the locked source, then install the exact RPM path printed
+by rpmbuild:
+
+```sh
+just package-rpm
+# Or run scripts/package-rpm.sh directly.
+sudo dnf install ./target/rpm/RPMS/x86_64/jaywalk-VERSION-RELEASE.x86_64.rpm
+```
+
+The script creates a local binary RPM for the build host's architecture and
+libraries. It is not a Fedora distribution/source RPM recipe or a portable
+cross-distribution bundle. Generated archives, staging files and RPMs stay under
+`target/rpm/`. The Rust build is pinned to the compiler's native host target and
+`target/rpm/cargo/`, regardless of `CARGO_TARGET_DIR` or a configured cross target.
+The package version comes from Cargo.toml; the default RPM release
+contains a UTC timestamp so rebuilding the same app version produces an upgrade.
+An optional first argument supplies a custom RPM release.
+
+Launch **Jaywalk** from the application menu or Rofi, or run `jw` / `jw .` from
+a terminal. The package installs `/usr/bin/{jaywalk,jw}`, the desktop entry
+`/usr/share/applications/io.github.sorahn.jaywalk.desktop`, and a matching hicolor
+SVG icon. Windows use the same app ID for Wayland/taskbar association. No checkout
+or `target/` files are needed to run the installed app. Git, xdg-utils and the
+Vulkan loader and runtime-loaded Wayland client library are required; jj 0.47+ is optional for Jujutsu repositories.
+
+Rebuild and install a newer RPM to update. Quit and relaunch an existing Jaywalk
+process to use the new build. Remove with `sudo dnf remove jaywalk`; user settings
+and recent-repository data under `~/.config/jaywalk/` are retained. These private
+runtime files are separate from the package and should not be committed.
+
+Linux uses Ctrl for `secondary` shortcuts, Ctrl+Shift+R for recent repositories,
+and F11 for fullscreen. Platform defaults live in `config/keybindings.toml` and
+apply before user overrides. Native interaction still needs desktop testing.
 
 ## Build the macOS bundle
 

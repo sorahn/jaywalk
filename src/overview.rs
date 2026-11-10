@@ -118,7 +118,7 @@ impl Comparison {
                     return Err("Incomplete Git series metadata".into());
                 }
                 let mut commits = Vec::with_capacity(fields.len() / 5);
-                for fields in fields.chunks_exact(5) {
+                for fields in fields.as_chunks::<5>().0 {
                     let entry = SeriesEntry {
                         details: CommitDetails {
                             id: fields[0].into(),

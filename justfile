@@ -36,6 +36,11 @@ check: fmt-check test clippy
 bundle profile="debug":
     scripts/bundle-macos.sh "$1"
 
+# Build a native Fedora RPM; optionally supply its release value.
+[linux]
+package-rpm release="":
+    scripts/package-rpm.sh "$1"
+
 # Verify an existing app bundle's signature without launching it.
 [macos]
 verify-bundle profile="debug":

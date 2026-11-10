@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Jaywalk
+Comment=Review Git and Jujutsu diffs
+Exec=jaywalk %f
+Icon=io.github.sorahn.jaywalk
+Terminal=false
+Categories=Development;RevisionControl;
+Keywords=git;jj;jujutsu;diff;
+StartupWMClass=io.github.sorahn.jaywalk
