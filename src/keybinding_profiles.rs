@@ -426,10 +426,19 @@ mod profile_file_regressions {
     use super::{DEFAULT_BINDINGS, Profile, default_bindings_for};
     use crate::commands::CommandId;
     #[test]
-    fn shipped_file_is_a_valid_profile_on_both_supported_platforms() {
-        for platform in ["macos", "linux"] {
-            let profile = Profile::parse_for(DEFAULT_BINDINGS, platform).unwrap();
-            assert_eq!(profile.keybindings, default_bindings_for(platform));
+    fn shipped_file_is_a_valid_profile_with_platform_defaults() {
+        let profile = Profile::parse(DEFAULT_BINDINGS).unwrap();
+        assert_eq!(profile.keybindings, super::default_bindings());
+        // Keystroke parsing uses the host platform: secondary aliases Ctrl on
+        // Linux, so validating macOS shortcuts there creates false conflicts.
+        // Check foreign-platform selection without parsing its keystrokes.
+        for (platform, recent, fullscreen) in [
+            ("macos", "ctrl-r", "ctrl-secondary-f"),
+            ("linux", "secondary-shift-r", "f11"),
+        ] {
+            let bindings = default_bindings_for(platform);
+            assert_eq!(bindings[&CommandId::OpenRecent], [recent]);
+            assert_eq!(bindings[&CommandId::Fullscreen], [fullscreen]);
         }
     }
     #[test]
