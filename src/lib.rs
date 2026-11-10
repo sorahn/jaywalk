@@ -29,3 +29,5 @@ pub mod view_choice;
 pub mod references;
 
 pub mod navigation;
+
+pub mod recent;
