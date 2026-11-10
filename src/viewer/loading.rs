@@ -11,6 +11,7 @@ impl Viewer {
     pub(crate) fn new(
         arguments: Arguments,
         settings: Settings,
+        layout: SessionLayout,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
@@ -33,7 +34,6 @@ impl Viewer {
             settings.evolution.collapse_repeats,
         );
         let palette = palette::PaletteState::new(window, cx);
-        let layout = session_layout::SessionLayout::load(&arguments, &settings);
         let references = references::ReferenceState::new(&settings.history);
         let navigation = navigation::NavigationState::new(settings.navigation.history_limit);
         let welcome = arguments.welcome.then(welcome::WelcomeState::default);

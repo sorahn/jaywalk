@@ -34,6 +34,7 @@ mod palette;
 mod panels;
 mod references;
 mod session_layout;
+pub(crate) use session_layout::SessionLayout;
 mod settings;
 mod typography;
 mod welcome;
