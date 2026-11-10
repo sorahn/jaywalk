@@ -18,6 +18,7 @@ use crate::Arguments;
 mod chrome;
 pub(crate) mod commands;
 mod comparison;
+mod context_menu;
 mod editor_presentation;
 mod evolution;
 #[cfg(test)]

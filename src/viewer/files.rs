@@ -422,99 +422,102 @@ impl Viewer {
             .size_full()
             .bg(gpui::component::Theme::global(cx).sidebar)
             .child(
-                self.panel_header(self.settings.panels.files.font.size, cx)
-                    .child(
-                        div()
-                            .flex_1()
-                            .min_w_0()
-                            .truncate()
-                            .text_size(px(self.settings.panels.files.font.size * 0.85))
-                            .child(
-                                if matches!(self.comparison_state(), LoadState::Loading)
-                                    && self.loading_visible(LoadingKind::Comparison)
-                                {
-                                    "FILES · Loading…"
+                self.panel_header(
+                    jaywalk::panel_layout::PanelId::Files,
+                    self.settings.panels.files.font.size,
+                    cx,
+                )
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .truncate()
+                        .text_size(px(self.settings.panels.files.font.size * 0.85))
+                        .child(
+                            if matches!(self.comparison_state(), LoadState::Loading)
+                                && self.loading_visible(LoadingKind::Comparison)
+                            {
+                                "FILES · Loading…"
+                            } else {
+                                "FILES"
+                            },
+                        ),
+                )
+                .child(
+                    div()
+                        .h_flex()
+                        .gap_1()
+                        .child(self.panel_menu(jaywalk::panel_layout::PanelId::Files))
+                        .children((self.browser.mode == FileListMode::Tree).then(|| {
+                            Button::new("file-tree-scope")
+                                .ghost()
+                                .small()
+                                .compact()
+                                .label(if self.browser.scope == TreeScope::All {
+                                    "All"
                                 } else {
-                                    "FILES"
-                                },
-                            ),
-                    )
-                    .child(
-                        div()
-                            .h_flex()
-                            .gap_1()
-                            .child(self.panel_menu(jaywalk::panel_layout::PanelId::Files))
-                            .children((self.browser.mode == FileListMode::Tree).then(|| {
-                                Button::new("file-tree-scope")
-                                    .ghost()
-                                    .small()
-                                    .compact()
-                                    .label(if self.browser.scope == TreeScope::All {
-                                        "All"
+                                    "Changed"
+                                })
+                                .tooltip("Toggle changed files / all repository files")
+                                .on_click(cx.listener(|this, _, _, cx| {
+                                    this.browser.scope = if this.browser.scope == TreeScope::All {
+                                        TreeScope::Changed
                                     } else {
-                                        "Changed"
-                                    })
-                                    .tooltip("Toggle changed files / all repository files")
-                                    .on_click(cx.listener(|this, _, _, cx| {
-                                        this.browser.scope = if this.browser.scope == TreeScope::All
-                                        {
-                                            TreeScope::Changed
-                                        } else {
-                                            TreeScope::All
-                                        };
-                                        this.rebuild_browser(cx);
-                                        this.save_layout(cx);
-                                        cx.notify();
-                                    }))
-                            }))
-                            .child(
-                                Button::new("file-evolution-toggle")
-                                    .ghost()
-                                    .small()
-                                    .compact()
-                                    .icon(IconName::GitCompareArrows)
-                                    .when(!self.supports_evolution(), |button| button.hidden())
-                                    .tooltip("File evolution")
-                                    .selected(self.file_evolution.visible)
-                                    .on_click(cx.listener(|this, _, window, cx| {
-                                        this.toggle_evolution_panel(
-                                            evolution::EvolutionKind::File,
-                                            window,
-                                            cx,
-                                        )
-                                    })),
-                            )
-                            .child(
-                                Button::new("file-list-mode")
-                                    .ghost()
-                                    .small()
-                                    .compact()
-                                    .icon(IconName::List)
-                                    .tooltip("File list")
-                                    .selected(self.browser.mode == FileListMode::List)
-                                    .on_click(cx.listener(|this, _, _, cx| {
-                                        this.browser.mode = FileListMode::List;
-                                        this.rebuild_browser(cx);
-                                        this.save_layout(cx);
-                                        cx.notify();
-                                    })),
-                            )
-                            .child(
-                                Button::new("file-tree-mode")
-                                    .ghost()
-                                    .small()
-                                    .compact()
-                                    .icon(IconName::FolderTree)
-                                    .tooltip("Directory tree")
-                                    .selected(self.browser.mode == FileListMode::Tree)
-                                    .on_click(cx.listener(|this, _, _, cx| {
-                                        this.browser.mode = FileListMode::Tree;
-                                        this.rebuild_browser(cx);
-                                        this.save_layout(cx);
-                                        cx.notify();
-                                    })),
-                            ),
-                    ),
+                                        TreeScope::All
+                                    };
+                                    this.rebuild_browser(cx);
+                                    this.save_layout(cx);
+                                    cx.notify();
+                                }))
+                        }))
+                        .child(
+                            Button::new("file-evolution-toggle")
+                                .ghost()
+                                .small()
+                                .compact()
+                                .icon(IconName::GitCompareArrows)
+                                .when(!self.supports_evolution(), |button| button.hidden())
+                                .tooltip("File evolution")
+                                .selected(self.file_evolution.visible)
+                                .on_click(cx.listener(|this, _, window, cx| {
+                                    this.toggle_evolution_panel(
+                                        evolution::EvolutionKind::File,
+                                        window,
+                                        cx,
+                                    )
+                                })),
+                        )
+                        .child(
+                            Button::new("file-list-mode")
+                                .ghost()
+                                .small()
+                                .compact()
+                                .icon(IconName::List)
+                                .tooltip("File list")
+                                .selected(self.browser.mode == FileListMode::List)
+                                .on_click(cx.listener(|this, _, _, cx| {
+                                    this.browser.mode = FileListMode::List;
+                                    this.rebuild_browser(cx);
+                                    this.save_layout(cx);
+                                    cx.notify();
+                                })),
+                        )
+                        .child(
+                            Button::new("file-tree-mode")
+                                .ghost()
+                                .small()
+                                .compact()
+                                .icon(IconName::FolderTree)
+                                .tooltip("Directory tree")
+                                .selected(self.browser.mode == FileListMode::Tree)
+                                .on_click(cx.listener(|this, _, _, cx| {
+                                    this.browser.mode = FileListMode::Tree;
+                                    this.rebuild_browser(cx);
+                                    this.save_layout(cx);
+                                    cx.notify();
+                                })),
+                        ),
+                ),
             );
         match self.comparison_state() {
             LoadState::Failed(error) => {

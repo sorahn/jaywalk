@@ -804,7 +804,7 @@ impl Viewer {
             .id(("evolution-panel", kind.id()))
             .v_flex().size_full().bg(surface)
             .child(div().v_flex()
-                .child(self.panel_header(font_size, cx)
+                .child(self.panel_header(match kind { EvolutionKind::Change => jaywalk::panel_layout::PanelId::ChangeEvolution, EvolutionKind::File => jaywalk::panel_layout::PanelId::FileEvolution }, font_size, cx)
                     .child(div().flex_1().min_w_0().truncate().text_size(px(font_size * 0.85)).child(match kind {
                         EvolutionKind::Change => "CHANGE EVOLUTION",
                         EvolutionKind::File => "FILE EVOLUTION",
