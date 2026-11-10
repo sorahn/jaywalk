@@ -8,8 +8,31 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::mpsc::Sender;
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum OpenDisposition {
+    Reuse,
+    NewWindow,
+}
+fn reuse_priority(
+    disposition: OpenDisposition,
+    existing: &Key,
+    requested: &Key,
+    welcome: bool,
+) -> Option<u8> {
+    if disposition == OpenDisposition::NewWindow {
+        None
+    } else if existing == requested {
+        Some(0)
+    } else if welcome && existing.config == requested.config {
+        Some(1)
+    } else {
+        None
+    }
+}
+
 #[derive(Clone, PartialEq, Eq)]
 enum Subject {
+    Welcome,
     Repository {
         directory: PathBuf,
         base: Option<String>,
@@ -25,13 +48,17 @@ struct Key {
 impl Key {
     fn new(arguments: &Arguments) -> Self {
         Self {
-            subject: match &arguments.diff {
-                Some(paths) => Subject::Diff(paths.clone()),
-                None => Subject::Repository {
-                    directory: arguments.directory.clone(),
-                    base: arguments.base.clone(),
-                    tip: arguments.tip.clone(),
-                },
+            subject: if arguments.welcome {
+                Subject::Welcome
+            } else {
+                match &arguments.diff {
+                    Some(paths) => Subject::Diff(paths.clone()),
+                    None => Subject::Repository {
+                        directory: arguments.directory().to_owned(),
+                        base: arguments.base.clone(),
+                        tip: arguments.tip.clone(),
+                    },
+                }
             },
             config: arguments.config.clone(),
         }
@@ -42,6 +69,7 @@ struct Record {
     window: AnyWindowHandle,
     viewer: Entity<Viewer>,
     waiting: Vec<Sender<Response>>,
+    last_opened: std::time::Instant,
 }
 #[derive(Default)]
 struct Windows(HashMap<WindowId, Record>);
@@ -106,34 +134,72 @@ pub(crate) fn open(
     reply: Option<Sender<Response>>,
     cx: &mut App,
 ) -> std::result::Result<(), String> {
+    open_with_disposition(arguments, settings, reply, OpenDisposition::Reuse, cx)
+}
+pub(crate) fn open_with_disposition(
+    arguments: Arguments,
+    settings: Settings,
+    reply: Option<Sender<Response>>,
+    disposition: OpenDisposition,
+    cx: &mut App,
+) -> Result<(), String> {
     crate::viewer::commands::install_bindings(&settings, cx)?;
     let key = Key::new(&arguments);
     let existing = cx
         .global::<Windows>()
         .0
         .values()
-        .find(|record| record.key == key)
-        .map(|record| (record.window, record.viewer.clone()));
-    let id = if let Some((window, viewer)) = existing {
-        window
+        .filter_map(|record| {
+            let priority = reuse_priority(
+                disposition,
+                &record.key,
+                &key,
+                record.viewer.read(cx).is_welcome(),
+            )?;
+            Some((
+                priority,
+                std::cmp::Reverse(record.last_opened),
+                record.window,
+                record.viewer.clone(),
+                record.key != key,
+            ))
+        })
+        .min_by_key(|(priority, opened, ..)| (*priority, *opened))
+        .map(|(_, _, window, viewer, different)| (window, viewer, different));
+    let id = if let Some((window, viewer, different_subject)) = existing {
+        let root = window
             .update(cx, |_, window, cx| {
                 window.activate_window();
-                if let Some(path) = &arguments.file {
+                let replace =
+                    different_subject || (viewer.read(cx).is_welcome() && !arguments.welcome);
+                if replace {
+                    apply_application_settings(&settings.application, cx);
+                    window.set_window_title(&window_title(&arguments));
+                    viewer.update(cx, |viewer, cx| {
+                        *viewer = Viewer::new(arguments.clone(), settings, window, cx)
+                    });
+                } else if let Some(path) = &arguments.file {
                     viewer.update(cx, |viewer, cx| viewer.reveal_file(path, window, cx));
                 }
+                viewer.read(cx).repository_directory()
             })
             .map_err(|error| format!("Could not focus the repository window: {error}"))?;
+        if let Some(root) = root {
+            crate::recents::record(&root, cx);
+        }
+        let record = cx
+            .global_mut::<Windows>()
+            .0
+            .get_mut(&window.window_id())
+            .expect("the reused window remains registered");
+        record.key = key;
+        record.last_opened = std::time::Instant::now();
         window.window_id()
     } else {
         apply_application_settings(&settings.application, cx);
         let options = WindowOptions {
             titlebar: Some(TitlebarOptions {
-                title: Some(match &arguments.diff {
-                    Some(paths) => {
-                        format!("{} ↔ {} — Jaywalk", paths[0].display(), paths[1].display()).into()
-                    }
-                    None => format!("{} — Jaywalk", arguments.directory.display()).into(),
-                }),
+                title: Some(window_title(&arguments).into()),
                 ..Default::default()
             }),
             window_bounds: Some(WindowBounds::Windowed(Bounds::centered(
@@ -154,6 +220,7 @@ pub(crate) fn open(
                 window,
                 viewer,
                 waiting: Vec::new(),
+                last_opened: std::time::Instant::now(),
             },
         );
         window.window_id()
@@ -175,9 +242,53 @@ pub(crate) fn open(
 
 #[cfg(all(test, unix))]
 mod tests {
-    use super::Key;
+    use super::{Key, OpenDisposition, Subject, reuse_priority};
     use crate::Arguments;
     use clap::Parser;
+    #[test]
+    fn explicit_new_window_bypasses_matching_and_welcome_windows() {
+        let repo = Key {
+            subject: Subject::Repository {
+                directory: "/repo".into(),
+                base: None,
+                tip: "@".into(),
+            },
+            config: None,
+        };
+        let welcome = Key {
+            subject: Subject::Welcome,
+            config: None,
+        };
+        assert_eq!(
+            reuse_priority(OpenDisposition::Reuse, &repo, &repo, false),
+            Some(0)
+        );
+        assert_eq!(
+            reuse_priority(OpenDisposition::Reuse, &welcome, &repo, true),
+            Some(1)
+        );
+        assert_eq!(
+            reuse_priority(OpenDisposition::NewWindow, &repo, &repo, false),
+            None
+        );
+        assert_eq!(
+            reuse_priority(OpenDisposition::NewWindow, &welcome, &repo, true),
+            None
+        );
+        assert_eq!(
+            reuse_priority(OpenDisposition::Reuse, &welcome, &repo, false),
+            None
+        );
+        let other_profile = Key {
+            config: Some("/other.toml".into()),
+            ..welcome
+        };
+        assert_eq!(
+            reuse_priority(OpenDisposition::Reuse, &other_profile, &repo, true),
+            None
+        );
+    }
+
     #[test]
     fn aliases_and_subdirectories_reuse_a_window_but_other_comparisons_do_not() {
         let root = std::env::temp_dir().join(format!("jw-window-key-{}", std::process::id()));
@@ -198,6 +309,55 @@ mod tests {
         assert!(Key::new(&repository) == Key::new(&normalize(&root.join("repo/src"))));
         alias.base = Some("main".into());
         assert!(Key::new(&repository) != Key::new(&alias));
+        assert!(Key::new(&repository.for_welcome()) == Key::new(&normalize(&root).for_welcome()));
+        assert!(Key::new(&repository.for_welcome()) != Key::new(&repository));
         std::fs::remove_dir_all(root).unwrap();
     }
+}
+
+fn window_title(arguments: &Arguments) -> String {
+    if arguments.welcome {
+        return "Welcome — Jaywalk".into();
+    }
+    match &arguments.diff {
+        Some(paths) => format!("{} ↔ {} — Jaywalk", paths[0].display(), paths[1].display()),
+        None => format!("{} — Jaywalk", arguments.directory().display()),
+    }
+}
+
+pub(crate) fn has_viewer_windows(cx: &App) -> bool {
+    cx.try_global::<Windows>()
+        .is_some_and(|windows| !windows.0.is_empty())
+}
+pub(crate) fn report_welcome_error(arguments: &Arguments, error: String, cx: &mut App) {
+    let key = Key::new(arguments);
+    let viewer = cx
+        .global::<Windows>()
+        .0
+        .values()
+        .find(|record| record.key == key)
+        .map(|record| record.viewer.clone());
+    if let Some(viewer) = viewer {
+        viewer.update(cx, |viewer, cx| viewer.report_open_error(error, cx));
+    }
+}
+
+pub(crate) fn dispatch_command(
+    arguments: &Arguments,
+    command: jaywalk::commands::CommandId,
+    cx: &mut App,
+) -> Result<(), String> {
+    let key = Key::new(arguments);
+    let (window, viewer) = cx
+        .global::<Windows>()
+        .0
+        .values()
+        .find(|record| record.key == key)
+        .map(|record| (record.window, record.viewer.clone()))
+        .ok_or("The requested viewer window is no longer open")?;
+    window
+        .update(cx, |_, window, cx| {
+            viewer.update(cx, |viewer, cx| viewer.execute_command(command, window, cx))
+        })
+        .map_err(|error| format!("Could not dispatch the window command: {error}"))
 }

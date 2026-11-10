@@ -12,6 +12,9 @@ quit_on_last_window = true
 [navigation]
 history_limit = 100
 
+[welcome]
+recent_count = 5
+
 [window]
 width = 1500
 height = 950
@@ -152,6 +155,11 @@ go_back = ["secondary-alt-left"]
 go_forward = ["secondary-alt-right"]
 about = []
 open_repository = ["secondary-o"]
+open_recent = ["ctrl-r"]
+open_in_new_window = ["secondary-enter"]
+compare_paths = []
+show_welcome = []
+clear_recent = []
 find_file = ["secondary-p"]
 show_commands = ["secondary-shift-p", "f1"]
 open_settings = ["secondary-,"]

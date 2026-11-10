@@ -25,6 +25,9 @@ pub(super) fn update_menus(cx: &mut App) {
         ]),
         Menu::new("File").items([
             item(OpenRepository),
+            item(OpenRecent),
+            item(ComparePaths),
+            item(ClearRecent),
             item(Refresh),
             MenuItem::separator(),
             item(CloseWindow),
@@ -34,6 +37,7 @@ pub(super) fn update_menus(cx: &mut App) {
             MenuItem::action("Select All", gpui::base::input::SelectAll),
         ]),
         Menu::new("View").items([
+            item(ShowWelcome),
             item(ShowCommands),
             item(FindFile),
             MenuItem::separator(),

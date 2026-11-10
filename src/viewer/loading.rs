@@ -36,7 +36,10 @@ impl Viewer {
         let layout = session_layout::SessionLayout::load(&arguments, &settings);
         let references = references::ReferenceState::new(&settings.history);
         let navigation = navigation::NavigationState::new(settings.navigation.history_limit);
+        let welcome = arguments.welcome.then(welcome::WelcomeState::default);
         let mut viewer = Self {
+            welcome,
+            recent_recorded: false,
             code_font_size: settings.editor.font_size,
             line_numbers: settings.editor.line_numbers,
             config: settings::ConfigState::new(),
@@ -82,8 +85,10 @@ impl Viewer {
             viewer.file_evolution.visible = false;
         }
         viewer.start_settings_reload(window, cx);
-        viewer.initialize_browser(window, cx);
-        viewer.load_repository(preferred_path, window, cx);
+        if !viewer.is_welcome() {
+            viewer.initialize_browser(window, cx);
+            viewer.load_repository(preferred_path, window, cx);
+        }
         viewer
     }
 
@@ -127,6 +132,10 @@ impl Viewer {
                 viewer.finish_loading(LoadingKind::Comparison);
                 viewer.repository = match result {
                     Ok((comparison, history)) => {
+                        if !viewer.recent_recorded && viewer.arguments.diff.is_none() {
+                            crate::recents::record(&comparison.root, cx);
+                            viewer.recent_recorded = true;
+                        }
                         if !comparison.supports_evolution() {
                             viewer.evolution.visible = false;
                             viewer.file_evolution.visible = false;
@@ -140,7 +149,11 @@ impl Viewer {
                             revision_comparison: None,
                         })
                     }
-                    Err(error) => LoadState::Failed(error),
+                    Err(error) => {
+                        viewer.welcome = Some(welcome::WelcomeState::failed(error.clone()));
+                        window.set_window_title("Welcome — Jaywalk");
+                        LoadState::Failed(error)
+                    }
                 };
                 if viewer.history_query != requested_history_query {
                     viewer.reload_history(None, window, cx);

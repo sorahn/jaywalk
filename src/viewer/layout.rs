@@ -8,9 +8,11 @@ impl Render for Viewer {
         if let Err(error) = commands::refresh_bindings(cx) {
             self.config.error = Some(format!("Could not reapply keymap: {error}"));
         }
-        self.sync_overview(window, cx);
-        self.sync_navigation(cx);
-        div()
+        if !self.is_welcome() {
+            self.sync_overview(window, cx);
+            self.sync_navigation(cx);
+        }
+        let root = div()
             .id("viewer-root")
             .key_context("Jaywalk")
             .track_focus(&self.focus)
@@ -18,7 +20,6 @@ impl Render for Viewer {
                 cx.listener(|this, action: &commands::ExecuteCommand, window, cx| {
                     match action.command {
                         jaywalk::commands::CommandId::About
-                        | jaywalk::commands::CommandId::OpenRepository
                         | jaywalk::commands::CommandId::Quit
                         | jaywalk::commands::CommandId::Hide
                         | jaywalk::commands::CommandId::HideOthers
@@ -43,10 +44,17 @@ impl Render for Viewer {
             )
             .relative()
             .v_flex()
-            .size_full()
             .font_features(typography::features(self.settings.ui.ligatures))
             .bg(gpui::component::Theme::global(cx).background)
-            .text_color(gpui::component::Theme::global(cx).foreground)
+            .text_color(gpui::component::Theme::global(cx).foreground);
+        if self.is_welcome() {
+            return root
+                .size_full()
+                .child(self.render_welcome(cx))
+                .children(self.render_palette(cx))
+                .into_any_element();
+        }
+        root.size_full()
             .child(
                 div()
                     .h_flex()
@@ -66,7 +74,7 @@ impl Render for Viewer {
                     .child(div().flex_1().min_w_0().truncate().child(format!(
                         "Jaywalk  /  {}",
                         self.arguments.diff.as_ref().map_or_else(
-                            || self.arguments.directory.display().to_string(),
+                            || self.arguments.directory().display().to_string(),
                             |paths| format!("{} ↔ {}", paths[0].display(), paths[1].display())
                         )
                     )))
@@ -233,6 +241,7 @@ impl Render for Viewer {
                     }),
             )
             .children(self.render_palette(cx))
+            .into_any_element()
     }
 }
 

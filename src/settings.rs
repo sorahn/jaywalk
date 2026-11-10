@@ -34,6 +34,7 @@ pub struct LiveSettings {
 pub struct Settings {
     pub application: ApplicationSettings,
     pub navigation: NavigationSettings,
+    pub welcome: WelcomeSettings,
     pub keybindings: BTreeMap<CommandId, Vec<String>>,
     #[serde(default)]
     pub keymap: Vec<crate::keymap::Override>,
@@ -50,6 +51,12 @@ pub struct Settings {
     pub overview: OverviewSettings,
     pub evolution: EvolutionSettings,
     pub file_evolution: FileEvolutionSettings,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct WelcomeSettings {
+    pub recent_count: usize,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq)]
@@ -343,6 +350,9 @@ impl Settings {
             self.layout.min_bottom_height,
             self.layout.max_bottom_height,
         )?;
+        if !(1..=50).contains(&self.welcome.recent_count) {
+            return Err("welcome.recent_count must be between 1 and 50".into());
+        }
         if !(1..=1000).contains(&self.navigation.history_limit) {
             return Err("navigation.history_limit must be between 1 and 1000".into());
         }
@@ -564,6 +574,19 @@ pub fn default_path() -> Result<PathBuf, String> {
 mod tests {
     use super::{DiffView, Settings};
 
+    #[test]
+    fn welcome_recent_count_is_live_configurable_and_bounded() {
+        assert_eq!(Settings::parse("").unwrap().welcome.recent_count, 5);
+        assert_eq!(
+            Settings::parse("[welcome]\nrecent_count=12")
+                .unwrap()
+                .welcome
+                .recent_count,
+            12
+        );
+        assert!(Settings::parse("[welcome]\nrecent_count=0").is_err());
+        assert!(Settings::parse("[welcome]\nrecent_count=51").is_err());
+    }
     #[test]
     fn navigation_history_is_bounded_and_configurable() {
         assert_eq!(Settings::parse("").unwrap().navigation.history_limit, 100);

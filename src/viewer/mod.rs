@@ -35,6 +35,7 @@ mod references;
 mod session_layout;
 mod settings;
 mod typography;
+mod welcome;
 use geometry::{comparison_geometry, horizontal_wheel};
 use jaywalk::loading_feedback::LoadingKind;
 
@@ -187,6 +188,8 @@ pub(crate) fn init(arguments: &Arguments, settings: &Settings, cx: &mut App) -> 
 
 pub(crate) struct Viewer {
     arguments: Arguments,
+    welcome: Option<welcome::WelcomeState>,
+    recent_recorded: bool,
     settings: Settings,
     focus: FocusHandle,
     panels: panels::PanelLayout,

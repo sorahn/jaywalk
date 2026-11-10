@@ -19,6 +19,29 @@ Rust API that fails on the installed stable compiler. The lockfile records the
 verified dependency set. The existing diff component is vendored for scoped scrolling, wrapping, and
 font-size extensions; see `vendor/README.md`.
 
+## Welcome and recent repositories
+
+Running `jw` with no directory opens the welcome page, just like a Finder launch.
+Use `jw .` to open the current repository, or `jw /path/to/repository` for another.
+Open a Git/Jujutsu repository or compare two files/folders from Start. Choose a
+recent repository to open its default comparison, or focus its existing window
+without resetting the current selection. An empty welcome
+window is reused; already-open matching repositories are focused. Repository
+panels are hidden in welcome mode without changing their saved preferences.
+Failed opens show one copyable diagnostic with the welcome actions available.
+
+Successful repository opens are remembered in most-recent-first order across
+windows and launches, in `~/.config/jaywalk/recent-repositories.toml` (under
+`XDG_CONFIG_HOME/jaywalk` when set). External file comparisons and failed opens
+are not recorded. Unavailable repository paths remain until history is cleared.
+`welcome.recent_count` controls the preview; File → Clear recent repositories
+resets the saved history. Ctrl+R opens a searchable picker for the complete
+history from any viewer window; the welcome page's More action opens the same
+picker. Enter opens a result and Escape dismisses it. The shortcut is remappable
+as `keybindings.open_recent`. View → Welcome opens or focuses a welcome window.
+An unreadable history file is preserved until Clear
+is explicitly chosen. Settings and command shortcuts remain live in welcome mode.
+
 ## Reading across comparisons
 
 The comparison toolbar reserves its vertical space while revisions and evolution

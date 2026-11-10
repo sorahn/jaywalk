@@ -436,6 +436,7 @@ impl Viewer {
         let notices = files.clone();
         let empty_header = loaded.files.is_empty().then(&expanded);
         let diff = Diff::new(&loaded.state)
+            .border_0()
             .render_preamble(move |_, _| expanded())
             .sticky_headers(true)
             .code_font(theme.mono_font_family.clone(), px(self.code_font_size))

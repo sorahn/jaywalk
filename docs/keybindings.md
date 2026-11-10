@@ -18,6 +18,7 @@ The first shortcut in an array is the primary one shown in hints.
 | Overview of the current comparison | Cmd+K, then O | |
 | Find any repository file | Cmd+P | |
 | Command palette | Cmd+Shift+P | F1 |
+| Open recent repository | Ctrl+R | File → Open recent repository; welcome More… |
 | Open settings | Cmd+, | |
 | Toggle wrap | Option+Z | Cmd+K, then Z |
 | Toggle line numbers | Cmd+; | |
@@ -47,6 +48,21 @@ refresh do not create entries; leaving a restored location for a new destination
 clears the forward path. Back during a new pending load cancels it and restores
 the last displayed destination; unfinished destinations are not recorded.
 History is in memory, per window, capped by `navigation.history_limit`.
+
+Ctrl+R searches all saved recent repositories, independent of the welcome preview
+count. An empty query preserves most-recent-first ordering; typing filters names
+and paths. Enter opens the selected repository and Escape dismisses the picker.
+Cmd+Enter (`secondary-enter`, remappable as `open_in_new_window`) opens the selected
+result in a new window in the same app process, even if that repository is already
+open. Command-click does the same on picker results and welcome recent entries.
+The shortcut is active only inside the recent picker, including its Open repository
+fallback; it does not change Enter in other pickers. Ordinary Enter/click keeps
+the usual window reuse behavior.
+Opening an already-open matching repository focuses its window without resetting
+its selection. With no viewer window, the command opens a welcome window first.
+The picker always offers Open repository as a fallback. Welcome, Compare files
+or folders, and Clear recent repositories are also remappable commands; they
+start unbound. Repository-only commands are unavailable in welcome mode.
 
 ## Key notation
 
@@ -96,6 +112,11 @@ layout/reset/remote-management command merely to fill the table.
 | --- | --- | --- |
 | `keybindings.about` | `[]` | About Jaywalk |
 | `keybindings.open_repository` | `["secondary-o"]` | Open repository… |
+| `keybindings.open_recent` | `["ctrl-r"]` | Open recent repository |
+| `keybindings.open_in_new_window` | `["secondary-enter"]` | Open selected recent repository in a new window (recent picker only) |
+| `keybindings.compare_paths` | `[]` | Compare files or folders |
+| `keybindings.show_welcome` | `[]` | Welcome |
+| `keybindings.clear_recent` | `[]` | Clear recent repositories |
 | `keybindings.find_file` | `["secondary-p"]` | Find any repository file |
 | `keybindings.show_commands` | `["secondary-shift-p", "f1"]` | Command palette |
 | `keybindings.open_settings` | `["secondary-,"]` | Open settings |
