@@ -7,6 +7,7 @@ pub mod fluid;
 mod git;
 pub mod graph;
 pub mod history;
+pub mod keybinding_profiles;
 pub mod keymap;
 pub mod layout_state;
 pub mod live_refresh;

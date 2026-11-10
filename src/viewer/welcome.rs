@@ -201,6 +201,13 @@ impl Viewer {
                 )
                 .child(feedback::error_message("welcome-open-error", error));
         }
+        if let Some(error) = &self.config.error {
+            start = start.child(
+                div()
+                    .mt_4()
+                    .child(feedback::error_message("welcome-settings-error", error)),
+            );
+        }
         if let Some(error) = &recent.error {
             start = start.child(
                 div()

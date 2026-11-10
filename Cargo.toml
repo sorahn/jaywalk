@@ -11,6 +11,8 @@ clap = { version = "4", features = ["derive"] }
 serde_json = "1"
 serde = { version = "1", features = ["derive"] }
 toml = "1.2"
+# Preserve comments when the palette changes keyboard.profile.
+toml_edit = "0.25"
 similar = "2.7"
 gpui-kit = { version = "=0.8.0", features = ["tree-sitter-languages"] }
 

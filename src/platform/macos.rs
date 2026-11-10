@@ -14,6 +14,8 @@ pub(super) fn update_menus(cx: &mut App) {
             item(About),
             MenuItem::separator(),
             item(OpenSettings),
+            item(OpenKeybindings),
+            item(SelectKeybindings),
             MenuItem::separator(),
             MenuItem::os_submenu("Services", SystemMenuType::Services),
             MenuItem::separator(),

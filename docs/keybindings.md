@@ -2,9 +2,43 @@
 
 Jaywalk uses the same commands for shortcuts, the command palette and native
 menus. All application shortcuts and framework/widget bindings can be remapped
-or disabled in your [TOML configuration](settings.md). Updates apply live, and
+or disabled in a separate TOML keybindings profile, selected by your
+[configuration](settings.md#keyboard-profiles-keyboard). Updates apply live, and
 menus, command-palette hints and action-aware tooltips follow the active keymap.
 The first shortcut in an array is the primary one shown in hints.
+
+## Files and profile selection
+
+On first use, Jaywalk creates `~/.config/jaywalk/config.toml` and a sparse
+`~/.config/jaywalk/keybindings/default.toml` if they do not exist. With
+`XDG_CONFIG_HOME`, both live beneath `$XDG_CONFIG_HOME/jaywalk/`. The generated
+files contain examples rather than copies of every shipped default, so new defaults
+can take effect after updates. Existing files are never overwritten.
+
+Keep application settings in the main config:
+
+```toml
+[keyboard]
+profile = "keybindings/default.toml"
+additional_directories = ["../shared/keys"]
+```
+
+The folder is a convention, not a requirement. `profile` accepts any relative or
+absolute file path; relative paths and extra discovery folders resolve beside the
+active config, including an explicit `--config`. Paths do not expand `~` or variables.
+Put the `[keybindings]` and `[[keymap]]` examples below in that selected file, not
+in `config.toml`. Unspecified shortcuts inherit [shipped defaults](../config/keybindings.toml).
+
+Cmd+, edits the main config. **Open keybindings** edits the active profile through
+`settings.editor`. **Select keybindings profile…** lists `.toml` files in the
+recommended folder and additional discovery folders, plus the current profile if
+it lives elsewhere. It marks the active entry; typing filters paths, Enter selects,
+and Escape cancels. Create another TOML file in one of these folders to add a profile.
+Invalid profiles remain listed, but cannot replace the working keymap. Switching
+saves `keyboard.profile`, preserving config comments; edits to the selected file
+apply live. Missing or malformed files preserve the last valid bindings and report
+an error. Both new commands start unbound and can be assigned shortcuts in a profile.
+For example, `open_keybindings = ["secondary-k secondary-s"]` inside `[keybindings]`.
 
 ## Default review navigation
 
@@ -120,6 +154,8 @@ layout/reset/remote-management command merely to fill the table.
 | `keybindings.find_file` | `["secondary-p"]` | Find any repository file |
 | `keybindings.show_commands` | `["secondary-shift-p", "f1"]` | Command palette |
 | `keybindings.open_settings` | `["secondary-,"]` | Open settings |
+| `keybindings.open_keybindings` | `[]` | Open active keybindings profile |
+| `keybindings.select_keybindings` | `[]` | Select keybindings profile… |
 | `keybindings.version_patch` | `["secondary-k p"]` | Version patch |
 | `keybindings.since_previous` | `["secondary-k s"]` | Since previous version |
 | `keybindings.refresh` | `["secondary-r"]` | Refresh recorded changes |
@@ -177,6 +213,10 @@ controls. These are separate from application commands. Advanced overrides
 rebind existing actions in their original contexts, preserving their action
 parameters; they do not invent new actions or change a control's behavior.
 
+| Setting | Default | Meaning |
+| --- | --- | --- |
+| `keymap` | `[]` | Advanced widget-action overrides in the profile. Entries require `action` and `keys`; optional `context` and `from` select original bindings. |
+
 Each `[[keymap]]` entry has these fields:
 
 | Field | Required | Meaning |
@@ -186,7 +226,7 @@ Each `[[keymap]]` entry has these fields:
 | context | No | Match one exact original context predicate. Omitted matches every original context for this action; `""` selects global bindings. |
 | from | No | Select one original shortcut, including a complete chord. Useful for actions whose original shortcuts carry different parameters. |
 
-If you copied the complete default template, remove its top-level `keymap = []`
+If you copied the complete shipped keyboard defaults, remove their top-level `keymap = []`
 before adding `[[keymap]]` entries; TOML cannot define the same array twice.
 For a normal overrides-only file, just add the entries below. To restore every
 widget default, remove all `[[keymap]]` entries or set `keymap = []` at the root

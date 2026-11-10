@@ -11,8 +11,10 @@ The schema and validation live in [src/settings.rs](../src/settings.rs).
 - `jw . --config /path/to/config.toml` selects a separate file, which must exist.
 - Cmd+, or **Open settings** opens the active file. A missing default file is
   created for you; `settings.editor` chooses the app or command that opens it.
-- Tables merge recursively with defaults. Arrays, including a command's
-  shortcuts, replace that value completely. Use `[]` to remove shortcuts.
+  First use also creates a sparse `keybindings/default.toml` profile; existing files
+  are never overwritten. An explicit `--config` must exist and uses profiles beside it.
+- Tables merge recursively with defaults. Arrays replace that value completely.
+  Keyboard overrides belong in the selected profile, rather than this config.
 - Optional values have no TOML `null`: remove the key to restore its inherited
   behavior. Commented font/row-height examples in the template are not defaults.
 
@@ -77,8 +79,9 @@ tree_scope = "all"
 [history.remotes.overrides]
 origin = false
 
-[keybindings]
-find_file = ["secondary-k secondary-p"]
+[keyboard]
+profile = "keybindings/default.toml"
+additional_directories = ["../shared/keys"]
 ```
 
 Use an installed font's actual family name. Application controls, source code,
@@ -330,16 +333,37 @@ editor appear in the viewer. Removing `editor` restores the platform default.
 | `layout.placement.change_evolution` | `"sidebar"` | `"sidebar"` below history, or `"bottom"` below the workspace. |
 | `layout.placement.file_evolution` | `"sidebar"` | `"sidebar"` below files, or `"bottom"` below the workspace. Two bottom timelines appear beside each other. |
 
-## Keyboard shortcuts: `[keybindings]` and `[[keymap]]`
-
-The [keybindings guide](keybindings.md) lists every application command and its
-shipped shortcuts, plus the notation, focus contexts, advanced widget overrides,
-validation rules and rationale for the defaults. Application commands use
-`[keybindings]`; a command's array replaces its defaults and `[]` unbinds it.
+## Keyboard profiles: `[keyboard]`
 
 | Setting | Default | Meaning and allowed values |
 | --- | --- | --- |
-| `keymap` | `[]` | Array of advanced widget-action overrides. Each record requires `action` and `keys`; optional `context` and `from` select original bindings. See the full guide before adding `[[keymap]]` entries. |
+| `keyboard.profile` | `"keybindings/default.toml"` | Selected keybinding file. Accepts a nonempty relative or absolute file path without NUL characters. Relative paths resolve beside the active config. Applies live. |
+| `keyboard.additional_directories` | `[]` | Additional folders searched by **Select keybindings profile…**. Accepts an array of nonempty relative or absolute directory paths without NUL characters. Relative paths resolve beside the active config. Applies when the picker next opens. |
+
+The `keybindings/` folder beside the config is recommended and searched by default,
+but profiles can live anywhere. Extra directories supplement that folder. Discovery
+lists `.toml` files without recursing, removes duplicate resolved paths and includes
+the active profile even when it is elsewhere. Missing discovery folders are skipped;
+unreadable folders report an error. Paths are literal: `~` and environment variables
+are not expanded. Use an absolute path for locations outside the config directory.
+
+**Select keybindings profile…** saves the selected path to `config.toml` while
+preserving comments. It validates the profile and widget remapping before saving;
+a failed selection retains the existing config and shortcuts. **Open keybindings**
+edits the active profile using `settings.editor`. Both commands work from welcome
+and repository windows and are remappable; they start unbound. Cmd+, continues to
+edit the main config. The selected file is watched alongside the config, using the
+same reload interval and settled-read behavior. Missing, invalid or unreadable
+profiles retain the last valid live configuration and show a copyable error.
+Recovery applies automatically. Profiles and shortcuts are application-wide, just
+like the existing keymap; when different `--config` windows change bindings, the
+last applied configuration controls the shared keymap.
+
+On first use, Jaywalk creates a sparse main config and a commented default profile
+if missing. Existing files are preserved. A custom selected path must already exist;
+Jaywalk does not create arbitrary selected files. Neither `[keybindings]` nor
+`[[keymap]]` is accepted in the main config. There is no automatic legacy migration.
+The [keybindings guide](keybindings.md) documents profile syntax and every default.
 
 ## Scope and limits
 

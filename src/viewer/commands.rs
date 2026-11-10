@@ -62,6 +62,14 @@ fn collect_defaults(
     defaults
 }
 
+pub(super) fn validate_bindings(settings: &Settings, cx: &App) -> Result<(), String> {
+    let previous = cx
+        .try_global::<InstalledKeymap>()
+        .map_or(&[][..], |state| state.defaults.as_slice());
+    let defaults = collect_defaults(previous, cx.key_bindings().borrow().bindings().cloned());
+    jaywalk::keymap::remap(&defaults, &settings.keymap).map(|_| ())
+}
+
 pub(crate) fn install_bindings(settings: &Settings, cx: &mut App) -> Result<(), String> {
     let previous = cx
         .try_global::<InstalledKeymap>()
@@ -181,7 +189,13 @@ impl Viewer {
             CommandId::SincePrevious => {
                 self.select_evolution_mode(evolution::ReviewMode::SincePrevious, window, cx)
             }
-            CommandId::OpenSettings => self.open_settings_file(window, cx),
+            CommandId::OpenSettings => {
+                self.edit_configuration_file(keyboard::ConfigurationFile::Settings, window, cx)
+            }
+            CommandId::OpenKeybindings => {
+                self.edit_configuration_file(keyboard::ConfigurationFile::Keybindings, window, cx)
+            }
+            CommandId::SelectKeybindings => self.choose_keybindings_profile(window, cx),
             CommandId::WholeBranch => self.show_whole_branch(window, cx),
             CommandId::Overview => {
                 self.show_overview(window, cx);
@@ -299,54 +313,6 @@ impl Viewer {
         }
     }
 
-    fn open_settings_file(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let path = self
-            .arguments
-            .config
-            .clone()
-            .map(Ok)
-            .unwrap_or_else(jaywalk::settings::default_path);
-        let editor = self.settings.settings.editor.clone();
-        cx.spawn_in(window, async move |this, cx| {
-            let result = cx
-                .background_spawn(async move {
-                    let path = path?;
-                    if let Some(parent) = path.parent().filter(|path| !path.as_os_str().is_empty())
-                    {
-                        std::fs::create_dir_all(parent).map_err(|error| {
-                            format!("Could not create {}: {error}", parent.display())
-                        })?;
-                    }
-                    match std::fs::OpenOptions::new()
-                        .write(true)
-                        .create_new(true)
-                        .open(&path)
-                    {
-                        Ok(mut file) => {
-                            use std::io::Write;
-                            file.write_all(jaywalk::settings::DEFAULT_CONFIG.as_bytes())
-                                .map_err(|error| {
-                                    format!("Could not write {}: {error}", path.display())
-                                })?;
-                        }
-                        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
-                        Err(error) => {
-                            return Err(format!("Could not create {}: {error}", path.display()));
-                        }
-                    }
-                    crate::platform::open_text_file(&path, editor.as_ref())
-                })
-                .await;
-            if let Err(error) = result {
-                let _ = this.update(cx, |viewer, cx| {
-                    viewer.live.message = Some(error);
-                    cx.notify();
-                });
-            }
-        })
-        .detach();
-    }
-
     fn reset_layout(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
         self.preserve_reflow_position(cx);
         self.layout.saved = jaywalk::layout_state::LayoutState::from_settings(&self.settings);
@@ -374,7 +340,9 @@ mod tests {
                 "alt-enter",
             ),
         ] {
-            let settings = Settings::parse(config).unwrap();
+            let settings = Settings::default()
+                .with_keybindings(jaywalk::keybinding_profiles::Profile::parse(config).unwrap())
+                .unwrap();
             let map = Keymap::new(configured_bindings(&settings));
             let matches = |key: &str, recent: bool| {
                 let mut contexts = vec![KeyContext::parse("Jaywalk").unwrap()];
@@ -501,7 +469,14 @@ mod tests {
             KeyBinding::new("secondary-a", gpui::base::input::SelectAll, Some("Input")),
             KeyBinding::new("secondary-c", gpui::base::input::Copy, Some("Input")),
         ]);
-        let updated = Settings::parse("[keybindings]\ntoggle_history=['secondary-j']").unwrap();
+        let updated = Settings::default()
+            .with_keybindings(
+                jaywalk::keybinding_profiles::Profile::parse(
+                    "[keybindings]\ntoggle_history=['secondary-j']",
+                )
+                .unwrap(),
+            )
+            .unwrap();
         let retained: Vec<_> = map
             .bindings()
             .filter(|binding| !binding.action().as_any().is::<ExecuteCommand>())
