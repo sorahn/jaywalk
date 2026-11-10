@@ -76,7 +76,8 @@ repository-wide refactor into a feature.
   behavior in the native window; passing unit tests cannot establish UI feel.
 - Run `cargo fmt --check`, `cargo test`, and
   `cargo clippy --all-targets -- -D warnings` for relevant Rust changes. On
-  macOS, use the full Xcode developer directory as described in README.md.
+  macOS, use the full Xcode developer directory as described in
+  [the development guide](docs/development.md).
   Documentation-only changes need a content/diff check, not a full rebuild.
 - Prefer fixing a diagnostic. Scope any justified lint allowance narrowly and
   explain it; do not suppress warnings across the crate or enable every
