@@ -33,6 +33,7 @@ mod overview;
 mod palette;
 mod panels;
 mod references;
+mod review;
 mod session_layout;
 pub(crate) use session_layout::SessionLayout;
 mod settings;
@@ -208,10 +209,7 @@ pub(crate) struct Viewer {
     selected_file: Option<SelectedFile>,
     pending_file: Option<String>,
     browser: files::FileBrowser,
-    repository_generation: u64,
-    file_generation: u64,
-    repository_task: Option<Task<()>>,
-    file_task: Option<Task<()>>,
+    requests: review::ReviewRequests,
     active_change: Option<usize>,
     navigation_target: Option<usize>,
     view: jaywalk::view_choice::ViewChoice,
@@ -269,8 +267,8 @@ impl Viewer {
     fn clear_file(&mut self) {
         self.config.pending_standard = None;
         self.config.pending_horizontal = None;
-        self.file_generation += 1;
-        self.file_task = None;
+        self.requests.invalidate_file();
+        self.requests.file_task = None;
         self.finish_loading(LoadingKind::File);
         self.selected_file = None;
         self.view
@@ -471,13 +469,13 @@ impl Viewer {
             return;
         }
         self.reveal_after_layout = false;
-        let generation = self.file_generation;
+        let generation = self.requests.file();
         let viewer = cx.entity().downgrade();
         // Editor paint can clear a scroll requested during that same paint.
         // Wait until measured wrapping and the widget's scroll state settle.
         window.defer(cx, move |_, cx| {
             let _ = viewer.update(cx, |viewer, cx| {
-                if viewer.file_generation == generation {
+                if viewer.requests.file() == generation {
                     viewer.navigate_change(0, cx);
                 }
             });

@@ -65,10 +65,7 @@ impl Viewer {
             selected_file: None,
             pending_file: None,
             browser: files::FileBrowser::new(file_width, file_mode, file_scope, cx),
-            repository_generation: 0,
-            file_generation: 0,
-            repository_task: None,
-            file_task: None,
+            requests: review::ReviewRequests::default(),
             active_change: None,
             navigation_target: None,
             view: jaywalk::view_choice::ViewChoice::new(view_mode),
@@ -84,6 +81,7 @@ impl Viewer {
             viewer.evolution.visible = false;
             viewer.file_evolution.visible = false;
         }
+        viewer.observe_review(window, cx);
         viewer.start_settings_reload(window, cx);
         if !viewer.is_welcome() {
             viewer.initialize_browser(window, cx);
@@ -104,8 +102,8 @@ impl Viewer {
         self.evolution.clear();
         self.file_evolution.clear();
         self.active_evolution = evolution::EvolutionKind::Change;
-        self.repository_generation += 1;
-        let generation = self.repository_generation;
+        self.requests.invalidate_comparison();
+        let generation = self.requests.comparison();
         self.remember_reading(cx);
         self.repository = LoadState::Loading;
         self.begin_loading(LoadingKind::Comparison, window, cx);
@@ -113,7 +111,7 @@ impl Viewer {
         let arguments = self.arguments.clone();
         let history_query = self.history_query.clone();
         let requested_history_query = history_query.clone();
-        self.repository_task = Some(cx.spawn_in(window, async move |this, cx| {
+        self.requests.comparison_task = Some(cx.spawn_in(window, async move |this, cx| {
             let result = cx
                 .background_spawn(async move {
                     let comparison = arguments.comparison()?;
@@ -126,7 +124,7 @@ impl Viewer {
                 })
                 .await;
             let _ = this.update_in(cx, |viewer, window, cx| {
-                if viewer.repository_generation != generation {
+                if viewer.requests.comparison() != generation {
                     return;
                 }
                 viewer.finish_loading(LoadingKind::Comparison);
@@ -247,7 +245,7 @@ impl Viewer {
         }
         self.remember_reading(cx);
         if preserve {
-            self.file_generation += 1;
+            self.requests.invalidate_file();
         } else {
             self.clear_file();
             self.selected_file = Some(SelectedFile {
@@ -260,8 +258,8 @@ impl Viewer {
         }
         self.begin_loading(LoadingKind::File, window, cx);
         self.recall_reading(file.path());
-        let generation = self.file_generation;
-        let repository_generation = self.repository_generation;
+        let generation = self.requests.file();
+        let repository_generation = self.requests.comparison();
         self.focus_evolution_file(Some(file.path()));
         self.rebuild_browser(cx);
         if reason == FileLoad::Select {
@@ -271,15 +269,15 @@ impl Viewer {
         let source = comparison.clone();
         let metadata = file.clone();
         let tab_size = self.settings.editor.tab_size;
-        self.file_task = Some(cx.spawn_in(window, async move |this, cx| {
+        self.requests.file_task = Some(cx.spawn_in(window, async move |this, cx| {
             let language = file_language(file.path());
             let path = file.path().to_owned();
             let result = cx
                 .background_spawn(async move { PreparedFile::load(&comparison, &file, tab_size) })
                 .await;
             let _ = this.update_in(cx, |viewer, window, cx| {
-                if viewer.file_generation != generation
-                    || viewer.repository_generation != repository_generation
+                if viewer.requests.file() != generation
+                    || viewer.requests.comparison() != repository_generation
                 {
                     return;
                 }
@@ -602,8 +600,8 @@ impl Viewer {
         self.evolution.clear();
         self.file_evolution.clear();
         self.active_evolution = evolution::EvolutionKind::Change;
-        self.repository_generation += 1;
-        self.repository_task = None;
+        self.requests.invalidate_comparison();
+        self.requests.comparison_task = None;
         self.finish_loading(LoadingKind::Comparison);
         self.finish_loading(LoadingKind::Evolution);
         if let LoadState::Loaded(session) = &mut self.repository {
@@ -670,9 +668,9 @@ impl Viewer {
             cx.notify();
             return;
         }
-        self.repository_generation += 1;
-        let generation = self.repository_generation;
-        self.repository_task = None;
+        self.requests.invalidate_comparison();
+        let generation = self.requests.comparison();
+        self.requests.comparison_task = None;
         self.finish_loading(LoadingKind::Comparison);
         if let LoadState::Loaded(session) = &mut self.repository {
             session.scope = ComparisonScope::Revision {
@@ -694,14 +692,14 @@ impl Viewer {
         }
         self.begin_loading(LoadingKind::Comparison, window, cx);
         let revision_for_evolution = revision.clone();
-        self.repository_task = Some(cx.spawn_in(window, async move |this, cx| {
+        self.requests.comparison_task = Some(cx.spawn_in(window, async move |this, cx| {
             let result = cx
                 .background_spawn(async move {
                     branch.for_history_revision(&revision, history_operation.as_deref())
                 })
                 .await;
             let _ = this.update_in(cx, |viewer, window, cx| {
-                if viewer.repository_generation != generation {
+                if viewer.requests.comparison() != generation {
                     return;
                 }
                 viewer.finish_loading(LoadingKind::Comparison);

@@ -256,8 +256,8 @@ impl Viewer {
         let tip = self.arguments.tip.clone();
         let history_query = self.history_query.clone();
         let requested_history_query = history_query.clone();
-        let generation = self.repository_generation;
-        let file_generation = self.file_generation;
+        let generation = self.requests.comparison();
+        let file_generation = self.requests.file();
         self.begin_loading(LoadingKind::Live, window, cx);
         self.live.busy = true;
         self.live.message = Some("Updating recorded changes…".into());
@@ -277,8 +277,8 @@ impl Viewer {
                 this.update_in(cx, |viewer, window, cx| {
                     viewer.live.busy = false;
                     viewer.finish_loading(LoadingKind::Live);
-                    if viewer.repository_generation != generation
-                        || viewer.file_generation != file_generation
+                    if viewer.requests.comparison() != generation
+                        || viewer.requests.file() != file_generation
                     {
                         if viewer.live.message.as_deref() == Some("Updating recorded changes…") {
                             viewer.live.message = None;
@@ -307,8 +307,8 @@ impl Viewer {
                         }) => {
                             viewer.live.retry.clear();
                             viewer.invalidate_history_reload();
-                            viewer.repository_generation += 1;
-                            viewer.repository_task = None;
+                            viewer.requests.invalidate_comparison();
+                            viewer.requests.comparison_task = None;
                             viewer.remember_evolution_header();
                             viewer.evolution.clear();
                             viewer.file_evolution.clear();

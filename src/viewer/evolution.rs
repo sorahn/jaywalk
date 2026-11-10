@@ -608,15 +608,15 @@ impl Viewer {
         let preferred_path = self
             .selected_path()
             .or_else(|| self.file_evolution.file_path.clone());
-        self.repository_generation += 1;
-        let generation = self.repository_generation;
+        self.requests.invalidate_comparison();
+        let generation = self.requests.comparison();
         self.remember_reading(cx);
         if let LoadState::Loaded(session) = &mut self.repository {
             session.scope = scope;
             session.comparison = LoadState::Loading;
         }
         self.begin_loading(LoadingKind::Comparison, window, cx);
-        self.repository_task = Some(cx.spawn_in(window, async move |this, cx| {
+        self.requests.comparison_task = Some(cx.spawn_in(window, async move |this, cx| {
             let result = cx
                 .background_spawn(async move {
                     match mode {
@@ -628,7 +628,7 @@ impl Viewer {
                 })
                 .await;
             let _ = this.update_in(cx, |viewer, window, cx| {
-                if viewer.repository_generation != generation {
+                if viewer.requests.comparison() != generation {
                     return;
                 }
                 viewer.finish_loading(LoadingKind::Comparison);

@@ -247,6 +247,8 @@ impl Viewer {
                         cx.notify();
                     }
                     viewer.reveal_initial_change(window, cx);
+                    // Navigation records only the viewport after layout restoration.
+                    cx.defer_in(window, |viewer, _, cx| viewer.sync_navigation(cx));
                     if viewer.active_change != active {
                         viewer.active_change = active;
                         cx.notify();
