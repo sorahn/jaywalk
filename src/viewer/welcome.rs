@@ -28,7 +28,7 @@ impl Viewer {
             .then(|| {
                 self.repository
                     .ready()
-                    .map(|session| session.branch.root.clone())
+                    .map(|session| session.home.root.clone())
             })
             .flatten()
     }

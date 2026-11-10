@@ -421,7 +421,7 @@ impl Viewer {
             return;
         }
         let selected = match &session.scope {
-            ComparisonScope::WholeBranch => None,
+            ComparisonScope::Aggregate => None,
             ComparisonScope::Revision { commit_id, .. } => Some(commit_id),
             ComparisonScope::Evolution { anchor, .. } => Some(anchor),
         };
@@ -436,7 +436,7 @@ impl Viewer {
         };
         let index = match step {
             HistoryStep::Overview => {
-                self.show_whole_branch_overview(window, cx);
+                self.show_all_changes_overview(window, cx);
                 return;
             }
             HistoryStep::Revision(index) => index,

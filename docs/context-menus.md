@@ -33,7 +33,7 @@ comparison identity before running, so a stale menu cannot act on a new revision
 History rows offer View commit changes (the usual parent comparison), Show change
 evolution in jj repositories, Copy commit ID, Copy change ID (jj only), and Copy
 commit message. Copy keeps the full IDs and full multiline message, independent
-of the compact row label. Whole branch, references and refresh are also available.
+of the compact row label. All changes, references and refresh are also available.
 The history header includes reference labels, remote visibility, and reveal-selection
 controls in addition to placement and hiding.
 
@@ -80,3 +80,15 @@ Patterns were checked against the [VS Code file menus](https://github.com/micros
 [Zed project panel](https://zed.dev/docs/project-panel),
 [GitLens commit graph](https://help.gitkraken.com/gitlens/gl-commit-graph/) and
 [Fork release notes](https://fork.dev/releasenotes).
+
+## Aggregate and current-work scope
+
+All changes returns to the aggregate comparison being reviewed; inspecting a
+commit or evolution version does not change that destination. Current work
+reloads the latest workspace comparison. Opened comparison restores the original
+CLI inputs, including an explicit `--base`/`--tip` range. Back/Forward preserves
+the aggregate context independently of the inspected item and file.
+
+`keybindings.all_changes` retains the former aggregate shortcut; `whole_branch`
+is accepted as a legacy command spelling in user profiles. Current work and
+Opened comparison are unbound by default.

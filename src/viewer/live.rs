@@ -135,8 +135,8 @@ impl Viewer {
             session.history.as_ref().ok().map(|history| {
                 jaywalk::references::ReferenceStamp::from_snapshot(&history.references)
             });
-        let directory = session.branch.root.clone();
-        let recorded = session.branch.supports_evolution();
+        let directory = session.home.root.clone();
+        let recorded = session.home.supports_evolution();
         let interval = Duration::from_millis(self.settings.live.poll_interval_ms);
         self.live.poll = Some(cx.spawn_in(window, async move |this, cx| {
             loop {
@@ -168,10 +168,7 @@ impl Viewer {
                                 || matches!(session.scope, ComparisonScope::Evolution { .. });
                             let operation_changed =
                                 stamp.operation.as_ref().is_some_and(|operation| {
-                                    viewer
-                                        .live
-                                        .retry
-                                        .allows(operation, &session.branch.operation)
+                                    viewer.live.retry.allows(operation, &session.home.operation)
                                 });
                             if operation_changed && !pinned {
                                 viewer.refresh_recorded(window, cx);
@@ -250,10 +247,11 @@ impl Viewer {
             None
         };
         let directory = self.arguments.directory().to_owned();
-        let base = self.arguments.base.clone();
+        let home_arguments = self.home_arguments();
+        let base = home_arguments.base.clone();
         // Preserve the requested reference. In particular, @ follows the recorded
         // workspace even when jj abandons and replaces its working-copy change.
-        let tip = self.arguments.tip.clone();
+        let tip = home_arguments.tip.clone();
         let history_query = self.history_query.clone();
         let requested_history_query = history_query.clone();
         let generation = self.requests.comparison();
@@ -273,76 +271,82 @@ impl Viewer {
                     )
                 })
                 .await;
-            let _ =
-                this.update_in(cx, |viewer, window, cx| {
-                    viewer.live.busy = false;
-                    viewer.finish_loading(LoadingKind::Live);
-                    if viewer.requests.comparison() != generation
-                        || viewer.requests.file() != file_generation
-                    {
-                        if viewer.live.message.as_deref() == Some("Updating recorded changes…") {
-                            viewer.live.message = None;
-                            cx.notify();
-                        }
-                        return;
-                    }
-                    if viewer.history_query != requested_history_query {
+            let _ = this.update_in(cx, |viewer, window, cx| {
+                viewer.live.busy = false;
+                viewer.finish_loading(LoadingKind::Live);
+                if viewer.requests.comparison() != generation
+                    || viewer.requests.file() != file_generation
+                {
+                    if viewer.live.message.as_deref() == Some("Updating recorded changes…") {
                         viewer.live.message = None;
-                        viewer.refresh_recorded(window, cx);
-                        return;
+                        cx.notify();
                     }
-                    match result {
-                        Err(error) => {
-                            viewer.live.retry.failed(error.operation);
-                            viewer.live.message = Some(format!(
-                                "Refresh paused; previous view retained: {}",
-                                error.message
-                            ));
-                        }
-                        Ok(RecordedRefresh {
-                            branch,
-                            history,
-                            revision,
-                            comparison,
-                        }) => {
-                            viewer.live.retry.clear();
-                            viewer.invalidate_history_reload();
-                            viewer.invalidate_comparison_request();
-                            viewer.requests.comparison_task = None;
-                            viewer.remember_evolution_header();
-                            viewer.evolution.clear();
-                            viewer.file_evolution.clear();
-                            let scope = revision.as_ref().map_or(
-                                ComparisonScope::WholeBranch,
-                                |revision| ComparisonScope::Revision {
-                                    commit_id: revision.commit_id.clone(),
-                                    change_id: revision.change_id.clone(),
-                                    working_copy: revision.working_copy,
-                                    merge: revision.parents.len() > 1,
-                                },
-                            );
-                            let comparison = Rc::new(comparison);
-                            viewer.repository = LoadState::Loaded(RepositorySession {
-                                branch: Rc::new(branch),
-                                history: Ok(Rc::new(history)),
-                                scope,
-                                revision_comparison: revision.as_ref().map(|_| comparison.clone()),
-                                comparison: LoadState::Loaded(comparison),
-                            });
-                            viewer.rebuild_browser(cx);
-                            let active_evolution = viewer.active_evolution;
-                            let path = viewer.selected_path();
-                            viewer.focus_evolution_file(path.as_deref());
-                            viewer.active_evolution = active_evolution;
-                            if let Some(revision) = revision {
-                                viewer.load_evolution(revision, window, cx);
-                            }
-                            viewer.live.message = None;
-                            viewer.follow_open_file(window, cx);
-                        }
+                    return;
+                }
+                if viewer.history_query != requested_history_query {
+                    viewer.live.message = None;
+                    viewer.refresh_recorded(window, cx);
+                    return;
+                }
+                match result {
+                    Err(error) => {
+                        viewer.live.retry.failed(error.operation);
+                        viewer.live.message = Some(format!(
+                            "Refresh paused; previous view retained: {}",
+                            error.message
+                        ));
                     }
-                    cx.notify();
-                });
+                    Ok(RecordedRefresh {
+                        branch,
+                        history,
+                        revision,
+                        comparison,
+                    }) => {
+                        viewer.live.retry.clear();
+                        viewer.invalidate_history_reload();
+                        viewer.invalidate_comparison_request();
+                        viewer.requests.comparison_task = None;
+                        viewer.remember_evolution_header();
+                        viewer.evolution.clear();
+                        viewer.file_evolution.clear();
+                        let scope =
+                            revision
+                                .as_ref()
+                                .map_or(ComparisonScope::Aggregate, |revision| {
+                                    ComparisonScope::Revision {
+                                        commit_id: revision.commit_id.clone(),
+                                        change_id: revision.change_id.clone(),
+                                        working_copy: revision.working_copy,
+                                        merge: revision.parents.len() > 1,
+                                    }
+                                });
+                        let comparison = Rc::new(comparison);
+                        let home = Rc::new(branch);
+                        viewer.repository = LoadState::Loaded(RepositorySession {
+                            home: home.clone(),
+                            review: review_context::ReviewContext {
+                                source: viewer.home_source,
+                                aggregate: home,
+                            },
+                            history: Ok(Rc::new(history)),
+                            scope,
+                            revision_comparison: revision.as_ref().map(|_| comparison.clone()),
+                            comparison: LoadState::Loaded(comparison),
+                        });
+                        viewer.rebuild_browser(cx);
+                        let active_evolution = viewer.active_evolution;
+                        let path = viewer.selected_path();
+                        viewer.focus_evolution_file(path.as_deref());
+                        viewer.active_evolution = active_evolution;
+                        if let Some(revision) = revision {
+                            viewer.load_evolution(revision, window, cx);
+                        }
+                        viewer.live.message = None;
+                        viewer.follow_open_file(window, cx);
+                    }
+                }
+                cx.notify();
+            });
         }));
         cx.notify();
     }

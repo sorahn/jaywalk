@@ -23,7 +23,7 @@ select_keybindings = []
 version_patch = ["secondary-k p"]
 since_previous = ["secondary-k s"]
 refresh = ["secondary-r"]
-whole_branch = ["secondary-shift-b"]
+all_changes = ["secondary-shift-b"]
 overview = ["secondary-k o"]
 show_references = ["secondary-k r"]
 toggle_reference_labels = []
@@ -93,6 +93,9 @@ collapse_overview = []
 expand_overview = []
 overview_context = []
 overview_full = []
+
+current_work = []
+opened_comparison = []
 
 # Platform defaults are applied before sparse user overrides.
 # On Linux, secondary and ctrl both mean Ctrl, unlike macOS.

@@ -201,7 +201,7 @@ impl Viewer {
             }
         };
         let selected_commit = match &session.scope {
-            ComparisonScope::WholeBranch => None,
+            ComparisonScope::Aggregate => None,
             ComparisonScope::Revision { commit_id, .. } => Some(commit_id.clone()),
             ComparisonScope::Evolution { anchor, .. } => Some(anchor.clone()),
         };

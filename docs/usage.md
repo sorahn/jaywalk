@@ -38,7 +38,7 @@ or choose **Open file** for the regular diff viewer. Clicking a file header fold
 that file; its Open file action remains separate. Sticky headers show which file
 you are reading, with a corresponding reading indicator in the sidebar.
 
-Select a commit in history to see its message and patch. **Whole branch** returns
+Select a commit in history to see its message and patch. **All changes** returns
 to the original branch comparison. **Overview** returns from an open file to the
 overview of the current comparison. Back and Forward retrace views you visited
 in this window, including comparison, file, and reading position where possible.
@@ -96,7 +96,7 @@ its newest version; use its chevron to expand individual events. **Group** toggl
 this behavior. Branch boundaries, conflicts, and divergent versions stay separate.
 
 Historical evolution reviews remain pinned. Select the change's history row to
-resume following its latest version, or Whole branch to leave evolution review.
+resume following its latest version, or All changes to leave evolution review.
 Interdiffs require Git-backed jj and Git on PATH; jj may synthesize backend objects
 while calculating them, without updating the working copy or recording an operation.
 

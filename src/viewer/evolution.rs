@@ -227,7 +227,7 @@ impl Viewer {
                     Some((commit_id.clone(), ReviewMode::Patch))
                 }
                 ComparisonScope::Evolution { version, mode, .. } => Some((version.clone(), *mode)),
-                ComparisonScope::WholeBranch => None,
+                ComparisonScope::Aggregate => None,
             });
         if let Some((commit, mode)) = displayed
             && let TimelineState::Loaded(file) = &mut self.file_evolution.state
@@ -323,7 +323,7 @@ impl Viewer {
                 let commit = match &session.scope {
                     ComparisonScope::Revision { commit_id, .. } => commit_id,
                     ComparisonScope::Evolution { anchor, .. } => anchor,
-                    ComparisonScope::WholeBranch => return None,
+                    ComparisonScope::Aggregate => return None,
                 };
                 session
                     .history
@@ -392,7 +392,7 @@ impl Viewer {
         let Some(repository) = self.repository.ready() else {
             return;
         };
-        let branch = repository.branch.as_ref().clone();
+        let branch = repository.home.as_ref().clone();
         let limit = self.settings.evolution.limit;
         self.evolution.generation += 1;
         let generation = self.evolution.generation;
@@ -482,7 +482,7 @@ impl Viewer {
         let Some(session) = self.repository.ready() else {
             return;
         };
-        let branch = session.branch.as_ref().clone();
+        let branch = session.home.as_ref().clone();
         let operation = session
             .history
             .as_ref()
@@ -605,7 +605,7 @@ impl Viewer {
         let Some(session) = self.repository.ready() else {
             return;
         };
-        let branch = session.branch.as_ref().clone();
+        let branch = session.home.as_ref().clone();
         let preferred_path = self
             .selected_path()
             .or_else(|| self.file_evolution.file_path.clone());
@@ -799,7 +799,7 @@ impl Viewer {
                 context_menu::command_entries(
                     menu.separator(),
                     &[
-                        (jaywalk::commands::CommandId::WholeBranch, false),
+                        (jaywalk::commands::CommandId::AllChanges, false),
                         (jaywalk::commands::CommandId::Refresh, false),
                     ],
                 )

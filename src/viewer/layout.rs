@@ -94,29 +94,47 @@ impl Render for Viewer {
                                     })),
                             )
                             .child(
-                                Button::new("whole-branch")
+                                Button::new("current-work")
                                     .ghost()
-                                    .label(if self.arguments.diff.is_some() {
-                                        "All files"
-                                    } else if !self.supports_evolution() {
-                                        "All changes"
-                                    } else {
-                                        "Whole branch"
-                                    })
-                                    .disabled(self.repository.ready().is_none())
-                                    .selected(matches!(
-                                        self.repository.ready().map(|session| &session.scope),
-                                        Some(ComparisonScope::WholeBranch)
-                                    ))
+                                    .label("Current work")
+                                    .disabled(self.arguments.diff.is_some())
                                     .tooltip_with_action(
-                                        "Whole branch",
+                                        "Return to the latest workspace comparison",
                                         &commands::ExecuteCommand {
-                                            command: jaywalk::commands::CommandId::WholeBranch,
+                                            command: jaywalk::commands::CommandId::CurrentWork,
                                         },
                                         None,
                                     )
                                     .on_click(cx.listener(|this, _, window, cx| {
-                                        this.show_whole_branch(window, cx)
+                                        this.execute_command(
+                                            jaywalk::commands::CommandId::CurrentWork,
+                                            window,
+                                            cx,
+                                        )
+                                    })),
+                            )
+                            .child(
+                                Button::new("whole-branch")
+                                    .ghost()
+                                    .label(if self.arguments.diff.is_some() {
+                                        "All files"
+                                    } else {
+                                        "All changes"
+                                    })
+                                    .disabled(self.repository.ready().is_none())
+                                    .selected(matches!(
+                                        self.repository.ready().map(|session| &session.scope),
+                                        Some(ComparisonScope::Aggregate)
+                                    ))
+                                    .tooltip_with_action(
+                                        "All changes",
+                                        &commands::ExecuteCommand {
+                                            command: jaywalk::commands::CommandId::AllChanges,
+                                        },
+                                        None,
+                                    )
+                                    .on_click(cx.listener(|this, _, window, cx| {
+                                        this.show_all_changes(window, cx)
                                     })),
                             )
                             .child(Button::new("overview").ghost().label("Overview").on_click(

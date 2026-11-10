@@ -5,7 +5,7 @@ use jaywalk::repository_file::FileEntry;
 
 #[derive(Clone, PartialEq, Eq)]
 enum ScopeKey {
-    WholeBranch,
+    AllChanges,
     Revision(String),
     WorkingCopy,
     Evolution(String, String, evolution::ReviewMode),
@@ -13,6 +13,7 @@ enum ScopeKey {
 #[derive(Clone, PartialEq, Eq)]
 pub(super) struct LocationKey {
     scope: ScopeKey,
+    context: review_context::HomeSource,
     path: Option<String>,
 }
 #[derive(Clone)]
@@ -24,6 +25,8 @@ struct FileVisit {
 #[derive(Clone)]
 pub(super) struct ViewVisit {
     scope: ComparisonScope,
+    review: review_context::ReviewContext,
+    home: Rc<Comparison>,
     comparison: Rc<Comparison>,
     file: Option<FileVisit>,
     overview: Option<overview::OverviewCheckpoint>,
@@ -70,7 +73,7 @@ impl Viewer {
             return None;
         }
         let scope = match &session.scope {
-            ComparisonScope::WholeBranch => ScopeKey::WholeBranch,
+            ComparisonScope::Aggregate => ScopeKey::AllChanges,
             ComparisonScope::Revision {
                 working_copy: true, ..
             } => ScopeKey::WorkingCopy,
@@ -84,6 +87,7 @@ impl Viewer {
         };
         Some(LocationKey {
             scope,
+            context: session.review.source,
             path: self.selected_path(),
         })
     }
@@ -114,6 +118,8 @@ impl Viewer {
             key,
             ViewVisit {
                 scope: session.scope.clone(),
+                review: session.review.clone(),
+                home: session.home.clone(),
                 comparison,
                 file: self.selected_file.as_ref().map(|selected| FileVisit {
                     file: selected.file.clone(),
@@ -167,7 +173,7 @@ impl Viewer {
         self.focus_evolution_file(None);
         cx.notify();
     }
-    pub(super) fn show_whole_branch_overview(
+    pub(super) fn show_all_changes_overview(
         &mut self,
         window: &mut Window,
         cx: &mut Context<Self>,
@@ -176,7 +182,7 @@ impl Viewer {
         self.navigation.suppress = true;
         self.remember_reading(cx);
         self.clear_file();
-        self.show_whole_branch(window, cx);
+        self.show_all_changes(window, cx);
         self.navigation.suppress = false;
         window.focus(&self.focus, cx);
     }
@@ -215,6 +221,9 @@ impl Viewer {
         self.clear_file();
         let visit = target.value;
         if let LoadState::Loaded(session) = &mut self.repository {
+            self.home_source = visit.review.source;
+            session.review = visit.review;
+            session.home = visit.home;
             session.scope = visit.scope;
             session.revision_comparison = Some(visit.comparison.clone());
             session.comparison = LoadState::Loaded(visit.comparison);

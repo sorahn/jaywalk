@@ -83,7 +83,7 @@ pub(super) fn revision_menu(
     context_menu::command_entries(
         menu.separator(),
         &[
-            (CommandId::WholeBranch, false),
+            (CommandId::AllChanges, false),
             (CommandId::ShowReferences, false),
             (CommandId::Refresh, false),
         ],

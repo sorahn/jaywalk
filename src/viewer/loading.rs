@@ -15,6 +15,7 @@ impl Viewer {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
+        let home_source = review_context::HomeSource::from_arguments(&arguments);
         let preferred_path = arguments.file.clone();
         let view_mode = settings.diff.default_view;
         let wrapping = Wrapping::from_settings(&settings.diff);
@@ -48,6 +49,7 @@ impl Viewer {
             palette,
             layout,
             arguments,
+            home_source,
             settings,
             focus,
             panels: panels::PanelLayout::new(cx),
@@ -108,7 +110,7 @@ impl Viewer {
         self.repository = LoadState::Loading;
         self.begin_loading(LoadingKind::Comparison, window, cx);
         self.rebuild_browser(cx);
-        let arguments = self.arguments.clone();
+        let arguments = self.home_arguments();
         let history_query = self.history_query.clone();
         let requested_history_query = history_query.clone();
         self.requests.comparison_task = Some(cx.spawn_in(window, async move |this, cx| {
@@ -140,9 +142,13 @@ impl Viewer {
                         }
                         let branch = Rc::new(comparison);
                         LoadState::Loaded(RepositorySession {
-                            branch: branch.clone(),
+                            home: branch.clone(),
+                            review: review_context::ReviewContext {
+                                source: viewer.home_source,
+                                aggregate: branch.clone(),
+                            },
                             history: history.map(Rc::new),
-                            scope: ComparisonScope::WholeBranch,
+                            scope: ComparisonScope::Aggregate,
                             comparison: LoadState::Loaded(branch),
                             revision_comparison: None,
                         })
@@ -332,7 +338,7 @@ impl Viewer {
         cx.notify();
     }
 
-    pub(super) fn show_whole_branch(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    pub(super) fn show_all_changes(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         // There is no recorded branch to restore until the initial snapshot
         // finishes. Cancelling that task here would leave a loading view.
         if self.repository.ready().is_none() {
@@ -351,8 +357,8 @@ impl Viewer {
         self.finish_loading(LoadingKind::Comparison);
         self.finish_loading(LoadingKind::Evolution);
         if let LoadState::Loaded(session) = &mut self.repository {
-            session.scope = ComparisonScope::WholeBranch;
-            session.comparison = LoadState::Loaded(session.branch.clone());
+            session.scope = ComparisonScope::Aggregate;
+            session.comparison = LoadState::Loaded(session.review.aggregate.clone());
         }
         self.rebuild_browser(cx);
         self.follow_open_file(window, cx);
@@ -395,7 +401,7 @@ impl Viewer {
             .cloned();
         let already_loading = matches!(&session.scope, ComparisonScope::Revision {commit_id: current, ..} if current == commit_id)
             && matches!(session.comparison, LoadState::Loading);
-        let branch = session.branch.as_ref().clone();
+        let branch = session.home.as_ref().clone();
         let history_operation = overview_revision
             .map(|(_, operation)| operation)
             .unwrap_or_else(|| {

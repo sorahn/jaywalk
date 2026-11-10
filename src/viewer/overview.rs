@@ -220,7 +220,7 @@ impl Viewer {
             tab_size: self.settings.editor.tab_size,
             series: matches!(
                 self.repository.ready().map(|session| &session.scope),
-                Some(ComparisonScope::WholeBranch)
+                Some(ComparisonScope::Aggregate)
             ),
         };
         if self.overview.requested.as_ref() == Some(&request) {
@@ -253,7 +253,7 @@ impl Viewer {
                     || request.series
                         != matches!(
                             viewer.repository.ready().map(|session| &session.scope),
-                            Some(ComparisonScope::WholeBranch)
+                            Some(ComparisonScope::Aggregate)
                         )
                 {
                     viewer.overview.requested = None;

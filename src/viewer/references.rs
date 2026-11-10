@@ -32,7 +32,9 @@ impl Viewer {
         match &self.repository.ready()?.scope {
             ComparisonScope::Revision { commit_id, .. } => Some(commit_id.clone()),
             ComparisonScope::Evolution { anchor, .. } => Some(anchor.clone()),
-            ComparisonScope::WholeBranch => Some(self.repository.ready()?.branch.tip.clone()),
+            ComparisonScope::Aggregate => {
+                Some(self.repository.ready()?.review.aggregate.tip.clone())
+            }
         }
     }
     pub(super) fn set_remote_visibility(
@@ -107,7 +109,7 @@ impl Viewer {
         let Some(session) = self.repository.ready() else {
             return;
         };
-        let branch = session.branch.as_ref().clone();
+        let branch = session.home.as_ref().clone();
         let top = self
             .history_scroll
             .0

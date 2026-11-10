@@ -22,6 +22,7 @@ mod context_menu;
 mod editor_presentation;
 mod evolution;
 mod history_menu;
+mod review_context;
 #[cfg(test)]
 use editor_presentation::standard_patch;
 use editor_presentation::{CodeComparison, PreparedFile};
@@ -108,7 +109,7 @@ impl<T> LoadState<T> {
 
 #[derive(Clone, PartialEq, Eq)]
 enum ComparisonScope {
-    WholeBranch,
+    Aggregate,
     Revision {
         commit_id: String,
         change_id: String,
@@ -124,7 +125,8 @@ enum ComparisonScope {
 }
 
 struct RepositorySession {
-    branch: Rc<Comparison>,
+    home: Rc<Comparison>,
+    review: review_context::ReviewContext,
     history: Result<Rc<jaywalk::history::History>, String>,
     scope: ComparisonScope,
     comparison: LoadState<Rc<Comparison>>,
@@ -143,6 +145,7 @@ pub(crate) fn init(arguments: &Arguments, settings: &Settings, cx: &mut App) -> 
 
 pub(crate) struct Viewer {
     arguments: Arguments,
+    home_source: review_context::HomeSource,
     welcome: Option<welcome::WelcomeState>,
     recent_recorded: bool,
     settings: Settings,
@@ -245,7 +248,7 @@ impl Viewer {
     fn supports_evolution(&self) -> bool {
         self.repository
             .ready()
-            .is_some_and(|session| session.branch.supports_evolution())
+            .is_some_and(|session| session.home.supports_evolution())
     }
 
     fn scope_label(&self) -> String {
@@ -253,10 +256,14 @@ impl Viewer {
             return "External diff".into();
         }
         match self.repository.ready().map(|session| &session.scope) {
-            Some(ComparisonScope::WholeBranch) if !self.supports_evolution() => {
-                "Git comparison".into()
-            }
-            Some(ComparisonScope::WholeBranch) => "Whole branch".into(),
+            Some(ComparisonScope::Aggregate) => self
+                .repository
+                .ready()
+                .expect("loaded scope has a session")
+                .review
+                .source
+                .label()
+                .into(),
             Some(ComparisonScope::Revision {
                 commit_id, merge, ..
             }) => format!(

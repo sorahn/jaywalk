@@ -65,7 +65,7 @@ For example, `open_keybindings = ["secondary-k secondary-s"]` inside `[keybindin
 | Previous / next change | Cmd+Up / Cmd+Down | Option+Shift+F5 / Option+F5; Shift+F7 / F7 |
 | Previous / next file | Cmd+[ / Cmd+] | Option+Up / Option+Down |
 | Previous / next history entry | Cmd+Shift+[ / Cmd+Shift+] | Cmd+Option+Up / Cmd+Option+Down |
-| Whole branch | Cmd+Shift+B | |
+| All changes | Cmd+Shift+B | |
 | Overview of the current comparison | Cmd+K, then O | |
 | Find any repository file | Cmd+P | |
 | Command palette | Cmd+Shift+P | F1 |
@@ -176,7 +176,7 @@ layout/reset/remote-management command merely to fill the table.
 | `keybindings.version_patch` | `["secondary-k p"]` | Version patch |
 | `keybindings.since_previous` | `["secondary-k s"]` | Since previous version |
 | `keybindings.refresh` | `["secondary-r"]` | Refresh recorded changes |
-| `keybindings.whole_branch` | `["secondary-shift-b"]` | Whole branch |
+| `keybindings.all_changes` | `["secondary-shift-b"]` | All changes |
 | `keybindings.overview` | `["secondary-k o"]` | Changeset overview |
 | `keybindings.show_references` | `["secondary-k r"]` | Browse references |
 | `keybindings.toggle_reference_labels` | `[]` | Toggle reference labels |
@@ -413,3 +413,6 @@ subject. See [context menus](context-menus.md).
 | `keybindings.expand_overview` | `[]` | Expand all overview files |
 | `keybindings.overview_context` | `[]` | Show changed lines with context |
 | `keybindings.overview_full` | `[]` | Show full overview files |
+
+| `keybindings.current_work` | `[]` | Current work |
+| `keybindings.opened_comparison` | `[]` | Opened comparison |

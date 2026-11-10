@@ -213,6 +213,15 @@ impl Viewer {
                     cx,
                 );
             }
+            CommandId::CurrentWork | CommandId::OpenedComparison => {
+                self.checkpoint_navigation(cx);
+                self.home_source = if command == CommandId::CurrentWork {
+                    review_context::HomeSource::Workspace
+                } else {
+                    review_context::HomeSource::Opened
+                };
+                self.load_repository(None, window, cx);
+            }
             CommandId::OpenRepository => {
                 crate::choose_repository(self.arguments.clone(), Some(cx.entity().downgrade()), cx)
             }
@@ -249,7 +258,7 @@ impl Viewer {
                 self.edit_configuration_file(keyboard::ConfigurationFile::Keybindings, window, cx)
             }
             CommandId::SelectKeybindings => self.choose_keybindings_profile(window, cx),
-            CommandId::WholeBranch => self.show_whole_branch(window, cx),
+            CommandId::AllChanges => self.show_all_changes(window, cx),
             CommandId::Overview => {
                 self.show_overview(window, cx);
             }
