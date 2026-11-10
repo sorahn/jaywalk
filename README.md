@@ -103,7 +103,13 @@ Cmd+Shift+[ and Cmd+Shift+] through history. Whole-branch overview precedes the 
 back from that first entry returns to overview. Cmd+P finds repository files;
 Cmd+Shift+P opens commands. Shortcuts follow the active focus context.
 
-Every application and widget shortcut can be remapped or disabled. See the
+Every application and widget shortcut can be remapped or disabled in a separate
+TOML keybinding profile. `keyboard.profile` selects the file; it defaults to
+`keybindings/default.toml` beside your config, but may point anywhere. Optional
+`keyboard.additional_directories` adds discovery folders. **Open keybindings**
+edits the active file, and **Select keybindings profile…** switches it live from
+the command palette. First use creates sparse user files without overwriting
+existing settings. See the
 [keybindings guide](docs/keybindings.md) for all defaults, remapping examples,
 input/tree/diff contexts and the conventions used to choose the defaults.
 The first shortcut in an array supplies the primary menu/palette hint.
