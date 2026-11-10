@@ -7,6 +7,23 @@ or disabled in a separate TOML keybindings profile, selected by your
 menus, command-palette hints and action-aware tooltips follow the active keymap.
 The first shortcut in an array is the primary one shown in hints.
 
+On Linux, `secondary` means Ctrl. The shipped `[platform.linux]` defaults use
+Ctrl+Shift+R for recent repositories (leaving Ctrl+R for refresh) and F11 for
+fullscreen. They apply before sparse user profiles, including profiles containing
+only a few overrides. macOS retains Ctrl+R for recents and Ctrl+Cmd+F for fullscreen.
+The tables below show the common/macOS defaults; these two Linux defaults replace
+the corresponding entries. User overrides always take precedence over shipped defaults. Profiles can also
+contain `[platform.linux]` or `[platform.macos]` command tables; the matching table
+overrides that file's common `[keybindings]` values, and other tables are ignored.
+The shipped keybindings file can be copied or selected directly as a profile.
+
+The shipped platform-specific entries are:
+
+| Profile key | Default | Meaning |
+| --- | --- | --- |
+| `platform.linux.open_recent` | `["secondary-shift-r"]` | Linux recent-repository shortcut. |
+| `platform.linux.fullscreen` | `["f11"]` | Linux fullscreen shortcut. |
+
 ## Files and profile selection
 
 On first use, Jaywalk creates `~/.config/jaywalk/config.toml` and a sparse

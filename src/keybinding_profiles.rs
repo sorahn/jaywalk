@@ -8,23 +8,36 @@ pub const DEFAULT_BINDINGS: &str = include_str!("../config/keybindings.toml");
 pub const USER_CONFIG: &str = include_str!("../config/user.toml");
 pub const USER_PROFILE: &str = include_str!("../config/user-keybindings.toml");
 
-#[derive(Clone, Debug, Deserialize, PartialEq)]
-#[serde(deny_unknown_fields)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Profile {
-    #[serde(default = "default_bindings")]
     pub keybindings: BTreeMap<CommandId, Vec<String>>,
-    #[serde(default)]
     pub keymap: Vec<crate::keymap::Override>,
 }
-pub fn default_bindings() -> BTreeMap<CommandId, Vec<String>> {
-    // Parse the shipped table directly; Profile's default must not recurse.
-    #[derive(Deserialize)]
-    struct Defaults {
-        keybindings: BTreeMap<CommandId, Vec<String>>,
+
+/// Both shipped defaults and user profiles use this file format. Common values
+/// are followed by matching platform values; neither replaces omitted defaults.
+#[derive(Default, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+struct ProfileFile {
+    keybindings: BTreeMap<CommandId, Vec<String>>,
+    keymap: Vec<crate::keymap::Override>,
+    platform: BTreeMap<String, BTreeMap<CommandId, Vec<String>>>,
+}
+impl ProfileFile {
+    fn bindings(mut self, platform: &str) -> BTreeMap<CommandId, Vec<String>> {
+        if let Some(overrides) = self.platform.remove(platform) {
+            self.keybindings.extend(overrides);
+        }
+        self.keybindings
     }
-    toml::from_str::<Defaults>(DEFAULT_BINDINGS)
+}
+pub fn default_bindings() -> BTreeMap<CommandId, Vec<String>> {
+    default_bindings_for(std::env::consts::OS)
+}
+fn default_bindings_for(platform: &str) -> BTreeMap<CommandId, Vec<String>> {
+    toml::from_str::<ProfileFile>(DEFAULT_BINDINGS)
         .expect("shipped keybindings are valid TOML")
-        .keybindings
+        .bindings(platform)
 }
 impl Default for Profile {
     fn default() -> Self {
@@ -70,27 +83,18 @@ impl Profile {
         Ok(())
     }
     pub fn parse(input: &str) -> Result<Self, String> {
-        let mut value: toml::Value =
-            toml::from_str(input).map_err(|error| format!("Invalid keybindings TOML: {error}"))?;
-        let table = value.as_table_mut().ok_or("Expected a keybindings table")?;
-        if let Some(overrides) = table
-            .get_mut("keybindings")
-            .and_then(toml::Value::as_table_mut)
-        {
-            let defaults: toml::Value =
-                toml::from_str(DEFAULT_BINDINGS).expect("shipped keybindings are valid TOML");
-            for (name, keys) in defaults["keybindings"]
-                .as_table()
-                .expect("shipped commands form a table")
-            {
-                overrides
-                    .entry(name.clone())
-                    .or_insert_with(|| keys.clone());
-            }
-        }
-        let profile: Self = value
-            .try_into()
+        Self::parse_for(input, std::env::consts::OS)
+    }
+    fn parse_for(input: &str, platform: &str) -> Result<Self, String> {
+        let file: ProfileFile = toml::from_str(input)
             .map_err(|error| format!("Invalid keybindings profile: {error}"))?;
+        let keymap = file.keymap.clone();
+        let mut keybindings = default_bindings_for(platform);
+        keybindings.extend(file.bindings(platform));
+        let profile = Self {
+            keybindings,
+            keymap,
+        };
         profile.validate()?;
         Ok(profile)
     }
@@ -345,6 +349,27 @@ mod tests {
     use super::{Profile, path};
     use crate::{commands::CommandId, settings::Settings};
     #[test]
+    fn platform_defaults_survive_sparse_profiles_and_yield_to_user_overrides() {
+        let linux = super::default_bindings_for("linux");
+        assert_ne!(
+            crate::keymap::strokes(&linux[&CommandId::OpenRecent][0]).unwrap(),
+            crate::keymap::strokes(&linux[&CommandId::Refresh][0]).unwrap()
+        );
+        let macos = super::default_bindings_for("macos");
+        assert_eq!(macos[&CommandId::OpenRecent], ["ctrl-r"]);
+        for input in ["", "[keybindings]\nfind_file=[]"] {
+            let profile = Profile::parse(input).unwrap();
+            assert_eq!(
+                profile.keybindings[&CommandId::OpenRecent],
+                super::default_bindings()[&CommandId::OpenRecent]
+            );
+        }
+        let profile =
+            Profile::parse("[keybindings]\nopen_recent=['alt-r']\nfullscreen=[]").unwrap();
+        assert_eq!(profile.keybindings[&CommandId::OpenRecent], ["alt-r"]);
+        assert!(profile.keybindings[&CommandId::Fullscreen].is_empty());
+    }
+    #[test]
     fn sparse_profiles_inherit_and_replace_arrays_without_accepting_app_settings() {
         let profile = Profile::parse(
             "[keybindings]\nfind_file=['secondary-k secondary-p']\ntoggle_history=[]",
@@ -393,5 +418,34 @@ mod tests {
             .unwrap(),
             std::path::Path::new("/shared/keys.toml")
         );
+    }
+}
+
+#[cfg(test)]
+mod profile_file_regressions {
+    use super::{DEFAULT_BINDINGS, Profile, default_bindings_for};
+    use crate::commands::CommandId;
+    #[test]
+    fn shipped_file_is_a_valid_profile_on_both_supported_platforms() {
+        for platform in ["macos", "linux"] {
+            let profile = Profile::parse_for(DEFAULT_BINDINGS, platform).unwrap();
+            assert_eq!(profile.keybindings, default_bindings_for(platform));
+        }
+    }
+    #[test]
+    fn platform_values_override_common_values_without_losing_sparse_defaults() {
+        let input = "[keybindings]\nopen_recent=['alt-r']\n[platform.linux]\nopen_recent=['secondary-shift-r']\nfullscreen=[]";
+        let linux = Profile::parse_for(input, "linux").unwrap();
+        assert_eq!(
+            linux.keybindings[&CommandId::OpenRecent],
+            ["secondary-shift-r"]
+        );
+        assert!(linux.keybindings[&CommandId::Fullscreen].is_empty());
+        assert!(linux.keybindings.contains_key(&CommandId::OpenSettings));
+        assert_eq!(
+            Profile::parse_for(input, "macos").unwrap().keybindings[&CommandId::OpenRecent],
+            ["alt-r"]
+        );
+        assert!(Profile::parse("[platform.linux]\nunknown_command=[]").is_err());
     }
 }

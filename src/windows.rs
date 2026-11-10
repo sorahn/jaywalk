@@ -219,6 +219,7 @@ pub(crate) fn open_with_disposition(
         window.window_id()
     } else {
         let options = WindowOptions {
+            app_id: Some("io.github.sorahn.jaywalk".into()),
             titlebar: Some(TitlebarOptions {
                 title: Some(window_title(&arguments).into()),
                 ..Default::default()

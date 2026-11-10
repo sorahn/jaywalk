@@ -67,3 +67,9 @@ hide = ["secondary-h"]
 hide_others = ["secondary-alt-h"]
 show_all = []
 
+# Platform defaults are applied before sparse user overrides.
+# On Linux, secondary and ctrl both mean Ctrl, unlike macOS.
+[platform.linux]
+open_recent = ["secondary-shift-r"]
+fullscreen = ["f11"]
+

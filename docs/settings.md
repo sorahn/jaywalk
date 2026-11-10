@@ -1,5 +1,9 @@
 # Settings reference
 
+Keyboard defaults include Linux-specific recent-repository and fullscreen bindings;
+see the [keybindings guide](keybindings.md). Sparse profiles inherit the active
+platform's defaults before applying their explicit overrides.
+
 Jaywalk reads TOML settings. Keep only your overrides in your user file;
 omitted values inherit the shipped [default configuration](../config/default.toml).
 The schema and validation live in [src/settings.rs](../src/settings.rs).

@@ -22,6 +22,7 @@ pub(crate) fn show(cx: &mut App) -> Result<()> {
         return Ok(());
     }
     let options = WindowOptions {
+        app_id: Some("io.github.sorahn.jaywalk".into()),
         titlebar: Some(TitlebarOptions {
             title: Some("About Jaywalk".into()),
             ..Default::default()
