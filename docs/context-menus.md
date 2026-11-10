@@ -92,3 +92,43 @@ the aggregate context independently of the inspected item and file.
 `keybindings.all_changes` retains the former aggregate shortcut; `whole_branch`
 is accepted as a legacy command spelling in user profiles. Current work and
 Opened comparison are unbound by default.
+
+## Branch review context
+
+Use **Current work** for the latest combined workspace comparison, including the
+current jj stack. **All changes** returns to the complete branch/range being
+reviewed; it includes commits after the individual commit you inspected. The
+adjacent dropdown offers Choose branch or range, Choose comparison base, Current
+work, and Opened comparison. The caption names the review source and base.
+
+Choose branch or range lists local and remote branch/bookmark names independently
+of graph visibility. A known remote default branch, or a single local
+`main`/`master`/`trunk`, is suggested as the integration base. Choose comparison
+base changes that choice. Tracking a branch does not make its upstream the
+integration target. Resolving multiple common bases or a conflicted bookmark
+reports an error and retains the previous view.
+
+From another graph branch, **Review branch containing this commit…** uses the
+existing context when the commit belongs to its review range, otherwise resolves
+containing named branches or unnamed heads. A unique candidate opens directly;
+multiple candidates open the review picker. Shared graph colors/lanes are not
+used as branch identity. Reference rows also offer **Review branch changes** on
+right-click; normal clicking still inspects the tip commit.
+
+History merges additionally offer **Review merged branch changes** (the original
+side-branch proposal) and **Review merge result** (the receiving parent through
+the merge, including integration edits). A named branch already merged into its
+base recovers its original fork point when one matching two-parent merge exists,
+even if the receiving branch has advanced. Ambiguous merges and squash/rebase
+merges require an explicit base/range; no historical branch name is invented.
+
+Aggregate named-branch views follow locally observed reference updates. Inspected
+commits/evolution versions, historical merged ranges and Back/Forward visits stay
+pinned. All changes resumes that source; Current work returns to live workspace
+changes. Refresh does not check out or fetch anything. Failed resolutions keep
+the current content and report the error in the status area.
+
+Back/Forward restores the branch/base context, comparison snapshot, file,
+overview state and reading position together. An explicit original CLI range
+remains available via Opened comparison after using Current work. External diffs
+keep All files; branch/base controls do not apply to them.

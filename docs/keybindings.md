@@ -416,3 +416,9 @@ subject. See [context menus](context-menus.md).
 
 | `keybindings.current_work` | `[]` | Current work |
 | `keybindings.opened_comparison` | `[]` | Opened comparison |
+
+| `keybindings.choose_review` | `[]` | Choose branch or range… |
+| `keybindings.choose_review_base` | `[]` | Choose comparison base… |
+| `keybindings.branch_changes` | `[]` | Review branch containing this commit… |
+| `keybindings.merged_branch` | `[]` | Review merged branch changes |
+| `keybindings.merge_result` | `[]` | Review merge result |

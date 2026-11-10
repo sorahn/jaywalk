@@ -50,6 +50,7 @@ impl Viewer {
             layout,
             arguments,
             home_source,
+            review_picker: review_context::ReviewPicker::default(),
             settings,
             focus,
             panels: panels::PanelLayout::new(cx),
@@ -144,7 +145,7 @@ impl Viewer {
                         LoadState::Loaded(RepositorySession {
                             home: branch.clone(),
                             review: review_context::ReviewContext {
-                                source: viewer.home_source,
+                                source: review_context::ReviewSource::Home(viewer.home_source),
                                 aggregate: branch.clone(),
                             },
                             history: history.map(Rc::new),
@@ -338,7 +339,7 @@ impl Viewer {
         cx.notify();
     }
 
-    pub(super) fn show_all_changes(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    pub(super) fn restore_review_aggregate(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         // There is no recorded branch to restore until the initial snapshot
         // finishes. Cancelling that task here would leave a loading view.
         if self.repository.ready().is_none() {
@@ -401,7 +402,7 @@ impl Viewer {
             .cloned();
         let already_loading = matches!(&session.scope, ComparisonScope::Revision {commit_id: current, ..} if current == commit_id)
             && matches!(session.comparison, LoadState::Loading);
-        let branch = session.home.as_ref().clone();
+        let branch = session.review.aggregate.as_ref().clone();
         let history_operation = overview_revision
             .map(|(_, operation)| operation)
             .unwrap_or_else(|| {

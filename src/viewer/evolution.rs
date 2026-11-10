@@ -392,7 +392,7 @@ impl Viewer {
         let Some(repository) = self.repository.ready() else {
             return;
         };
-        let branch = repository.home.as_ref().clone();
+        let branch = repository.review.aggregate.as_ref().clone();
         let limit = self.settings.evolution.limit;
         self.evolution.generation += 1;
         let generation = self.evolution.generation;
@@ -985,7 +985,7 @@ impl Viewer {
                     let group_head = timeline.versions[index].commit_id.clone();
                     let version = &timeline.versions[index];
                     let menu_target = history_menu::VersionTarget {
-                        revision: history_menu::RevisionTarget { commit: version.commit_id.clone(), change: version.change_id.clone(), message: version.description.clone() },
+                        revision: history_menu::RevisionTarget { commit: version.commit_id.clone(), change: version.change_id.clone(), message: version.description.clone(), parents: version.parents.clone() },
                         operation_id: version.operation_id.clone(), kind, operation: operation.clone(), file_path: file_path.clone(), index,
                         has_predecessors: !version.predecessors.is_empty(),
                     };
@@ -1334,6 +1334,7 @@ impl Viewer {
                 commit: version.commit_id.clone(),
                 change: version.change_id.clone(),
                 message: version.description.clone(),
+                parents: version.parents.clone(),
             },
             operation_id: version.operation_id.clone(),
             kind,

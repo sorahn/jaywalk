@@ -1,5 +1,6 @@
 use super::*;
 use gpui::component::Sizable;
+use gpui::component::menu::DropdownMenu as _;
 use gpui::component::tooltip::Tooltip;
 use gpui::prelude::FluentBuilder;
 
@@ -134,8 +135,33 @@ impl Render for Viewer {
                                         None,
                                     )
                                     .on_click(cx.listener(|this, _, window, cx| {
-                                        this.show_all_changes(window, cx)
+                                        this.all_review_changes(None, window, cx)
                                     })),
+                            )
+                            .child(
+                                Button::new("review-source")
+                                    .ghost()
+                                    .compact()
+                                    .icon(IconName::ChevronDown)
+                                    .tooltip("Choose review branch and base")
+                                    .disabled(self.arguments.diff.is_some())
+                                    .dropdown_menu(|menu, _, _| {
+                                        context_menu::command_entries(
+                                            menu,
+                                            &[
+                                                (jaywalk::commands::CommandId::ChooseReview, false),
+                                                (
+                                                    jaywalk::commands::CommandId::ChooseReviewBase,
+                                                    false,
+                                                ),
+                                                (jaywalk::commands::CommandId::CurrentWork, false),
+                                                (
+                                                    jaywalk::commands::CommandId::OpenedComparison,
+                                                    false,
+                                                ),
+                                            ],
+                                        )
+                                    }),
                             )
                             .child(Button::new("overview").ghost().label("Overview").on_click(
                                 cx.listener(|this, _, window, cx| {

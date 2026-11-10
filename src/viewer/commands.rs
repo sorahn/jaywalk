@@ -214,13 +214,15 @@ impl Viewer {
                 );
             }
             CommandId::CurrentWork | CommandId::OpenedComparison => {
-                self.checkpoint_navigation(cx);
-                self.home_source = if command == CommandId::CurrentWork {
-                    review_context::HomeSource::Workspace
-                } else {
-                    review_context::HomeSource::Opened
-                };
-                self.load_repository(None, window, cx);
+                self.load_home_review(
+                    if command == CommandId::CurrentWork {
+                        review_context::HomeSource::Workspace
+                    } else {
+                        review_context::HomeSource::Opened
+                    },
+                    window,
+                    cx,
+                );
             }
             CommandId::OpenRepository => {
                 crate::choose_repository(self.arguments.clone(), Some(cx.entity().downgrade()), cx)
@@ -258,7 +260,14 @@ impl Viewer {
                 self.edit_configuration_file(keyboard::ConfigurationFile::Keybindings, window, cx)
             }
             CommandId::SelectKeybindings => self.choose_keybindings_profile(window, cx),
-            CommandId::AllChanges => self.show_all_changes(window, cx),
+            CommandId::AllChanges => self.all_review_changes(None, window, cx),
+            CommandId::ChooseReview => self.choose_review(None, window, cx),
+            CommandId::ChooseReviewBase => self.choose_review_base(window, cx),
+            CommandId::BranchChanges | CommandId::MergedBranch | CommandId::MergeResult => {
+                if let Some(target) = self.current_revision_target() {
+                    self.execute_revision_action(command, &target, window, cx);
+                }
+            }
             CommandId::Overview => {
                 self.show_overview(window, cx);
             }

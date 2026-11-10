@@ -88,7 +88,14 @@ pub(super) fn file_menu(
             );
         }
     }
-    menu
+    command_entries(
+        menu.separator(),
+        &[
+            (CommandId::AllChanges, false),
+            (CommandId::CurrentWork, false),
+            (CommandId::ChooseReview, false),
+        ],
+    )
 }
 
 impl FileTarget {
@@ -223,6 +230,9 @@ pub(super) fn diff_commands(
             (CommandId::PreviousChange, false),
             (CommandId::NextChange, false),
             (CommandId::Overview, false),
+            (CommandId::AllChanges, false),
+            (CommandId::CurrentWork, false),
+            (CommandId::ChooseReviewBase, false),
         ],
     )
 }

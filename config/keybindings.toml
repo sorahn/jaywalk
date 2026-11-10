@@ -97,6 +97,12 @@ overview_full = []
 current_work = []
 opened_comparison = []
 
+choose_review = []
+choose_review_base = []
+branch_changes = []
+merged_branch = []
+merge_result = []
+
 # Platform defaults are applied before sparse user overrides.
 # On Linux, secondary and ctrl both mean Ctrl, unlike macOS.
 [platform.linux]

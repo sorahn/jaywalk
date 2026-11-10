@@ -146,6 +146,7 @@ pub(crate) fn init(arguments: &Arguments, settings: &Settings, cx: &mut App) -> 
 pub(crate) struct Viewer {
     arguments: Arguments,
     home_source: review_context::HomeSource,
+    review_picker: review_context::ReviewPicker,
     welcome: Option<welcome::WelcomeState>,
     recent_recorded: bool,
     settings: Settings,
@@ -262,14 +263,19 @@ impl Viewer {
                 .expect("loaded scope has a session")
                 .review
                 .source
-                .label()
-                .into(),
+                .label(),
             Some(ComparisonScope::Revision {
                 commit_id, merge, ..
             }) => format!(
-                "Commit {}{}",
+                "Commit {}{} · {}",
                 &commit_id[..commit_id.len().min(8)],
-                if *merge { " · first parent" } else { "" }
+                if *merge { " · first parent" } else { "" },
+                self.repository
+                    .ready()
+                    .expect("loaded commit has a review context")
+                    .review
+                    .source
+                    .label()
             ),
             Some(ComparisonScope::Evolution { label, version, .. }) => {
                 format!("{label} · {}", &version[..version.len().min(8)])

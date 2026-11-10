@@ -164,8 +164,28 @@ impl Viewer {
                             let Some(session) = viewer.repository.ready() else {
                                 return;
                             };
+                            let branch_review = matches!(
+                                session.review.source,
+                                review_context::ReviewSource::Target(_)
+                            );
                             let pinned = viewer.navigation.pinned
-                                || matches!(session.scope, ComparisonScope::Evolution { .. });
+                                || matches!(session.scope, ComparisonScope::Evolution { .. })
+                                || (branch_review
+                                    && !matches!(session.scope, ComparisonScope::Aggregate));
+                            if changed
+                                && !pinned
+                                && session.review.source.follows_branch()
+                                && matches!(session.scope, ComparisonScope::Aggregate)
+                            {
+                                viewer.refresh_recorded(window, cx);
+                                return;
+                            }
+                            if branch_review {
+                                if changed {
+                                    viewer.reload_history(None, window, cx);
+                                }
+                                return;
+                            }
                             let operation_changed =
                                 stamp.operation.as_ref().is_some_and(|operation| {
                                     viewer.live.retry.allows(operation, &session.home.operation)
@@ -212,6 +232,20 @@ impl Viewer {
     }
 
     fn refresh_recorded(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(session) = self.repository.ready()
+            && let review_context::ReviewSource::Target(target) = &session.review.source
+        {
+            if matches!(session.scope, ComparisonScope::Aggregate) {
+                self.open_review_target(target.clone(), window, cx);
+            } else {
+                self.live.message = Some(
+                    "Historical branch review · All changes resumes the latest branch comparison"
+                        .into(),
+                );
+                cx.notify();
+            }
+            return;
+        }
         if !self.supports_evolution() {
             self.load_repository(None, window, cx);
             return;
@@ -325,7 +359,7 @@ impl Viewer {
                         viewer.repository = LoadState::Loaded(RepositorySession {
                             home: home.clone(),
                             review: review_context::ReviewContext {
-                                source: viewer.home_source,
+                                source: review_context::ReviewSource::Home(viewer.home_source),
                                 aggregate: home,
                             },
                             history: Ok(Rc::new(history)),

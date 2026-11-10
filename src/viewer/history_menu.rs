@@ -8,6 +8,7 @@ pub(super) struct RevisionTarget {
     pub(super) commit: String,
     pub(super) change: String,
     pub(super) message: String,
+    pub(super) parents: Vec<String>,
 }
 impl RevisionTarget {
     pub(super) fn from_revision(revision: &jaywalk::history::Revision) -> Self {
@@ -15,6 +16,7 @@ impl RevisionTarget {
             commit: revision.commit_id.clone(),
             change: revision.change_id.clone(),
             message: revision.description.clone(),
+            parents: revision.parents.clone(),
         }
     }
     pub(super) fn copy_text(&self, command: CommandId) -> Option<&str> {
@@ -54,11 +56,19 @@ pub(super) fn revision_menu(
 ) -> PopupMenu {
     for command in [
         CommandId::InspectRevision,
+        CommandId::BranchChanges,
+        CommandId::MergedBranch,
+        CommandId::MergeResult,
         CommandId::ShowChangeEvolution,
         CommandId::CopyCommitId,
         CommandId::CopyChangeId,
         CommandId::CopyCommitMessage,
     ] {
+        if target.parents.len() != 2
+            && matches!(command, CommandId::MergedBranch | CommandId::MergeResult)
+        {
+            continue;
+        }
         if !jj
             && matches!(
                 command,
@@ -84,6 +94,8 @@ pub(super) fn revision_menu(
         menu.separator(),
         &[
             (CommandId::AllChanges, false),
+            (CommandId::CurrentWork, false),
+            (CommandId::ChooseReview, false),
             (CommandId::ShowReferences, false),
             (CommandId::Refresh, false),
         ],
@@ -155,6 +167,31 @@ impl Viewer {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if matches!(
+            command,
+            CommandId::BranchChanges | CommandId::MergedBranch | CommandId::MergeResult
+        ) {
+            match command {
+                CommandId::BranchChanges => {
+                    self.all_review_changes(Some(target.commit.clone()), window, cx)
+                }
+                CommandId::MergedBranch => self.open_review_target(
+                    jaywalk::branch_review::Target::MergedBranch {
+                        merge: target.commit.clone(),
+                    },
+                    window,
+                    cx,
+                ),
+                _ => self.open_review_target(
+                    jaywalk::branch_review::Target::MergeResult {
+                        merge: target.commit.clone(),
+                    },
+                    window,
+                    cx,
+                ),
+            }
+            return;
+        }
         if let Some(text) = target.copy_text(command) {
             cx.write_to_clipboard(ClipboardItem::new_string(text.to_owned()));
             return;
@@ -194,6 +231,7 @@ mod tests {
                 commit: "abc".into(),
                 change: "change".into(),
                 message: String::new(),
+                parents: Vec::new(),
             },
             operation_id: None,
             kind: super::evolution::EvolutionKind::File,
@@ -213,6 +251,7 @@ mod tests {
             commit: "0123456789abcdef".into(),
             change: String::new(),
             message: "subject\n\nbody\n".into(),
+            parents: Vec::new(),
         };
         assert_eq!(
             target.copy_text(CommandId::CopyCommitId),

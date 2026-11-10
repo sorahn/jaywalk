@@ -164,3 +164,12 @@ git difftool --no-prompt --dir-diff --no-symlinks --tool=jaywalk
 
 Git's usual `--cached` and revision arguments work here. This registers an optional
 tool without changing the default viewer. Keep `--wait` for temporary inputs.
+
+## Current work and branch reviews
+
+Current work returns to the latest combined workspace view. All changes returns
+to the full review scope, while Overview shows the selected comparison as a
+stacked diff. Choose another branch/base from the dropdown beside All changes,
+or use the history/reference context menus. The caption shows which source and
+base you are reviewing. See [context menus](context-menus.md#branch-review-context)
+for ambiguity, merged branches and live/pinned behavior.
