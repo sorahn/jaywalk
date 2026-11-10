@@ -24,6 +24,7 @@ mod files;
 mod fluid_view;
 mod geometry;
 mod history;
+mod keyboard;
 mod layout;
 mod live;
 mod loading;

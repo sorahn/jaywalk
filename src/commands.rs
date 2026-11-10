@@ -14,6 +14,8 @@ pub enum CommandId {
     FindFile,
     ShowCommands,
     OpenSettings,
+    OpenKeybindings,
+    SelectKeybindings,
     VersionPatch,
     SincePrevious,
     Refresh,
@@ -77,6 +79,8 @@ impl CommandId {
                 | Self::ClearRecent
                 | Self::ShowCommands
                 | Self::OpenSettings
+                | Self::OpenKeybindings
+                | Self::SelectKeybindings
                 | Self::About
                 | Self::Quit
                 | Self::CloseWindow
@@ -98,6 +102,8 @@ impl CommandId {
         Self::FindFile,
         Self::ShowCommands,
         Self::OpenSettings,
+        Self::OpenKeybindings,
+        Self::SelectKeybindings,
         Self::VersionPatch,
         Self::SincePrevious,
         Self::Refresh,
@@ -162,6 +168,8 @@ impl CommandId {
             Self::VersionPatch => "Version patch",
             Self::SincePrevious => "Since previous version",
             Self::OpenSettings => "Open settings",
+            Self::OpenKeybindings => "Open keybindings",
+            Self::SelectKeybindings => "Select keybindings profile…",
             Self::Refresh => "Refresh recorded changes",
             Self::WholeBranch => "Whole branch",
             Self::Overview => "Changeset overview",

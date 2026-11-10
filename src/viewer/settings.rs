@@ -6,6 +6,7 @@ use std::time::Duration;
 
 pub(super) struct ConfigState {
     task: Option<Task<()>>,
+    pub(super) profile_task: Option<Task<()>>,
     pub(super) error: Option<String>,
     pub(super) pending_horizontal: Option<f32>,
     pub(super) pending_standard: Option<gpui::component::diff::DiffLinePosition>,
@@ -15,6 +16,7 @@ impl ConfigState {
     pub(super) fn new() -> Self {
         Self {
             task: None,
+            profile_task: None,
             error: None,
             pending_standard: None,
             pending_horizontal: None,
@@ -93,7 +95,12 @@ impl Viewer {
         })
     }
 
-    fn apply_settings(&mut self, settings: Settings, window: &mut Window, cx: &mut Context<Self>) {
+    pub(super) fn apply_settings(
+        &mut self,
+        settings: Settings,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         if self.settings == settings {
             return;
         }

@@ -8,6 +8,7 @@ pub(super) enum PaletteKind {
     Files,
     Commands,
     Repositories,
+    Profiles,
 }
 #[derive(Clone)]
 enum Choice {
@@ -17,6 +18,7 @@ enum Choice {
         source: Rc<jaywalk::repository::ComparisonIdentity>,
     },
     Command(jaywalk::commands::CommandId),
+    Profile(String),
     Repository {
         directory: std::path::PathBuf,
         order: usize,
@@ -25,12 +27,14 @@ enum Choice {
 pub(super) struct PaletteState {
     state: Entity<CommandState>,
     open: Option<PaletteKind>,
+    pub(super) profiles: Vec<String>,
 }
 impl PaletteState {
     pub(super) fn new(window: &mut Window, cx: &mut Context<Viewer>) -> Self {
         Self {
             state: cx.new(|cx| CommandState::new(window, cx)),
             open: None,
+            profiles: Vec::new(),
         }
     }
 }
@@ -88,7 +92,9 @@ fn rank_choices(
         .filter_map(|(label, choice)| {
             let rank = match &choice {
                 Choice::File { path, status, .. } => file_rank(query, path, status.is_some()),
-                Choice::Command(_) => fuzzy_score(query, &label).map(|score| (score, false)),
+                Choice::Command(_) | Choice::Profile(_) => {
+                    fuzzy_score(query, &label).map(|score| (score, false))
+                }
                 Choice::Repository { directory, .. } => {
                     recent_rank(query, directory).map(|score| (score, false))
                 }
@@ -224,6 +230,12 @@ impl Viewer {
             PaletteKind::Repositories => {
                 repository_choices(&cx.global::<crate::recents::Recents>().repositories)
             }
+            PaletteKind::Profiles => self
+                .palette
+                .profiles
+                .iter()
+                .map(|name| (name.clone(), Choice::Profile(name.clone())))
+                .collect(),
             PaletteKind::Commands => jaywalk::commands::CommandId::ALL
                 .iter()
                 .filter(|command| {
@@ -262,6 +274,7 @@ impl Viewer {
                         }
                     }
                     Choice::Command(command) => this.execute_command(command, window, cx),
+                    Choice::Profile(name) => this.select_keybindings_profile(name, window, cx),
                     Choice::Repository { directory, .. } => this.open_repository_path(
                         directory,
                         crate::windows::OpenDisposition::Reuse,
@@ -276,6 +289,7 @@ impl Viewer {
                 PaletteKind::Files => "Find any repository file…",
                 PaletteKind::Commands => "Run a command…",
                 PaletteKind::Repositories => "Search recent repositories…",
+                PaletteKind::Profiles => "Select keybindings profile…",
             })
             .items(choices.iter().enumerate().map(|(index, (label, choice))| {
                 let viewer = cx.entity().downgrade();
@@ -290,6 +304,9 @@ impl Viewer {
                 };
                 let status = match choice {
                     Choice::File { status, .. } => status.clone(),
+                    Choice::Profile(name) if name == &self.settings.keyboard.profile => {
+                        Some("Active".into())
+                    }
                     _ => None,
                 };
                 CommandItem::new()
