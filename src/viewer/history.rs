@@ -1,5 +1,6 @@
 use super::*;
 use gpui::component::Sizable;
+use gpui::component::menu::ContextMenuExt as _;
 use gpui::prelude::FluentBuilder;
 use jaywalk::history::History;
 
@@ -44,6 +45,8 @@ fn history_row(
     let revision = &history.revisions[index];
     let commit_id = revision.commit_id.clone();
     let description = revision.summary();
+    let target = history_menu::RevisionTarget::from_revision(revision);
+    let menu_owner = viewer.clone();
     div()
         .id(SharedString::from(format!("revision:{commit_id}")))
         .h(px(height))
@@ -101,6 +104,18 @@ fn history_row(
             let _ = viewer.update(cx, |viewer, cx| {
                 viewer.select_revision(&commit_id, window, cx)
             });
+        })
+        .context_menu(move |menu, _, cx| {
+            let Some(owner) = menu_owner.upgrade() else {
+                return menu;
+            };
+            let viewer = owner.read(cx);
+            history_menu::revision_menu(
+                menu.action_context(viewer.menu_focus()),
+                target.clone(),
+                menu_owner.clone(),
+                viewer.supports_evolution(),
+            )
         })
         .into_any_element()
 }

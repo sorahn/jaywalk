@@ -399,3 +399,12 @@ subject. See [context menus](context-menus.md).
 | `keybindings.file_tree` | `[]` | Show directory tree |
 | `keybindings.tree_changed` | `[]` | Show changed files |
 | `keybindings.tree_all` | `[]` | Show all repository files |
+
+| `keybindings.inspect_revision` | `[]` | View commit changes |
+| `keybindings.show_change_evolution` | `[]` | Show change evolution |
+| `keybindings.copy_commit_id` | `[]` | Copy commit ID |
+| `keybindings.copy_change_id` | `[]` | Copy change ID |
+| `keybindings.copy_commit_message` | `[]` | Copy commit message |
+| `keybindings.copy_operation_id` | `[]` | Copy operation ID |
+| `keybindings.toggle_evolution_groups` | `[]` | Toggle repeated version groups |
+| `keybindings.toggle_unchanged_versions` | `[]` | Toggle unchanged versions |

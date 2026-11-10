@@ -21,6 +21,7 @@ mod comparison;
 mod context_menu;
 mod editor_presentation;
 mod evolution;
+mod history_menu;
 #[cfg(test)]
 use editor_presentation::standard_patch;
 use editor_presentation::{CodeComparison, PreparedFile};

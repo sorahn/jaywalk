@@ -160,6 +160,22 @@ impl Viewer {
             return;
         }
         match command {
+            CommandId::InspectRevision
+            | CommandId::ShowChangeEvolution
+            | CommandId::CopyCommitId
+            | CommandId::CopyChangeId
+            | CommandId::CopyCommitMessage => {
+                if let Some(target) = self.current_revision_target() {
+                    self.execute_revision_action(command, &target, window, cx);
+                }
+            }
+            CommandId::CopyOperationId
+            | CommandId::ToggleEvolutionGroups
+            | CommandId::ToggleUnchangedVersions => {
+                if let Some(target) = self.active_version_target() {
+                    self.execute_version_action(command, &target, window, cx);
+                }
+            }
             CommandId::OpenFile
             | CommandId::CopyPath
             | CommandId::CopyRelativePath

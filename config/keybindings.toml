@@ -80,6 +80,15 @@ file_tree = []
 tree_changed = []
 tree_all = []
 
+inspect_revision = []
+show_change_evolution = []
+copy_commit_id = []
+copy_change_id = []
+copy_commit_message = []
+copy_operation_id = []
+toggle_evolution_groups = []
+toggle_unchanged_versions = []
+
 # Platform defaults are applied before sparse user overrides.
 # On Linux, secondary and ctrl both mean Ctrl, unlike macOS.
 [platform.linux]

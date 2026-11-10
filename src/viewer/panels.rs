@@ -620,6 +620,12 @@ impl Viewer {
                     placement.history_side == Side::Right,
                 ),
                 (CommandId::SwapSidebars, false),
+                (CommandId::ShowReferences, self.references.open),
+                (CommandId::ToggleReferenceLabels, self.references.labels),
+                (CommandId::ShowAllRemotes, false),
+                (CommandId::HideAllRemotes, false),
+                (CommandId::RevealSelectedRevision, false),
+                (CommandId::Refresh, false),
             ],
             PanelId::Files => vec![
                 (CommandId::FilesLeft, placement.files_side == Side::Left),
