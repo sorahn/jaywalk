@@ -1,0 +1,11 @@
+# Jaywalk keyboard overrides. Unspecified bindings inherit defaults.
+# Saved edits apply live. See docs/keybindings.md for commands and widget overrides.
+
+[keybindings]
+# find_file = ["secondary-k secondary-p"]
+# toggle_history = []
+# open_keybindings = ["secondary-k secondary-s"]
+
+# [[keymap]]
+# action = "input::Copy"
+# keys = ["secondary-insert"]

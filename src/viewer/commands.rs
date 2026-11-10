@@ -374,7 +374,9 @@ mod tests {
                 "alt-enter",
             ),
         ] {
-            let settings = Settings::parse(config).unwrap();
+            let settings = Settings::default()
+                .with_keybindings(jaywalk::keybinding_profiles::Profile::parse(config).unwrap())
+                .unwrap();
             let map = Keymap::new(configured_bindings(&settings));
             let matches = |key: &str, recent: bool| {
                 let mut contexts = vec![KeyContext::parse("Jaywalk").unwrap()];
@@ -501,7 +503,14 @@ mod tests {
             KeyBinding::new("secondary-a", gpui::base::input::SelectAll, Some("Input")),
             KeyBinding::new("secondary-c", gpui::base::input::Copy, Some("Input")),
         ]);
-        let updated = Settings::parse("[keybindings]\ntoggle_history=['secondary-j']").unwrap();
+        let updated = Settings::default()
+            .with_keybindings(
+                jaywalk::keybinding_profiles::Profile::parse(
+                    "[keybindings]\ntoggle_history=['secondary-j']",
+                )
+                .unwrap(),
+            )
+            .unwrap();
         let retained: Vec<_> = map
             .bindings()
             .filter(|binding| !binding.action().as_any().is::<ExecuteCommand>())

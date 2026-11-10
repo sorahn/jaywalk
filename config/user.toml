@@ -1,0 +1,7 @@
+# Jaywalk user overrides. Unspecified settings inherit defaults.
+# Saved edits apply live. See docs/settings.md for all settings.
+
+[keyboard]
+profile = "keybindings/default.toml"
+# Optional extra folders for Select keybindings profile…
+# additional_directories = ["../shared/keybindings"]

@@ -35,8 +35,10 @@ pub struct Settings {
     pub application: ApplicationSettings,
     pub navigation: NavigationSettings,
     pub welcome: WelcomeSettings,
+    pub keyboard: KeyboardSettings,
+    #[serde(skip, default = "crate::keybinding_profiles::default_bindings")]
     pub keybindings: BTreeMap<CommandId, Vec<String>>,
-    #[serde(default)]
+    #[serde(skip)]
     pub keymap: Vec<crate::keymap::Override>,
     pub settings: ReloadSettings,
     pub live: LiveSettings,
@@ -51,6 +53,13 @@ pub struct Settings {
     pub overview: OverviewSettings,
     pub evolution: EvolutionSettings,
     pub file_evolution: FileEvolutionSettings,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct KeyboardSettings {
+    pub profile: String,
+    pub additional_directories: Vec<PathBuf>,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq)]
@@ -285,7 +294,11 @@ impl Settings {
     pub fn parse(input: &str) -> Result<Self, String> {
         let mut defaults: toml::Value = toml::from_str(DEFAULT_CONFIG)
             .expect("the shipped TOML defaults are validated in tests");
-        let overrides = toml::from_str(input).map_err(|error| format!("Invalid TOML: {error}"))?;
+        let overrides: toml::Value =
+            toml::from_str(input).map_err(|error| format!("Invalid TOML: {error}"))?;
+        if overrides.get("keybindings").is_some() || overrides.get("keymap").is_some() {
+            return Err("Put [keybindings] and [[keymap]] in the selected keybindings profile, not config.toml".into());
+        }
         merge_defaults(&mut defaults, overrides);
         let settings: Self = defaults
             .try_into()
@@ -295,23 +308,30 @@ impl Settings {
     }
 
     pub fn read(path: &Path) -> Result<Self, String> {
-        let input = std::fs::read_to_string(path)
-            .map_err(|error| format!("Could not read {}: {error}", path.display()))?;
-        Self::parse(&input).map_err(|error| format!("{}: {error}", path.display()))
+        crate::settings_reload::SettingsSource::resolve(Some(path))?.read()
     }
 
     pub fn load_default() -> Result<Self, String> {
-        let path = default_path()?;
-        match std::fs::read_to_string(&path) {
-            Ok(input) => {
-                Self::parse(&input).map_err(|error| format!("{}: {error}", path.display()))
-            }
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Self::parse(""),
-            Err(error) => Err(format!("Could not read {}: {error}", path.display())),
-        }
+        crate::settings_reload::SettingsSource::resolve(None)?.read()
+    }
+
+    pub fn with_keybindings(
+        mut self,
+        profile: crate::keybinding_profiles::Profile,
+    ) -> Result<Self, String> {
+        self.keybindings = profile.keybindings;
+        self.keymap = profile.keymap;
+        self.validate()?;
+        Ok(self)
     }
 
     fn validate(&self) -> Result<(), String> {
+        crate::keybinding_profiles::validate_reference(&self.keyboard.profile)?;
+        for directory in &self.keyboard.additional_directories {
+            if directory.as_os_str().is_empty() || directory.to_string_lossy().contains('\0') {
+                return Err("keyboard.additional_directories must contain nonempty directory paths without NUL characters".into());
+            }
+        }
         fn bounded(name: &str, value: f32, min: f32, max: f32) -> Result<(), String> {
             if !value.is_finite() || !(min..=max).contains(&value) {
                 return Err(format!("{name} must be between {min} and {max}"));
@@ -638,7 +658,7 @@ mod tests {
     #[test]
     fn typography_and_keymap_overrides_inherit_without_losing_other_commands() {
         use crate::commands::CommandId;
-        let settings = Settings::parse("[editor]\ntab_size=8\nligatures=false\nline_numbers=false\n[panels.history.font]\nfamily='Menlo'\nsize=18\n[files]\ndefault_view='tree'\n[keybindings]\nfind_file=['secondary-k secondary-p']\ntoggle_history=[]").unwrap();
+        let settings = Settings::parse("[editor]\ntab_size=8\nligatures=false\nline_numbers=false\n[panels.history.font]\nfamily='Menlo'\nsize=18\n[files]\ndefault_view='tree'").unwrap().with_keybindings(crate::keybinding_profiles::Profile::parse("[keybindings]\nfind_file=['secondary-k secondary-p']\ntoggle_history=[]").unwrap()).unwrap();
         assert_eq!(settings.editor.tab_size, 8);
         assert!(!settings.editor.ligatures);
         assert_eq!(
@@ -788,7 +808,7 @@ mod advanced_keymap_tests {
     #[test]
     fn widget_overrides_are_typed_replaceable_and_validate_before_installation() {
         assert!(Settings::parse("").unwrap().keymap.is_empty());
-        let settings = Settings::parse("[[keymap]]\naction='input::Copy'\nkeys=['secondary-insert']\ncontext='Input'\nfrom='secondary-c'").unwrap();
+        let settings = crate::keybinding_profiles::Profile::parse("[[keymap]]\naction='input::Copy'\nkeys=['secondary-insert']\ncontext='Input'\nfrom='secondary-c'").unwrap();
         assert_eq!(settings.keymap.len(), 1);
         assert_eq!(settings.keymap[0].from.as_deref(), Some("secondary-c"));
         for invalid in [
@@ -797,7 +817,10 @@ mod advanced_keymap_tests {
             "[[keymap]]\naction='input::Copy'\nkeys=[]\nunknown=true",
             "[[keymap]]\naction='jaywalk::ExecuteCommand'\nkeys=[]",
         ] {
-            assert!(Settings::parse(invalid).is_err(), "{invalid}");
+            assert!(
+                crate::keybinding_profiles::Profile::parse(invalid).is_err(),
+                "{invalid}"
+            );
         }
     }
 }

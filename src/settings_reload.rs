@@ -1,4 +1,5 @@
 //! Content-based config polling tolerates editor atomic replacements and missing defaults.
+use crate::keybinding_profiles::{self as profiles, Profile};
 use crate::settings::{Settings, default_path};
 use std::path::{Path, PathBuf};
 
@@ -26,7 +27,29 @@ impl SettingsSource {
         })
     }
 
-    fn contents(&self) -> Result<String, String> {
+    pub fn path(&self) -> &Path {
+        &self.path
+    }
+
+    pub fn initialize(&self) -> Result<(), String> {
+        if self.optional {
+            profiles::create_if_missing(&self.path, profiles::USER_CONFIG)?;
+        }
+        // Explicit configs must already exist; never create one on a mistyped path.
+        let config = self.config_contents()?;
+        // Keep the settings editor usable even while its TOML is invalid.
+        if let Ok(settings) = Settings::parse(&config)
+            && settings.keyboard.profile == "keybindings/default.toml"
+        {
+            profiles::create_if_missing(
+                &profiles::path(&self.path, &settings.keyboard.profile)?,
+                profiles::USER_PROFILE,
+            )?;
+        }
+        Ok(())
+    }
+
+    fn config_contents(&self) -> Result<String, String> {
         match std::fs::read_to_string(&self.path) {
             Ok(contents) => Ok(contents),
             Err(error) if self.optional && error.kind() == std::io::ErrorKind::NotFound => {
@@ -36,19 +59,43 @@ impl SettingsSource {
         }
     }
 
-    fn parse(&self, contents: &str) -> Result<Settings, String> {
-        Settings::parse(contents).map_err(|error| format!("{}: {error}", self.path.display()))
+    fn contents(&self) -> Result<Contents, String> {
+        let config = self.config_contents()?;
+        let settings = Settings::parse(&config)
+            .map_err(|error| format!("{}: {error}", self.path.display()))?;
+        let profile_path = profiles::path(&self.path, &settings.keyboard.profile)?;
+        let profile = std::fs::read_to_string(&profile_path)
+            .map_err(|error| format!("Could not read {}: {error}", profile_path.display()))?;
+        Ok(Contents {
+            config,
+            profile,
+            profile_path,
+        })
+    }
+
+    fn parse(&self, contents: Contents) -> Result<Settings, String> {
+        let profile = Profile::parse(&contents.profile)
+            .map_err(|error| format!("{}: {error}", contents.profile_path.display()))?;
+        Settings::parse(&contents.config)?.with_keybindings(profile)
     }
 
     pub fn read(&self) -> Result<Settings, String> {
-        self.parse(&self.contents()?)
+        self.initialize()?;
+        self.parse(self.contents()?)
     }
+}
+
+#[derive(Clone, PartialEq)]
+struct Contents {
+    config: String,
+    profile: String,
+    profile_path: PathBuf,
 }
 
 pub struct SettingsWatcher {
     source: SettingsSource,
-    observed: Option<Result<String, String>>,
-    settled: Option<Result<String, String>>,
+    observed: Option<Result<Contents, String>>,
+    settled: Option<Result<Contents, String>>,
 }
 
 impl SettingsWatcher {
@@ -73,7 +120,7 @@ impl SettingsWatcher {
             return None;
         }
         self.settled = Some(contents.clone());
-        Some(contents.and_then(|contents| self.source.parse(&contents)))
+        Some(contents.and_then(|contents| self.source.parse(contents)))
     }
 }
 
@@ -84,18 +131,23 @@ mod tests {
 
     static SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
-    struct Fixture(PathBuf);
+    pub(super) struct Fixture(PathBuf);
     impl Fixture {
-        fn new() -> Self {
+        pub(super) fn new() -> Self {
             let path = std::env::temp_dir().join(format!(
                 "jaywalk-config-{}-{}",
                 std::process::id(),
                 SEQUENCE.fetch_add(1, Ordering::Relaxed)
             ));
             std::fs::create_dir(&path).unwrap();
+            profiles::create_if_missing(
+                &profiles::path(&path.join("config.toml"), "keybindings/default.toml").unwrap(),
+                profiles::USER_PROFILE,
+            )
+            .unwrap();
             Self(path)
         }
-        fn source(&self, optional: bool) -> SettingsSource {
+        pub(super) fn source(&self, optional: bool) -> SettingsSource {
             SettingsSource {
                 path: self.0.join("config.toml"),
                 optional,
@@ -160,5 +212,81 @@ mod tests {
         assert_eq!(watcher.poll().unwrap().unwrap().ui.font_size, 21.);
         std::fs::write(&source.path, "[ui]\nfont_size=21").unwrap();
         assert!(watcher.poll().is_none());
+    }
+}
+
+#[cfg(test)]
+mod profile_tests {
+    use super::SettingsWatcher;
+    use crate::{commands::CommandId, keybinding_profiles as profiles};
+    #[test]
+    fn watches_active_profile_edits_switches_errors_and_recovery() {
+        let fixture = super::tests::Fixture::new();
+        let source = fixture.source(false);
+        std::fs::write(source.path(), "").unwrap();
+        source.initialize().unwrap();
+        let custom = profiles::path(source.path(), "keybindings/custom.toml").unwrap();
+        std::fs::write(&custom, "[keybindings]\nfind_file=['secondary-j']").unwrap();
+        let mut watcher = SettingsWatcher::new(source.clone());
+        assert!(watcher.poll().is_none());
+        watcher.poll().unwrap().unwrap();
+        std::fs::write(
+            source.path(),
+            "[keyboard]\nprofile='keybindings/custom.toml'",
+        )
+        .unwrap();
+        assert!(watcher.poll().is_none());
+        assert_eq!(
+            watcher.poll().unwrap().unwrap().keybindings[&CommandId::FindFile],
+            ["secondary-j"]
+        );
+        std::fs::write(&custom, "[keybindings]\nfind_file=").unwrap();
+        assert!(watcher.poll().is_none());
+        assert!(watcher.poll().unwrap().is_err());
+        assert!(watcher.poll().is_none());
+        std::fs::remove_file(&custom).unwrap();
+        assert!(watcher.poll().is_none());
+        assert!(watcher.poll().unwrap().unwrap_err().contains("custom.toml"));
+        std::fs::write(&custom, "[keybindings]\nfind_file=[]").unwrap();
+        assert!(watcher.poll().is_none());
+        assert!(watcher.poll().unwrap().unwrap().keybindings[&CommandId::FindFile].is_empty());
+        let replacement = custom.with_extension("new");
+        std::fs::write(&replacement, "[keybindings]\nfind_file=['secondary-u']").unwrap();
+        std::fs::rename(replacement, &custom).unwrap();
+        assert!(watcher.poll().is_none());
+        assert_eq!(
+            watcher.poll().unwrap().unwrap().keybindings[&CommandId::FindFile],
+            ["secondary-u"]
+        );
+        std::fs::write(
+            profiles::path(source.path(), "keybindings/default.toml").unwrap(),
+            "not valid =",
+        )
+        .unwrap();
+        assert!(watcher.poll().is_none());
+    }
+    #[test]
+    fn bootstraps_sparse_files_without_overwriting_existing_contents() {
+        let fixture = super::tests::Fixture::new();
+        let source = fixture.source(true);
+        source.read().unwrap();
+        assert_eq!(
+            std::fs::read_to_string(source.path()).unwrap(),
+            profiles::USER_CONFIG
+        );
+        let profile = profiles::path(source.path(), "keybindings/default.toml").unwrap();
+        std::fs::write(&profile, "# keep this\n[keybindings]\nfind_file=[]").unwrap();
+        std::fs::write(source.path(), "# preserve\n[editor]\nfont_family='Menlo'").unwrap();
+        source.read().unwrap();
+        assert!(
+            std::fs::read_to_string(&profile)
+                .unwrap()
+                .contains("# keep this")
+        );
+        assert!(
+            std::fs::read_to_string(source.path())
+                .unwrap()
+                .contains("# preserve")
+        );
     }
 }
