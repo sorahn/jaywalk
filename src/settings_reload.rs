@@ -1,6 +1,6 @@
 //! Content-based config polling tolerates editor atomic replacements and missing defaults.
 use crate::keybinding_profiles::{self as profiles, Profile};
-use crate::settings::{Settings, default_path};
+use crate::settings::{Config, Settings, default_path};
 use std::path::{Path, PathBuf};
 
 #[derive(Clone)]
@@ -38,7 +38,7 @@ impl SettingsSource {
         // Explicit configs must already exist; never create one on a mistyped path.
         let config = self.config_contents()?;
         // Keep the settings editor usable even while its TOML is invalid.
-        if let Ok(settings) = Settings::parse(&config)
+        if let Ok(settings) = Config::parse(&config)
             && settings.keyboard.profile == "keybindings/default.toml"
         {
             profiles::create_if_missing(
@@ -61,8 +61,8 @@ impl SettingsSource {
 
     fn contents(&self) -> Result<Contents, String> {
         let config = self.config_contents()?;
-        let settings = Settings::parse(&config)
-            .map_err(|error| format!("{}: {error}", self.path.display()))?;
+        let settings =
+            Config::parse(&config).map_err(|error| format!("{}: {error}", self.path.display()))?;
         let profile_path = profiles::path(&self.path, &settings.keyboard.profile)?;
         let profile = std::fs::read_to_string(&profile_path)
             .map_err(|error| format!("Could not read {}: {error}", profile_path.display()))?;
@@ -76,7 +76,7 @@ impl SettingsSource {
     fn parse(&self, contents: Contents) -> Result<Settings, String> {
         let profile = Profile::parse(&contents.profile)
             .map_err(|error| format!("{}: {error}", contents.profile_path.display()))?;
-        Settings::parse(&contents.config)?.with_keybindings(profile)
+        Settings::resolve(Config::parse(&contents.config)?, profile)
     }
 
     pub fn read(&self) -> Result<Settings, String> {

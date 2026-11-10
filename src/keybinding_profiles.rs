@@ -26,7 +26,49 @@ pub fn default_bindings() -> BTreeMap<CommandId, Vec<String>> {
         .expect("shipped keybindings are valid TOML")
         .keybindings
 }
+impl Default for Profile {
+    fn default() -> Self {
+        Self {
+            keybindings: default_bindings(),
+            keymap: Vec::new(),
+        }
+    }
+}
 impl Profile {
+    pub fn validate(&self) -> Result<(), String> {
+        crate::keymap::validate(&self.keymap)?;
+        let mut shortcuts = BTreeMap::new();
+        for (command, bindings) in &self.keybindings {
+            for binding in bindings {
+                if binding.trim().is_empty() {
+                    return Err(format!(
+                        "Empty shortcut for {}; use [] to unbind it",
+                        command.label()
+                    ));
+                }
+                let mut normalized = Vec::new();
+                for stroke in binding.split_whitespace() {
+                    let stroke = gpui_kit::Keystroke::parse(stroke).map_err(|error| {
+                        format!(
+                            "Invalid shortcut {binding:?} for {}: {error}",
+                            command.label()
+                        )
+                    })?;
+                    normalized.push(stroke.unparse());
+                }
+                if let Some(previous) = shortcuts.insert(normalized, command)
+                    && previous != command
+                {
+                    return Err(format!(
+                        "Shortcut {binding:?} is assigned to both {} and {}; unbind or reassign one",
+                        previous.label(),
+                        command.label()
+                    ));
+                }
+            }
+        }
+        Ok(())
+    }
     pub fn parse(input: &str) -> Result<Self, String> {
         let mut value: toml::Value =
             toml::from_str(input).map_err(|error| format!("Invalid keybindings TOML: {error}"))?;
@@ -49,7 +91,7 @@ impl Profile {
         let profile: Self = value
             .try_into()
             .map_err(|error| format!("Invalid keybindings profile: {error}"))?;
-        crate::settings::Settings::default().with_keybindings(profile.clone())?;
+        profile.validate()?;
         Ok(profile)
     }
 }

@@ -97,7 +97,8 @@ diff, and panel widgets; Jaywalk does not implement its own UI framework.
 Shipped settings and shortcuts are separate canonical files:
 [`config/default.toml`](../config/default.toml) and
 [`config/keybindings.toml`](../config/keybindings.toml). Sparse user templates
-live alongside them. Update the typed schema, defaults, and corresponding
+live alongside them. `settings::Config` models the main file; resolved `Settings`
+combines that configuration with an independently validated keyboard profile. Update the typed schema, defaults, and corresponding
 [settings](settings.md) or [keybinding](keybindings.md) documentation together.
 
 ## Versions and diagnostics
