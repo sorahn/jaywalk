@@ -102,7 +102,7 @@ impl Viewer {
         self.evolution.clear();
         self.file_evolution.clear();
         self.active_evolution = evolution::EvolutionKind::Change;
-        self.requests.invalidate_comparison();
+        self.invalidate_comparison_request();
         let generation = self.requests.comparison();
         self.remember_reading(cx);
         self.repository = LoadState::Loading;
@@ -315,105 +315,7 @@ impl Viewer {
                             && viewer.live.pending_position.is_none()
                             && prepared.model.blocks.iter().any(|block| block.changed);
                         viewer.restore_prepared_reading(&path, &prepared.before, &prepared.after);
-                        let standard = prepared.standard.map(|files| {
-                            if files.is_empty() {
-                                return None;
-                            }
-                            let mode = standard_mode(viewer.view.effective());
-                            Some(cx.new(|cx| {
-                                DiffState::new(
-                                    files.into_iter().map(|file| file.with_language(language)),
-                                    cx,
-                                )
-                                .with_context_lines(None)
-                                .with_mode(mode)
-                            }))
-                        });
-                        let [before_wrap, after_wrap] = viewer.editor_wraps();
-                        let mut make_editor = |text, wrap, cx: &mut Context<Self>| {
-                            cx.new(|cx| {
-                                EditorState::new(window, cx)
-                                    .language(language)
-                                    .line_number(viewer.line_numbers)
-                                    .tab_size(gpui::base::input::TabSize {
-                                        tab_size: viewer.settings.editor.tab_size,
-                                        hard_tabs: false,
-                                    })
-                                    .soft_wrap(wrap)
-                                    .folding(false)
-                                    .default_value(text)
-                            })
-                        };
-                        let before = make_editor(prepared.before, before_wrap, cx);
-                        let after = make_editor(prepared.after, after_wrap, cx);
-                        for (state, syntax) in [&before, &after].into_iter().zip(prepared.syntax) {
-                            state.update(cx, |editor, cx| {
-                                editor.set_highlighter_factory(syntax.into_factory(), cx)
-                            });
-                        }
-                        let decorations = [
-                            (&before, &prepared.model.before_words, 0xf8514955),
-                            (&after, &prepared.model.after_words, 0x4ec96e55),
-                        ]
-                        .map(|(state, ranges, color)| {
-                            state.update(cx, |editor, cx| {
-                                editor.create_decorations_collection(
-                                    ranges
-                                        .iter()
-                                        .cloned()
-                                        .map(|range| {
-                                            gpui::base::input::TextDecoration::new(
-                                                range,
-                                                HighlightStyle {
-                                                    background_color: Some(rgba(color).into()),
-                                                    ..Default::default()
-                                                },
-                                            )
-                                        })
-                                        .collect(),
-                                    cx,
-                                )
-                            })
-                        });
-                        if viewer.view.effective() != ViewMode::Fluid
-                            && let Some((before, after, horizontal)) =
-                                viewer.live.pending_position.take()
-                            && let Ok(Some(state)) = &standard
-                            && let Some(path) = state
-                                .read(cx)
-                                .files()
-                                .first()
-                                .map(|file| file.path().clone())
-                        {
-                            let side = viewer.live.standard_side;
-                            let line = if side == gpui::component::diff::DiffSide::Original {
-                                before
-                            } else {
-                                after
-                            };
-                            viewer.config.pending_horizontal = Some(horizontal);
-                            state.update(cx, |state, cx| {
-                                state.scroll_to_line(
-                                    gpui::component::diff::DiffLinePosition::new(
-                                        path,
-                                        side,
-                                        line + 1,
-                                    ),
-                                    cx,
-                                )
-                            });
-                        }
-                        viewer.editor_observers = vec![
-                            cx.observe(&before, |_, _, cx| cx.notify()),
-                            cx.observe(&after, |_, _, cx| cx.notify()),
-                        ];
-                        LoadState::Loaded(CodeComparison {
-                            before,
-                            after,
-                            model: Rc::new(prepared.model),
-                            decorations,
-                            standard,
-                        })
+                        LoadState::Loaded(viewer.mount_file_editors(prepared, language, window, cx))
                     }
                 };
                 viewer.active_change = None;
@@ -430,162 +332,6 @@ impl Viewer {
         cx.notify();
     }
 
-    fn update_followed_file(
-        &mut self,
-        prepared: PreparedFile,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        let path = self.selected_path().expect("a followed file has a path");
-        let code = self.code().expect("a followed file has mounted editors");
-        let before = code.before.clone();
-        let after = code.after.clone();
-        let wraps = self.editor_wraps();
-        for (state, wrap) in [(&before, wraps[0]), (&after, wraps[1])] {
-            state.update(cx, |editor, cx| editor.set_soft_wrap(wrap, window, cx));
-        }
-        if before.read(cx).value().as_ref() == prepared.before
-            && after.read(cx).value().as_ref() == prepared.after
-        {
-            self.restore_prepared_reading(&path, &prepared.before, &prepared.after);
-            return;
-        }
-        self.restore_prepared_reading(&path, &prepared.before, &prepared.after);
-        for ((state, text), syntax) in [(&before, prepared.before), (&after, prepared.after)]
-            .into_iter()
-            .zip(prepared.syntax)
-        {
-            if state.read(cx).value().as_ref() != text {
-                state.update(cx, |editor, cx| {
-                    editor.set_value(text, window, cx);
-                    editor.set_highlighter_factory(syntax.into_factory(), cx);
-                });
-            }
-        }
-        let code = self
-            .code()
-            .expect("updating text keeps its editor entities");
-        for (collection, ranges, color) in [
-            (
-                &code.decorations[0],
-                &prepared.model.before_words,
-                0xf8514955,
-            ),
-            (
-                &code.decorations[1],
-                &prepared.model.after_words,
-                0x4ec96e55,
-            ),
-        ] {
-            collection.set(
-                ranges
-                    .iter()
-                    .cloned()
-                    .map(|range| {
-                        gpui::base::input::TextDecoration::new(
-                            range,
-                            HighlightStyle {
-                                background_color: Some(rgba(color).into()),
-                                ..Default::default()
-                            },
-                        )
-                    })
-                    .collect(),
-                cx,
-            );
-        }
-        let presentation_changed = self
-            .selected_file
-            .as_ref()
-            .is_some_and(|selected| selected.file.kind().is_none())
-            != self.view.is_single_file();
-        // A different pane width needs the new frame's measured wrap map. Leave
-        // its source anchors for the fluid/standard overlay to restore together.
-        if !presentation_changed
-            && (self.view.effective() == ViewMode::Fluid || self.view.is_single_file())
-            && let Some((left, right, horizontal)) = self.live.pending_position.take()
-        {
-            // set_value updates the cached wrap map synchronously. Restore
-            // against it before prepaint, rather than after a frame at line 1.
-            let geometry = comparison_geometry(before.read(cx), after.read(cx), &prepared.model);
-            self.fluid.position = geometry.position_for_line(&prepared.model, left, true);
-            for (state, positions, line) in [
-                (
-                    &before,
-                    &geometry.before,
-                    if self.view.is_single_file() {
-                        right
-                    } else {
-                        left
-                    },
-                ),
-                (&after, &geometry.after, right),
-            ] {
-                state.update(cx, |editor, cx| {
-                    editor.set_scroll_offset(
-                        point(
-                            px(-horizontal),
-                            px(-positions[line.min(positions.len() - 1)]),
-                        ),
-                        cx,
-                    )
-                });
-            }
-            self.horizontal_position = horizontal;
-        }
-        let standard = match prepared.standard {
-            Ok(files) if files.is_empty() => Ok(None),
-            Ok(files) => {
-                let language = before.read(cx).language_name();
-                let mode = standard_mode(self.view.effective());
-                let state = cx.new(|cx| {
-                    DiffState::new(
-                        files
-                            .into_iter()
-                            .map(|file| file.with_language(language.clone())),
-                        cx,
-                    )
-                    .with_context_lines(None)
-                    .with_mode(mode)
-                });
-                if self.view.effective() != ViewMode::Fluid
-                    && let Some((left, right, horizontal)) = self.live.pending_position.take()
-                    && let Some(path) = state
-                        .read(cx)
-                        .files()
-                        .first()
-                        .map(|file| file.path().clone())
-                {
-                    let side = self.live.standard_side;
-                    let line = if side == gpui::component::diff::DiffSide::Original {
-                        left
-                    } else {
-                        right
-                    };
-                    state.update(cx, |state, cx| {
-                        state.scroll_to_line(
-                            gpui::component::diff::DiffLinePosition::new(path, side, line + 1),
-                            cx,
-                        );
-                    });
-                    self.config.pending_horizontal = Some(horizontal);
-                }
-                Ok(Some(state))
-            }
-            Err(error) => Err(error),
-        };
-        if let Some(SelectedFile {
-            content: LoadState::Loaded(code),
-            ..
-        }) = &mut self.selected_file
-        {
-            code.model = Rc::new(prepared.model);
-            code.standard = standard;
-        }
-        self.active_change = None;
-        self.navigation_target = None;
-    }
-
     pub(super) fn show_whole_branch(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         // There is no recorded branch to restore until the initial snapshot
         // finishes. Cancelling that task here would leave a loading view.
@@ -600,7 +346,7 @@ impl Viewer {
         self.evolution.clear();
         self.file_evolution.clear();
         self.active_evolution = evolution::EvolutionKind::Change;
-        self.requests.invalidate_comparison();
+        self.invalidate_comparison_request();
         self.requests.comparison_task = None;
         self.finish_loading(LoadingKind::Comparison);
         self.finish_loading(LoadingKind::Evolution);
@@ -668,7 +414,7 @@ impl Viewer {
             cx.notify();
             return;
         }
-        self.requests.invalidate_comparison();
+        self.invalidate_comparison_request();
         let generation = self.requests.comparison();
         self.requests.comparison_task = None;
         self.finish_loading(LoadingKind::Comparison);

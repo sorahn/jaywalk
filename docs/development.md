@@ -142,3 +142,25 @@ synthesized objects. Git worktree comparisons capture changed contents when load
 and read unchanged files from pinned base objects. External comparison inputs
 retain read-on-selection behavior. Preserve these boundaries when changing file
 browsing or refresh so one comparison cannot silently mix different snapshots.
+
+
+## State ownership
+
+The application owns one settings watcher per resolved config source and the
+shared keymap, menus, theme defaults and quit policy. Windows subscribe to validated
+updates and keep their own reading, selection and panel state. The existing
+last-applied-config policy remains application-wide; project config layering is
+not implemented by this separation.
+
+Window preparation reads remembered interface choices before entering the UI
+update. An application-owned writer coalesces owned layout snapshots, preserves
+other repositories, and flushes pending changes on quit. Closing a window does
+not cancel its queued snapshot. Newly opened windows can use the latest queued
+snapshot before it reaches disk.
+
+`review_requests::RequestClock` ties every file request to its comparison as
+well as its own sequence. The native review coordinator owns task cancellation
+and reconciles overview/navigation state on notifications, outside `render()`.
+Viewport restoration remains tied to measured editor layout. The editor
+presentation module owns background preparation, editor mounting and in-place
+updates, shared standard-diff construction and word decorations.

@@ -18,7 +18,11 @@ use crate::Arguments;
 mod chrome;
 pub(crate) mod commands;
 mod comparison;
+mod editor_presentation;
 mod evolution;
+#[cfg(test)]
+use editor_presentation::standard_patch;
+use editor_presentation::{CodeComparison, PreparedFile};
 mod feedback;
 mod files;
 mod fluid_view;
@@ -84,14 +88,6 @@ impl Wrapping {
     }
 }
 
-fn standard_patch(before: &str, after: &str) -> String {
-    similar::TextDiff::from_lines(before, after)
-        .unified_diff()
-        .context_radius(before.lines().count().max(after.lines().count()))
-        .header("a/source", "b/source")
-        .to_string()
-}
-
 enum LoadState<T> {
     Loading,
     Loaded(T),
@@ -133,56 +129,10 @@ struct RepositorySession {
     revision_comparison: Option<Rc<Comparison>>,
 }
 
-struct CodeComparison {
-    before: Entity<EditorState>,
-    after: Entity<EditorState>,
-    model: Rc<FileDiff>,
-    decorations: [gpui::base::input::TextDecorationCollection; 2],
-    standard: Result<Option<Entity<DiffState>>, String>,
-}
-
 struct SelectedFile {
     file: jaywalk::repository_file::FileEntry,
     source: Comparison,
     content: LoadState<CodeComparison>,
-}
-
-struct PreparedFile {
-    before: String,
-    after: String,
-    model: FileDiff,
-    syntax: [gpui::component::highlighter::PreparedInputHighlighter; 2],
-    standard: Result<Vec<DiffFile>, String>,
-}
-
-impl PreparedFile {
-    fn load(
-        comparison: &Comparison,
-        file: &jaywalk::repository_file::FileEntry,
-        tab_size: usize,
-    ) -> Result<Self, String> {
-        let (before, after) = comparison.read_file(file)?;
-        let model = FileDiff::new(&before, &after);
-        let language = file_language(file.path());
-        let syntax = [&before, &after].map(|text| {
-            gpui::component::highlighter::PreparedInputHighlighter::new(language, text)
-        });
-        let standard = DiffFile::parse(&standard_patch(&before, &after))
-            .map(|files| {
-                files
-                    .into_iter()
-                    .map(|file| file.with_tab_size(tab_size))
-                    .collect()
-            })
-            .map_err(|error| error.to_string());
-        Ok(Self {
-            before,
-            after,
-            model,
-            syntax,
-            standard,
-        })
-    }
 }
 
 pub(crate) fn init(arguments: &Arguments, settings: &Settings, cx: &mut App) -> Result<(), String> {

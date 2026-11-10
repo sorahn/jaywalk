@@ -26,6 +26,11 @@ impl ReviewRequests {
     }
 }
 impl Viewer {
+    pub(super) fn invalidate_comparison_request(&mut self) {
+        self.requests.invalidate_comparison();
+        self.finish_loading(LoadingKind::File);
+    }
+
     pub(super) fn observe_review(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.requests.observer = Some(cx.observe_in(
             &cx.entity(),

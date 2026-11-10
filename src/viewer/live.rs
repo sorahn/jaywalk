@@ -307,7 +307,7 @@ impl Viewer {
                         }) => {
                             viewer.live.retry.clear();
                             viewer.invalidate_history_reload();
-                            viewer.requests.invalidate_comparison();
+                            viewer.invalidate_comparison_request();
                             viewer.requests.comparison_task = None;
                             viewer.remember_evolution_header();
                             viewer.evolution.clear();

@@ -608,7 +608,7 @@ impl Viewer {
         let preferred_path = self
             .selected_path()
             .or_else(|| self.file_evolution.file_path.clone());
-        self.requests.invalidate_comparison();
+        self.invalidate_comparison_request();
         let generation = self.requests.comparison();
         self.remember_reading(cx);
         if let LoadState::Loaded(session) = &mut self.repository {
