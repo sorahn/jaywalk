@@ -1,22 +1,27 @@
 //! Shared menu composition. Keep commands on the same action path as shortcuts.
 use super::*;
-use gpui::component::menu::PopupMenu;
+use gpui::component::menu::{PopupMenu, PopupMenuItem};
 use jaywalk::commands::CommandId;
+use jaywalk::repository::ComparisonIdentity;
+use std::path::{Path, PathBuf};
 
 pub(super) fn command_entries(mut menu: PopupMenu, entries: &[(CommandId, bool)]) -> PopupMenu {
     for (command, checked) in entries {
+        let label = match command {
+            CommandId::ToggleHistory => "Hide history panel",
+            CommandId::ToggleFiles => "Hide files panel",
+            CommandId::ToggleChangeEvolution => "Hide change evolution panel",
+            CommandId::ToggleFileEvolution => "Hide file evolution panel",
+            _ => command.label(),
+        };
         menu = menu.menu_with_check(
-            command.label(),
+            label,
             *checked,
             Box::new(commands::ExecuteCommand { command: *command }),
         );
     }
     menu
 }
-
-use gpui::component::menu::PopupMenuItem;
-use jaywalk::repository::ComparisonIdentity;
-use std::path::{Path, PathBuf};
 
 /// A menu keeps its original subject even if another row becomes selected.
 #[derive(Clone)]
@@ -119,10 +124,16 @@ impl Viewer {
     }
 
     pub(super) fn current_file_target(&self) -> Option<FileTarget> {
-        let path = self
-            .selected_path()
-            .or_else(|| self.browser.reading.clone())?;
-        self.file_target(path, false)
+        if let Some(selected) = &self.selected_file {
+            return Some(FileTarget::new(
+                selected.source.identity(),
+                &selected.source.root,
+                selected.file.path().to_owned(),
+                false,
+                self.arguments.diff.is_none(),
+            ));
+        }
+        self.file_target(self.browser.reading.clone()?, false)
     }
 
     pub(super) fn execute_file_action(
@@ -193,6 +204,39 @@ fn existing_location(path: &Path) -> Result<PathBuf, String> {
         }
     }
     Err(format!("No existing location for {}", path.display()))
+}
+
+pub(super) fn diff_commands(
+    menu: PopupMenu,
+    view: ViewMode,
+    wrap: bool,
+    line_numbers: bool,
+) -> PopupMenu {
+    command_entries(
+        menu,
+        &[
+            (CommandId::ViewInline, view == ViewMode::Inline),
+            (CommandId::ViewSideBySide, view == ViewMode::SideBySide),
+            (CommandId::ViewFluid, view == ViewMode::Fluid),
+            (CommandId::ToggleWrap, wrap),
+            (CommandId::ToggleLineNumbers, line_numbers),
+            (CommandId::PreviousChange, false),
+            (CommandId::NextChange, false),
+            (CommandId::Overview, false),
+        ],
+    )
+}
+
+pub(super) fn overview_commands(menu: PopupMenu) -> PopupMenu {
+    command_entries(
+        menu,
+        &[
+            (CommandId::CollapseOverview, false),
+            (CommandId::ExpandOverview, false),
+            (CommandId::OverviewContext, false),
+            (CommandId::OverviewFull, false),
+        ],
+    )
 }
 
 #[cfg(test)]

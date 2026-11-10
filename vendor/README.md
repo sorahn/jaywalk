@@ -45,3 +45,16 @@ Both natural and sticky headers use the same rendering path.
 
 The diff state exposes a virtualized viewport offset and restoration method for
 retained overview views in the host's Back/Forward history.
+
+`Diff::header_context_menu` lets the host add right-click actions to natural and
+sticky file headers without replacing their folding controls, metadata, rename
+labels or statistics. The hook is isolated in `src/diff/mod.rs`.
+
+`ManagedTooltipExt` is public so host rows can use the existing press-dismissed
+tooltip manager instead of leaving a GPUI hover tooltip above an open context menu.
+Managed tooltips dismiss on right presses as well as left presses.
+
+Diff text bodies expose Copy/Select all through their existing focused actions,
+with Copy disabled for empty selections. Copy snapshots source text at menu-open
+because clicking a popup item can clear shared selection before action dispatch.
+Inner file-header menus take precedence.

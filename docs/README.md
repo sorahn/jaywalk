@@ -1,6 +1,7 @@
 # Documentation
 
 - [Usage](usage.md): comparisons, evolution, panels, refresh, and jj/Git diff-tool integration.
+- [Context menus](context-menus.md): file, folder, history, evolution and diff actions.
 - [Development](development.md): build requirements, checks, macOS bundles, and launcher setup.
 - [Settings reference](settings.md): configuration keys, defaults, allowed
   values and live-reload/persistence behavior.

@@ -48,3 +48,35 @@ navigation checks the operation, file scope and commit ID. Clipboard actions
 retain the original row’s metadata even if background refresh has changed selection.
 The same commands can be remapped; keyboard copy commands use the selected
 revision or active timeline version. Commands without a current subject do nothing.
+
+## Diff and overview
+
+Right-click the single-file header for file/path actions, diff presentation
+(inline, side-by-side or Fluid), word wrapping, line numbers, change navigation,
+and return to overview. The comparison caption also exposes the display commands.
+Fluid editors retain their native selection/copy menus. Standard and overview
+diff bodies offer Copy and Select all using the same actions as keyboard shortcuts;
+Copy is disabled when nothing is selected and retains the source selected when
+the menu opened.
+
+Overview file headers (including sticky headers) offer file/path actions and
+Open file diff. They retain normal filename/caret folding, rename information,
+statistics and the Open file button. Their menus and the comparison caption
+also offer Collapse/Expand all overview files and changed-lines-with-context/full-file
+presentation. These apply only to the overview, independently of sidebar folder
+expansion. Bulk folding includes files outside the viewport.
+
+Right-click the welcome workspace for open-repository, recents, compare, settings
+and keybindings commands. All commands added by this pass start unbound and may
+be assigned through the [keybindings profile](keybindings.md#panel-and-context-commands).
+
+## Scope and inspiration
+
+Menus focus on read-only inspection, navigation, copying and interface controls.
+Filesystem editing, repository mutations, remote fetching, multi-selection and
+arbitrary pairwise commit comparison remain separate features.
+
+Patterns were checked against the [VS Code file menus](https://github.com/microsoft/vscode/blob/main/src/vs/workbench/contrib/files/browser/fileActions.contribution.ts),
+[Zed project panel](https://zed.dev/docs/project-panel),
+[GitLens commit graph](https://help.gitkraken.com/gitlens/gl-commit-graph/) and
+[Fork release notes](https://fork.dev/releasenotes).

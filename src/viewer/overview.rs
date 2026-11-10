@@ -87,6 +87,7 @@ impl PreparedOverview {
 #[derive(Clone)]
 struct LoadedOverview {
     request: Request,
+    root: std::path::PathBuf,
     series: Option<Arc<OverviewSeries>>,
     operation: String,
     scope: String,
@@ -227,6 +228,7 @@ impl Viewer {
         }
         let comparison = comparison.clone();
         let comparison_operation = comparison.operation.clone();
+        let comparison_root = comparison.root.clone();
         let scope = self.scope_label();
         self.overview.requested = Some(request.clone());
         self.overview.generation += 1;
@@ -278,6 +280,7 @@ impl Viewer {
                         }
                         viewer.overview.current = Some(LoadedOverview {
                             request: request.clone(),
+                            root: comparison_root,
                             series: prepared.series,
                             operation: comparison_operation,
                             scope,
@@ -435,7 +438,27 @@ impl Viewer {
             .collect::<Vec<_>>();
         let notices = files.clone();
         let empty_header = loaded.files.is_empty().then(&expanded);
+        let menu_owner = cx.entity().downgrade();
+        let menu_focus = self.focus.clone();
+        let source = loaded.request.source.clone();
+        let root = loaded.root.clone();
+        let repository = self.arguments.diff.is_none();
         let diff = Diff::new(&loaded.state)
+            .header_context_menu(move |file, menu, _, _| {
+                let target = context_menu::FileTarget::new(
+                    source.clone(),
+                    &root,
+                    file.path().to_string(),
+                    false,
+                    repository,
+                );
+                let menu = context_menu::file_menu(
+                    menu.action_context(menu_focus.clone()),
+                    target,
+                    menu_owner.clone(),
+                );
+                context_menu::overview_commands(menu.separator())
+            })
             .border_0()
             .render_preamble(move |_, _| expanded())
             .sticky_headers(true)
@@ -728,4 +751,42 @@ fn render_series(
         }
     }
     list.into_any_element()
+}
+
+impl Viewer {
+    pub(super) fn overview_action(
+        &mut self,
+        command: jaywalk::commands::CommandId,
+        cx: &mut Context<Self>,
+    ) {
+        use jaywalk::commands::CommandId;
+        let Some(loaded) = &self.overview.current else {
+            return;
+        };
+        // Do not alter retained overview state while a newer comparison is pending.
+        if !self
+            .comparison()
+            .is_some_and(|comparison| comparison.identity() == loaded.request.source)
+        {
+            return;
+        }
+        loaded.state.update(cx, |state, cx| match command {
+            CommandId::OverviewContext => {
+                state.set_context_lines(Some(self.settings.overview.context_lines), cx)
+            }
+            CommandId::OverviewFull => state.set_context_lines(None, cx),
+            CommandId::CollapseOverview | CommandId::ExpandOverview => {
+                let paths: Vec<_> = state
+                    .files()
+                    .iter()
+                    .map(|file| file.path().clone())
+                    .collect();
+                for path in paths {
+                    state.set_file_collapsed(&path, command == CommandId::CollapseOverview, cx);
+                }
+            }
+            _ => {}
+        });
+        cx.notify();
+    }
 }

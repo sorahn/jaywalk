@@ -89,6 +89,11 @@ copy_operation_id = []
 toggle_evolution_groups = []
 toggle_unchanged_versions = []
 
+collapse_overview = []
+expand_overview = []
+overview_context = []
+overview_full = []
+
 # Platform defaults are applied before sparse user overrides.
 # On Linux, secondary and ctrl both mean Ctrl, unlike macOS.
 [platform.linux]

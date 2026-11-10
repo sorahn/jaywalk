@@ -1,7 +1,7 @@
 use super::*;
 use gpui::component::Sizable;
 use gpui::component::menu::ContextMenuExt as _;
-use gpui::component::tooltip::Tooltip;
+use gpui::component::tooltip::{ManagedTooltipExt as _, Tooltip};
 pub(super) use jaywalk::evolution::ReviewMode;
 use jaywalk::evolution::grouping::{GroupedEvolutionView, TimelineRow};
 use jaywalk::evolution::{Evolution, EvolutionView};
@@ -783,7 +783,28 @@ impl Viewer {
             }
             bar = bar.child(modes);
         }
-        bar.into_any_element()
+        let focus = self.focus.clone();
+        let overview = self.selected_file.is_none();
+        let view = self.view.effective();
+        let wrap = self.wrapping.enabled(view);
+        let line_numbers = self.line_numbers;
+        bar.id("comparison-context-menu")
+            .context_menu(move |menu, _, _| {
+                let menu = menu.action_context(focus.clone());
+                let menu = if overview {
+                    context_menu::overview_commands(menu)
+                } else {
+                    context_menu::diff_commands(menu, view, wrap, line_numbers)
+                };
+                context_menu::command_entries(
+                    menu.separator(),
+                    &[
+                        (jaywalk::commands::CommandId::WholeBranch, false),
+                        (jaywalk::commands::CommandId::Refresh, false),
+                    ],
+                )
+            })
+            .into_any_element()
     }
 
     pub(super) fn render_evolution(
@@ -1116,7 +1137,7 @@ impl Viewer {
                                         .child(detail),
                                 ),
                         )
-                        .tooltip(move |window, cx| {
+                        .managed_tooltip(move |window, cx| {
                             Tooltip::new(tooltip.clone())
                                 .max_w(rems(32.))
                                 .build(window, cx)

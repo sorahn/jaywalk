@@ -160,6 +160,10 @@ impl Viewer {
             return;
         }
         match command {
+            CommandId::CollapseOverview
+            | CommandId::ExpandOverview
+            | CommandId::OverviewContext
+            | CommandId::OverviewFull => self.overview_action(command, cx),
             CommandId::InspectRevision
             | CommandId::ShowChangeEvolution
             | CommandId::CopyCommitId

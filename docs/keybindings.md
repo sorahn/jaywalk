@@ -408,3 +408,8 @@ subject. See [context menus](context-menus.md).
 | `keybindings.copy_operation_id` | `[]` | Copy operation ID |
 | `keybindings.toggle_evolution_groups` | `[]` | Toggle repeated version groups |
 | `keybindings.toggle_unchanged_versions` | `[]` | Toggle unchanged versions |
+
+| `keybindings.collapse_overview` | `[]` | Collapse all overview files |
+| `keybindings.expand_overview` | `[]` | Expand all overview files |
+| `keybindings.overview_context` | `[]` | Show changed lines with context |
+| `keybindings.overview_full` | `[]` | Show full overview files |
