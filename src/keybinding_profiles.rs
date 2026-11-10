@@ -432,23 +432,21 @@ mod profile_file_regressions {
         // Keystroke parsing uses the host platform: secondary aliases Ctrl on
         // Linux, so validating macOS shortcuts there creates false conflicts.
         // Check foreign-platform selection without parsing its keystrokes.
-        for (platform, recent, fullscreen) in [
-            ("macos", "ctrl-r", "ctrl-secondary-f"),
+        for (platform, refresh, fullscreen) in [
+            ("macos", "secondary-r", "ctrl-secondary-f"),
             ("linux", "secondary-shift-r", "f11"),
         ] {
             let bindings = default_bindings_for(platform);
-            assert_eq!(bindings[&CommandId::OpenRecent], [recent]);
+            assert_eq!(bindings[&CommandId::OpenRecent], ["ctrl-r"]);
+            assert_eq!(bindings[&CommandId::Refresh], [refresh]);
             assert_eq!(bindings[&CommandId::Fullscreen], [fullscreen]);
         }
     }
     #[test]
     fn platform_values_override_common_values_without_losing_sparse_defaults() {
-        let input = "[keybindings]\nopen_recent=['alt-r']\n[platform.linux]\nopen_recent=['secondary-shift-r']\nfullscreen=[]";
+        let input = "[keybindings]\nopen_recent=['alt-r']\n[platform.linux]\nopen_recent=['alt-shift-r']\nfullscreen=[]";
         let linux = Profile::parse_for(input, "linux").unwrap();
-        assert_eq!(
-            linux.keybindings[&CommandId::OpenRecent],
-            ["secondary-shift-r"]
-        );
+        assert_eq!(linux.keybindings[&CommandId::OpenRecent], ["alt-shift-r"]);
         assert!(linux.keybindings[&CommandId::Fullscreen].is_empty());
         assert!(linux.keybindings.contains_key(&CommandId::OpenSettings));
         assert_eq!(
