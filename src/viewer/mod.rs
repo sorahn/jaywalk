@@ -28,6 +28,7 @@ use editor_presentation::standard_patch;
 use editor_presentation::{CodeComparison, PreparedFile};
 mod feedback;
 mod files;
+mod fluid_scrollbar;
 mod fluid_view;
 mod geometry;
 mod history;
@@ -175,6 +176,7 @@ pub(crate) struct Viewer {
     horizontal_position: f32,
     reveal_after_layout: bool,
     fluid: FluidScroll,
+    fluid_drag: Option<f32>,
     editor_observers: Vec<Subscription>,
     live: live::LiveState,
     feedback: feedback::Feedback,

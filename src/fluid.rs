@@ -73,6 +73,10 @@ impl DiffGeometry {
         result
     }
 
+    pub fn scroll_extent(&self, diff: &FileDiff) -> f32 {
+        self.segments(diff).iter().map(|(a, b)| a.max(*b)).sum()
+    }
+
     /// Virtual coordinate at a source line, used when restoring a reading anchor.
     pub fn position_for_line(&self, diff: &FileDiff, line: usize, before: bool) -> f32 {
         let mut position = 0.;
@@ -319,5 +323,84 @@ mod attachment_tests {
             }
             previous = Some(y);
         }
+    }
+}
+
+/// Shared scrollbar coordinates in track-local pixels. The virtual comparison
+/// extent includes unequal changes, so neither pane's length defines the thumb.
+pub struct SharedScrollTrack {
+    pub thumb: std::ops::Range<f32>,
+    limit: f32,
+    travel: f32,
+}
+impl SharedScrollTrack {
+    pub fn new(extent: f32, viewport: f32, track: f32, thumb_height: f32, position: f32) -> Self {
+        let limit = (extent - viewport).max(0.);
+        let height = thumb_height.min(track);
+        let travel = (track - height).max(0.);
+        let top = if limit > 0. {
+            position.clamp(0., limit) / limit * travel
+        } else {
+            0.
+        };
+        Self {
+            thumb: top..top + height,
+            limit,
+            travel,
+        }
+    }
+    pub fn scrollable(&self) -> bool {
+        self.limit > 0. && self.travel > 0.
+    }
+    pub fn position_at(&self, pointer: f32, grab_fraction: f32) -> f32 {
+        if !self.scrollable() {
+            return 0.;
+        }
+        let top = pointer - grab_fraction * (self.thumb.end - self.thumb.start);
+        (top / self.travel).clamp(0., 1.) * self.limit
+    }
+}
+#[cfg(test)]
+mod shared_scroll_tests {
+    use super::*;
+    #[test]
+    fn thumb_tracks_virtual_extent_and_reaches_both_ends() {
+        let track = SharedScrollTrack::new(4000., 800., 800., 28., 1600.);
+        assert_eq!(track.thumb, 386.0..414.0);
+        assert_eq!(track.position_at(400., 0.5), 1600.);
+        assert_eq!(track.position_at(-100., 0.5), 0.);
+        assert_eq!(track.position_at(1000., 0.5), 3200.);
+    }
+    #[test]
+    fn fixed_thumb_preserves_pointer_grab_and_handles_short_tracks() {
+        let track = SharedScrollTrack::new(100000., 800., 800., 28., 0.);
+        assert_eq!(track.thumb, 0.0..28.0);
+        assert_eq!(
+            SharedScrollTrack::new(1000., 800., 800., 28., 0.).thumb,
+            track.thumb
+        );
+        assert_eq!(track.position_at(7., 0.25), 0.);
+        assert_eq!(track.position_at(779., 0.25), 99200.);
+        assert!(!SharedScrollTrack::new(100000., 800., 10., 28., 0.).scrollable());
+        assert!(!SharedScrollTrack::new(200., 800., 800., 28., 0.).scrollable());
+    }
+    #[test]
+    fn large_append_uses_shared_extent_after_short_pane_stops() {
+        let diff = FileDiff::new(
+            "unchanged\n",
+            &format!("unchanged\n{}", "added\n".repeat(100)),
+        );
+        let geometry = DiffGeometry {
+            before: vec![0., 20.],
+            after: (0..102).map(|n| n as f32 * 20.).collect(),
+            before_height: 20.,
+            after_height: 2020.,
+        };
+        let extent = geometry.scroll_extent(&diff);
+        assert_eq!(extent, 2020.);
+        let track = SharedScrollTrack::new(extent, 400., 400., 28., 0.);
+        let mut scroll = FluidScroll::default();
+        let end = scroll.advance(track.position_at(400., 0.5), &diff, &geometry, 400.);
+        assert_eq!(end, (0., 1620.));
     }
 }

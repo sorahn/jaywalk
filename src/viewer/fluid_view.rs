@@ -92,6 +92,14 @@ impl Viewer {
                 };
                 let before_text = text_start(before_state, &model.before_offsets);
                 let after_text = text_start(after_state, &model.after_offsets);
+                fluid_scrollbar::paint_shared_scrollbar(
+                    viewer.clone(),
+                    clip,
+                    &geometry,
+                    &model,
+                    window,
+                    cx,
+                );
                 // Full-row tint shares the connector geometry, including the
                 // empty space after short lines and the line-number gutter.
                 for (viewport, origin, before_side, text_start, positions) in [
@@ -262,7 +270,8 @@ impl Viewer {
                 window.on_mouse_event(move |event: &ScrollWheelEvent, phase, _, cx| {
                     if phase != DispatchPhase::Capture
                         || !(before_bounds.contains(&event.position)
-                            || after_bounds.contains(&event.position))
+                            || after_bounds.contains(&event.position)
+                            || clip.contains(&event.position))
                     {
                         return;
                     }

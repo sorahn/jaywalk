@@ -406,13 +406,18 @@ impl Viewer {
                                         )
                                         .fixed()
                                         .child(
-                                            canvas(
-                                                move |bounds, _, _| {
-                                                    measured_gutter.set(Some(bounds))
-                                                },
-                                                |_, _, _, _| {},
-                                            )
-                                            .size_full(),
+                                            div()
+                                                .size_full()
+                                                .cursor(CursorStyle::ResizeUpDown)
+                                                .child(
+                                                    canvas(
+                                                        move |bounds, _, _| {
+                                                            measured_gutter.set(Some(bounds))
+                                                        },
+                                                        |_, _, _, _| {},
+                                                    )
+                                                    .size_full(),
+                                                ),
                                         ),
                                 )
                                 .child(

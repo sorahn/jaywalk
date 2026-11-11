@@ -185,6 +185,8 @@ section header, for example `[editor]` followed by `font_size = 14`.
 
 | Setting | Default | Meaning and allowed values |
 | --- | --- | --- |
+| `panels.diff.shared_scrollbar_height` | `12` | Fixed shared thumb height in pixels; 1–1000, clipped to the track. Spans the full fluid gutter width. Applies live. |
+| `panels.diff.shared_scrollbar_opacity` | `0.12` | Shared thumb opacity; 0–1, brighter on hover/drag. Zero hides the thumb while keeping the gutter interactive. Applies live. |
 | `panels.diff.gutter_width` | `48` | Fluid connector-gutter width; 8–240. |
 | `panels.diff.min_code_width` | `100` | Minimum width of each Fluid code pane; 32–2000. The initial before/after split is even. |
 

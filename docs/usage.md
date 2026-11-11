@@ -173,3 +173,8 @@ stacked diff. Choose another branch/base from the dropdown beside All changes,
 or use the history/reference context menus. The caption shows which source and
 base you are reviewing. See [context menus](context-menus.md#branch-review-context)
 for ambiguity, merged branches and live/pinned behavior.
+
+In fluid view, drag the short, full-width thumb in the center gutter to scroll both panes
+through the comparison. The up–down cursor marks the grabbable gutter; clicking above or
+below the thumb moves to that position. Each pane’s own scrollbar remains
+independent. Mouse-wheel scrolling over either pane or the gutter stays linked.

@@ -76,6 +76,7 @@ impl Viewer {
             horizontal_position: 0.,
             reveal_after_layout: false,
             fluid: FluidScroll::default(),
+            fluid_drag: None,
             editor_observers: Vec::new(),
         };
         viewer.apply_saved_layout();
@@ -261,6 +262,7 @@ impl Viewer {
                 content: LoadState::Loading,
             });
             self.fluid = FluidScroll::default();
+            self.fluid_drag = None;
             self.horizontal_position = 0.;
         }
         self.begin_loading(LoadingKind::File, window, cx);
