@@ -610,7 +610,7 @@ impl Viewer {
         cx.notify();
     }
 
-    pub(super) fn panel_menu(&self, panel: PanelId) -> AnyElement {
+    pub(super) fn panel_menu_entries(&self, panel: PanelId) -> Vec<(CommandId, bool)> {
         let placement = self.placement();
         let entries: Vec<_> = match panel {
             PanelId::History => vec![
@@ -620,11 +620,39 @@ impl Viewer {
                     placement.history_side == Side::Right,
                 ),
                 (CommandId::SwapSidebars, false),
+                (CommandId::ChooseReview, false),
+                (CommandId::AllChanges, false),
+                (CommandId::CurrentWork, false),
+                (CommandId::ShowReferences, self.references.open),
+                (CommandId::ToggleReferenceLabels, self.references.labels),
+                (CommandId::ShowAllRemotes, false),
+                (CommandId::HideAllRemotes, false),
+                (CommandId::RevealSelectedRevision, false),
+                (CommandId::Refresh, false),
             ],
             PanelId::Files => vec![
                 (CommandId::FilesLeft, placement.files_side == Side::Left),
                 (CommandId::FilesRight, placement.files_side == Side::Right),
                 (CommandId::SwapSidebars, false),
+                (
+                    CommandId::FileList,
+                    self.browser.mode == jaywalk::settings::FileView::List,
+                ),
+                (
+                    CommandId::FileTree,
+                    self.browser.mode == jaywalk::settings::FileView::Tree,
+                ),
+                (
+                    CommandId::TreeChanged,
+                    self.browser.scope == jaywalk::settings::TreeScope::Changed,
+                ),
+                (
+                    CommandId::TreeAll,
+                    self.browser.scope == jaywalk::settings::TreeScope::All,
+                ),
+                (CommandId::RevealFile, false),
+                (CommandId::CollapseFiles, false),
+                (CommandId::ExpandFiles, false),
             ],
             PanelId::ChangeEvolution => vec![
                 (
@@ -647,21 +675,26 @@ impl Viewer {
                 ),
             ],
         };
+        let hide = match panel {
+            PanelId::History => CommandId::ToggleHistory,
+            PanelId::Files => CommandId::ToggleFiles,
+            PanelId::ChangeEvolution => CommandId::ToggleChangeEvolution,
+            PanelId::FileEvolution => CommandId::ToggleFileEvolution,
+        };
+        entries.into_iter().chain([(hide, false)]).collect()
+    }
+
+    pub(super) fn panel_menu(&self, panel: PanelId) -> AnyElement {
+        let entries = self.panel_menu_entries(panel);
+        let focus = self.focus.clone();
         Button::new("panel-placement")
             .ghost()
             .small()
             .compact()
             .label("⋯")
-            .tooltip("Panel placement")
-            .dropdown_menu(move |mut menu, _, _| {
-                for (command, selected) in &entries {
-                    menu = menu.menu_with_check(
-                        command.label(),
-                        *selected,
-                        Box::new(commands::ExecuteCommand { command: *command }),
-                    );
-                }
-                menu
+            .tooltip("Panel actions")
+            .dropdown_menu(move |menu, _, _| {
+                context_menu::command_entries(menu.action_context(focus.clone()), &entries)
             })
             .into_any_element()
     }

@@ -65,7 +65,7 @@ For example, `open_keybindings = ["secondary-k secondary-s"]` inside `[keybindin
 | Previous / next change | Cmd+Up / Cmd+Down | Option+Shift+F5 / Option+F5; Shift+F7 / F7 |
 | Previous / next file | Cmd+[ / Cmd+] | Option+Up / Option+Down |
 | Previous / next history entry | Cmd+Shift+[ / Cmd+Shift+] | Cmd+Option+Up / Cmd+Option+Down |
-| Whole branch | Cmd+Shift+B | |
+| All changes | Cmd+Shift+B | |
 | Overview of the current comparison | Cmd+K, then O | |
 | Find any repository file | Cmd+P | |
 | Command palette | Cmd+Shift+P | F1 |
@@ -176,7 +176,7 @@ layout/reset/remote-management command merely to fill the table.
 | `keybindings.version_patch` | `["secondary-k p"]` | Version patch |
 | `keybindings.since_previous` | `["secondary-k s"]` | Since previous version |
 | `keybindings.refresh` | `["secondary-r"]` | Refresh recorded changes |
-| `keybindings.whole_branch` | `["secondary-shift-b"]` | Whole branch |
+| `keybindings.all_changes` | `["secondary-shift-b"]` | All changes |
 | `keybindings.overview` | `["secondary-k o"]` | Changeset overview |
 | `keybindings.show_references` | `["secondary-k r"]` | Browse references |
 | `keybindings.toggle_reference_labels` | `[]` | Toggle reference labels |
@@ -378,3 +378,47 @@ References:
 - [Sublime Merge key bindings](https://www.sublimemerge.com/docs/key_bindings), including where its packaged defaults live.
 - [VS Code's default macOS keybindings](https://github.com/microsoft/vscode-docs/blob/main/build/keybindings/doc.keybindings.osx.json).
 - [Zed's default macOS keymap](https://github.com/zed-industries/zed/blob/main/assets/keymaps/default-macos.json).
+
+## Panel and context commands
+
+These commands are unbound by default and can be assigned in a profile. File
+actions use the active file from keyboard/palette; row menus retain their own
+subject. See [context menus](context-menus.md).
+
+| Profile key | Default | Meaning |
+| --- | --- | --- |
+| `keybindings.open_file` | `[]` | Open file diff |
+| `keybindings.copy_path` | `[]` | Copy working-tree path |
+| `keybindings.copy_relative_path` | `[]` | Copy relative path |
+| `keybindings.copy_file_name` | `[]` | Copy file name |
+| `keybindings.reveal_in_file_manager` | `[]` | Reveal working-tree location |
+| `keybindings.collapse_files` | `[]` | Collapse all folders |
+| `keybindings.expand_files` | `[]` | Expand all folders |
+| `keybindings.reveal_file` | `[]` | Reveal active file in sidebar |
+| `keybindings.file_list` | `[]` | Show file list |
+| `keybindings.file_tree` | `[]` | Show directory tree |
+| `keybindings.tree_changed` | `[]` | Show changed files |
+| `keybindings.tree_all` | `[]` | Show all repository files |
+
+| `keybindings.inspect_revision` | `[]` | View commit changes |
+| `keybindings.show_change_evolution` | `[]` | Show change evolution |
+| `keybindings.copy_commit_id` | `[]` | Copy commit ID |
+| `keybindings.copy_change_id` | `[]` | Copy change ID |
+| `keybindings.copy_commit_message` | `[]` | Copy commit message |
+| `keybindings.copy_operation_id` | `[]` | Copy operation ID |
+| `keybindings.toggle_evolution_groups` | `[]` | Toggle repeated version groups |
+| `keybindings.toggle_unchanged_versions` | `[]` | Toggle unchanged versions |
+
+| `keybindings.collapse_overview` | `[]` | Collapse all overview files |
+| `keybindings.expand_overview` | `[]` | Expand all overview files |
+| `keybindings.overview_context` | `[]` | Show changed lines with context |
+| `keybindings.overview_full` | `[]` | Show full overview files |
+
+| `keybindings.current_work` | `[]` | Current work |
+| `keybindings.opened_comparison` | `[]` | Opened comparison |
+
+| `keybindings.choose_review` | `[]` | Choose branch or range… |
+| `keybindings.choose_review_base` | `[]` | Choose comparison base… |
+| `keybindings.branch_changes` | `[]` | Review branch containing this commit… |
+| `keybindings.merged_branch` | `[]` | Review merged branch changes |
+| `keybindings.merge_result` | `[]` | Review merge result |

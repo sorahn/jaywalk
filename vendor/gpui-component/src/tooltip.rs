@@ -243,9 +243,7 @@ struct TooltipTrigger {
     bounds: Bounds<Pixels>,
 }
 
-pub(crate) trait ManagedTooltipExt:
-    StatefulInteractiveElement + crate::ElementExt + Sized
-{
+pub trait ManagedTooltipExt: StatefulInteractiveElement + crate::ElementExt + Sized {
     fn managed_tooltip(
         self,
         build_tooltip: impl Fn(&mut Window, &mut App) -> AnyView + 'static,
@@ -328,6 +326,15 @@ pub(crate) trait ManagedTooltipExt:
                             o.request_hide(window, cx);
                         });
                     }
+                }
+            }
+        })
+        .on_mouse_down(MouseButton::Right, {
+            let trigger = trigger.clone();
+            move |_, window, cx| {
+                WindowState::press_tooltip_trigger(trigger.borrow().bounds, window, cx);
+                if let Some(overlay) = WindowState::tooltip_overlay(window, cx) {
+                    overlay.update(cx, |overlay, cx| overlay.hide(cx));
                 }
             }
         })

@@ -1,3 +1,4 @@
+pub mod branch_review;
 pub mod commands;
 pub mod diff_model;
 pub mod evolution;

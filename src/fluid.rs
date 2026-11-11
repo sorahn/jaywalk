@@ -11,6 +11,22 @@ pub fn clipped_tint(
     (bottom > top).then_some(top..bottom)
 }
 
+/// Attach at the change midpoint, sliding along tall blocks toward the visible
+/// viewport. The endpoint must remain on the block even while it enters or
+/// leaves the viewport, or a connector can point into unchanged source lines.
+pub fn connector_attachment(change: std::ops::Range<f32>, viewport: std::ops::Range<f32>) -> f32 {
+    let middle = (change.start + change.end) / 2.;
+    let height = viewport.end - viewport.start;
+    if change.end - change.start <= height {
+        middle
+    } else {
+        let margin = height / 4.;
+        middle
+            .clamp(viewport.start + margin, viewport.end - margin)
+            .clamp(change.start, change.end)
+    }
+}
+
 /// Experimental centre-anchored comparison coordinate. Each pane clamps its
 /// displayed offset independently; input continues until both reach the end.
 #[derive(Default)]
@@ -55,6 +71,10 @@ impl DiffGeometry {
             (self.after_height - self.after.last().copied().unwrap_or(0.)).max(0.),
         ));
         result
+    }
+
+    pub fn scroll_extent(&self, diff: &FileDiff) -> f32 {
+        self.segments(diff).iter().map(|(a, b)| a.max(*b)).sum()
     }
 
     /// Virtual coordinate at a source line, used when restoring a reading anchor.
@@ -265,5 +285,122 @@ mod tint_tests {
         assert_eq!(clipped_tint(157.0..180.0, 100.0..157.0), None);
         assert_eq!(clipped_tint(90.0..100.0, 100.0..157.0), None);
         assert_eq!(clipped_tint(120.0..120.0, 100.0..157.0), None);
+    }
+}
+
+#[cfg(test)]
+mod attachment_tests {
+    use super::connector_attachment;
+
+    #[test]
+    fn tall_change_entering_or_leaving_never_attaches_to_unchanged_lines() {
+        let viewport = 100.0..700.0;
+        assert_eq!(connector_attachment(650.0..2650.0, viewport.clone()), 650.0);
+        assert_eq!(
+            connector_attachment(-1950.0..150.0, viewport.clone()),
+            150.0
+        );
+        assert_eq!(connector_attachment(-1000.0..2000.0, viewport), 500.0);
+    }
+
+    #[test]
+    fn short_changes_and_empty_sides_keep_their_midpoints() {
+        assert_eq!(connector_attachment(650.0..690.0, 100.0..700.0), 670.0);
+        assert_eq!(connector_attachment(720.0..720.0, 100.0..700.0), 720.0);
+        assert_eq!(connector_attachment(-200.0..-180.0, 100.0..700.0), -190.0);
+    }
+
+    #[test]
+    fn tall_attachment_tracks_scrolling_continuously_and_stays_on_its_edge() {
+        let mut previous: Option<f32> = None;
+        for offset in -3000..1000 {
+            let top = offset as f32;
+            let bottom = top + 2000.;
+            let y = connector_attachment(top..bottom, 100.0..700.0);
+            assert!((top..=bottom).contains(&y));
+            if let Some(previous) = previous {
+                assert!((y - previous).abs() <= 1.0);
+            }
+            previous = Some(y);
+        }
+    }
+}
+
+/// Shared scrollbar coordinates in track-local pixels. The virtual comparison
+/// extent includes unequal changes, so neither pane's length defines the thumb.
+pub struct SharedScrollTrack {
+    pub thumb: std::ops::Range<f32>,
+    limit: f32,
+    travel: f32,
+}
+impl SharedScrollTrack {
+    pub fn new(extent: f32, viewport: f32, track: f32, thumb_height: f32, position: f32) -> Self {
+        let limit = (extent - viewport).max(0.);
+        let height = thumb_height.min(track);
+        let travel = (track - height).max(0.);
+        let top = if limit > 0. {
+            position.clamp(0., limit) / limit * travel
+        } else {
+            0.
+        };
+        Self {
+            thumb: top..top + height,
+            limit,
+            travel,
+        }
+    }
+    pub fn scrollable(&self) -> bool {
+        self.limit > 0. && self.travel > 0.
+    }
+    pub fn position_at(&self, pointer: f32, grab_fraction: f32) -> f32 {
+        if !self.scrollable() {
+            return 0.;
+        }
+        let top = pointer - grab_fraction * (self.thumb.end - self.thumb.start);
+        (top / self.travel).clamp(0., 1.) * self.limit
+    }
+}
+#[cfg(test)]
+mod shared_scroll_tests {
+    use super::*;
+    #[test]
+    fn thumb_tracks_virtual_extent_and_reaches_both_ends() {
+        let track = SharedScrollTrack::new(4000., 800., 800., 28., 1600.);
+        assert_eq!(track.thumb, 386.0..414.0);
+        assert_eq!(track.position_at(400., 0.5), 1600.);
+        assert_eq!(track.position_at(-100., 0.5), 0.);
+        assert_eq!(track.position_at(1000., 0.5), 3200.);
+    }
+    #[test]
+    fn fixed_thumb_preserves_pointer_grab_and_handles_short_tracks() {
+        let track = SharedScrollTrack::new(100000., 800., 800., 28., 0.);
+        assert_eq!(track.thumb, 0.0..28.0);
+        assert_eq!(
+            SharedScrollTrack::new(1000., 800., 800., 28., 0.).thumb,
+            track.thumb
+        );
+        assert_eq!(track.position_at(7., 0.25), 0.);
+        assert_eq!(track.position_at(779., 0.25), 99200.);
+        assert!(!SharedScrollTrack::new(100000., 800., 10., 28., 0.).scrollable());
+        assert!(!SharedScrollTrack::new(200., 800., 800., 28., 0.).scrollable());
+    }
+    #[test]
+    fn large_append_uses_shared_extent_after_short_pane_stops() {
+        let diff = FileDiff::new(
+            "unchanged\n",
+            &format!("unchanged\n{}", "added\n".repeat(100)),
+        );
+        let geometry = DiffGeometry {
+            before: vec![0., 20.],
+            after: (0..102).map(|n| n as f32 * 20.).collect(),
+            before_height: 20.,
+            after_height: 2020.,
+        };
+        let extent = geometry.scroll_extent(&diff);
+        assert_eq!(extent, 2020.);
+        let track = SharedScrollTrack::new(extent, 400., 400., 28., 0.);
+        let mut scroll = FluidScroll::default();
+        let end = scroll.advance(track.position_at(400., 0.5), &diff, &geometry, 400.);
+        assert_eq!(end, (0., 1620.));
     }
 }

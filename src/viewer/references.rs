@@ -1,6 +1,7 @@
 //! Reference controls reload only the graph; the open comparison stays pinned.
 use super::*;
 use gpui::component::Sizable;
+use gpui::component::menu::{ContextMenuExt as _, PopupMenuItem};
 use gpui::component::popover::Popover;
 use gpui::prelude::FluentBuilder;
 use jaywalk::history::{HistoryQuery, RemoteVisibility};
@@ -32,7 +33,9 @@ impl Viewer {
         match &self.repository.ready()?.scope {
             ComparisonScope::Revision { commit_id, .. } => Some(commit_id.clone()),
             ComparisonScope::Evolution { anchor, .. } => Some(anchor.clone()),
-            ComparisonScope::WholeBranch => Some(self.repository.ready()?.branch.tip.clone()),
+            ComparisonScope::Aggregate => {
+                Some(self.repository.ready()?.review.aggregate.tip.clone())
+            }
         }
     }
     pub(super) fn set_remote_visibility(
@@ -107,7 +110,7 @@ impl Viewer {
         let Some(session) = self.repository.ready() else {
             return;
         };
-        let branch = session.branch.as_ref().clone();
+        let branch = session.home.as_ref().clone();
         let top = self
             .history_scroll
             .0
@@ -389,11 +392,34 @@ fn reference_content(
         let popup = cx.entity().downgrade();
         let copy = label.clone();
         let copy_id = format!("copy:{copy}:{target}");
+        let review_name = jaywalk::branch_review::RefName::from_reference(&reference);
+        let menu_owner = viewer.clone();
+        let menu_popup = cx.entity().downgrade();
         content = content.child(
             div()
+                .id(SharedString::from(format!(
+                    "review-reference:{label}:{target}"
+                )))
                 .h_flex()
                 .items_center()
                 .gap_1()
+                .context_menu(move |menu, _, _| {
+                    let owner = menu_owner.clone();
+                    let reference = review_name.clone();
+                    let popup = menu_popup.clone();
+                    menu.item(
+                        PopupMenuItem::new("Review branch changes")
+                            .action(Box::new(commands::ExecuteCommand {
+                                command: jaywalk::commands::CommandId::ChooseReview,
+                            }))
+                            .on_click(move |_, window, cx| {
+                                let _ = popup.update(cx, |popup, cx| popup.dismiss(window, cx));
+                                let _ = owner.update(cx, |viewer, cx| {
+                                    viewer.review_reference(reference.clone(), window, cx)
+                                });
+                            }),
+                    )
+                })
                 .child(
                     Button::new(SharedString::from(format!("open:{label}:{target}")))
                         .ghost()

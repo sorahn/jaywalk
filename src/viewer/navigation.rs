@@ -5,7 +5,7 @@ use jaywalk::repository_file::FileEntry;
 
 #[derive(Clone, PartialEq, Eq)]
 enum ScopeKey {
-    WholeBranch,
+    AllChanges,
     Revision(String),
     WorkingCopy,
     Evolution(String, String, evolution::ReviewMode),
@@ -13,6 +13,7 @@ enum ScopeKey {
 #[derive(Clone, PartialEq, Eq)]
 pub(super) struct LocationKey {
     scope: ScopeKey,
+    context: review_context::ReviewSource,
     path: Option<String>,
 }
 #[derive(Clone)]
@@ -24,6 +25,9 @@ struct FileVisit {
 #[derive(Clone)]
 pub(super) struct ViewVisit {
     scope: ComparisonScope,
+    review: review_context::ReviewContext,
+    home_source: review_context::HomeSource,
+    home: Rc<Comparison>,
     comparison: Rc<Comparison>,
     file: Option<FileVisit>,
     overview: Option<overview::OverviewCheckpoint>,
@@ -48,6 +52,9 @@ impl NavigationState {
 }
 impl Viewer {
     fn navigation_key(&self) -> Option<LocationKey> {
+        if self.review_picker.pending.is_some() {
+            return None;
+        }
         let session = self.repository.ready()?;
         let comparison = session.comparison.ready()?;
         if let Some(file) = &self.selected_file {
@@ -70,7 +77,7 @@ impl Viewer {
             return None;
         }
         let scope = match &session.scope {
-            ComparisonScope::WholeBranch => ScopeKey::WholeBranch,
+            ComparisonScope::Aggregate => ScopeKey::AllChanges,
             ComparisonScope::Revision {
                 working_copy: true, ..
             } => ScopeKey::WorkingCopy,
@@ -84,6 +91,7 @@ impl Viewer {
         };
         Some(LocationKey {
             scope,
+            context: session.review.source.clone(),
             path: self.selected_path(),
         })
     }
@@ -114,6 +122,9 @@ impl Viewer {
             key,
             ViewVisit {
                 scope: session.scope.clone(),
+                review: session.review.clone(),
+                home_source: self.home_source,
+                home: session.home.clone(),
                 comparison,
                 file: self.selected_file.as_ref().map(|selected| FileVisit {
                     file: selected.file.clone(),
@@ -167,7 +178,7 @@ impl Viewer {
         self.focus_evolution_file(None);
         cx.notify();
     }
-    pub(super) fn show_whole_branch_overview(
+    pub(super) fn show_all_changes_overview(
         &mut self,
         window: &mut Window,
         cx: &mut Context<Self>,
@@ -176,7 +187,7 @@ impl Viewer {
         self.navigation.suppress = true;
         self.remember_reading(cx);
         self.clear_file();
-        self.show_whole_branch(window, cx);
+        self.restore_review_aggregate(window, cx);
         self.navigation.suppress = false;
         window.focus(&self.focus, cx);
     }
@@ -215,6 +226,9 @@ impl Viewer {
         self.clear_file();
         let visit = target.value;
         if let LoadState::Loaded(session) = &mut self.repository {
+            self.home_source = visit.home_source;
+            session.review = visit.review;
+            session.home = visit.home;
             session.scope = visit.scope;
             session.revision_comparison = Some(visit.comparison.clone());
             session.comparison = LoadState::Loaded(visit.comparison);
@@ -285,5 +299,45 @@ impl Viewer {
             );
         }
         buttons.into_any_element()
+    }
+}
+
+#[cfg(test)]
+mod context_tests {
+    use super::{LocationKey, ScopeKey};
+    use crate::viewer::review_context::{HomeSource, ReviewSource};
+    use jaywalk::{
+        branch_review::{RefName, Target, Tip},
+        navigation::History,
+    };
+    #[test]
+    fn shared_commit_visits_keep_each_branch_context_in_back_forward_history() {
+        let context = |name: &str| {
+            ReviewSource::Target(Target::Branch {
+                tip: Tip::Reference(RefName {
+                    name: name.into(),
+                    remote: None,
+                }),
+                base: RefName {
+                    name: "main".into(),
+                    remote: None,
+                },
+            })
+        };
+        let location = |context| LocationKey {
+            scope: ScopeKey::Revision("same-change".into()),
+            context,
+            path: Some("src/a.rs".into()),
+        };
+        let mut history = History::new(10);
+        history.observe(
+            location(ReviewSource::Home(HomeSource::Workspace)),
+            "current work",
+        );
+        history.observe(location(context("first")), "first branch");
+        history.observe(location(context("second")), "second branch");
+        assert_eq!(history.step(false).unwrap().value, "first branch");
+        assert_eq!(history.step(false).unwrap().value, "current work");
+        assert_eq!(history.step(true).unwrap().value, "first branch");
     }
 }

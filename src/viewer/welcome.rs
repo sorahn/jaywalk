@@ -1,5 +1,6 @@
 //! Repository-free workspace. Panel preferences remain untouched underneath it.
 use super::*;
+use gpui::component::menu::ContextMenuExt as _;
 
 #[derive(Default)]
 pub(super) struct WelcomeState {
@@ -27,7 +28,7 @@ impl Viewer {
             .then(|| {
                 self.repository
                     .ready()
-                    .map(|session| session.branch.root.clone())
+                    .map(|session| session.home.root.clone())
             })
             .flatten()
     }
@@ -215,6 +216,7 @@ impl Viewer {
                     .child(feedback::error_message("welcome-recent-error", error)),
             );
         }
+        let focus = self.focus.clone();
         div()
             .id("welcome-workspace")
             .size_full()
@@ -223,6 +225,18 @@ impl Viewer {
             .items_center()
             .p_8()
             .child(div().w_full().max_w(rems(48.)).py_8().child(start))
+            .context_menu(move |menu, _, _| {
+                context_menu::command_entries(
+                    menu.action_context(focus.clone()),
+                    &[
+                        (jaywalk::commands::CommandId::OpenRepository, false),
+                        (jaywalk::commands::CommandId::OpenRecent, false),
+                        (jaywalk::commands::CommandId::ComparePaths, false),
+                        (jaywalk::commands::CommandId::OpenSettings, false),
+                        (jaywalk::commands::CommandId::OpenKeybindings, false),
+                    ],
+                )
+            })
             .into_any_element()
     }
 }

@@ -1,6 +1,7 @@
 use super::*;
 use gpui::component::Sizable;
 use gpui::component::list::ListItem;
+use gpui::component::menu::ContextMenuExt as _;
 use gpui::component::scroll::ScrollableMask;
 use gpui::component::tree::{Tree, TreeItem, TreeState};
 use gpui::prelude::FluentBuilder;
@@ -10,6 +11,7 @@ use std::collections::HashMap;
 use jaywalk::settings::{FileView as FileListMode, TreeScope};
 
 pub(super) struct FileBrowser {
+    focus: FocusHandle,
     pub(super) files: std::sync::Arc<[jaywalk::repository_file::FileEntry]>,
     retained: Option<usize>,
     pub(super) reading: Option<String>,
@@ -36,6 +38,7 @@ impl FileBrowser {
         cx: &mut App,
     ) -> Self {
         Self {
+            focus: cx.focus_handle(),
             files: std::sync::Arc::from([]),
             retained: None,
             reading: None,
@@ -342,7 +345,7 @@ impl Viewer {
         }
     }
 
-    fn render_tree(&self, cx: &App) -> AnyElement {
+    fn render_tree(&self, cx: &Context<Self>) -> AnyElement {
         let reading = self
             .selected_file
             .is_none()
@@ -358,6 +361,12 @@ impl Viewer {
         );
         let indent_width = self.settings.files.indent_width;
         let font_size = self.settings.panels.files.font.size;
+        let viewer = cx.entity().downgrade();
+        let source = self
+            .comparison()
+            .map(|comparison| (comparison.identity(), comparison.root.clone()));
+        let focus = self.focus.clone();
+        let repository = self.arguments.diff.is_none();
         let tree = Tree::new(&self.browser.tree, move |_, entry, _, _, _| {
             let file_index = indices.get(&entry.item().id).copied();
             let temporary = file_index.is_some() && file_index == retained;
@@ -399,6 +408,23 @@ impl Viewer {
                 )
                 .child(content)
         })
+        .context_menu(move |_, entry, menu, _, _| {
+            let Some((prefix, path)) = entry.item().id.split_once(':') else {
+                return menu;
+            };
+            let Some((source, root)) = &source else {
+                return menu;
+            };
+            let target = context_menu::FileTarget::new(
+                source.clone(),
+                root,
+                path.to_owned(),
+                prefix == "dir",
+                repository,
+            );
+            let menu = menu.action_context(focus.clone());
+            context_menu::file_menu(menu, target, viewer.clone())
+        })
         .w(px(self.browser.tree_width.max(self.browser.width)))
         .h_full();
         div()
@@ -417,104 +443,109 @@ impl Viewer {
 
     pub(super) fn render_files(&self, cx: &mut Context<Self>) -> AnyElement {
         let mut panel = div()
+            .track_focus(&self.browser.focus)
+            .key_context("JaywalkFiles")
             .relative()
             .v_flex()
             .size_full()
             .bg(gpui::component::Theme::global(cx).sidebar)
             .child(
-                self.panel_header(self.settings.panels.files.font.size, cx)
-                    .child(
-                        div()
-                            .flex_1()
-                            .min_w_0()
-                            .truncate()
-                            .text_size(px(self.settings.panels.files.font.size * 0.85))
-                            .child(
-                                if matches!(self.comparison_state(), LoadState::Loading)
-                                    && self.loading_visible(LoadingKind::Comparison)
-                                {
-                                    "FILES · Loading…"
+                self.panel_header(
+                    jaywalk::panel_layout::PanelId::Files,
+                    self.settings.panels.files.font.size,
+                    cx,
+                )
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .truncate()
+                        .text_size(px(self.settings.panels.files.font.size * 0.85))
+                        .child(
+                            if matches!(self.comparison_state(), LoadState::Loading)
+                                && self.loading_visible(LoadingKind::Comparison)
+                            {
+                                "FILES · Loading…"
+                            } else {
+                                "FILES"
+                            },
+                        ),
+                )
+                .child(
+                    div()
+                        .h_flex()
+                        .gap_1()
+                        .child(self.panel_menu(jaywalk::panel_layout::PanelId::Files))
+                        .children((self.browser.mode == FileListMode::Tree).then(|| {
+                            Button::new("file-tree-scope")
+                                .ghost()
+                                .small()
+                                .compact()
+                                .label(if self.browser.scope == TreeScope::All {
+                                    "All"
                                 } else {
-                                    "FILES"
-                                },
-                            ),
-                    )
-                    .child(
-                        div()
-                            .h_flex()
-                            .gap_1()
-                            .child(self.panel_menu(jaywalk::panel_layout::PanelId::Files))
-                            .children((self.browser.mode == FileListMode::Tree).then(|| {
-                                Button::new("file-tree-scope")
-                                    .ghost()
-                                    .small()
-                                    .compact()
-                                    .label(if self.browser.scope == TreeScope::All {
-                                        "All"
+                                    "Changed"
+                                })
+                                .tooltip("Toggle changed files / all repository files")
+                                .on_click(cx.listener(|this, _, _, cx| {
+                                    this.browser.scope = if this.browser.scope == TreeScope::All {
+                                        TreeScope::Changed
                                     } else {
-                                        "Changed"
-                                    })
-                                    .tooltip("Toggle changed files / all repository files")
-                                    .on_click(cx.listener(|this, _, _, cx| {
-                                        this.browser.scope = if this.browser.scope == TreeScope::All
-                                        {
-                                            TreeScope::Changed
-                                        } else {
-                                            TreeScope::All
-                                        };
-                                        this.rebuild_browser(cx);
-                                        this.save_layout(cx);
-                                        cx.notify();
-                                    }))
-                            }))
-                            .child(
-                                Button::new("file-evolution-toggle")
-                                    .ghost()
-                                    .small()
-                                    .compact()
-                                    .icon(IconName::GitCompareArrows)
-                                    .when(!self.supports_evolution(), |button| button.hidden())
-                                    .tooltip("File evolution")
-                                    .selected(self.file_evolution.visible)
-                                    .on_click(cx.listener(|this, _, window, cx| {
-                                        this.toggle_evolution_panel(
-                                            evolution::EvolutionKind::File,
-                                            window,
-                                            cx,
-                                        )
-                                    })),
-                            )
-                            .child(
-                                Button::new("file-list-mode")
-                                    .ghost()
-                                    .small()
-                                    .compact()
-                                    .icon(IconName::List)
-                                    .tooltip("File list")
-                                    .selected(self.browser.mode == FileListMode::List)
-                                    .on_click(cx.listener(|this, _, _, cx| {
-                                        this.browser.mode = FileListMode::List;
-                                        this.rebuild_browser(cx);
-                                        this.save_layout(cx);
-                                        cx.notify();
-                                    })),
-                            )
-                            .child(
-                                Button::new("file-tree-mode")
-                                    .ghost()
-                                    .small()
-                                    .compact()
-                                    .icon(IconName::FolderTree)
-                                    .tooltip("Directory tree")
-                                    .selected(self.browser.mode == FileListMode::Tree)
-                                    .on_click(cx.listener(|this, _, _, cx| {
-                                        this.browser.mode = FileListMode::Tree;
-                                        this.rebuild_browser(cx);
-                                        this.save_layout(cx);
-                                        cx.notify();
-                                    })),
-                            ),
-                    ),
+                                        TreeScope::All
+                                    };
+                                    this.rebuild_browser(cx);
+                                    this.save_layout(cx);
+                                    cx.notify();
+                                }))
+                        }))
+                        .child(
+                            Button::new("file-evolution-toggle")
+                                .ghost()
+                                .small()
+                                .compact()
+                                .icon(IconName::GitCompareArrows)
+                                .when(!self.supports_evolution(), |button| button.hidden())
+                                .tooltip("File evolution")
+                                .selected(self.file_evolution.visible)
+                                .on_click(cx.listener(|this, _, window, cx| {
+                                    this.toggle_evolution_panel(
+                                        evolution::EvolutionKind::File,
+                                        window,
+                                        cx,
+                                    )
+                                })),
+                        )
+                        .child(
+                            Button::new("file-list-mode")
+                                .ghost()
+                                .small()
+                                .compact()
+                                .icon(IconName::List)
+                                .tooltip("File list")
+                                .selected(self.browser.mode == FileListMode::List)
+                                .on_click(cx.listener(|this, _, _, cx| {
+                                    this.browser.mode = FileListMode::List;
+                                    this.rebuild_browser(cx);
+                                    this.save_layout(cx);
+                                    cx.notify();
+                                })),
+                        )
+                        .child(
+                            Button::new("file-tree-mode")
+                                .ghost()
+                                .small()
+                                .compact()
+                                .icon(IconName::FolderTree)
+                                .tooltip("Directory tree")
+                                .selected(self.browser.mode == FileListMode::Tree)
+                                .on_click(cx.listener(|this, _, _, cx| {
+                                    this.browser.mode = FileListMode::Tree;
+                                    this.rebuild_browser(cx);
+                                    this.save_layout(cx);
+                                    cx.notify();
+                                })),
+                        ),
+                ),
             );
         match self.comparison_state() {
             LoadState::Failed(error) => {
@@ -568,6 +599,9 @@ impl Viewer {
                     );
                     let path = file.path().to_owned();
                     let source = self.comparison().map(Comparison::identity);
+                    let target = self.file_target(path.clone(), false);
+                    let owner = cx.entity().downgrade();
+                    let focus = self.focus.clone();
                     list = list.child(
                         div()
                             .id(SharedString::from(format!("file:{}", file.path())))
@@ -615,7 +649,15 @@ impl Viewer {
                                 }) {
                                     this.select_path(&path, window, cx);
                                 }
-                            })),
+                            }))
+                            .context_menu(move |menu, _, _| match &target {
+                                Some(target) => context_menu::file_menu(
+                                    menu.action_context(focus.clone()),
+                                    target.clone(),
+                                    owner.clone(),
+                                ),
+                                None => menu,
+                            }),
                     );
                 }
                 panel = panel.child(list);
@@ -733,5 +775,120 @@ mod identity_tests {
         ];
         preserve_expansion(&restored, &[], &mut states);
         assert!(!restored[0].is_expanded());
+    }
+}
+
+/// Match directory boundaries so folding `src/a` cannot affect `src/ab`.
+fn expand_directories(items: &[TreeItem], directory: Option<&str>, expanded: bool) {
+    for item in items {
+        if let Some(path) = item.id.strip_prefix("dir:") {
+            if directory.is_none_or(|directory| {
+                path == directory
+                    || path
+                        .strip_prefix(directory)
+                        .is_some_and(|tail| tail.starts_with('/'))
+            }) {
+                item.clone().expanded(expanded);
+            }
+            expand_directories(&item.children, directory, expanded);
+        }
+    }
+}
+
+impl Viewer {
+    pub(super) fn keyboard_file_target(
+        &self,
+        window: &Window,
+        cx: &App,
+    ) -> Option<context_menu::FileTarget> {
+        let tree = self.browser.tree.read(cx);
+        if self.browser.mode == FileListMode::Tree
+            && self.browser.focus.contains_focused(window, cx)
+            && let Some(item) = tree.selected_item()
+            && let Some((prefix, path)) = item.id.split_once(':')
+        {
+            return self.file_target(path.to_owned(), prefix == "dir");
+        }
+        self.current_file_target()
+    }
+
+    pub(super) fn set_directory_expansion(
+        &mut self,
+        directory: Option<&str>,
+        expanded: bool,
+        cx: &mut Context<Self>,
+    ) {
+        if self.browser.mode != FileListMode::Tree {
+            return;
+        }
+        let selected = self
+            .browser
+            .tree
+            .read(cx)
+            .selected_item()
+            .map(|item| item.id.clone());
+        expand_directories(&self.browser.roots, directory, expanded);
+        let items = self.browser.roots.clone();
+        self.browser.tree.update(cx, |tree, cx| {
+            tree.set_items(items, cx);
+            let index = selected.as_ref().and_then(|id| tree.index_of(id));
+            tree.set_selected_index(index, cx);
+        });
+        cx.notify();
+    }
+
+    pub(super) fn set_file_mode(&mut self, mode: FileListMode, cx: &mut Context<Self>) {
+        self.browser.mode = mode;
+        self.rebuild_browser(cx);
+        self.save_layout(cx);
+        cx.notify();
+    }
+
+    pub(super) fn set_tree_scope(&mut self, scope: TreeScope, cx: &mut Context<Self>) {
+        self.browser.scope = scope;
+        self.rebuild_browser(cx);
+        self.save_layout(cx);
+        cx.notify();
+    }
+
+    pub(super) fn reveal_active_file(&mut self, cx: &mut Context<Self>) {
+        if self.layout.saved.files_hidden {
+            self.layout.saved.files_hidden = false;
+            self.rebuild_sidebar_layout(cx);
+            self.save_layout(cx);
+        }
+        if self.selected_file.is_some() {
+            self.reveal_browser_selection(cx);
+        }
+        let previous = self.browser.reading.clone();
+        self.browser.reading = self.selected_path().or(previous.clone());
+        self.reveal_reading_file(cx);
+        self.browser.reading = previous;
+        cx.notify();
+    }
+}
+
+#[cfg(test)]
+mod expansion_tests {
+    use super::{TreeItem, expand_directories};
+    #[test]
+    fn recursive_folder_actions_include_hidden_descendants_but_not_siblings() {
+        let nested = TreeItem::new("dir:src/a/deep", "deep")
+            .children(vec![TreeItem::new("file:src/a/deep/f.rs", "f.rs")])
+            .expanded(false);
+        let first = TreeItem::new("dir:src/a", "a")
+            .children(vec![nested.clone()])
+            .expanded(false);
+        let sibling = TreeItem::new("dir:src/ab", "ab")
+            .children(vec![TreeItem::new("file:src/ab/g.rs", "g.rs")])
+            .expanded(false);
+        let roots = vec![first.clone(), sibling.clone()];
+        expand_directories(&roots, Some("src/a"), true);
+        assert!(first.is_expanded() && nested.is_expanded());
+        assert!(!sibling.is_expanded());
+        expand_directories(&roots, None, false);
+        assert!(!first.is_expanded() && !nested.is_expanded() && !sibling.is_expanded());
+        expand_directories(&roots, None, true);
+        assert!(first.is_expanded() && nested.is_expanded() && sibling.is_expanded());
     }
 }

@@ -1,6 +1,7 @@
 use super::*;
 use gpui::component::Sizable;
-use gpui::component::tooltip::Tooltip;
+use gpui::component::menu::ContextMenuExt as _;
+use gpui::component::tooltip::{ManagedTooltipExt as _, Tooltip};
 pub(super) use jaywalk::evolution::ReviewMode;
 use jaywalk::evolution::grouping::{GroupedEvolutionView, TimelineRow};
 use jaywalk::evolution::{Evolution, EvolutionView};
@@ -226,7 +227,7 @@ impl Viewer {
                     Some((commit_id.clone(), ReviewMode::Patch))
                 }
                 ComparisonScope::Evolution { version, mode, .. } => Some((version.clone(), *mode)),
-                ComparisonScope::WholeBranch => None,
+                ComparisonScope::Aggregate => None,
             });
         if let Some((commit, mode)) = displayed
             && let TimelineState::Loaded(file) = &mut self.file_evolution.state
@@ -322,7 +323,7 @@ impl Viewer {
                 let commit = match &session.scope {
                     ComparisonScope::Revision { commit_id, .. } => commit_id,
                     ComparisonScope::Evolution { anchor, .. } => anchor,
-                    ComparisonScope::WholeBranch => return None,
+                    ComparisonScope::Aggregate => return None,
                 };
                 session
                     .history
@@ -391,7 +392,7 @@ impl Viewer {
         let Some(repository) = self.repository.ready() else {
             return;
         };
-        let branch = repository.branch.as_ref().clone();
+        let branch = repository.review.aggregate.as_ref().clone();
         let limit = self.settings.evolution.limit;
         self.evolution.generation += 1;
         let generation = self.evolution.generation;
@@ -481,7 +482,7 @@ impl Viewer {
         let Some(session) = self.repository.ready() else {
             return;
         };
-        let branch = session.branch.as_ref().clone();
+        let branch = session.home.as_ref().clone();
         let operation = session
             .history
             .as_ref()
@@ -604,7 +605,7 @@ impl Viewer {
         let Some(session) = self.repository.ready() else {
             return;
         };
-        let branch = session.branch.as_ref().clone();
+        let branch = session.home.as_ref().clone();
         let preferred_path = self
             .selected_path()
             .or_else(|| self.file_evolution.file_path.clone());
@@ -782,7 +783,28 @@ impl Viewer {
             }
             bar = bar.child(modes);
         }
-        bar.into_any_element()
+        let focus = self.focus.clone();
+        let overview = self.selected_file.is_none();
+        let view = self.view.effective();
+        let wrap = self.wrapping.enabled(view);
+        let line_numbers = self.line_numbers;
+        bar.id("comparison-context-menu")
+            .context_menu(move |menu, _, _| {
+                let menu = menu.action_context(focus.clone());
+                let menu = if overview {
+                    context_menu::overview_commands(menu)
+                } else {
+                    context_menu::diff_commands(menu, view, wrap, line_numbers)
+                };
+                context_menu::command_entries(
+                    menu.separator(),
+                    &[
+                        (jaywalk::commands::CommandId::AllChanges, false),
+                        (jaywalk::commands::CommandId::Refresh, false),
+                    ],
+                )
+            })
+            .into_any_element()
     }
 
     pub(super) fn render_evolution(
@@ -804,7 +826,7 @@ impl Viewer {
             .id(("evolution-panel", kind.id()))
             .v_flex().size_full().bg(surface)
             .child(div().v_flex()
-                .child(self.panel_header(font_size, cx)
+                .child(self.panel_header(match kind { EvolutionKind::Change => jaywalk::panel_layout::PanelId::ChangeEvolution, EvolutionKind::File => jaywalk::panel_layout::PanelId::FileEvolution }, font_size, cx)
                     .child(div().flex_1().min_w_0().truncate().text_size(px(font_size * 0.85)).child(match kind {
                         EvolutionKind::Change => "CHANGE EVOLUTION",
                         EvolutionKind::File => "FILE EVOLUTION",
@@ -948,6 +970,8 @@ impl Viewer {
         let height = self.settings.evolution.row_height.max(font_size * 2.5);
         let spacing = self.settings.history.lane_spacing;
         let grouping_enabled = state.collapse_repeats;
+        let operation = evolution.operation.clone();
+        let menu_focus = self.focus.clone();
         let rows = uniform_list(("evolution-rows", kind.id()), presentation.rows.len(), move |visible, _, _| {
             let width = 20. + (presentation.graph.visible_lane_count(visible.clone()) - 1) as f32 * spacing;
             visible
@@ -960,6 +984,13 @@ impl Viewer {
                     let member_count = row.members().len();
                     let group_head = timeline.versions[index].commit_id.clone();
                     let version = &timeline.versions[index];
+                    let menu_target = history_menu::VersionTarget {
+                        revision: history_menu::RevisionTarget { commit: version.commit_id.clone(), change: version.change_id.clone(), message: version.description.clone(), parents: version.parents.clone() },
+                        operation_id: version.operation_id.clone(), kind, operation: operation.clone(), file_path: file_path.clone(), index,
+                        has_predecessors: !version.predecessors.is_empty(),
+                    };
+                    let menu_owner = viewer.clone();
+                    let focus = menu_focus.clone();
                     let event = timeline.event(index);
                     let file_effect = file_path
                         .as_deref()
@@ -1106,7 +1137,7 @@ impl Viewer {
                                         .child(detail),
                                 ),
                         )
-                        .tooltip(move |window, cx| {
+                        .managed_tooltip(move |window, cx| {
                             Tooltip::new(tooltip.clone())
                                 .max_w(rems(32.))
                                 .build(window, cx)
@@ -1116,6 +1147,7 @@ impl Viewer {
                                 viewer.select_evolution_version(kind, index, mode, window, cx);
                             });
                         })
+                        .context_menu(move |menu, _, _| history_menu::version_menu(menu.action_context(focus.clone()), menu_target.clone(), menu_owner.clone()))
                         .into_any_element()
                 })
                 .collect()
@@ -1286,5 +1318,84 @@ mod timeline_tests {
         assert!(panel.presentation().is_none());
         panel.state = TimelineState::Failed("unavailable".into());
         assert!(panel.presentation().is_none());
+    }
+}
+
+impl Viewer {
+    pub(super) fn active_version_target(&self) -> Option<history_menu::VersionTarget> {
+        let kind = self.active_evolution;
+        let panel = self.evolution_panel(kind);
+        let TimelineState::Loaded(session) = &panel.state else {
+            return None;
+        };
+        let version = session.timeline.versions.get(session.selected)?;
+        Some(history_menu::VersionTarget {
+            revision: history_menu::RevisionTarget {
+                commit: version.commit_id.clone(),
+                change: version.change_id.clone(),
+                message: version.description.clone(),
+                parents: version.parents.clone(),
+            },
+            operation_id: version.operation_id.clone(),
+            kind,
+            operation: session.operation.clone(),
+            file_path: panel.file_path.clone(),
+            index: session.selected,
+            has_predecessors: !version.predecessors.is_empty(),
+        })
+    }
+
+    pub(super) fn execute_version_action(
+        &mut self,
+        command: jaywalk::commands::CommandId,
+        target: &history_menu::VersionTarget,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        use jaywalk::commands::CommandId;
+        if let Some(text) = target.revision.copy_text(command) {
+            cx.write_to_clipboard(ClipboardItem::new_string(text.to_owned()));
+            return;
+        }
+        if command == CommandId::CopyOperationId {
+            if let Some(id) = &target.operation_id {
+                cx.write_to_clipboard(ClipboardItem::new_string(id.clone()));
+            }
+            return;
+        }
+        let panel = self.evolution_panel(target.kind);
+        let TimelineState::Loaded(session) = &panel.state else {
+            return;
+        };
+        if !session
+            .timeline
+            .versions
+            .get(target.index)
+            .is_some_and(|version| {
+                target.matches(
+                    &session.operation,
+                    panel.file_path.as_deref(),
+                    &version.commit_id,
+                )
+            })
+        {
+            return;
+        }
+        match command {
+            CommandId::VersionPatch | CommandId::SincePrevious => self.select_evolution_version(
+                target.kind,
+                target.index,
+                if command == CommandId::VersionPatch {
+                    ReviewMode::Patch
+                } else {
+                    ReviewMode::SincePrevious
+                },
+                window,
+                cx,
+            ),
+            CommandId::ToggleEvolutionGroups => self.toggle_repeat_grouping(target.kind, cx),
+            CommandId::ToggleUnchangedVersions => self.toggle_unchanged_rebases(target.kind, cx),
+            _ => {}
+        }
     }
 }

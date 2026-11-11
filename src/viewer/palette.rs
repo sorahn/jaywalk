@@ -9,6 +9,7 @@ pub(super) enum PaletteKind {
     Commands,
     Repositories,
     Profiles,
+    Reviews,
 }
 #[derive(Clone)]
 enum Choice {
@@ -18,6 +19,7 @@ enum Choice {
         source: Rc<jaywalk::repository::ComparisonIdentity>,
     },
     Command(jaywalk::commands::CommandId),
+    Review(review_context::ReviewChoice),
     Profile(String),
     Repository {
         directory: std::path::PathBuf,
@@ -92,7 +94,7 @@ fn rank_choices(
         .filter_map(|(label, choice)| {
             let rank = match &choice {
                 Choice::File { path, status, .. } => file_rank(query, path, status.is_some()),
-                Choice::Command(_) | Choice::Profile(_) => {
+                Choice::Command(_) | Choice::Profile(_) | Choice::Review(_) => {
                     fuzzy_score(query, &label).map(|score| (score, false))
                 }
                 Choice::Repository { directory, .. } => {
@@ -236,6 +238,12 @@ impl Viewer {
                 .iter()
                 .map(|name| (name.clone(), Choice::Profile(name.clone())))
                 .collect(),
+            PaletteKind::Reviews => self
+                .review_picker
+                .choices
+                .iter()
+                .map(|(label, choice)| (label.clone(), Choice::Review(choice.clone())))
+                .collect(),
             PaletteKind::Commands => jaywalk::commands::CommandId::ALL
                 .iter()
                 .filter(|command| {
@@ -274,6 +282,7 @@ impl Viewer {
                         }
                     }
                     Choice::Command(command) => this.execute_command(command, window, cx),
+                    Choice::Review(choice) => this.apply_review_choice(choice, window, cx),
                     Choice::Profile(name) => this.select_keybindings_profile(name, window, cx),
                     Choice::Repository { directory, .. } => this.open_repository_path(
                         directory,
@@ -290,6 +299,7 @@ impl Viewer {
                 PaletteKind::Commands => "Run a command…",
                 PaletteKind::Repositories => "Search recent repositories…",
                 PaletteKind::Profiles => "Select keybindings profile…",
+                PaletteKind::Reviews => "Choose review branch or comparison base…",
             })
             .items(choices.iter().enumerate().map(|(index, (label, choice))| {
                 let viewer = cx.entity().downgrade();
@@ -421,7 +431,7 @@ impl Viewer {
             return;
         }
         let selected = match &session.scope {
-            ComparisonScope::WholeBranch => None,
+            ComparisonScope::Aggregate => None,
             ComparisonScope::Revision { commit_id, .. } => Some(commit_id),
             ComparisonScope::Evolution { anchor, .. } => Some(anchor),
         };
@@ -436,7 +446,7 @@ impl Viewer {
         };
         let index = match step {
             HistoryStep::Overview => {
-                self.show_whole_branch_overview(window, cx);
+                self.show_all_changes_overview(window, cx);
                 return;
             }
             HistoryStep::Revision(index) => index,

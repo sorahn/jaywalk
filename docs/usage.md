@@ -38,7 +38,7 @@ or choose **Open file** for the regular diff viewer. Clicking a file header fold
 that file; its Open file action remains separate. Sticky headers show which file
 you are reading, with a corresponding reading indicator in the sidebar.
 
-Select a commit in history to see its message and patch. **Whole branch** returns
+Select a commit in history to see its message and patch. **All changes** returns
 to the original branch comparison. **Overview** returns from an open file to the
 overview of the current comparison. Back and Forward retrace views you visited
 in this window, including comparison, file, and reading position where possible.
@@ -96,7 +96,7 @@ its newest version; use its chevron to expand individual events. **Group** toggl
 this behavior. Branch boundaries, conflicts, and divergent versions stay separate.
 
 Historical evolution reviews remain pinned. Select the change's history row to
-resume following its latest version, or Whole branch to leave evolution review.
+resume following its latest version, or All changes to leave evolution review.
 Interdiffs require Git-backed jj and Git on PATH; jj may synthesize backend objects
 while calculating them, without updating the working copy or recording an operation.
 
@@ -164,3 +164,17 @@ git difftool --no-prompt --dir-diff --no-symlinks --tool=jaywalk
 
 Git's usual `--cached` and revision arguments work here. This registers an optional
 tool without changing the default viewer. Keep `--wait` for temporary inputs.
+
+## Current work and branch reviews
+
+Current work returns to the latest combined workspace view. All changes returns
+to the full review scope, while Overview shows the selected comparison as a
+stacked diff. Choose another branch/base from the dropdown beside All changes,
+or use the history/reference context menus. The caption shows which source and
+base you are reviewing. See [context menus](context-menus.md#branch-review-context)
+for ambiguity, merged branches and live/pinned behavior.
+
+In fluid view, drag the short, full-width thumb in the center gutter to scroll both panes
+through the comparison. The up–down cursor marks the grabbable gutter; clicking above or
+below the thumb moves to that position. Each pane’s own scrollbar remains
+independent. Mouse-wheel scrolling over either pane or the gutter stays linked.

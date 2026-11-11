@@ -160,6 +160,70 @@ impl Viewer {
             return;
         }
         match command {
+            CommandId::CollapseOverview
+            | CommandId::ExpandOverview
+            | CommandId::OverviewContext
+            | CommandId::OverviewFull => self.overview_action(command, cx),
+            CommandId::InspectRevision
+            | CommandId::ShowChangeEvolution
+            | CommandId::CopyCommitId
+            | CommandId::CopyChangeId
+            | CommandId::CopyCommitMessage => {
+                if let Some(target) = self.current_revision_target() {
+                    self.execute_revision_action(command, &target, window, cx);
+                }
+            }
+            CommandId::CopyOperationId
+            | CommandId::ToggleEvolutionGroups
+            | CommandId::ToggleUnchangedVersions => {
+                if let Some(target) = self.active_version_target() {
+                    self.execute_version_action(command, &target, window, cx);
+                }
+            }
+            CommandId::OpenFile
+            | CommandId::CopyPath
+            | CommandId::CopyRelativePath
+            | CommandId::CopyFileName
+            | CommandId::RevealInFileManager => {
+                if let Some(target) = self.keyboard_file_target(window, cx) {
+                    self.execute_file_action(command, &target, window, cx);
+                }
+            }
+            CommandId::CollapseFiles | CommandId::ExpandFiles => {
+                self.set_directory_expansion(None, command == CommandId::ExpandFiles, cx);
+            }
+            CommandId::RevealFile => self.reveal_active_file(cx),
+            CommandId::FileList | CommandId::FileTree => {
+                self.set_file_mode(
+                    if command == CommandId::FileList {
+                        jaywalk::settings::FileView::List
+                    } else {
+                        jaywalk::settings::FileView::Tree
+                    },
+                    cx,
+                );
+            }
+            CommandId::TreeChanged | CommandId::TreeAll => {
+                self.set_tree_scope(
+                    if command == CommandId::TreeAll {
+                        jaywalk::settings::TreeScope::All
+                    } else {
+                        jaywalk::settings::TreeScope::Changed
+                    },
+                    cx,
+                );
+            }
+            CommandId::CurrentWork | CommandId::OpenedComparison => {
+                self.load_home_review(
+                    if command == CommandId::CurrentWork {
+                        review_context::HomeSource::Workspace
+                    } else {
+                        review_context::HomeSource::Opened
+                    },
+                    window,
+                    cx,
+                );
+            }
             CommandId::OpenRepository => {
                 crate::choose_repository(self.arguments.clone(), Some(cx.entity().downgrade()), cx)
             }
@@ -196,7 +260,14 @@ impl Viewer {
                 self.edit_configuration_file(keyboard::ConfigurationFile::Keybindings, window, cx)
             }
             CommandId::SelectKeybindings => self.choose_keybindings_profile(window, cx),
-            CommandId::WholeBranch => self.show_whole_branch(window, cx),
+            CommandId::AllChanges => self.all_review_changes(None, window, cx),
+            CommandId::ChooseReview => self.choose_review(None, window, cx),
+            CommandId::ChooseReviewBase => self.choose_review_base(window, cx),
+            CommandId::BranchChanges | CommandId::MergedBranch | CommandId::MergeResult => {
+                if let Some(target) = self.current_revision_target() {
+                    self.execute_revision_action(command, &target, window, cx);
+                }
+            }
             CommandId::Overview => {
                 self.show_overview(window, cx);
             }

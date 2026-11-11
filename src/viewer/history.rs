@@ -1,5 +1,6 @@
 use super::*;
 use gpui::component::Sizable;
+use gpui::component::menu::ContextMenuExt as _;
 use gpui::prelude::FluentBuilder;
 use jaywalk::history::History;
 
@@ -44,6 +45,8 @@ fn history_row(
     let revision = &history.revisions[index];
     let commit_id = revision.commit_id.clone();
     let description = revision.summary();
+    let target = history_menu::RevisionTarget::from_revision(revision);
+    let menu_owner = viewer.clone();
     div()
         .id(SharedString::from(format!("revision:{commit_id}")))
         .h(px(height))
@@ -102,6 +105,18 @@ fn history_row(
                 viewer.select_revision(&commit_id, window, cx)
             });
         })
+        .context_menu(move |menu, _, cx| {
+            let Some(owner) = menu_owner.upgrade() else {
+                return menu;
+            };
+            let viewer = owner.read(cx);
+            history_menu::revision_menu(
+                menu.action_context(viewer.menu_focus()),
+                target.clone(),
+                menu_owner.clone(),
+                viewer.supports_evolution(),
+            )
+        })
         .into_any_element()
 }
 
@@ -117,35 +132,37 @@ impl Viewer {
         let selection = theme.list_active;
         let hover = theme.secondary_hover;
         let mut panel = div().v_flex().size_full().bg(surface).child(
-            self.panel_header(self.settings.panels.history.font.size, cx)
-                .child(
-                    div()
-                        .flex_1()
-                        .min_w_0()
-                        .truncate()
-                        .text_size(px(self.settings.panels.history.font.size))
-                        .child(if self.supports_evolution() {
-                            "JJ HISTORY"
-                        } else {
-                            "GIT HISTORY"
-                        }),
-                )
-                .child(self.reference_controls(cx))
-                .child(self.remote_controls(cx))
-                .child(self.panel_menu(jaywalk::panel_layout::PanelId::History))
-                .child(
-                    Button::new("toggle-evolution")
-                        .ghost()
-                        .small()
-                        .compact()
-                        .icon(IconName::GitCompareArrows)
-                        .when(!self.supports_evolution(), |button| button.hidden())
-                        .selected(self.evolution.visible)
-                        .tooltip("Show change evolution")
-                        .on_click(
-                            cx.listener(|this, _, window, cx| this.toggle_evolution(window, cx)),
-                        ),
-                ),
+            self.panel_header(
+                jaywalk::panel_layout::PanelId::History,
+                self.settings.panels.history.font.size,
+                cx,
+            )
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .truncate()
+                    .text_size(px(self.settings.panels.history.font.size))
+                    .child(if self.supports_evolution() {
+                        "JJ HISTORY"
+                    } else {
+                        "GIT HISTORY"
+                    }),
+            )
+            .child(self.reference_controls(cx))
+            .child(self.remote_controls(cx))
+            .child(self.panel_menu(jaywalk::panel_layout::PanelId::History))
+            .child(
+                Button::new("toggle-evolution")
+                    .ghost()
+                    .small()
+                    .compact()
+                    .icon(IconName::GitCompareArrows)
+                    .when(!self.supports_evolution(), |button| button.hidden())
+                    .selected(self.evolution.visible)
+                    .tooltip("Show change evolution")
+                    .on_click(cx.listener(|this, _, window, cx| this.toggle_evolution(window, cx))),
+            ),
         );
         let session =
             match &self.repository {
@@ -184,7 +201,7 @@ impl Viewer {
             }
         };
         let selected_commit = match &session.scope {
-            ComparisonScope::WholeBranch => None,
+            ComparisonScope::Aggregate => None,
             ComparisonScope::Revision { commit_id, .. } => Some(commit_id.clone()),
             ComparisonScope::Evolution { anchor, .. } => Some(anchor.clone()),
         };

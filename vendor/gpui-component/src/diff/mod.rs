@@ -35,6 +35,7 @@ use crate::{
     button::{Button, ButtonVariants as _},
     h_flex,
     input::{Copy, SelectAll},
+    menu::{ContextMenuExt as _, PopupMenu, PopupMenuItem},
     scroll::{ScrollableMask, Scrollbar},
     v_flex,
 };
@@ -174,6 +175,8 @@ impl DiffAnnotation {
 }
 
 type OverviewRenderer = Rc<dyn Fn(&mut Window, &mut App) -> AnyElement>;
+type HeaderMenu =
+    Rc<dyn Fn(&DiffFile, PopupMenu, &mut Window, &mut Context<PopupMenu>) -> PopupMenu>;
 type FileRenderer = Rc<dyn Fn(&DiffFile, &mut Window, &mut App) -> AnyElement>;
 type AnnotationRenderer = Rc<dyn Fn(&DiffAnnotation, &mut Window, &mut App) -> AnyElement>;
 type RangeHandler = Rc<dyn Fn(&DiffLineRange, &mut Window, &mut App)>;
@@ -182,6 +185,7 @@ type HoverHandler = Rc<dyn Fn(Option<&DiffLinePosition>, &mut Window, &mut App)>
 
 #[derive(Default)]
 struct HeaderSlots {
+    context_menu: Option<HeaderMenu>,
     content: Option<FileRenderer>,
     prefix: Option<FileRenderer>,
     title_suffix: Option<FileRenderer>,
@@ -410,6 +414,17 @@ impl Diff {
         self.header.suffix = Some(file_renderer(render));
         self
     }
+    /// Adds a file-header context menu without replacing folding controls,
+    /// metadata or statistics. Natural and sticky headers share this hook.
+    pub fn header_context_menu(
+        mut self,
+        build: impl Fn(&DiffFile, PopupMenu, &mut Window, &mut Context<PopupMenu>) -> PopupMenu
+        + 'static,
+    ) -> Self {
+        self.header.context_menu = Some(Rc::new(build));
+        self
+    }
+
     /// Compatibility alias for [`Self::render_annotation`].
     pub fn annotation_content<F, E>(self, render: F) -> Self
     where
@@ -501,6 +516,8 @@ fn render_diff(
     window: &mut Window,
     cx: &mut Context<DiffState>,
 ) -> AnyElement {
+    let menu_state = cx.entity();
+    let menu_focus = state.focus_handle(cx);
     state.set_window(window.window_handle().window_id());
     state.ensure_presentation(cx);
     let rem = window.rem_size();
@@ -833,7 +850,23 @@ fn render_diff(
         .track_focus(&state.focus_handle(cx))
         .key_context("Diff")
         .role(gpui::accesskit::Role::Document)
-        .aria_label(label);
+        .aria_label(label)
+        .context_menu(move |menu, _, cx| {
+            let state = menu_state.read(cx);
+            // A click on a popup item may clear the shared text selection
+            // before its action runs. Copy the source selected when it opened.
+            let selected = state.selected_text(cx);
+            menu.action_context(menu_focus.clone())
+                .item(
+                    PopupMenuItem::new("Copy")
+                        .action(Box::new(Copy))
+                        .disabled(selected.is_empty())
+                        .on_click(move |_, _, cx| {
+                            cx.write_to_clipboard(ClipboardItem::new_string(selected.clone()))
+                        }),
+                )
+                .menu_with_disabled("Select all", Box::new(SelectAll), state.files().is_empty())
+        });
     v_flex()
         .id(("diff", cx.entity_id()))
         .size_full()
@@ -1356,7 +1389,7 @@ fn render_file_header_content(
     };
     let state = code.state.clone();
     let name = document.path().clone();
-    v_flex()
+    let header = v_flex()
         .id("file-header")
         .w_full()
         .when(file > 0, |this| this.border_t_1())
@@ -1395,8 +1428,16 @@ fn render_file_header_content(
         )
         .when(annotations, |header| {
             header.children(file_annotations(file, code, window, cx))
-        })
-        .into_any_element()
+        });
+    if let Some(build) = &code.header.context_menu {
+        let build = build.clone();
+        let document = document.clone();
+        header
+            .context_menu(move |menu, window, cx| build(&document, menu, window, cx))
+            .into_any_element()
+    } else {
+        header.into_any_element()
+    }
 }
 
 fn file_annotations(

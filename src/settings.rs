@@ -168,6 +168,8 @@ pub struct SidebarSettings {
 #[serde(deny_unknown_fields)]
 pub struct DiffPanelSettings {
     pub gutter_width: f32,
+    pub shared_scrollbar_height: f32,
+    pub shared_scrollbar_opacity: f32,
     pub min_code_width: f32,
 }
 
@@ -483,6 +485,18 @@ impl Config {
             240.,
         )?;
         bounded(
+            "panels.diff.shared_scrollbar_height",
+            self.panels.diff.shared_scrollbar_height,
+            1.,
+            1000.,
+        )?;
+        bounded(
+            "panels.diff.shared_scrollbar_opacity",
+            self.panels.diff.shared_scrollbar_opacity,
+            0.,
+            1.,
+        )?;
+        bounded(
             "panels.diff.min_code_width",
             self.panels.diff.min_code_width,
             32.,
@@ -715,6 +729,8 @@ mod tests {
             "[panels.files]\nmin_width=500\ndefault_width=200",
             "[diff]\ndefault_view='invalid'",
             "[panels.diff]\ngutter_width=-1",
+            "[panels.diff]\nshared_scrollbar_height=0",
+            "[panels.diff]\nshared_scrollbar_opacity=1.1",
             "[evolution]\nlimit=0",
             "[evolution]\nmin_height=500\ndefault_height=200",
             "[file_evolution]\nmin_height=500\ndefault_height=200",

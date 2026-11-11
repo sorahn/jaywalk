@@ -92,6 +92,14 @@ impl Viewer {
                 };
                 let before_text = text_start(before_state, &model.before_offsets);
                 let after_text = text_start(after_state, &model.after_offsets);
+                fluid_scrollbar::paint_shared_scrollbar(
+                    viewer.clone(),
+                    clip,
+                    &geometry,
+                    &model,
+                    window,
+                    cx,
+                );
                 // Full-row tint shares the connector geometry, including the
                 // empty space after short lines and the line-number gutter.
                 for (viewport, origin, before_side, text_start, positions) in [
@@ -174,7 +182,17 @@ impl Viewer {
                         }
                     });
                 }
-                window.with_content_mask(Some(ContentMask { bounds: clip }), |window| {
+                // Carry the one-pixel stroke across the pane dividers. Insetting
+                // the path left a visible seam between each row marker and curve.
+                let stroke_width = px(1.);
+                let connector_clip = Bounds::from_corners(
+                    point(clip.left() - stroke_width, clip.top()),
+                    point(clip.right() + stroke_width, clip.bottom()),
+                );
+                let connector_mask = ContentMask {
+                    bounds: connector_clip,
+                };
+                window.with_content_mask(Some(connector_mask), |window| {
                     for (index, block) in changes.iter().enumerate() {
                         let selected = active == Some(index);
                         let rgb = if block.before.is_empty() {
@@ -195,23 +213,17 @@ impl Viewer {
                             continue;
                         }
 
-                        // Most changes stay midpoint-to-midpoint. Only a block
-                        // taller than the viewport needs its attachment to slide
-                        // into view. The clamp is continuous during scrolling.
                         let attachment = |top: Pixels, bottom: Pixels| {
-                            let middle = (top + bottom) / 2.;
-                            if bottom - top <= clip.size.height {
-                                middle
-                            } else {
-                                let margin = clip.size.height / 4.;
-                                middle.clamp(clip.top() + margin, clip.bottom() - margin)
-                            }
+                            px(jaywalk::fluid::connector_attachment(
+                                f32::from(top)..f32::from(bottom),
+                                f32::from(clip.top())..f32::from(clip.bottom()),
+                            ))
                         };
                         let before_y = attachment(before_top, before_bottom);
                         let after_y = attachment(after_top, after_bottom);
-                        let left = bounds.left() + px(1.);
-                        let right = bounds.right() - px(1.);
-                        let mut path = PathBuilder::stroke(px(1.));
+                        let left = bounds.left() - stroke_width / 2.;
+                        let right = bounds.right() + stroke_width / 2.;
+                        let mut path = PathBuilder::stroke(stroke_width);
                         path.move_to(point(left, before_top));
                         path.line_to(point(left, before_bottom));
                         path.move_to(point(right, after_top));
@@ -258,7 +270,8 @@ impl Viewer {
                 window.on_mouse_event(move |event: &ScrollWheelEvent, phase, _, cx| {
                     if phase != DispatchPhase::Capture
                         || !(before_bounds.contains(&event.position)
-                            || after_bounds.contains(&event.position))
+                            || after_bounds.contains(&event.position)
+                            || clip.contains(&event.position))
                     {
                         return;
                     }

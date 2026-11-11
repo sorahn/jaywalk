@@ -18,13 +18,17 @@ use crate::Arguments;
 mod chrome;
 pub(crate) mod commands;
 mod comparison;
+mod context_menu;
 mod editor_presentation;
 mod evolution;
+mod history_menu;
+mod review_context;
 #[cfg(test)]
 use editor_presentation::standard_patch;
 use editor_presentation::{CodeComparison, PreparedFile};
 mod feedback;
 mod files;
+mod fluid_scrollbar;
 mod fluid_view;
 mod geometry;
 mod history;
@@ -106,7 +110,7 @@ impl<T> LoadState<T> {
 
 #[derive(Clone, PartialEq, Eq)]
 enum ComparisonScope {
-    WholeBranch,
+    Aggregate,
     Revision {
         commit_id: String,
         change_id: String,
@@ -122,7 +126,8 @@ enum ComparisonScope {
 }
 
 struct RepositorySession {
-    branch: Rc<Comparison>,
+    home: Rc<Comparison>,
+    review: review_context::ReviewContext,
     history: Result<Rc<jaywalk::history::History>, String>,
     scope: ComparisonScope,
     comparison: LoadState<Rc<Comparison>>,
@@ -141,6 +146,8 @@ pub(crate) fn init(arguments: &Arguments, settings: &Settings, cx: &mut App) -> 
 
 pub(crate) struct Viewer {
     arguments: Arguments,
+    home_source: review_context::HomeSource,
+    review_picker: review_context::ReviewPicker,
     welcome: Option<welcome::WelcomeState>,
     recent_recorded: bool,
     settings: Settings,
@@ -169,6 +176,7 @@ pub(crate) struct Viewer {
     horizontal_position: f32,
     reveal_after_layout: bool,
     fluid: FluidScroll,
+    fluid_drag: Option<f32>,
     editor_observers: Vec<Subscription>,
     live: live::LiveState,
     feedback: feedback::Feedback,
@@ -243,7 +251,7 @@ impl Viewer {
     fn supports_evolution(&self) -> bool {
         self.repository
             .ready()
-            .is_some_and(|session| session.branch.supports_evolution())
+            .is_some_and(|session| session.home.supports_evolution())
     }
 
     fn scope_label(&self) -> String {
@@ -251,16 +259,25 @@ impl Viewer {
             return "External diff".into();
         }
         match self.repository.ready().map(|session| &session.scope) {
-            Some(ComparisonScope::WholeBranch) if !self.supports_evolution() => {
-                "Git comparison".into()
-            }
-            Some(ComparisonScope::WholeBranch) => "Whole branch".into(),
+            Some(ComparisonScope::Aggregate) => self
+                .repository
+                .ready()
+                .expect("loaded scope has a session")
+                .review
+                .source
+                .label(),
             Some(ComparisonScope::Revision {
                 commit_id, merge, ..
             }) => format!(
-                "Commit {}{}",
+                "Commit {}{} · {}",
                 &commit_id[..commit_id.len().min(8)],
-                if *merge { " · first parent" } else { "" }
+                if *merge { " · first parent" } else { "" },
+                self.repository
+                    .ready()
+                    .expect("loaded commit has a review context")
+                    .review
+                    .source
+                    .label()
             ),
             Some(ComparisonScope::Evolution { label, version, .. }) => {
                 format!("{label} · {}", &version[..version.len().min(8)])

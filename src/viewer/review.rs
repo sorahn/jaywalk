@@ -28,6 +28,7 @@ impl ReviewRequests {
 impl Viewer {
     pub(super) fn invalidate_comparison_request(&mut self) {
         self.requests.invalidate_comparison();
+        self.review_picker.pending = None;
         self.finish_loading(LoadingKind::File);
     }
 

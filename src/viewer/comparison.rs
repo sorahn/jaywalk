@@ -1,4 +1,5 @@
 use super::*;
+use gpui::component::menu::ContextMenuExt as _;
 use gpui::component::{Icon, Sizable};
 
 impl Viewer {
@@ -17,7 +18,7 @@ impl Viewer {
         }
     }
 
-    fn render_file_header(&self, cx: &App) -> AnyElement {
+    fn render_file_header(&self, cx: &Context<Self>) -> AnyElement {
         let selected = self
             .selected_file
             .as_ref()
@@ -101,7 +102,25 @@ impl Viewer {
                     .child(detail),
             );
         }
-        header.into_any_element()
+        let target = self.current_file_target();
+        let owner = cx.entity().downgrade();
+        let focus = self.focus.clone();
+        let view = self.view.effective();
+        let wrap = self.wrapping.enabled(view);
+        let line_numbers = self.line_numbers;
+        header
+            .id("diff-file-header")
+            .context_menu(move |menu, _, _| {
+                let menu = menu.action_context(focus.clone());
+                let menu = match &target {
+                    Some(target) => {
+                        context_menu::file_menu(menu, target.clone(), owner.clone()).separator()
+                    }
+                    None => menu,
+                };
+                context_menu::diff_commands(menu, view, wrap, line_numbers)
+            })
+            .into_any_element()
     }
 
     pub(super) fn render_standard_input(&self, cx: &mut Context<Self>) -> AnyElement {
@@ -387,13 +406,18 @@ impl Viewer {
                                         )
                                         .fixed()
                                         .child(
-                                            canvas(
-                                                move |bounds, _, _| {
-                                                    measured_gutter.set(Some(bounds))
-                                                },
-                                                |_, _, _, _| {},
-                                            )
-                                            .size_full(),
+                                            div()
+                                                .size_full()
+                                                .cursor(CursorStyle::ResizeUpDown)
+                                                .child(
+                                                    canvas(
+                                                        move |bounds, _, _| {
+                                                            measured_gutter.set(Some(bounds))
+                                                        },
+                                                        |_, _, _, _| {},
+                                                    )
+                                                    .size_full(),
+                                                ),
                                         ),
                                 )
                                 .child(

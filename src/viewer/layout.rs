@@ -1,5 +1,6 @@
 use super::*;
 use gpui::component::Sizable;
+use gpui::component::menu::DropdownMenu as _;
 use gpui::component::tooltip::Tooltip;
 use gpui::prelude::FluentBuilder;
 
@@ -94,30 +95,73 @@ impl Render for Viewer {
                                     })),
                             )
                             .child(
-                                Button::new("whole-branch")
+                                Button::new("current-work")
                                     .ghost()
-                                    .label(if self.arguments.diff.is_some() {
-                                        "All files"
-                                    } else if !self.supports_evolution() {
-                                        "All changes"
-                                    } else {
-                                        "Whole branch"
-                                    })
-                                    .disabled(self.repository.ready().is_none())
-                                    .selected(matches!(
-                                        self.repository.ready().map(|session| &session.scope),
-                                        Some(ComparisonScope::WholeBranch)
-                                    ))
+                                    .label("Current work")
+                                    .disabled(self.arguments.diff.is_some())
                                     .tooltip_with_action(
-                                        "Whole branch",
+                                        "Return to the latest workspace comparison",
                                         &commands::ExecuteCommand {
-                                            command: jaywalk::commands::CommandId::WholeBranch,
+                                            command: jaywalk::commands::CommandId::CurrentWork,
                                         },
                                         None,
                                     )
                                     .on_click(cx.listener(|this, _, window, cx| {
-                                        this.show_whole_branch(window, cx)
+                                        this.execute_command(
+                                            jaywalk::commands::CommandId::CurrentWork,
+                                            window,
+                                            cx,
+                                        )
                                     })),
+                            )
+                            .child(
+                                Button::new("whole-branch")
+                                    .ghost()
+                                    .label(if self.arguments.diff.is_some() {
+                                        "All files"
+                                    } else {
+                                        "All changes"
+                                    })
+                                    .disabled(self.repository.ready().is_none())
+                                    .selected(matches!(
+                                        self.repository.ready().map(|session| &session.scope),
+                                        Some(ComparisonScope::Aggregate)
+                                    ))
+                                    .tooltip_with_action(
+                                        "All changes",
+                                        &commands::ExecuteCommand {
+                                            command: jaywalk::commands::CommandId::AllChanges,
+                                        },
+                                        None,
+                                    )
+                                    .on_click(cx.listener(|this, _, window, cx| {
+                                        this.all_review_changes(None, window, cx)
+                                    })),
+                            )
+                            .child(
+                                Button::new("review-source")
+                                    .ghost()
+                                    .compact()
+                                    .icon(IconName::ChevronDown)
+                                    .tooltip("Choose review branch and base")
+                                    .disabled(self.arguments.diff.is_some())
+                                    .dropdown_menu(|menu, _, _| {
+                                        context_menu::command_entries(
+                                            menu,
+                                            &[
+                                                (jaywalk::commands::CommandId::ChooseReview, false),
+                                                (
+                                                    jaywalk::commands::CommandId::ChooseReviewBase,
+                                                    false,
+                                                ),
+                                                (jaywalk::commands::CommandId::CurrentWork, false),
+                                                (
+                                                    jaywalk::commands::CommandId::OpenedComparison,
+                                                    false,
+                                                ),
+                                            ],
+                                        )
+                                    }),
                             )
                             .child(Button::new("overview").ghost().label("Overview").on_click(
                                 cx.listener(|this, _, window, cx| {
