@@ -11,6 +11,22 @@ pub fn clipped_tint(
     (bottom > top).then_some(top..bottom)
 }
 
+/// Attach at the change midpoint, sliding along tall blocks toward the visible
+/// viewport. The endpoint must remain on the block even while it enters or
+/// leaves the viewport, or a connector can point into unchanged source lines.
+pub fn connector_attachment(change: std::ops::Range<f32>, viewport: std::ops::Range<f32>) -> f32 {
+    let middle = (change.start + change.end) / 2.;
+    let height = viewport.end - viewport.start;
+    if change.end - change.start <= height {
+        middle
+    } else {
+        let margin = height / 4.;
+        middle
+            .clamp(viewport.start + margin, viewport.end - margin)
+            .clamp(change.start, change.end)
+    }
+}
+
 /// Experimental centre-anchored comparison coordinate. Each pane clamps its
 /// displayed offset independently; input continues until both reach the end.
 #[derive(Default)]
@@ -265,5 +281,43 @@ mod tint_tests {
         assert_eq!(clipped_tint(157.0..180.0, 100.0..157.0), None);
         assert_eq!(clipped_tint(90.0..100.0, 100.0..157.0), None);
         assert_eq!(clipped_tint(120.0..120.0, 100.0..157.0), None);
+    }
+}
+
+#[cfg(test)]
+mod attachment_tests {
+    use super::connector_attachment;
+
+    #[test]
+    fn tall_change_entering_or_leaving_never_attaches_to_unchanged_lines() {
+        let viewport = 100.0..700.0;
+        assert_eq!(connector_attachment(650.0..2650.0, viewport.clone()), 650.0);
+        assert_eq!(
+            connector_attachment(-1950.0..150.0, viewport.clone()),
+            150.0
+        );
+        assert_eq!(connector_attachment(-1000.0..2000.0, viewport), 500.0);
+    }
+
+    #[test]
+    fn short_changes_and_empty_sides_keep_their_midpoints() {
+        assert_eq!(connector_attachment(650.0..690.0, 100.0..700.0), 670.0);
+        assert_eq!(connector_attachment(720.0..720.0, 100.0..700.0), 720.0);
+        assert_eq!(connector_attachment(-200.0..-180.0, 100.0..700.0), -190.0);
+    }
+
+    #[test]
+    fn tall_attachment_tracks_scrolling_continuously_and_stays_on_its_edge() {
+        let mut previous: Option<f32> = None;
+        for offset in -3000..1000 {
+            let top = offset as f32;
+            let bottom = top + 2000.;
+            let y = connector_attachment(top..bottom, 100.0..700.0);
+            assert!((top..=bottom).contains(&y));
+            if let Some(previous) = previous {
+                assert!((y - previous).abs() <= 1.0);
+            }
+            previous = Some(y);
+        }
     }
 }
