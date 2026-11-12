@@ -923,7 +923,7 @@ impl Viewer {
                     .px_3()
                     .pb_1()
                     .text_size(px(font_size * 0.85))
-                    .text_color(rgb(0xb8c6d9))
+                    .text_color(gpui::component::Theme::global(cx).muted_foreground)
                     .truncate()
                     .child(context)
                     .tooltip(move |window, cx| Tooltip::new(tooltip.clone()).build(window, cx)),
@@ -934,7 +934,7 @@ impl Viewer {
                     .px_3()
                     .pb_1()
                     .text_size(px(font_size * 0.85))
-                    .text_color(rgb(0xb8c6d9))
+                    .text_color(gpui::component::Theme::global(cx).muted_foreground)
                     .child("Timeline · changes since previous"),
             );
         }
@@ -972,6 +972,7 @@ impl Viewer {
         let grouping_enabled = state.collapse_repeats;
         let operation = evolution.operation.clone();
         let menu_focus = self.focus.clone();
+        let muted_foreground = gpui::component::Theme::global(cx).muted_foreground;
         let rows = uniform_list(("evolution-rows", kind.id()), presentation.rows.len(), move |visible, _, _| {
             let width = 20. + (presentation.graph.visible_lane_count(visible.clone()) - 1) as f32 * spacing;
             visible
@@ -1065,14 +1066,14 @@ impl Viewer {
                         .child(
                             canvas(
                                 |_, _, _| (),
-                                move |bounds, _, window, _| {
+                                move |bounds, _, window, cx| {
                                     let row = &graph.graph.graph[row_index];
                                     let x = |lane| bounds.left() + px(10. + lane as f32 * spacing);
                                     let middle = bounds.center().y;
                                     let color = rgb(if row_selected || previous {
-                                        0x9dcaff
+                                        if gpui::component::Theme::global(cx).is_dark() { 0x9dcaff } else { 0x0969da }
                                     } else {
-                                        0x7797bd
+                                        if gpui::component::Theme::global(cx).is_dark() { 0x7797bd } else { 0x57606a }
                                     });
                                     for stroke in &row.strokes {
                                         super::history::paint_graph_stroke(stroke,bounds,spacing,color.into(),1.,window);
@@ -1132,7 +1133,7 @@ impl Viewer {
                                 .child(
                                     div()
                                         .text_size(px(font_size * 0.85))
-                                        .text_color(rgb(0xa6b5ca))
+                                        .text_color(muted_foreground)
                                         .truncate()
                                         .child(detail),
                                 ),
@@ -1158,7 +1159,7 @@ impl Viewer {
             .px_3()
             .py_2()
             .text_size(px(font_size * 0.85))
-            .text_color(rgb(0xb8c6d9))
+            .text_color(gpui::component::Theme::global(cx).muted_foreground)
             .child(format!(
                 "{} versions · {} {} · {} hidden{}",
                 count,
@@ -1189,12 +1190,16 @@ impl Viewer {
         if version.divergent {
             details = details.child(
                 div()
-                    .text_color(rgb(0xe5c07b))
+                    .text_color(gpui::component::Theme::global(cx).warning)
                     .child("Other current versions exist"),
             );
         }
         if version.conflict {
-            details = details.child(div().text_color(rgb(0xe58a83)).child("Contains conflicts"));
+            details = details.child(
+                div()
+                    .text_color(gpui::component::Theme::global(cx).danger)
+                    .child("Contains conflicts"),
+            );
         }
         if version.hidden {
             details = details.child(div().child("Historical / hidden revision"));

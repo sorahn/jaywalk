@@ -43,6 +43,7 @@ impl Viewer {
                 let after_state = after.read(cx);
                 let before_bounds = before_viewport.get().unwrap_or(before_state.input_bounds());
                 let after_bounds = after_viewport.get().unwrap_or(after_state.input_bounds());
+                let dark = gpui::component::Theme::global(cx).is_dark();
                 let line_height = before_state.line_height().unwrap_or(px(20.));
                 let before_origin = before_state.text_bounds().unwrap_or(before_bounds).origin.y;
                 let after_origin = after_state.text_bounds().unwrap_or(after_bounds).origin.y;
@@ -133,11 +134,11 @@ impl Viewer {
                             };
                             let selected = active == Some(index);
                             let rgb = if block.before.is_empty() {
-                                0x4ec96e00
+                                if dark { 0x4ec96e00 } else { 0x22863a00 }
                             } else if block.after.is_empty() {
-                                0xf8514900
+                                if dark { 0xf8514900 } else { 0xcf222e00 }
                             } else {
-                                0x3794ff00
+                                if dark { 0x3794ff00 } else { 0x0969da00 }
                             };
                             if lines.is_empty() {
                                 let y = origin + px(positions[lines.start]);
@@ -196,11 +197,11 @@ impl Viewer {
                     for (index, block) in changes.iter().enumerate() {
                         let selected = active == Some(index);
                         let rgb = if block.before.is_empty() {
-                            0x4ec96e00
+                            if dark { 0x4ec96e00 } else { 0x22863a00 }
                         } else if block.after.is_empty() {
-                            0xf8514900
+                            if dark { 0xf8514900 } else { 0xcf222e00 }
                         } else {
-                            0x3794ff00
+                            if dark { 0x3794ff00 } else { 0x0969da00 }
                         };
                         let color = rgba(rgb | if selected { 0xb0 } else { 0x70 });
                         let before_top = before_origin + px(geometry.before[block.before.start]);

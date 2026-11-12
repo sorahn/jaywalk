@@ -1,8 +1,121 @@
 //! One application accent, projected into the toolkit's existing control roles.
-use gpui::component::{Icon, Theme};
+use gpui::component::highlighter::{HighlightTheme, ThemeStyle};
+use gpui::component::{Icon, Theme, ThemeMode};
 use gpui::prelude::FluentBuilder;
-use gpui::{App, Hsla, Styled, rgb};
-use jaywalk::settings::RgbColor;
+use gpui::{App, Global, Hsla, SharedString, Styled, Window, WindowAppearance, px, rgb};
+use jaywalk::settings::{Appearance, EditorSettings, RgbColor, Settings, UiSettings};
+
+#[derive(Clone)]
+struct AppAppearance {
+    ui: UiSettings,
+    editor: EditorSettings,
+    mode: Option<ThemeMode>,
+}
+impl Global for AppAppearance {}
+
+pub(crate) fn init(settings: &Settings, cx: &mut App) {
+    cx.set_global(AppAppearance {
+        ui: settings.ui.clone(),
+        editor: settings.editor.clone(),
+        mode: None,
+    });
+    apply(settings, cx);
+}
+
+pub(crate) fn apply(settings: &Settings, cx: &mut App) {
+    let state = cx.global_mut::<AppAppearance>();
+    state.ui = settings.ui.clone();
+    state.editor = settings.editor.clone();
+    cx.set_window_appearance(match settings.ui.appearance {
+        Appearance::Light => Some(WindowAppearance::Light),
+        Appearance::Dark => Some(WindowAppearance::Dark),
+        Appearance::System => None,
+    });
+    refresh(None, true, cx);
+}
+
+pub(crate) fn watch_window(window: &mut Window, cx: &mut App) {
+    window
+        .observe_window_appearance(|window, cx| {
+            if cx.global::<AppAppearance>().ui.appearance == Appearance::System {
+                refresh(Some(window.appearance()), false, cx);
+            }
+        })
+        .detach();
+    if cx.global::<AppAppearance>().ui.appearance == Appearance::System {
+        refresh(Some(window.appearance()), false, cx);
+    }
+}
+
+fn refresh(system: Option<WindowAppearance>, force: bool, cx: &mut App) {
+    let state = cx.global::<AppAppearance>().clone();
+    let system_mode = ThemeMode::from(system.unwrap_or_else(|| cx.window_appearance()));
+    let dark = state.ui.appearance.is_dark(system_mode == ThemeMode::Dark);
+    let mode = if dark {
+        ThemeMode::Dark
+    } else {
+        ThemeMode::Light
+    };
+    let changed = state.mode != Some(mode);
+    if !changed && !force {
+        return;
+    }
+    cx.global_mut::<AppAppearance>().mode = Some(mode);
+    if Theme::global(cx).mode != mode {
+        Theme::change(mode, None, cx);
+    }
+    Theme::update(cx, |theme| {
+        if changed {
+            theme.highlight_theme = code_theme(dark);
+        }
+        apply_accent(theme, state.ui.accent_color.resolve(dark));
+        theme.font_size = px(state.ui.font_size);
+        theme.mono_font_size = px(state.editor.font_size);
+        theme.font_family = state
+            .ui
+            .font_family
+            .clone()
+            .map(SharedString::from)
+            .unwrap_or_else(|| Theme::default().font_family);
+        theme.mono_font_family = state
+            .editor
+            .font_family
+            .clone()
+            .map(SharedString::from)
+            .unwrap_or_else(|| Theme::default().mono_font_family);
+    });
+}
+
+fn code_theme(dark: bool) -> std::sync::Arc<HighlightTheme> {
+    let mut highlight = if dark {
+        (*HighlightTheme::default_dark()).clone()
+    } else {
+        (*HighlightTheme::default_light()).clone()
+    };
+    highlight.name = if dark {
+        "Jaywalk VS Code dark"
+    } else {
+        "Jaywalk VS Code light"
+    }
+    .into();
+    highlight.style.editor_background = Some(rgb(if dark { 0x1f1f1f } else { 0xffffff }).into());
+    highlight.style.editor_foreground = Some(rgb(if dark { 0xcccccc } else { 0x3b3b3b }).into());
+    highlight.style.editor_line_number = Some(rgb(if dark { 0x6e7681 } else { 0x6e6e6e }).into());
+    let token = |hex: &str| -> Option<ThemeStyle> {
+        Some(
+            serde_json::from_value(serde_json::json!({"color":hex}))
+                .expect("built-in syntax color is valid"),
+        )
+    };
+    highlight.style.syntax.comment = token(if dark { "#6a9955" } else { "#008000" });
+    highlight.style.syntax.comment_doc = highlight.style.syntax.comment;
+    highlight.style.syntax.keyword = token(if dark { "#569cd6" } else { "#0000ff" });
+    highlight.style.syntax.string = token(if dark { "#ce9178" } else { "#a31515" });
+    highlight.style.syntax.number = token(if dark { "#b5cea8" } else { "#098658" });
+    highlight.style.syntax.function = token(if dark { "#dcdcaa" } else { "#795e26" });
+    highlight.style.syntax.type_ = token(if dark { "#4ec9b0" } else { "#267f99" });
+    std::sync::Arc::new(highlight)
+}
 
 pub(crate) fn active_icon(name: gpui::assets::IconName, active: bool, cx: &App) -> Icon {
     Icon::new(name).when(active, |icon| icon.text_color(Theme::global(cx).primary))
@@ -98,5 +211,26 @@ mod tests {
             let color = RgbColor::try_from(hex.to_owned()).unwrap();
             assert_eq!(on_accent(color), Hsla::from(rgb(expected)));
         }
+    }
+}
+
+#[cfg(test)]
+mod mode_tests {
+    use super::code_theme;
+    use gpui::{Hsla, rgb};
+    #[test]
+    fn mode_switches_supply_matching_editor_and_syntax_palettes() {
+        let light = code_theme(false);
+        let dark = code_theme(true);
+        assert_eq!(
+            light.style.editor_background,
+            Some(Hsla::from(rgb(0xffffff)))
+        );
+        assert_eq!(
+            dark.style.editor_background,
+            Some(Hsla::from(rgb(0x1f1f1f)))
+        );
+        assert_ne!(light.style.syntax.string, dark.style.syntax.string);
+        assert_ne!(light.style.syntax.keyword, dark.style.syntax.keyword);
     }
 }

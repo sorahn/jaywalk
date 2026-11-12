@@ -36,6 +36,7 @@ pub(crate) fn show(cx: &mut App) -> Result<()> {
         ..Default::default()
     };
     let (window, _) = gpui::open_window(options, cx, |window, cx| {
+        crate::appearance::watch_window(window, cx);
         cx.new(|cx| {
             let focus = cx.focus_handle();
             window.focus(&focus, cx);
@@ -48,7 +49,7 @@ pub(crate) fn show(cx: &mut App) -> Result<()> {
 }
 
 impl Render for AboutView {
-    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         div()
             .id("about-jaywalk")
             .key_context("Jaywalk")
@@ -66,8 +67,8 @@ impl Render for AboutView {
             .justify_center()
             .gap_3()
             .p_6()
-            .bg(rgb(0x202124))
-            .text_color(rgb(0xdddddd))
+            .bg(gpui::component::Theme::global(cx).background)
+            .text_color(gpui::component::Theme::global(cx).foreground)
             .child(div().text_xl().child("Jaywalk"))
             .child(
                 div()

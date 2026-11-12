@@ -191,6 +191,18 @@ through the comparison. The up–down cursor marks the grabbable gutter; clickin
 below the thumb moves to that position. Each pane’s own scrollbar remains
 independent. Mouse-wheel scrolling over either pane or the gutter stays linked.
 
-Set `[ui] accent_color = "#3794ff"` to choose the application highlight color.
-It updates active icons, standard control fills, focus and selection accents
-across all windows live; repository status and diff colors remain distinct.
+Jaywalk follows system appearance by default. Set `ui.appearance` to `"light"`,
+`"dark"` or `"system"`; changes apply live across all windows, including source
+highlighting. Configure the application highlight color with a shared hex string
+or separate light/dark values:
+
+```toml
+[ui]
+appearance = "system"
+accent_color = { light = "#0066b8", dark = "#3794ff" }
+```
+
+The accent updates active icons, standard control fills, focus and selection.
+Icon-only toggles show their active color without a persistent filled background.
+Repository status, diff and graph colors keep their separate meanings with
+readable light/dark palettes. See [settings](settings.md#ui).

@@ -107,23 +107,7 @@ fn apply_shared(settings: &Settings, cx: &mut App) -> Result<(), String> {
         .as_ref()
         .is_none_or(|old| old.ui != settings.ui || old.editor != settings.editor)
     {
-        gpui::component::Theme::update(cx, |theme| {
-            crate::appearance::apply_accent(theme, settings.ui.accent_color);
-            theme.font_size = px(settings.ui.font_size);
-            theme.mono_font_size = px(settings.editor.font_size);
-            theme.font_family = settings
-                .ui
-                .font_family
-                .clone()
-                .map(SharedString::from)
-                .unwrap_or_else(|| gpui::component::Theme::default().font_family);
-            theme.mono_font_family = settings
-                .editor
-                .font_family
-                .clone()
-                .map(SharedString::from)
-                .unwrap_or_else(|| gpui::component::Theme::default().mono_font_family);
-        });
+        crate::appearance::apply(settings, cx);
     }
     cx.global_mut::<SettingsService>().active = Some(Arc::new(settings.clone()));
     Ok(())

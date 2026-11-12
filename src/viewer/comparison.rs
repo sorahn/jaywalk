@@ -97,7 +97,7 @@ impl Viewer {
             header = header.child(
                 div()
                     .text_sm()
-                    .text_color(rgb(0xb6c4d8))
+                    .text_color(gpui::component::Theme::global(cx).muted_foreground)
                     .whitespace_normal()
                     .child(detail),
             );

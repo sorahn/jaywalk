@@ -83,7 +83,17 @@ impl FileBrowser {
     }
 }
 
-fn file_style(status: &str) -> (&'static str, u32) {
+fn file_style(status: &str, dark: bool) -> (&'static str, u32) {
+    if !dark {
+        return match status {
+            "added" => ("A", 0x22863a),
+            "removed" => ("D", 0xc12e2a),
+            "renamed" => ("R", 0x0969da),
+            "copied" => ("C", 0x0969da),
+            "unchanged" => ("", 0x57606a),
+            _ => ("M", 0x8a6116),
+        };
+    }
     match status {
         "added" => ("A", 0x7dc67c),
         "removed" => ("D", 0xe58a83),
@@ -379,6 +389,8 @@ impl Viewer {
             .then(|| self.reading_tree_target(cx))
             .flatten();
         let reading_tint = gpui::component::Theme::global(cx).secondary;
+        let dark = gpui::component::Theme::global(cx).is_dark();
+        let neutral = if dark { 0xa4b4c2 } else { 0x57606a };
         let files = self.browser.files.clone();
         let retained = self.browser.retained;
         let indices = self.browser.tree_indices.clone();
@@ -404,12 +416,12 @@ impl Viewer {
             let file_index = indices.get(&entry.item().id).copied();
             let temporary = file_index.is_some() && file_index == retained;
             let color = if temporary {
-                0xa4b4c2
+                neutral
             } else {
                 file_index
                     .and_then(|index| files.get(index))
-                    .map_or(0xa4b4c2, |file| {
-                        file_style(file.status().unwrap_or("unchanged")).1
+                    .map_or(neutral, |file| {
+                        file_style(file.status().unwrap_or("unchanged"), dark).1
                     })
             };
             let mut content = div().h_flex().items_center().gap_1().whitespace_nowrap();
@@ -514,6 +526,7 @@ impl Viewer {
     }
 
     pub(super) fn render_files(&self, cx: &mut Context<Self>) -> AnyElement {
+        let dark = gpui::component::Theme::global(cx).is_dark();
         let toggle_icon =
             |name: IconName, active: bool| crate::appearance::active_icon(name, active, cx);
         let mut panel = div()
@@ -668,9 +681,9 @@ impl Viewer {
                 for (index, file) in self.browser.files.iter().enumerate() {
                     let temporary = self.browser.retained == Some(index);
                     let (marker, color) = if temporary {
-                        ("·", 0xa4b4c2)
+                        ("·", if dark { 0xa4b4c2 } else { 0x57606a })
                     } else {
-                        file_style(file.status().unwrap_or("unchanged"))
+                        file_style(file.status().unwrap_or("unchanged"), dark)
                     };
                     let label = self.browser.labels.get(index).map_or_else(
                         || file.path().to_owned(),

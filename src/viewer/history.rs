@@ -59,11 +59,15 @@ fn history_row(
         .child(
             canvas(
                 |_, _, _| (),
-                move |bounds, _, window, _| {
+                move |bounds, _, window, cx| {
                     let graph = &history.graph[index];
                     let x = |lane| bounds.left() + px(GRAPH_MARGIN + lane as f32 * spacing);
                     let middle = bounds.center().y;
-                    let palette = [0x5b9bd5, 0x7dc67c, 0xd9a066, 0xb18add, 0x66c4c7];
+                    let palette = if gpui::component::Theme::global(cx).is_dark() {
+                        [0x5b9bd5, 0x7dc67c, 0xd9a066, 0xb18add, 0x66c4c7]
+                    } else {
+                        [0x0969da, 0x1a7f37, 0x9a6700, 0x8250df, 0x0e7490]
+                    };
                     for stroke in &graph.strokes {
                         paint_graph_stroke(
                             stroke,
@@ -124,6 +128,7 @@ impl Viewer {
     pub(super) fn render_history(&self, cx: &mut Context<Self>) -> AnyElement {
         let theme = gpui::component::Theme::global(cx);
         let surface = theme.sidebar;
+        let muted = theme.muted_foreground;
         let stripe = surface.blend(
             theme
                 .foreground
@@ -281,7 +286,7 @@ impl Viewer {
                 .px_3()
                 .py_1()
                 .text_size(px(self.settings.panels.history.font.size * 0.85))
-                .text_color(rgb(0x9baab4))
+                .text_color(muted)
                 .truncate()
                 .child(status),
         );

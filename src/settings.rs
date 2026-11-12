@@ -29,6 +29,44 @@ impl TryFrom<String> for RgbColor {
     }
 }
 
+/// Every user-configurable color accepts one value or a light/dark pair.
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq)]
+#[serde(untagged, deny_unknown_fields)]
+pub enum ColorSetting {
+    Shared(RgbColor),
+    Modes { light: RgbColor, dark: RgbColor },
+}
+impl ColorSetting {
+    pub fn resolve(self, dark_mode: bool) -> RgbColor {
+        match self {
+            Self::Shared(color) => color,
+            Self::Modes { light, dark } => {
+                if dark_mode {
+                    dark
+                } else {
+                    light
+                }
+            }
+        }
+    }
+}
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum Appearance {
+    Light,
+    Dark,
+    System,
+}
+impl Appearance {
+    pub fn is_dark(self, system_dark: bool) -> bool {
+        match self {
+            Self::Light => false,
+            Self::Dark => true,
+            Self::System => system_dark,
+        }
+    }
+}
+
 #[derive(Clone, Debug, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct ReloadSettings {
@@ -145,7 +183,8 @@ pub struct WindowSettings {
 #[derive(Clone, Debug, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct UiSettings {
-    pub accent_color: RgbColor,
+    pub appearance: Appearance,
+    pub accent_color: ColorSetting,
     pub loading_delay_ms: u64,
     pub row_height: f32,
     pub panel_header_height: f32,
@@ -914,19 +953,70 @@ mod color_tests {
     #[test]
     fn application_accent_accepts_rgb_hex_and_rejects_invalid_config() {
         assert_eq!(
-            Settings::parse("").unwrap().ui.accent_color.value(),
+            Settings::parse("")
+                .unwrap()
+                .ui
+                .accent_color
+                .resolve(true)
+                .value(),
             0x3794ff
         );
         for text in ["#A1b2C3", "#a1b2c3"] {
             let source = format!("[ui]\naccent_color = '{text}'");
             assert_eq!(
-                Settings::parse(&source).unwrap().ui.accent_color.value(),
+                Settings::parse(&source)
+                    .unwrap()
+                    .ui
+                    .accent_color
+                    .resolve(true)
+                    .value(),
                 0xa1b2c3
             );
         }
         for text in ["red", "3794ff", "#fff", "#3794ffff", "#zzzzzz"] {
             let source = format!("[ui]\naccent_color = '{text}'");
             assert!(Settings::parse(&source).is_err(), "accepted {text}");
+        }
+    }
+}
+
+#[cfg(test)]
+mod appearance_tests {
+    use super::{Appearance, Settings};
+    #[test]
+    fn appearance_resolves_system_or_forced_modes() {
+        for system in [false, true] {
+            assert_eq!(Appearance::System.is_dark(system), system);
+            assert!(!Appearance::Light.is_dark(system));
+            assert!(Appearance::Dark.is_dark(system));
+        }
+        assert_eq!(
+            Settings::parse("").unwrap().ui.appearance,
+            Appearance::System
+        );
+        assert!(Settings::parse("[ui]\nappearance='auto'").is_err());
+    }
+    #[test]
+    fn colors_support_shared_values_pairs_and_partial_default_overrides() {
+        let defaults = Settings::parse("").unwrap();
+        assert_eq!(defaults.ui.accent_color.resolve(false).value(), 0x0066b8);
+        assert_eq!(defaults.ui.accent_color.resolve(true).value(), 0x3794ff);
+        let shared = Settings::parse("[ui]\naccent_color='#abcdef'").unwrap();
+        assert_eq!(
+            shared.ui.accent_color.resolve(false),
+            shared.ui.accent_color.resolve(true)
+        );
+        let pair = Settings::parse("[ui]\naccent_color={light='#123456',dark='#654321'}").unwrap();
+        assert_eq!(pair.ui.accent_color.resolve(false).value(), 0x123456);
+        assert_eq!(pair.ui.accent_color.resolve(true).value(), 0x654321);
+        let partial = Settings::parse("[ui.accent_color]\ndark='#ff9f43'").unwrap();
+        assert_eq!(partial.ui.accent_color.resolve(false).value(), 0x0066b8);
+        assert_eq!(partial.ui.accent_color.resolve(true).value(), 0xff9f43);
+        for source in [
+            "[ui.accent_color]\nlight='#zzzzzz'",
+            "[ui.accent_color]\nligth='#123456'",
+        ] {
+            assert!(Settings::parse(source).is_err());
         }
     }
 }
