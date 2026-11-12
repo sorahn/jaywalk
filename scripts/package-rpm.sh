@@ -10,18 +10,15 @@ for tool in cargo rustc rpm rpmbuild desktop-file-validate; do
     command -v "$tool" >/dev/null || { echo "Missing build tool: $tool" >&2; exit 1; }
 done
 desktop-file-validate packaging/linux/io.github.sorahn.jaywalk.desktop
-# Pin both the native target and output directory. CARGO_TARGET_DIR and a
-# configured cross target must not redirect the build away from its payload.
-host=$(rustc -vV | sed -n 's/^host: //p')
-[ -n "$host" ] || { echo 'Could not determine the native Rust target.' >&2; exit 1; }
 topdir="$(pwd)/target/rpm"
 builddir="$topdir/cargo"
 release=${1:-"0.$(date -u +%Y%m%d%H%M%S).local"}
 case "$release" in
     ''|*[!a-zA-Z0-9._+]*) echo 'RPM release must contain only letters, digits, dots, underscores or +.' >&2; exit 2 ;;
 esac
-cargo build --locked --release --bins --target "$host" --target-dir "$builddir"
-binaries="$builddir/$host/release"
+# Share native target selection while retaining RPM's isolated Cargo directory.
+binaries=$(scripts/build-native.sh release "$builddir")
+host=$(basename "$(dirname "$binaries")")
 version=$("$binaries/jaywalk" --package-version)
 mkdir -p "$topdir/SOURCES"
 staging=$(mktemp -d "$topdir/stage.XXXXXX")

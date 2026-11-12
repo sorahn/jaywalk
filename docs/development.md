@@ -94,6 +94,8 @@ libraries. It is not a Fedora distribution/source RPM recipe or a portable
 cross-distribution bundle. Generated archives, staging files and RPMs stay under
 `target/rpm/`. The Rust build is pinned to the compiler's native host target and
 `target/rpm/cargo/`, regardless of `CARGO_TARGET_DIR` or a configured cross target.
+RPMs, macOS bundles, and CLI installation share `scripts/build-native.sh` for
+native target selection; its optional second argument selects a target directory.
 The package version comes from Cargo.toml; the default RPM release
 contains a UTC timestamp so rebuilding the same app version produces an upgrade.
 An optional first argument supplies a custom RPM release.

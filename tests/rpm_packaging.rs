@@ -22,6 +22,7 @@ fn packages_fresh_native_binaries_despite_custom_cargo_target_and_stale_outputs(
     let source = Path::new(env!("CARGO_MANIFEST_DIR"));
     for file in [
         "scripts/package-rpm.sh",
+        "scripts/build-native.sh",
         "packaging/linux/jaywalk.spec",
         "packaging/linux/io.github.sorahn.jaywalk.desktop",
         "packaging/linux/io.github.sorahn.jaywalk.svg",
@@ -85,5 +86,10 @@ chmod +x "$directory/$target/release/jaywalk" "$directory/$target/release/jw"
             .contains("fresh-native")
     );
     assert!(!root.join("custom cache").exists());
+    assert!(
+        root.join("target/rpm/cargo/aarch64-unknown-linux-gnu/release/jw")
+            .is_file()
+    );
+    assert!(!root.join("target/aarch64-unknown-linux-gnu").exists());
     fs::remove_dir_all(root).unwrap();
 }
