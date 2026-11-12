@@ -424,7 +424,7 @@ impl EvolutionContents {
         if !valid_id(id) {
             return Err("Invalid interdiff object ID".into());
         }
-        limit.git_blob(&self.git_dir, Some(&self.git_dir), id)
+        crate::git::read_blob(&self.git_dir, Some(&self.git_dir), id, limit)
     }
 
     pub(crate) fn contains(&self, path: &str, side: FileSide) -> bool {

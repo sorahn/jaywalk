@@ -508,8 +508,12 @@ impl Comparison {
                 return Err("Invalid recorded object ID".into());
             }
             let directory = query(&self.root, &self.operation, &["git", "root"])?;
-            self.text_limit
-                .git_blob(&self.root, Some(Path::new(directory.trim())), &object)
+            crate::git::read_blob(
+                &self.root,
+                Some(Path::new(directory.trim())),
+                &object,
+                self.text_limit,
+            )
         } else {
             // Conflicted/materialized jj content has no single object size.
             let mut command = crate::tools::command("jj")?;

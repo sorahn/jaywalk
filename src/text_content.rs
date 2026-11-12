@@ -116,32 +116,6 @@ impl TextLimit {
         }
         Ok(bytes)
     }
-    pub(crate) fn git_blob(
-        self,
-        root: &Path,
-        git_dir: Option<&Path>,
-        object: &str,
-    ) -> Result<String, String> {
-        let command = || -> Result<Command, String> {
-            let mut command = crate::tools::command("git")?;
-            command
-                .current_dir(root)
-                .env("GIT_OPTIONAL_LOCKS", "0")
-                .args(["--no-pager", "--literal-pathspecs"]);
-            if let Some(directory) = git_dir {
-                command.arg("--git-dir").arg(directory);
-            }
-            Ok(command)
-        };
-        let size = TextLimit(4096).command(command()?.args(["cat-file", "-s", object]))?;
-        let size = std::str::from_utf8(&size)
-            .map_err(|error| error.to_string())?
-            .trim()
-            .parse::<u64>()
-            .map_err(|error| format!("Invalid Git object size: {error}"))?;
-        self.check(size)?;
-        self.text(self.command(command()?.args(["cat-file", "blob", object]))?)
-    }
 }
 
 #[cfg(test)]

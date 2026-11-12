@@ -3,6 +3,7 @@ use crate::history::{History, HistoryQuery, Revision};
 use crate::repository::{ChangedFile, Comparison, ContentSource, FileSide, next_capture};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
+use std::process::Command;
 
 use std::sync::Arc;
 
@@ -23,6 +24,34 @@ pub(crate) struct GitContents {
     root: PathBuf,
     trees: [BTreeMap<String, GitValue>; 2],
     limit: crate::text_content::TextLimit,
+}
+
+// Shared by Git-backed jj and evolution; byte policy remains backend-independent.
+pub(crate) fn read_blob(
+    root: &Path,
+    git_dir: Option<&Path>,
+    object: &str,
+    limit: crate::text_content::TextLimit,
+) -> Result<String, String> {
+    let command = || -> Result<Command, String> {
+        let mut command = crate::tools::command("git")?;
+        command
+            .current_dir(root)
+            .env("GIT_OPTIONAL_LOCKS", "0")
+            .args(["--no-pager", "--literal-pathspecs"]);
+        if let Some(directory) = git_dir {
+            command.arg("--git-dir").arg(directory);
+        }
+        Ok(command)
+    };
+    let size = limit.command(command()?.args(["cat-file", "-s", object]))?;
+    let size = std::str::from_utf8(&size)
+        .map_err(|error| error.to_string())?
+        .trim()
+        .parse::<u64>()
+        .map_err(|error| format!("Invalid Git object size: {error}"))?;
+    limit.check(size)?;
+    limit.text(limit.command(command()?.args(["cat-file", "blob", object]))?)
 }
 
 fn run(root: &Path, args: &[&str]) -> Result<Vec<u8>, String> {
@@ -193,7 +222,7 @@ pub(crate) fn between(
             let before = if file.status == "added" {
                 String::new()
             } else {
-                limit.git_blob(&root, None, &format!("{base}:{}", file.before_path))?
+                read_blob(&root, None, &format!("{base}:{}", file.before_path), limit)?
             };
             let after = if file.status == "removed" {
                 String::new()
@@ -219,7 +248,7 @@ pub(crate) fn between(
                     limit.text(limit.file(&path)?)?
                 }
             } else {
-                limit.git_blob(&root, None, &format!("{tip}:{}", file.after_path))?
+                read_blob(&root, None, &format!("{tip}:{}", file.after_path), limit)?
             };
             Ok((before, after))
         })();
@@ -270,7 +299,7 @@ impl GitContents {
         if matches!(value.kind, FileKind::Submodule | FileKind::Other(_)) {
             return Err("Text view unavailable for this Git entry".into());
         }
-        self.limit.git_blob(&self.root, None, &value.object)
+        read_blob(&self.root, None, &value.object, self.limit)
     }
 }
 pub(crate) fn references(root: &Path) -> Result<crate::references::ReferenceSnapshot, String> {
