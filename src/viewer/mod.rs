@@ -269,6 +269,19 @@ impl Viewer {
                 .source
                 .label(),
             Some(ComparisonScope::Revision {
+                working_copy: true, ..
+            }) if !self.supports_evolution() => {
+                format!(
+                    "Working copy · {}",
+                    self.repository
+                        .ready()
+                        .expect("loaded working copy has a review context")
+                        .review
+                        .source
+                        .label()
+                )
+            }
+            Some(ComparisonScope::Revision {
                 commit_id, merge, ..
             }) => format!(
                 "Commit {}{} · {}",

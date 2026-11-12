@@ -1067,7 +1067,7 @@ impl Viewer {
                     let group_head = timeline.versions[index].commit_id.clone();
                     let version = &timeline.versions[index];
                     let menu_target = history_menu::VersionTarget {
-                        revision: history_menu::RevisionTarget { commit: version.commit_id.clone(), change: version.change_id.clone(), message: version.description.clone(), parents: version.parents.clone() },
+                        revision: history_menu::RevisionTarget::from_revision(&version.revision()),
                         operation_id: version.operation_id.clone(), kind, operation: operation.clone(), file_path: file_path.clone(), index,
                         has_predecessors: !version.predecessors.is_empty(),
                     };
@@ -1416,12 +1416,7 @@ impl Viewer {
         };
         let version = session.timeline.versions.get(session.selected)?;
         Some(history_menu::VersionTarget {
-            revision: history_menu::RevisionTarget {
-                commit: version.commit_id.clone(),
-                change: version.change_id.clone(),
-                message: version.description.clone(),
-                parents: version.parents.clone(),
-            },
+            revision: history_menu::RevisionTarget::from_revision(&version.revision()),
             operation_id: version.operation_id.clone(),
             kind,
             operation: session.operation.clone(),

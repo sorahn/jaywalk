@@ -163,10 +163,27 @@ fn git_worktree_and_history_are_read_only_and_use_pinned_contents() {
     assert_eq!(fixture.git(&["status", "--porcelain=v1"]), status);
     assert_eq!(fixture.git(&["rev-parse", "HEAD"]), initial);
     let history = comparison.history(&Default::default()).unwrap();
-    assert_eq!(history.revisions.len(), 1);
+    assert_eq!(history.revisions.len(), 2);
+    let working = &history.revisions[0];
+    assert!(working.is_virtual_working_copy());
+    assert_eq!(working.parents.as_slice(), std::slice::from_ref(&initial));
+    assert!(!working.empty);
+    let current = comparison.for_revision(working).unwrap();
+    assert_eq!(
+        content(&current, "a file.txt"),
+        ("original\n".into(), "unstaged\n".into())
+    );
+    assert_eq!(
+        content(&current, "new file.txt"),
+        ("".into(), "new\n".into())
+    );
+    assert_eq!(
+        content(&current, "deleted.txt"),
+        ("deleted\n".into(), "".into())
+    );
     let roots = jaywalk::history::HistoryQuery::ancestors(vec![initial.clone()]).unwrap();
     assert_eq!(comparison.history(&roots).unwrap().revisions.len(), 1);
-    let patch = comparison.for_revision(&history.revisions[0]).unwrap();
+    let patch = comparison.for_revision(&history.revisions[1]).unwrap();
     assert_eq!(
         content(&patch, "a file.txt"),
         (String::new(), "original\n".into())
@@ -190,7 +207,17 @@ fn git_worktree_and_history_are_read_only_and_use_pinned_contents() {
             .unwrap()
             .revisions
             .len(),
-        2
+        3
+    );
+    let clean = committed.history(&Default::default()).unwrap();
+    assert!(clean.revisions[0].is_virtual_working_copy());
+    assert!(clean.revisions[0].empty);
+    assert!(
+        committed
+            .for_revision(&clean.revisions[0])
+            .unwrap()
+            .files
+            .is_empty()
     );
     assert_eq!(committed.history(&roots).unwrap().revisions.len(), 1);
     assert_eq!(
@@ -558,4 +585,52 @@ fn git_and_jj_catalogs_preserve_side_kinds_independently_of_text() {
         String::from_utf8_lossy(&result.stderr)
     );
     check(Comparison::load(&f.0, Some(&base), &tip).unwrap());
+}
+
+#[test]
+fn virtual_git_node_loads_current_changes_from_a_pinned_commit_view() {
+    let f = Fixture::new();
+    f.git(&["init", "-b", "main"]);
+    f.write("staged.txt", "original staged\n");
+    f.write("unstaged.txt", "original unstaged\n");
+    f.git(&["add", "."]);
+    f.git(&["commit", "-m", "initial"]);
+    let initial = f.git(&["rev-parse", "HEAD"]);
+    let pinned = Comparison::load(&f.0, Some(&initial), &initial).unwrap();
+    f.write("staged.txt", "staged edit\n");
+    f.git(&["add", "staged.txt"]);
+    f.write("unstaged.txt", "unstaged edit\n");
+    f.write("new.txt", "untracked\n");
+    let status = f.git(&["status", "--porcelain=v1"]);
+    let history = pinned.history(&Default::default()).unwrap();
+    let working = &history.revisions[0];
+    assert!(working.is_virtual_working_copy());
+    assert_eq!(history.graph.len(), history.revisions.len());
+    let comparison = pinned.for_revision(working).unwrap();
+    assert_eq!(comparison.files.len(), 3);
+    assert_eq!(
+        content(&comparison, "staged.txt"),
+        ("original staged\n".into(), "staged edit\n".into())
+    );
+    assert_eq!(
+        content(&comparison, "unstaged.txt"),
+        ("original unstaged\n".into(), "unstaged edit\n".into())
+    );
+    assert_eq!(
+        content(&comparison, "new.txt"),
+        ("".into(), "untracked\n".into())
+    );
+    assert_eq!(f.git(&["status", "--porcelain=v1"]), status);
+    assert_eq!(f.git(&["rev-parse", "HEAD"]), initial);
+    // A virtual node follows current HEAD, rather than treating its old parent
+    // or the pinned review base as the base of a future working-tree capture.
+    f.git(&["add", "."]);
+    f.git(&["commit", "-m", "next"]);
+    f.write("staged.txt", "later edit\n");
+    let refreshed = pinned.for_revision(working).unwrap();
+    assert_eq!(
+        content(&refreshed, "staged.txt"),
+        ("staged edit\n".into(), "later edit\n".into())
+    );
+    assert_eq!(refreshed.files.len(), 1);
 }

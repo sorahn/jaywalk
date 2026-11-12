@@ -90,6 +90,10 @@ impl HistoryQuery {
             ..Self::default()
         })
     }
+    pub(crate) fn includes_working_copy(&self) -> bool {
+        !matches!(self.scope, HistoryScope::Ancestors(_))
+    }
+
     pub fn roots(&self, references: &crate::references::ReferenceSnapshot) -> Vec<String> {
         if let HistoryScope::Ancestors(commits) = &self.scope {
             return commits.clone();
@@ -180,6 +184,11 @@ pub struct Revision {
 }
 
 impl Revision {
+    /// Git's virtual working-tree row has no commit or jj change identity.
+    pub fn is_virtual_working_copy(&self) -> bool {
+        self.working_copy && self.change_id.is_empty()
+    }
+
     pub fn summary(&self) -> String {
         let description = if self.description.is_empty() {
             if self.working_copy {

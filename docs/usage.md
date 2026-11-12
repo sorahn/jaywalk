@@ -38,6 +38,11 @@ or choose **Open file** for the regular diff viewer. Clicking a file header fold
 that file; its Open file action remains separate. Sticky headers show which file
 you are reading, with a corresponding reading indicator in the sidebar.
 
+Plain Git repositories also have a virtual working-copy row above HEAD. Select
+it to review current staged, unstaged, and untracked changes against HEAD. It
+remains visible as “no changes” when clean; use Refresh to capture later edits.
+This row has no commit ID, branch-comparison actions, or change evolution.
+
 Select a commit in history to see its message and patch. **All changes** returns
 to the original branch comparison. **Overview** returns from an open file to the
 overview of the current comparison. Back and Forward retrace views you visited

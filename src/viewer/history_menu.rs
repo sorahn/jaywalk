@@ -9,6 +9,7 @@ pub(super) struct RevisionTarget {
     pub(super) change: String,
     pub(super) message: String,
     pub(super) parents: Vec<String>,
+    virtual_working_copy: bool,
 }
 impl RevisionTarget {
     pub(super) fn from_revision(revision: &jaywalk::history::Revision) -> Self {
@@ -17,9 +18,16 @@ impl RevisionTarget {
             change: revision.change_id.clone(),
             message: revision.description.clone(),
             parents: revision.parents.clone(),
+            virtual_working_copy: revision.is_virtual_working_copy(),
         }
     }
+    fn allows(&self, command: CommandId) -> bool {
+        !self.virtual_working_copy || command == CommandId::InspectRevision
+    }
     pub(super) fn copy_text(&self, command: CommandId) -> Option<&str> {
+        if !self.allows(command) {
+            return None;
+        }
         match command {
             CommandId::CopyCommitId => Some(&self.commit),
             CommandId::CopyChangeId => (!self.change.is_empty()).then_some(self.change.as_str()),
@@ -64,6 +72,9 @@ pub(super) fn revision_menu(
         CommandId::CopyChangeId,
         CommandId::CopyCommitMessage,
     ] {
+        if !target.allows(command) {
+            continue;
+        }
         if target.parents.len() != 2
             && matches!(command, CommandId::MergedBranch | CommandId::MergeResult)
         {
@@ -167,6 +178,9 @@ impl Viewer {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if !target.allows(command) {
+            return;
+        }
         if matches!(
             command,
             CommandId::BranchChanges | CommandId::MergedBranch | CommandId::MergeResult
@@ -232,6 +246,7 @@ mod tests {
                 change: "change".into(),
                 message: String::new(),
                 parents: Vec::new(),
+                virtual_working_copy: false,
             },
             operation_id: None,
             kind: super::evolution::EvolutionKind::File,
@@ -246,12 +261,40 @@ mod tests {
         assert!(!target.matches("operation", Some("src/a.rs"), "other"));
     }
     #[test]
+    fn virtual_working_copy_has_no_commit_actions_or_copyable_identity() {
+        let revision = jaywalk::history::Revision {
+            commit_id: "working tree".into(),
+            change_id: String::new(),
+            description: String::new(),
+            author: String::new(),
+            references: vec![],
+            parents: vec!["head".into()],
+            working_copy: true,
+            empty: false,
+        };
+        let target = RevisionTarget::from_revision(&revision);
+        assert!(target.allows(CommandId::InspectRevision));
+        for command in [
+            CommandId::CopyCommitId,
+            CommandId::CopyChangeId,
+            CommandId::CopyCommitMessage,
+            CommandId::BranchChanges,
+            CommandId::MergedBranch,
+            CommandId::MergeResult,
+            CommandId::ShowChangeEvolution,
+        ] {
+            assert!(!target.allows(command));
+            assert_eq!(target.copy_text(command), None);
+        }
+    }
+    #[test]
     fn copy_keeps_full_row_metadata_including_multiline_messages() {
         let target = RevisionTarget {
             commit: "0123456789abcdef".into(),
             change: String::new(),
             message: "subject\n\nbody\n".into(),
             parents: Vec::new(),
+            virtual_working_copy: false,
         };
         assert_eq!(
             target.copy_text(CommandId::CopyCommitId),

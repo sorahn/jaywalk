@@ -131,7 +131,15 @@ impl Viewer {
             .ready()
             .and_then(|session| session.history.as_ref().ok())
         {
-            let count = history.revisions.len();
+            let virtual_working_copy = history
+                .revisions
+                .iter()
+                .any(|revision| revision.is_virtual_working_copy());
+            let count = history
+                .revisions
+                .iter()
+                .filter(|revision| !revision.is_virtual_working_copy())
+                .count();
             if self.selected_history_commit().is_some_and(|commit| {
                 !history
                     .revisions
@@ -140,7 +148,11 @@ impl Viewer {
             }) {
                 format!("{count} revisions · inspected revision outside graph")
             } else {
-                format!("{count} recorded revisions")
+                if virtual_working_copy {
+                    format!("{count} commits · working copy")
+                } else {
+                    format!("{count} recorded revisions")
+                }
             }
         } else {
             String::new()
