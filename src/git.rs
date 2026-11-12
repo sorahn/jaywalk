@@ -22,6 +22,7 @@ pub(crate) struct GitContents {
     files: BTreeMap<String, TextPair>,
     root: PathBuf,
     trees: [BTreeMap<String, GitValue>; 2],
+    limit: crate::text_content::TextLimit,
 }
 
 fn run(root: &Path, args: &[&str]) -> Result<Vec<u8>, String> {
@@ -40,12 +41,6 @@ fn run(root: &Path, args: &[&str]) -> Result<Vec<u8>, String> {
     }
     Ok(result.stdout)
 }
-fn text(data: Vec<u8>) -> Result<String, String> {
-    if data.len() > 2_000_000 || data.contains(&0) {
-        return Err("Binary or large file: text comparison is unavailable.".into());
-    }
-    String::from_utf8(data).map_err(|error| format!("Non-UTF-8 Git content: {error}"))
-}
 pub(crate) fn output(root: &Path, args: &[&str]) -> Result<String, String> {
     String::from_utf8(run(root, args)?).map_err(|error| format!("Non-UTF-8 Git metadata: {error}"))
 }
@@ -62,7 +57,12 @@ fn resolve(root: &Path, revision: &str) -> Result<String, String> {
     .map(|value| value.trim().to_owned())
 }
 
-pub(crate) fn load(directory: &Path, base: Option<&str>, tip: &str) -> Result<Comparison, String> {
+pub(crate) fn load(
+    directory: &Path,
+    base: Option<&str>,
+    tip: &str,
+    limit: crate::text_content::TextLimit,
+) -> Result<Comparison, String> {
     let root = output(directory, &["rev-parse", "--show-toplevel"])?;
     let root = PathBuf::from(root.trim_end_matches('\n'));
     let base = resolve(&root, base.unwrap_or("HEAD"))?;
@@ -71,7 +71,7 @@ pub(crate) fn load(directory: &Path, base: Option<&str>, tip: &str) -> Result<Co
     } else {
         resolve(&root, tip)?
     };
-    between(root, base, tip)
+    between(root, base, tip, limit)
 }
 
 fn tree(root: &Path, revision: &str) -> Result<BTreeMap<String, GitValue>, String> {
@@ -94,7 +94,12 @@ fn tree(root: &Path, revision: &str) -> Result<BTreeMap<String, GitValue>, Strin
     Ok(tree)
 }
 
-pub(crate) fn between(root: PathBuf, base: String, tip: String) -> Result<Comparison, String> {
+pub(crate) fn between(
+    root: PathBuf,
+    base: String,
+    tip: String,
+    limit: crate::text_content::TextLimit,
+) -> Result<Comparison, String> {
     let working = tip == "working tree";
     let recorded_tip = if working {
         resolve(&root, "HEAD")?
@@ -122,6 +127,7 @@ pub(crate) fn between(root: PathBuf, base: String, tip: String) -> Result<Compar
     args.push("--");
     let data = output(&root, &args)?;
     let mut fields = data.split_terminator('\0');
+    let before_tree = tree(&root, &base)?;
     let mut files = BTreeMap::new();
     while let Some(status) = fields.next() {
         let path = fields.next().ok_or("Incomplete Git diff entry")?;
@@ -146,7 +152,13 @@ pub(crate) fn between(root: PathBuf, base: String, tip: String) -> Result<Compar
             files.insert(
                 path.into(),
                 ChangedFile {
-                    status: "added".into(),
+                    // Untracked is index-relative, not base-tree-relative.
+                    status: if before_tree.contains_key(path) {
+                        "modified"
+                    } else {
+                        "added"
+                    }
+                    .into(),
                     before_path: path.into(),
                     after_path: path.into(),
                 },
@@ -154,7 +166,6 @@ pub(crate) fn between(root: PathBuf, base: String, tip: String) -> Result<Compar
         }
     }
     let files: Vec<_> = files.into_values().collect();
-    let before_tree = tree(&root, &base)?;
     let mut after_tree = if working {
         // The diff classified remaining tracked paths as unchanged. Bind their
         // bytes to the base objects, never to future filesystem reads.
@@ -182,10 +193,7 @@ pub(crate) fn between(root: PathBuf, base: String, tip: String) -> Result<Compar
             let before = if file.status == "added" {
                 String::new()
             } else {
-                text(run(
-                    &root,
-                    &["show", &format!("{base}:{}", file.before_path)],
-                )?)?
+                limit.git_blob(&root, None, &format!("{base}:{}", file.before_path))?
             };
             let after = if file.status == "removed" {
                 String::new()
@@ -208,17 +216,10 @@ pub(crate) fn between(root: PathBuf, base: String, tip: String) -> Result<Compar
                     })?;
                     target.to_str().ok_or("Non-UTF-8 link target")?.to_owned()
                 } else {
-                    text(
-                        std::fs::read(&path).map_err(|error| {
-                            format!("Could not read {}: {error}", path.display())
-                        })?,
-                    )?
+                    limit.text(limit.file(&path)?)?
                 }
             } else {
-                text(run(
-                    &root,
-                    &["show", &format!("{tip}:{}", file.after_path)],
-                )?)?
+                limit.git_blob(&root, None, &format!("{tip}:{}", file.after_path))?
             };
             Ok((before, after))
         })();
@@ -236,8 +237,10 @@ pub(crate) fn between(root: PathBuf, base: String, tip: String) -> Result<Compar
             files: contents,
             root,
             trees: [before_tree, after_tree],
+            limit,
         })),
         capture: if working { next_capture() } else { 0 },
+        text_limit: limit,
         catalog: Arc::default(),
     }
     .with_catalog()
@@ -267,7 +270,7 @@ impl GitContents {
         if matches!(value.kind, FileKind::Submodule | FileKind::Other(_)) {
             return Err("Text view unavailable for this Git entry".into());
         }
-        text(run(&self.root, &["cat-file", "blob", &value.object])?)
+        self.limit.git_blob(&self.root, None, &value.object)
     }
 }
 pub(crate) fn references(root: &Path) -> Result<crate::references::ReferenceSnapshot, String> {
@@ -409,5 +412,10 @@ pub(crate) fn for_revision(
             .trim()
             .to_owned(),
     };
-    between(comparison.root.clone(), base, revision.commit_id.clone())
+    between(
+        comparison.root.clone(),
+        base,
+        revision.commit_id.clone(),
+        comparison.text_limit,
+    )
 }

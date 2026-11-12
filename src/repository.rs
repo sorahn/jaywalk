@@ -19,6 +19,7 @@ pub struct ComparisonIdentity {
     tip: String,
     source: SourceIdentity,
     capture: u64,
+    text_limit: crate::text_content::TextLimit,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 enum SourceIdentity {
@@ -50,6 +51,7 @@ pub struct Comparison {
     pub catalog: Arc<FileCatalog>,
     pub(crate) content: ContentSource,
     pub(crate) capture: u64,
+    pub(crate) text_limit: crate::text_content::TextLimit,
 }
 
 #[derive(Clone, Debug)]
@@ -155,13 +157,31 @@ impl Comparison {
             .ok_or_else(|| "Selected change is unavailable".into())
     }
 
+    pub(crate) fn with_text_limit(mut self, limit: crate::text_content::TextLimit) -> Self {
+        self.text_limit = limit;
+        self
+    }
     pub fn load(directory: &Path, base: Option<&str>, tip: &str) -> Result<Self, String> {
+        Self::load_with_limit(
+            directory,
+            base,
+            tip,
+            crate::text_content::TextLimit::default(),
+        )
+    }
+
+    pub fn load_with_limit(
+        directory: &Path,
+        base: Option<&str>,
+        tip: &str,
+        limit: crate::text_content::TextLimit,
+    ) -> Result<Self, String> {
         // Prefer jj in colocated repositories. Inspect metadata rather than
         // treating an arbitrary jj error as permission to change backends.
         let directory = std::fs::canonicalize(directory)
             .map_err(|error| format!("Could not open {}: {error}", directory.display()))?;
         if !directory.ancestors().any(|path| path.join(".jj").is_dir()) {
-            return crate::git::load(&directory, base, tip);
+            return crate::git::load(&directory, base, tip, limit);
         }
         let root = PathBuf::from(query(&directory, "@", &["root"])?.trim());
         let operation = query(
@@ -171,6 +191,7 @@ impl Comparison {
         )?;
         let operation = operation.trim().to_owned();
         Self::recorded_at(root, operation, base, tip)
+            .map(|comparison| comparison.with_text_limit(limit))
     }
 
     pub(crate) fn recorded_at(
@@ -234,6 +255,7 @@ impl Comparison {
             files: files.into(),
             content: ContentSource::Recorded,
             capture: 0,
+            text_limit: crate::text_content::TextLimit::default(),
             catalog: Arc::default(),
         }
         .with_catalog()
@@ -264,6 +286,7 @@ impl Comparison {
             base,
             revision.commit_id.clone(),
         )
+        .map(|comparison| comparison.with_text_limit(self.text_limit))
     }
 
     pub fn supports_evolution(&self) -> bool {
@@ -364,7 +387,11 @@ impl Comparison {
                 paths
             }
         };
-        self.catalog = Arc::new(FileCatalog::new(paths, &self.files));
+        let mut catalog = FileCatalog::new(paths, &self.files);
+        if let ContentSource::External(contents) = &self.content {
+            contents.annotate_catalog(&mut catalog)?;
+        }
+        self.catalog = Arc::new(catalog);
         let mut cached = cache
             .lock()
             .map_err(|_| "File catalog cache lock poisoned")?;
@@ -389,13 +416,18 @@ impl Comparison {
                 ContentSource::Evolution(_) => SourceIdentity::Evolution,
             },
             capture: self.capture,
+            text_limit: self.text_limit,
         }
     }
 
     /// Metadata lookup remains changed-only until full-tree enumeration is added.
     pub fn changed_file(&self, path: &str) -> Option<FileEntry> {
-        crate::file_browser::find_file(&self.files, path)
-            .map(|index| FileEntry::from(&self.files[index]))
+        crate::file_browser::find_file(&self.files, path).map(|index| {
+            self.catalog
+                .find(&self.files[index].after_path)
+                .cloned()
+                .unwrap_or_else(|| FileEntry::from(&self.files[index]))
+        })
     }
 
     /// Read by source-side path, independent of a change-list position or status.
@@ -407,7 +439,7 @@ impl Comparison {
             ContentSource::External(contents) => contents.read_path(path, side),
             ContentSource::Evolution(contents) => {
                 if contents.contains(path, side) {
-                    contents.read_path(path, side)
+                    contents.read_path(path, side, self.text_limit)
                 } else {
                     self.file_contents(&self.tip, path)
                 }
@@ -453,105 +485,50 @@ impl Comparison {
         self.read_file(&FileEntry::from(file))
     }
 
-    fn link_contents(&self, revision: &str, path: &str) -> Result<String, String> {
+    fn file_contents(&self, revision: &str, path: &str) -> Result<String, String> {
         let fileset = format!(
             "root-file:{}",
             serde_json::to_string(path).map_err(|error| error.to_string())?
         );
-        let object = query(
+        let template = r#""[" ++ json(file_type) ++ "," ++ if(normal_value, json(normal_value.object_id()), "null") ++ "]""#;
+        let metadata = query(
             &self.root,
             &self.operation,
             &[
-                "file",
-                "list",
-                "-r",
-                revision,
-                "-T",
-                "if(normal_value, normal_value.object_id())",
-                "--",
-                &fileset,
+                "file", "list", "-r", revision, "-T", template, "--", &fileset,
             ],
         )?;
-        let object = object.trim();
-        if object.is_empty() || !object.bytes().all(|byte| byte.is_ascii_hexdigit()) {
-            return Err("Symbolic link is absent or conflicted in this source".into());
+        let (kind, object): (String, Option<String>) = serde_json::from_str(&metadata)
+            .map_err(|error| format!("Could not inspect {path:?} at {revision}: {error}"))?;
+        if kind != "file" && kind != "symlink" && kind != "conflict" {
+            return Err(format!("Text view unavailable for {kind} entries"));
         }
-        let git_dir = query(&self.root, &self.operation, &["git", "root"])?;
-        let output = crate::tools::command("git")?
-            .arg("--git-dir")
-            .arg(git_dir.trim())
-            .args(["cat-file", "blob", object])
-            .output()
-            .map_err(|error| format!("Could not read symbolic link object: {error}"))?;
-        if !output.status.success() {
-            return Err(format!(
-                "Could not read symbolic link object: {}",
-                String::from_utf8_lossy(&output.stderr).trim()
-            ));
-        }
-        if output.stdout.len() > 2_000_000 || output.stdout.contains(&0) {
-            return Err("Binary or large symbolic link target".into());
-        }
-        String::from_utf8(output.stdout).map_err(|_| "Non-UTF-8 symbolic link target".into())
-    }
-
-    fn file_contents(&self, revision: &str, path: &str) -> Result<String, String> {
-        if self
-            .catalog
-            .find(path)
-            .is_some_and(|file| file.content_kind() == &FileKind::Symlink)
-        {
-            return self.link_contents(revision, path);
-        }
-
-        let fileset = format!(
-            "root-file:{}",
-            serde_json::to_string(path).map_err(|error| error.to_string())?
-        );
-        let text = query(
-            &self.root,
-            &self.operation,
-            &["file", "show", "-r", revision, "--", &fileset],
-        )
-        .map_err(|error| {
-            format!(
-                "Could not read {path:?} at {}: {error}",
-                &revision[..revision.len().min(8)]
-            )
-        })?;
-
-        if text.is_empty() {
-            let kind = query(
-                &self.root,
+        if let Some(object) = object {
+            if !object.bytes().all(|byte| byte.is_ascii_hexdigit()) || object.is_empty() {
+                return Err("Invalid recorded object ID".into());
+            }
+            let directory = query(&self.root, &self.operation, &["git", "root"])?;
+            self.text_limit
+                .git_blob(&self.root, Some(Path::new(directory.trim())), &object)
+        } else {
+            // Conflicted/materialized jj content has no single object size.
+            let mut command = crate::tools::command("jj")?;
+            command.current_dir(&self.root).args([
+                "--ignore-working-copy",
+                "--no-pager",
+                "--color",
+                "never",
+                "--at-op",
                 &self.operation,
-                &[
-                    "file",
-                    "list",
-                    "-r",
-                    revision,
-                    "-T",
-                    "json(file_type)",
-                    "--",
-                    &fileset,
-                ],
-            )?;
-            let kind: String = serde_json::from_str(&kind)
-                .map_err(|_| format!("File {path:?} is absent from this revision"))?;
-            if kind == "symlink" {
-                return self.link_contents(revision, path);
-            }
-            if kind != "file" && kind != "conflict" {
-                return Err(format!("Text view is unavailable for {kind} entries"));
-            }
+                "file",
+                "show",
+                "-r",
+                revision,
+                "--",
+                &fileset,
+            ]);
+            self.text_limit.text(self.text_limit.command(&mut command)?)
         }
-        if text.contains('\0') {
-            return Err("Binary file: text comparison is unavailable.".into());
-        }
-        if text.len() > 2_000_000 {
-            return Err("File exceeds the prototype's 2 MB text-view limit.".into());
-        }
-
-        Ok(text)
     }
 }
 

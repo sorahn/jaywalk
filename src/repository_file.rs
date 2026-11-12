@@ -43,6 +43,7 @@ struct FileChange {
 pub struct FileEntry {
     path: String,
     content_kind: FileKind,
+    type_change: Option<(FileKind, FileKind)>,
     change: Option<FileChange>,
 }
 impl FileEntry {
@@ -50,6 +51,7 @@ impl FileEntry {
         Self {
             path: path.into(),
             content_kind: FileKind::Regular,
+            type_change: None,
             change: None,
         }
     }
@@ -60,6 +62,19 @@ impl FileEntry {
     pub fn content_kind(&self) -> &FileKind {
         &self.content_kind
     }
+    pub fn type_change_notice(&self) -> Option<String> {
+        let label = |kind: &FileKind| match kind {
+            FileKind::Regular => "regular file",
+            FileKind::Symlink => "symlink",
+            FileKind::Submodule => "submodule",
+            FileKind::Conflict => "conflicted file",
+            FileKind::Other(_) => "unsupported entry",
+        };
+        self.type_change.as_ref().map(|(before, after)| {
+            format!("File type changed: {} → {}", label(before), label(after))
+        })
+    }
+
     pub fn path(&self) -> &str {
         &self.path
     }
@@ -87,6 +102,7 @@ impl From<&ChangedFile> for FileEntry {
         Self {
             path: file.after_path.clone(),
             content_kind: FileKind::Regular,
+            type_change: None,
             change: Some(FileChange {
                 kind: file.status.as_str().into(),
                 before_path: file.before_path.clone(),
@@ -187,6 +203,20 @@ impl FileCatalog {
         }
         Self { entries, renames }
     }
+    pub(crate) fn set_kinds(
+        &mut self,
+        path: &str,
+        before: Option<FileKind>,
+        after: Option<FileKind>,
+    ) {
+        if let Some(entry) = self.entries.get_mut(path) {
+            if let Some(kind) = after.as_ref().or(before.as_ref()) {
+                entry.content_kind = kind.clone();
+            }
+            entry.type_change = before.zip(after).filter(|(before, after)| before != after);
+        }
+    }
+
     pub fn entries(&self) -> impl ExactSizeIterator<Item = &FileEntry> {
         self.entries.values()
     }

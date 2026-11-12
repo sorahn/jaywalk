@@ -404,7 +404,11 @@ pub(crate) struct EvolutionContents {
 }
 
 impl EvolutionContents {
-    fn blob(&self, value: &FileValue) -> Result<String, String> {
+    fn blob(
+        &self,
+        value: &FileValue,
+        limit: crate::text_content::TextLimit,
+    ) -> Result<String, String> {
         if value.conflict {
             return Err("Interdiff contains a conflict after rebasing the earlier patch onto these parents.".into());
         }
@@ -420,27 +424,7 @@ impl EvolutionContents {
         if !valid_id(id) {
             return Err("Invalid interdiff object ID".into());
         }
-        let output = crate::tools::command("git")?
-            .arg("--git-dir")
-            .arg(&self.git_dir)
-            .args(["cat-file", "blob", id])
-            .output()
-            .map_err(|error| format!("Could not read evolution content: {error}"))?;
-        if !output.status.success() {
-            return Err(format!(
-                "Could not read evolution object: {}",
-                String::from_utf8_lossy(&output.stderr).trim()
-            ));
-        }
-        if output.stdout.len() > 2_000_000 {
-            return Err("File exceeds the prototype's 2 MB text-view limit.".into());
-        }
-        let text = String::from_utf8(output.stdout)
-            .map_err(|_| "Non-UTF-8 evolution content: text comparison unavailable.".to_string())?;
-        if text.contains('\0') {
-            return Err("Binary evolution content: text comparison unavailable.".into());
-        }
-        Ok(text)
+        limit.git_blob(&self.git_dir, Some(&self.git_dir), id)
     }
 
     pub(crate) fn contains(&self, path: &str, side: FileSide) -> bool {
@@ -449,7 +433,12 @@ impl EvolutionContents {
             FileSide::After => self.entries.contains_key(path),
         }
     }
-    pub(crate) fn read_path(&self, path: &str, side: FileSide) -> Result<String, String> {
+    pub(crate) fn read_path(
+        &self,
+        path: &str,
+        side: FileSide,
+        limit: crate::text_content::TextLimit,
+    ) -> Result<String, String> {
         let key = match side {
             FileSide::Before => self.before_paths.get(path).map(String::as_str),
             FileSide::After => Some(path),
@@ -459,10 +448,13 @@ impl EvolutionContents {
             .entries
             .get(key)
             .ok_or("Evolution file is absent from the recorded comparison")?;
-        self.blob(match side {
-            FileSide::Before => before,
-            FileSide::After => after,
-        })
+        self.blob(
+            match side {
+                FileSide::Before => before,
+                FileSide::After => after,
+            },
+            limit,
+        )
     }
 }
 
@@ -598,6 +590,7 @@ impl Comparison {
             tip: version.commit_id.clone(),
             files: files.into(),
             capture: 0,
+            text_limit: self.text_limit,
             content: ContentSource::Evolution(EvolutionContents {
                 git_dir,
                 entries: Arc::new(entries),
@@ -656,6 +649,43 @@ mod tests {
         fn drop(&mut self) {
             let _ = std::fs::remove_dir_all(&self.0);
         }
+    }
+
+    #[test]
+    fn recorded_and_evolution_blobs_obey_the_captured_text_limit() {
+        use crate::{repository::FileSide, text_content::TextLimit};
+        let f = Fixture::new();
+        f.write("large.txt", "small");
+        f.run(&["describe", "-m", "small version"]);
+        f.run(&["new", "-m", "large version"]);
+        f.write("large.txt", &"x".repeat(1_048_577));
+        f.run(&["status"]);
+        let comparison =
+            Comparison::load_with_limit(&f.0, Some("@-"), "@", TextLimit::from_mib(1).unwrap())
+                .unwrap();
+        assert!(
+            comparison
+                .read_path("large.txt", FileSide::After)
+                .unwrap_err()
+                .contains("1048577 bytes")
+        );
+        f.write("large.txt", &"y".repeat(1_048_578));
+        f.run(&["status"]);
+        let comparison =
+            Comparison::load_with_limit(&f.0, Some("@-"), "@", TextLimit::from_mib(1).unwrap())
+                .unwrap();
+        let evolution = comparison.evolution(&comparison.tip, 100).unwrap();
+        let diff = comparison.for_evolution(&evolution.versions[0]).unwrap();
+        assert!(
+            diff.read_path("large.txt", FileSide::Before)
+                .unwrap_err()
+                .contains("text limit")
+        );
+        assert!(
+            diff.read_path("large.txt", FileSide::After)
+                .unwrap_err()
+                .contains("text limit")
+        );
     }
 
     #[test]

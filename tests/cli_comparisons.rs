@@ -263,3 +263,176 @@ fn finder_environment_can_read_a_jj_repository_without_launching_a_window() {
             .contains("changed files")
     );
 }
+
+#[test]
+fn untracked_paths_keep_contents_from_the_selected_base() {
+    let fixture = Fixture::new();
+    fixture.git(&["init", "-b", "main"]);
+    fixture.write("file.txt", "original\n");
+    fixture.git(&["add", "."]);
+    fixture.git(&["commit", "-m", "initial"]);
+    let base = fixture.git(&["rev-parse", "HEAD"]);
+    fixture.git(&["rm", "--cached", "file.txt"]);
+    fixture.write("file.txt", "edited\n");
+    let comparison = Comparison::load(&fixture.0, None, "@").unwrap();
+    assert_eq!(comparison.files[0].status, "modified");
+    assert_eq!(
+        content(&comparison, "file.txt"),
+        ("original\n".into(), "edited\n".into())
+    );
+    fixture.git(&["commit", "-m", "remove from index"]);
+    let comparison = Comparison::load(&fixture.0, Some(&base), "@").unwrap();
+    assert_eq!(
+        content(&comparison, "file.txt"),
+        ("original\n".into(), "edited\n".into())
+    );
+    assert!(
+        fixture
+            .git(&["ls-files", "--others", "--exclude-standard"])
+            .contains("file.txt")
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn standalone_links_compare_targets_including_dangling_and_directory_links() {
+    let fixture = Fixture::new();
+    fixture.write("target-a", "same");
+    fixture.write("target-b", "same");
+    let left = fixture.0.join("left-link");
+    let right = fixture.0.join("right-link");
+    std::os::unix::fs::symlink("target-a", &left).unwrap();
+    std::os::unix::fs::symlink("target-b", &right).unwrap();
+    let comparison = ExternalContents::comparison(&left, &right).unwrap();
+    assert_eq!(comparison.root.file_name().unwrap(), "right-link");
+    assert_eq!(
+        content(&comparison, "right-link"),
+        ("target-a".into(), "target-b".into())
+    );
+    std::fs::remove_file(&right).unwrap();
+    std::os::unix::fs::symlink("missing-target", &right).unwrap();
+    let comparison = ExternalContents::comparison(&left, &right).unwrap();
+    assert_eq!(content(&comparison, "right-link").1, "missing-target");
+    std::fs::remove_file(&left).unwrap();
+    std::fs::create_dir(fixture.0.join("directory-target")).unwrap();
+    std::os::unix::fs::symlink("directory-target", &left).unwrap();
+    let comparison = ExternalContents::comparison(&left, &right).unwrap();
+    assert_eq!(
+        content(&comparison, "right-link"),
+        ("directory-target".into(), "missing-target".into())
+    );
+    assert_eq!(
+        jaywalk::external::normalize_input(&right).unwrap(),
+        std::fs::canonicalize(&fixture.0)
+            .unwrap()
+            .join("right-link")
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn external_type_changes_remain_visible_with_identical_display_text() {
+    let fixture = Fixture::new();
+    fixture.write("left/link-to-file", "../target");
+    fixture.write("right/file-to-link", "../target");
+    std::os::unix::fs::symlink("../target", fixture.0.join("right/link-to-file")).unwrap();
+    std::os::unix::fs::symlink("../target", fixture.0.join("left/file-to-link")).unwrap();
+    let comparison =
+        ExternalContents::comparison(&fixture.0.join("left"), &fixture.0.join("right")).unwrap();
+    assert_eq!(comparison.files.len(), 2);
+    for path in ["link-to-file", "file-to-link"] {
+        let entry = comparison.catalog.find(path).unwrap();
+        let (before, after) = comparison.read_file(entry).unwrap();
+        assert_eq!(before, after);
+        assert!(entry.type_change_notice().unwrap().contains("symlink"));
+    }
+    let overview = comparison.overview();
+    assert!(overview.files.iter().all(|file| {
+        file.notice
+            .as_deref()
+            .unwrap()
+            .starts_with("File type changed:")
+    }));
+}
+
+#[test]
+fn external_limit_retains_oversized_files_and_streams_equality() {
+    use jaywalk::{repository::FileSide, text_content::TextLimit};
+    let f = Fixture::new();
+    let mib = 1_048_576;
+    for (name, size) in [("below", mib - 1), ("exact", mib), ("above", mib + 1)] {
+        f.write(&format!("left/{name}"), "old");
+        f.write(&format!("right/{name}"), &"x".repeat(size));
+    }
+    // Sparse, oversized equal files are discovered without allocating their contents.
+    for side in ["left", "right"] {
+        std::fs::File::create(f.0.join(side).join("large-equal"))
+            .unwrap()
+            .set_len(64 * 1024 * 1024)
+            .unwrap();
+    }
+    let comparison = ExternalContents::comparison_with_limit(
+        &f.0.join("left"),
+        &f.0.join("right"),
+        TextLimit::from_mib(1).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(comparison.files.len(), 3);
+    for name in ["below", "exact"] {
+        assert!(comparison.read_path(name, FileSide::After).is_ok());
+    }
+    let notice = comparison.read_path("above", FileSide::After).unwrap_err();
+    assert!(notice.contains("1048577 bytes"), "{notice}");
+    assert!(notice.contains("1 MiB"), "{notice}");
+    let overview = comparison.overview();
+    assert!(
+        overview
+            .files
+            .iter()
+            .find(|file| file.file.after_path == "above")
+            .unwrap()
+            .notice
+            .as_deref()
+            .unwrap()
+            .contains("text limit")
+    );
+}
+
+#[test]
+fn git_limits_worktree_and_recorded_blobs_and_refreshes_policy() {
+    use jaywalk::{repository::FileSide, text_content::TextLimit};
+    let f = Fixture::new();
+    f.git(&["init", "-b", "main"]);
+    f.write("file.txt", "old");
+    f.git(&["add", "."]);
+    f.git(&["commit", "-m", "base"]);
+    let base = f.git(&["rev-parse", "HEAD"]);
+    f.write("file.txt", &"x".repeat(1_048_577));
+    let small = TextLimit::from_mib(1).unwrap();
+    let work = Comparison::load_with_limit(&f.0, Some(&base), "@", small).unwrap();
+    assert!(
+        work.read_path("file.txt", FileSide::After)
+            .unwrap_err()
+            .contains("1048577 bytes")
+    );
+    assert_eq!(work.files.len(), 1);
+    f.git(&["add", "."]);
+    f.git(&["commit", "-m", "large"]);
+    let tip = f.git(&["rev-parse", "HEAD"]);
+    let limited = Comparison::load_with_limit(&f.0, Some(&base), &tip, small).unwrap();
+    let raised =
+        Comparison::load_with_limit(&f.0, Some(&base), &tip, TextLimit::from_mib(2).unwrap())
+            .unwrap();
+    assert_ne!(limited.identity(), raised.identity());
+    assert!(
+        limited
+            .read_path("file.txt", FileSide::After)
+            .unwrap_err()
+            .contains("text limit")
+    );
+    assert_eq!(
+        raised.read_path("file.txt", FileSide::After).unwrap().len(),
+        1_048_577
+    );
+    assert!(limited.read_path("file.txt", FileSide::After).is_err());
+}

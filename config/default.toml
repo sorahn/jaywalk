@@ -113,6 +113,8 @@ list_word_wrap = false
 # Tree rows stay single-line and scroll horizontally.
 
 [diff]
+# MiB per side; bounded reads prevent allocation beyond this limit.
+max_text_file_size_mb = 50
 # "inline", "side_by_side", or "fluid"
 default_view = "fluid"
 

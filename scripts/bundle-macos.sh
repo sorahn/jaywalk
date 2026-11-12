@@ -2,19 +2,17 @@
 set -eu
 cd "$(dirname "$0")/.."
 profile=${1:-debug}
-case "$profile" in
-    debug) cargo build --locked ;;
-    release) cargo build --locked --release ;;
-    *) echo 'usage: scripts/bundle-macos.sh [debug|release]' >&2; exit 2 ;;
-esac
+binaries=$(scripts/build-native.sh "$profile")
 destination="target/$profile/Jaywalk.app"
 # Query the standalone Cargo binary before constructing/signing the app bundle.
-version=$("target/$profile/jaywalk" --package-version)
+version=$("$binaries/jaywalk" --package-version)
+mkdir -p "target/$profile"
 staging=$(mktemp -d "target/$profile/bundle.XXXXXX")
 trap 'rm -rf "$staging"' EXIT
 bundle="$staging/Jaywalk.app"
 mkdir -p "$bundle/Contents/MacOS" "$bundle/Contents/Resources"
-cp "target/$profile/jaywalk" "$bundle/Contents/MacOS/jaywalk"
+cp "$binaries/jaywalk" "$bundle/Contents/MacOS/jaywalk"
+cp "$binaries/jw" "$bundle/Contents/MacOS/jw"
 cp packaging/macos/Info.plist "$bundle/Contents/Info.plist"
 # The standalone executable gets this value from Cargo.toml.
 /usr/libexec/PlistBuddy -c "Add :CFBundleShortVersionString string $version" "$bundle/Contents/Info.plist"

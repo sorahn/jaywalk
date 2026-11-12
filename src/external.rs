@@ -8,6 +8,7 @@ use std::sync::Arc;
 pub struct ExternalContents {
     left: BTreeMap<String, PathBuf>,
     right: BTreeMap<String, PathBuf>,
+    limit: crate::text_content::TextLimit,
 }
 
 fn collect(
@@ -41,7 +42,34 @@ fn collect(
     Ok(())
 }
 
-fn bytes(path: &Path) -> Result<Vec<u8>, String> {
+/// Resolve parents without dereferencing a comparison's final entry.
+pub fn normalize_input(path: &Path) -> Result<PathBuf, String> {
+    let normalized = if let Some(name) = path.file_name() {
+        let parent = path
+            .parent()
+            .filter(|parent| !parent.as_os_str().is_empty())
+            .unwrap_or(Path::new("."));
+        std::fs::canonicalize(parent).map(|parent| parent.join(name))
+    } else {
+        std::fs::canonicalize(path)
+    }
+    .map_err(|error| format!("Could not open {}: {error}", path.display()))?;
+    std::fs::symlink_metadata(&normalized)
+        .map_err(|error| format!("Could not inspect {}: {error}", normalized.display()))?;
+    Ok(normalized)
+}
+
+fn entry_kind(path: &Path) -> Result<crate::repository_file::FileKind, String> {
+    let metadata = std::fs::symlink_metadata(path)
+        .map_err(|error| format!("Could not inspect {}: {error}", path.display()))?;
+    Ok(if metadata.is_symlink() {
+        crate::repository_file::FileKind::Symlink
+    } else {
+        crate::repository_file::FileKind::Regular
+    })
+}
+
+fn bytes(path: &Path, limit: crate::text_content::TextLimit) -> Result<Vec<u8>, String> {
     let metadata = std::fs::symlink_metadata(path)
         .map_err(|error| format!("Could not inspect {}: {error}", path.display()))?;
     if metadata.file_type().is_symlink() {
@@ -53,24 +81,77 @@ fn bytes(path: &Path) -> Result<Vec<u8>, String> {
             .map(|text| text.as_bytes().to_vec())
             .ok_or_else(|| format!("Non-UTF-8 link target: {}", path.display()));
     }
-    std::fs::read(path).map_err(|error| format!("Could not read {}: {error}", path.display()))
+    limit.file(path)
+}
+
+fn equal_entries(
+    before: &Path,
+    after: &Path,
+    limit: crate::text_content::TextLimit,
+) -> Result<bool, String> {
+    use std::io::BufRead;
+    let kind = entry_kind(before)?;
+    if kind != entry_kind(after)? {
+        return Ok(false);
+    }
+    if kind == crate::repository_file::FileKind::Symlink {
+        return Ok(bytes(before, limit)? == bytes(after, limit)?);
+    }
+    let open = |path: &Path| {
+        std::fs::File::open(path)
+            .map_err(|error| format!("Could not open {}: {error}", path.display()))
+    };
+    let left = open(before)?;
+    let right = open(after)?;
+    if left.metadata().map_err(|error| error.to_string())?.len()
+        != right.metadata().map_err(|error| error.to_string())?.len()
+    {
+        return Ok(false);
+    }
+    let mut left = std::io::BufReader::new(left);
+    let mut right = std::io::BufReader::new(right);
+    loop {
+        let a = left.fill_buf().map_err(|error| error.to_string())?;
+        let b = right.fill_buf().map_err(|error| error.to_string())?;
+        if a.is_empty() || b.is_empty() {
+            return Ok(a.is_empty() && b.is_empty());
+        }
+        let count = a.len().min(b.len());
+        if a[..count] != b[..count] {
+            return Ok(false);
+        }
+        left.consume(count);
+        right.consume(count);
+    }
 }
 
 impl ExternalContents {
     pub fn comparison(left: &Path, right: &Path) -> Result<Comparison, String> {
-        let left = std::fs::canonicalize(left)
-            .map_err(|error| format!("Could not open {}: {error}", left.display()))?;
-        let right = std::fs::canonicalize(right)
-            .map_err(|error| format!("Could not open {}: {error}", right.display()))?;
+        Self::comparison_with_limit(left, right, crate::text_content::TextLimit::default())
+    }
+    pub fn comparison_with_limit(
+        left: &Path,
+        right: &Path,
+        limit: crate::text_content::TextLimit,
+    ) -> Result<Comparison, String> {
+        let left = normalize_input(left)?;
+        let right = normalize_input(right)?;
+        let left_kind = std::fs::symlink_metadata(&left)
+            .map_err(|error| error.to_string())?
+            .file_type();
+        let right_kind = std::fs::symlink_metadata(&right)
+            .map_err(|error| error.to_string())?
+            .file_type();
         let mut contents = Self {
             left: BTreeMap::new(),
             right: BTreeMap::new(),
+            limit,
         };
-        if left.is_dir() && right.is_dir() {
+        if left_kind.is_dir() && right_kind.is_dir() {
             collect(&left, &left, &mut contents.left)?;
             collect(&right, &right, &mut contents.right)?;
-        } else if (left.is_file() || left == Path::new("/dev/null"))
-            && (right.is_file() || right == Path::new("/dev/null"))
+        } else if (left_kind.is_file() || left_kind.is_symlink() || left == Path::new("/dev/null"))
+            && (right_kind.is_file() || right_kind.is_symlink() || right == Path::new("/dev/null"))
         {
             let label = if right == Path::new("/dev/null") {
                 &left
@@ -99,7 +180,7 @@ impl ExternalContents {
                 (None, Some(_)) => "added",
                 (Some(_), None) => "removed",
                 (Some(before), Some(after)) => {
-                    if bytes(before)? == bytes(after)? {
+                    if equal_entries(before, after, limit)? {
                         continue;
                     }
                     "modified"
@@ -120,9 +201,31 @@ impl ExternalContents {
             files: files.into(),
             content: ContentSource::External(Arc::new(contents)),
             capture: next_capture(),
+            text_limit: limit,
             catalog: Arc::default(),
         }
         .with_catalog()
+    }
+
+    pub(crate) fn annotate_catalog(
+        &self,
+        catalog: &mut crate::repository_file::FileCatalog,
+    ) -> Result<(), String> {
+        let names: BTreeSet<_> = self.left.keys().chain(self.right.keys()).collect();
+        for name in names {
+            let before = self
+                .left
+                .get(name)
+                .map(|path| entry_kind(path))
+                .transpose()?;
+            let after = self
+                .right
+                .get(name)
+                .map(|path| entry_kind(path))
+                .transpose()?;
+            catalog.set_kinds(name, before, after);
+        }
+        Ok(())
     }
 
     pub(crate) fn paths(
@@ -149,12 +252,7 @@ impl ExternalContents {
             let Some(path) = paths.get(name) else {
                 return Ok(String::new());
             };
-            let data = bytes(path)?;
-            if data.len() > 2_000_000 || data.contains(&0) {
-                return Err("Binary or large file: text comparison is unavailable.".into());
-            }
-            String::from_utf8(data)
-                .map_err(|error| format!("Non-UTF-8 text in {}: {error}", path.display()))
+            self.limit.text(bytes(path, self.limit)?)
         };
         read(
             match side {

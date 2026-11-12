@@ -31,6 +31,23 @@ impl RecordedRefresh {
         selected: Option<&FollowedChange>,
         history_query: &HistoryQuery,
     ) -> Result<Self, RefreshFailure> {
+        Self::load_with_limit(
+            directory,
+            base,
+            tip,
+            selected,
+            history_query,
+            crate::text_content::TextLimit::default(),
+        )
+    }
+    pub fn load_with_limit(
+        directory: &Path,
+        base: Option<&str>,
+        tip: &str,
+        selected: Option<&FollowedChange>,
+        history_query: &HistoryQuery,
+        limit: crate::text_content::TextLimit,
+    ) -> Result<Self, RefreshFailure> {
         let operation =
             Comparison::current_operation(directory).map_err(|message| RefreshFailure {
                 operation: None,
@@ -38,7 +55,8 @@ impl RecordedRefresh {
             })?;
         let read = || -> Result<Self, String> {
             let root = PathBuf::from(query(directory, &operation, &["root"])?.trim());
-            let branch = Comparison::recorded_at(root, operation.clone(), base, tip)?;
+            let branch =
+                Comparison::recorded_at(root, operation.clone(), base, tip)?.with_text_limit(limit);
             let history = branch.history(history_query)?;
             let revision = match selected {
                 None => None,
