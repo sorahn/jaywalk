@@ -267,6 +267,7 @@ mod tests {
             change_id: String::new(),
             description: String::new(),
             author: String::new(),
+            timestamp: String::new(),
             references: vec![],
             parents: vec!["head".into()],
             working_copy: true,

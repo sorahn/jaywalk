@@ -418,7 +418,7 @@ pub(crate) fn history(root: &Path, query: &HistoryQuery) -> Result<History, Stri
         "-n",
         &limit,
         "-z",
-        "--format=%H%x00%P%x00%s%x00%an",
+        "--format=%H%x00%P%x00%B%x00%an%x00%aI",
     ];
     let roots = query.roots(&references);
     if roots.is_empty() {
@@ -428,11 +428,11 @@ pub(crate) fn history(root: &Path, query: &HistoryQuery) -> Result<History, Stri
     args.push("--");
     let data = output(root, &args)?;
     let fields: Vec<_> = data.split_terminator('\0').collect();
-    if !fields.len().is_multiple_of(4) {
+    if !fields.len().is_multiple_of(5) {
         return Err("Incomplete Git history entry".into());
     }
     let mut revisions: Vec<_> = fields
-        .as_chunks::<4>()
+        .as_chunks::<5>()
         .0
         .iter()
         .map(|entry| Revision {
@@ -440,6 +440,7 @@ pub(crate) fn history(root: &Path, query: &HistoryQuery) -> Result<History, Stri
             change_id: entry[0].into(),
             description: entry[2].into(),
             author: entry[3].into(),
+            timestamp: entry[4].into(),
             parents: entry[1].split_whitespace().map(str::to_owned).collect(),
             references: vec![],
             working_copy: false,
@@ -457,6 +458,7 @@ pub(crate) fn history(root: &Path, query: &HistoryQuery) -> Result<History, Stri
                 change_id: String::new(),
                 description: String::new(),
                 author: String::new(),
+                timestamp: String::new(),
                 parents: vec![head],
                 references: vec![],
                 working_copy: true,

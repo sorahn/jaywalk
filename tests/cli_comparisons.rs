@@ -118,8 +118,17 @@ fn git_worktree_and_history_are_read_only_and_use_pinned_contents() {
     fixture.write("deleted.txt", "deleted\n");
     fixture.write("unchanged.txt", "stable\n");
     fixture.git(&["add", "."]);
-    fixture.git(&["commit", "-m", "initial"]);
+    fixture.git(&["commit", "-m", "initial\n\nDetailed message body."]);
     let initial = fixture.git(&["rev-parse", "HEAD"]);
+    let metadata = Comparison::load(&fixture.0, None, "@")
+        .unwrap()
+        .history(&Default::default())
+        .unwrap();
+    let commit = &metadata.revisions[1];
+    assert_eq!(commit.summary(), "initial");
+    assert!(commit.description.contains("\n\nDetailed message body."));
+    assert!(!commit.author.is_empty());
+    assert!(!commit.timestamp.is_empty());
     fixture.write("a file.txt", "staged\n");
     fixture.git(&["add", "."]);
     fixture.write("a file.txt", "unstaged\n");

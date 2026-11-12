@@ -168,7 +168,7 @@ impl HistoryQuery {
     }
 }
 
-pub(crate) const TEMPLATE: &str = r#""[" ++ json(commit_id) ++ "," ++ json(change_id) ++ "," ++ json(description.first_line()) ++ "," ++ json(author.name()) ++ ",[" ++ local_bookmarks.map(|b| json(b.name())).join(",") ++ "],[" ++ parents.map(|p| json(p.commit_id())).join(",") ++ "]," ++ json(current_working_copy) ++ "," ++ json(empty) ++ "]\n""#;
+pub(crate) const TEMPLATE: &str = r#""[" ++ json(commit_id) ++ "," ++ json(change_id) ++ "," ++ json(description) ++ "," ++ json(author.name()) ++ ",[" ++ local_bookmarks.map(|b| json(b.name())).join(",") ++ "],[" ++ parents.map(|p| json(p.commit_id())).join(",") ++ "]," ++ json(current_working_copy) ++ "," ++ json(empty) ++ "," ++ json(author.timestamp().local().format("%Y-%m-%d %H:%M:%S %z")) ++ "]\n""#;
 // Recorded revision metadata and topological graph lanes, independent of UI.
 
 #[derive(Clone, Debug)]
@@ -177,6 +177,7 @@ pub struct Revision {
     pub change_id: String,
     pub description: String,
     pub author: String,
+    pub timestamp: String,
     pub references: Vec<Reference>,
     pub parents: Vec<String>,
     pub working_copy: bool,
@@ -197,7 +198,7 @@ impl Revision {
                 "(no description)"
             }
         } else {
-            &self.description
+            self.description.lines().next().unwrap_or_default()
         };
         if self.working_copy {
             let state = if self.empty { "no changes" } else { "changes" };
@@ -222,6 +223,7 @@ struct Entry(
     Vec<String>,
     #[serde(default)] bool,
     #[serde(default)] bool,
+    #[serde(default)] String,
 );
 
 pub use crate::graph::GraphRow;
@@ -247,6 +249,7 @@ impl History {
                 parents,
                 working_copy,
                 empty,
+                timestamp,
             ) = serde_json::from_str(line)
                 .map_err(|error| format!("Invalid jj history entry: {error}"))?;
             for id in std::iter::once(&commit_id).chain(parents.iter()) {
@@ -259,6 +262,7 @@ impl History {
                 change_id,
                 description,
                 author,
+                timestamp,
                 references: bookmarks
                     .into_iter()
                     .map(|name| Reference {
@@ -336,6 +340,26 @@ impl History {
 #[cfg(test)]
 mod tests {
     use super::History;
+
+    #[test]
+    fn full_messages_and_timestamps_keep_single_line_summaries() {
+        let entry = serde_json::json!([
+            "abcd",
+            "change",
+            "subject\n\nBody with café and details.\n",
+            "Author",
+            [],
+            [],
+            false,
+            false,
+            "2026-11-12 16:00:00 -0500"
+        ]);
+        let history = History::parse(&entry.to_string()).unwrap();
+        let revision = &history.revisions[0];
+        assert_eq!(revision.summary(), "subject");
+        assert!(revision.description.contains("\n\nBody with café"));
+        assert_eq!(revision.timestamp, "2026-11-12 16:00:00 -0500");
+    }
 
     #[test]
     fn merges_and_shared_parents_keep_continuous_lanes() {

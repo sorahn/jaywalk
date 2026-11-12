@@ -260,3 +260,10 @@ History and Files put their info in the app footer only while their sidebar is
 open. History shows its revision count/status; Files shows changed
 file counts, or total/changed counts in the all-files tree, plus a retained-preview
 count when applicable. Each evolution toggle controls only its own timeline.
+
+Hover a history row for its message, author, authored timestamp, full commit ID,
+jj change ID when available, merge parent count and local/remote references.
+The plain Git working-copy row describes uncommitted changes instead of showing
+a commit identity. Hover details use the loaded snapshot and do not refresh or
+record working files. Very long messages are clipped to keep the card compact;
+commit details and copy actions remain available from the row context menu.

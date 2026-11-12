@@ -54,7 +54,8 @@ fn follows_stable_changes_without_following_the_checkout_or_snapshotting_files()
         original.working_copy,
         "working-copy state belongs to the pinned operation"
     );
-    assert_eq!(original.description, "first change");
+    assert_eq!(original.description, "first change\n");
+    assert_eq!(original.summary(), "first change · working copy · changes");
     assert_ne!(
         latest.tip, rewritten.commit_id,
         "feature tip must not become the edited ancestor"
