@@ -77,6 +77,7 @@ fn tree_items(
     width: &mut f32,
     glyph_width: f32,
     indent_width: f32,
+    expanded: bool,
 ) -> Vec<TreeItem> {
     nodes
         .into_iter()
@@ -94,12 +95,13 @@ fn tree_items(
                         width,
                         glyph_width,
                         indent_width,
+                        expanded,
                     );
                     (
                         name.clone(),
                         TreeItem::new(format!("dir:{path}"), name)
                             .children(children)
-                            .expanded(true),
+                            .expanded(expanded),
                     )
                 }
                 FileNode::File { index, name, path } => {
@@ -220,6 +222,7 @@ impl Viewer {
             &mut self.browser.tree_width,
             self.settings.panels.files.font.size * 0.5,
             self.settings.files.indent_width,
+            self.browser.scope == TreeScope::Changed,
         );
         preserve_expansion(&items, &self.browser.roots, &mut self.browser.expansion);
         let selected_tree = self.browser.tree.read(cx).selected_item().cloned();
@@ -743,6 +746,47 @@ impl Viewer {
 mod identity_tests {
     use super::{TreeItem, preserve_expansion};
     use std::collections::HashMap;
+    #[test]
+    fn all_files_only_expands_known_folders_and_keeps_new_descendants_closed() {
+        use super::tree_items;
+        use jaywalk::file_browser::present_paths;
+        fn items(paths: &[&str], expanded: bool) -> Vec<TreeItem> {
+            let (_, nodes) = present_paths(paths);
+            tree_items(nodes, 0, &mut HashMap::new(), &mut 0., 8., 12., expanded)
+        }
+        fn folder<'a>(items: &'a [TreeItem], id: &str) -> &'a TreeItem {
+            fn find<'a>(items: &'a [TreeItem], id: &str) -> Option<&'a TreeItem> {
+                items.iter().find_map(|item| {
+                    if item.id.as_ref() == id {
+                        Some(item)
+                    } else {
+                        find(&item.children, id)
+                    }
+                })
+            }
+            find(items, id).expect("fixture folder exists")
+        }
+        let changed = items(&["src/api/changed.rs", "src/hidden/changed.rs"], true);
+        folder(&changed, "dir:src/hidden").clone().expanded(false);
+        let all = items(
+            &[
+                "src/api/changed.rs",
+                "src/hidden/changed.rs",
+                "src/new/other.rs",
+                "docs/guide.md",
+            ],
+            false,
+        );
+        preserve_expansion(&all, &changed, &mut HashMap::new());
+        assert!(folder(&all, "dir:src").is_expanded());
+        assert!(folder(&all, "dir:src/api").is_expanded());
+        assert!(!folder(&all, "dir:src/hidden").is_expanded());
+        assert!(!folder(&all, "dir:src/new").is_expanded());
+        assert!(!folder(&all, "dir:docs").is_expanded());
+        let fresh_all = items(&["src/api/a.rs", "docs/a.md"], false);
+        assert!(fresh_all.iter().all(|item| !item.is_expanded()));
+    }
+
     #[test]
     fn expansion_survives_reordering_and_collapsed_ancestors() {
         let previous = vec![
