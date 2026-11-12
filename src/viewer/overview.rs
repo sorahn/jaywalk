@@ -630,12 +630,18 @@ impl Element for ComparisonCaption {
         window: &mut Window,
         cx: &mut App,
     ) -> (LayoutId, ()) {
-        let style = Style {
-            size: size(relative(1.).into(), window.line_height().into()),
-            ..Style::default()
-        };
-        (window.request_layout(style, [], cx), ())
+        // Supply real text to intrinsic layout. A percentage-width leaf with
+        // no content collapses to zero inside the comparison button's flex row.
+        let mut content = div()
+            .min_w_0()
+            .truncate()
+            .child(self.label.clone())
+            .into_any_element();
+        let layout = content.request_layout(window, cx);
+        self.content = Some(content);
+        (layout, ())
     }
+
     fn prepaint(
         &mut self,
         _: Option<&GlobalElementId>,
@@ -651,6 +657,7 @@ impl Element for ComparisonCaption {
             self.label.clone()
         };
         let mut content = div()
+            .debug_selector(|| "comparison-caption".into())
             .w(bounds.size.width)
             .truncate()
             .child(caption)

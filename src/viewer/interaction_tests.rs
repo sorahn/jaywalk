@@ -475,3 +475,49 @@ fn fluid_wrap_and_resize_preserve_the_reading_line(cx: &mut TestAppContext) {
         "resized {resized} -> dragged {dragged}"
     );
 }
+
+#[gpui_test::test]
+fn choosing_a_branch_keeps_the_loaded_overview_caption_visible(cx: &mut TestAppContext) {
+    let fixture = Fixture::new();
+    let branch = "feature/a-long-selected-branch-name";
+    fixture.git(&["checkout", "-b", branch]);
+    std::fs::write(fixture.0.join("file.txt"), "feature row\n".repeat(100)).unwrap();
+    fixture.git(&["add", "file.txt"]);
+    fixture.git(&["commit", "-m", "Feature summary"]);
+    let (viewer, cx) = setup(&fixture, cx);
+    cx.dispatch_action(super::commands::ExecuteCommand {
+        command: jaywalk::commands::CommandId::Overview,
+    });
+    draw(cx);
+    let reference = |name: &str| jaywalk::branch_review::RefName {
+        name: name.into(),
+        remote: None,
+    };
+    cx.update(|window, app| {
+        viewer.update(app, |viewer, cx| {
+            viewer.open_review_target(
+                jaywalk::branch_review::Target::Branch {
+                    tip: jaywalk::branch_review::Tip::Reference(reference(branch)),
+                    base: reference("main"),
+                },
+                window,
+                cx,
+            )
+        })
+    });
+    draw(cx);
+    assert!(cx.update(|_, app| viewer.read(app).scope_label().contains(branch)));
+    assert!(cx.update(|_, app| viewer.read(app).selected_file.is_none()));
+    let caption = cx.debug_bounds("comparison-caption").unwrap();
+    assert!(caption.size.width > px(100.), "caption {caption:?}");
+    cx.simulate_event(gpui_test::ScrollWheelEvent {
+        position: point(caption.left() + px(20.), caption.bottom() + px(200.)),
+        delta: gpui_test::ScrollDelta::Pixels(point(px(0.), px(-1000.))),
+        ..Default::default()
+    });
+    draw(cx);
+    assert!(cx.debug_bounds("comparison-caption").unwrap().size.width > px(100.));
+    cx.simulate_resize(size(px(800.), px(800.)));
+    draw(cx);
+    assert!(cx.debug_bounds("comparison-caption").unwrap().size.width > px(40.));
+}
