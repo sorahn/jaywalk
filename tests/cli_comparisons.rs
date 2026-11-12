@@ -435,4 +435,127 @@ fn git_limits_worktree_and_recorded_blobs_and_refreshes_policy() {
         1_048_577
     );
     assert!(limited.read_path("file.txt", FileSide::After).is_err());
+    #[cfg(unix)]
+    {
+        // A refused before-side text read must not hide the captured new kind.
+        std::fs::remove_file(f.0.join("file.txt")).unwrap();
+        std::os::unix::fs::symlink("../target", f.0.join("file.txt")).unwrap();
+        let comparison = Comparison::load_with_limit(&f.0, Some(&tip), "@", small).unwrap();
+        let entry = comparison.catalog.find("file.txt").unwrap();
+        assert_eq!(
+            entry.content_kind(),
+            &jaywalk::repository_file::FileKind::Symlink
+        );
+        assert_eq!(
+            entry.type_change_notice().as_deref(),
+            Some("File type changed: regular file → symlink")
+        );
+        assert!(
+            comparison
+                .read_file(entry)
+                .unwrap_err()
+                .contains("text limit")
+        );
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn git_and_jj_catalogs_preserve_side_kinds_independently_of_text() {
+    use jaywalk::repository_file::FileKind;
+    let f = Fixture::new();
+    f.git(&["init", "-b", "main"]);
+    std::os::unix::fs::symlink("../target", f.0.join("to-file")).unwrap();
+    std::os::unix::fs::symlink("../gone", f.0.join("deleted-link")).unwrap();
+    f.write("to-link", "../target");
+    f.write("empty-deleted", "");
+    f.git(&["add", "."]);
+    f.git(&["commit", "-m", "initial"]);
+    let object = f.git(&["rev-parse", "HEAD"]);
+    f.git(&[
+        "update-index",
+        "--add",
+        "--cacheinfo",
+        &format!("160000,{object},deleted-module"),
+    ]);
+    f.git(&["commit", "-m", "module"]);
+    let base = f.git(&["rev-parse", "HEAD"]);
+    std::fs::remove_file(f.0.join("to-file")).unwrap();
+    f.write("to-file", "../target");
+    std::fs::remove_file(f.0.join("to-link")).unwrap();
+    std::os::unix::fs::symlink("../target", f.0.join("to-link")).unwrap();
+    std::fs::remove_file(f.0.join("deleted-link")).unwrap();
+    std::fs::remove_file(f.0.join("empty-deleted")).unwrap();
+    f.write("empty-added", "");
+    let check = |comparison: Comparison| {
+        for (name, kind, notice) in [
+            (
+                "to-file",
+                FileKind::Regular,
+                "File type changed: symlink → regular file",
+            ),
+            (
+                "to-link",
+                FileKind::Symlink,
+                "File type changed: regular file → symlink",
+            ),
+        ] {
+            let entry = comparison.catalog.find(name).unwrap();
+            assert_eq!(entry.content_kind(), &kind);
+            assert_eq!(entry.type_change_notice().as_deref(), Some(notice));
+            assert_eq!(
+                comparison.read_file(entry).unwrap(),
+                ("../target".into(), "../target".into())
+            );
+        }
+        let removed = comparison.catalog.find("deleted-link").unwrap();
+        assert_eq!(removed.content_kind(), &FileKind::Symlink);
+        assert!(removed.type_change_notice().is_none());
+        assert_eq!(
+            comparison.read_file(removed).unwrap(),
+            ("../gone".into(), "".into())
+        );
+        let module = comparison.catalog.find("deleted-module").unwrap();
+        assert_eq!(module.content_kind(), &FileKind::Submodule);
+        assert!(
+            comparison
+                .read_file(module)
+                .unwrap_err()
+                .contains("Submodule")
+        );
+        for (path, status) in [("empty-added", "added"), ("empty-deleted", "removed")] {
+            let entry = comparison.catalog.find(path).unwrap();
+            assert_eq!(entry.status(), Some(status));
+            assert!(entry.type_change_notice().is_none());
+            assert_eq!(comparison.read_file(entry).unwrap(), ("".into(), "".into()));
+        }
+        let overview = comparison.overview();
+        assert!(
+            overview
+                .files
+                .iter()
+                .find(|file| file.file.after_path == "to-file")
+                .unwrap()
+                .notice
+                .as_deref()
+                .unwrap()
+                .contains("symlink → regular file")
+        );
+    };
+    check(Comparison::load(&f.0, Some(&base), "@").unwrap());
+    f.git(&["add", "-A"]);
+    f.git(&["commit", "-m", "changes"]);
+    let tip = f.git(&["rev-parse", "HEAD"]);
+    check(Comparison::load(&f.0, Some(&base), &tip).unwrap());
+    let result = Command::new("jj")
+        .current_dir(&f.0)
+        .args(["git", "init", "--git-repo", "."])
+        .output()
+        .unwrap();
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    check(Comparison::load(&f.0, Some(&base), &tip).unwrap());
 }

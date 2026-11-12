@@ -3,6 +3,7 @@ use crate::history::{History, HistoryQuery, Revision};
 use crate::repository::{ChangedFile, Comparison, ContentSource, FileSide, next_capture};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
+use std::process::Command;
 
 use std::sync::Arc;
 
@@ -23,6 +24,34 @@ pub(crate) struct GitContents {
     root: PathBuf,
     trees: [BTreeMap<String, GitValue>; 2],
     limit: crate::text_content::TextLimit,
+}
+
+// Shared by Git-backed jj and evolution; byte policy remains backend-independent.
+pub(crate) fn read_blob(
+    root: &Path,
+    git_dir: Option<&Path>,
+    object: &str,
+    limit: crate::text_content::TextLimit,
+) -> Result<String, String> {
+    let command = || -> Result<Command, String> {
+        let mut command = crate::tools::command("git")?;
+        command
+            .current_dir(root)
+            .env("GIT_OPTIONAL_LOCKS", "0")
+            .args(["--no-pager", "--literal-pathspecs"]);
+        if let Some(directory) = git_dir {
+            command.arg("--git-dir").arg(directory);
+        }
+        Ok(command)
+    };
+    let size = limit.command(command()?.args(["cat-file", "-s", object]))?;
+    let size = std::str::from_utf8(&size)
+        .map_err(|error| error.to_string())?
+        .trim()
+        .parse::<u64>()
+        .map_err(|error| format!("Invalid Git object size: {error}"))?;
+    limit.check(size)?;
+    limit.text(limit.command(command()?.args(["cat-file", "blob", object]))?)
 }
 
 fn run(root: &Path, args: &[&str]) -> Result<Vec<u8>, String> {
@@ -189,27 +218,39 @@ pub(crate) fn between(
     // into an already displayed worktree comparison.
     let mut contents = BTreeMap::new();
     for file in &files {
+        // Capture kind independently of text acquisition: a before-side read
+        // may be unavailable or oversized, without hiding the after-side kind.
+        let metadata = (working && file.status != "removed").then(|| {
+            let path = root.join(&file.after_path);
+            std::fs::symlink_metadata(&path)
+                .map_err(|error| format!("Could not inspect {}: {error}", path.display()))
+        });
+        if let Some(Ok(metadata)) = &metadata
+            && let Some(value) = after_tree.get_mut(&file.after_path)
+        {
+            value.kind = if metadata.file_type().is_symlink() {
+                FileKind::Symlink
+            } else if metadata.is_dir() {
+                FileKind::Submodule
+            } else {
+                FileKind::Regular
+            };
+        }
         let pair = (|| {
             let before = if file.status == "added" {
                 String::new()
             } else {
-                limit.git_blob(&root, None, &format!("{base}:{}", file.before_path))?
+                read_blob(&root, None, &format!("{base}:{}", file.before_path), limit)?
             };
             let after = if file.status == "removed" {
                 String::new()
             } else if working {
                 let path = root.join(&file.after_path);
-                let metadata = std::fs::symlink_metadata(&path)
-                    .map_err(|error| format!("Could not inspect {}: {error}", path.display()))?;
-                if let Some(value) = after_tree.get_mut(&file.after_path) {
-                    value.kind = if metadata.file_type().is_symlink() {
-                        FileKind::Symlink
-                    } else if metadata.is_dir() {
-                        FileKind::Submodule
-                    } else {
-                        FileKind::Regular
-                    };
-                }
+                let metadata = metadata
+                    .as_ref()
+                    .expect("changed working-tree paths have a captured metadata result")
+                    .as_ref()
+                    .map_err(Clone::clone)?;
                 if metadata.file_type().is_symlink() {
                     let target = std::fs::read_link(&path).map_err(|error| {
                         format!("Could not read link {}: {error}", path.display())
@@ -219,7 +260,7 @@ pub(crate) fn between(
                     limit.text(limit.file(&path)?)?
                 }
             } else {
-                limit.git_blob(&root, None, &format!("{tip}:{}", file.after_path))?
+                read_blob(&root, None, &format!("{tip}:{}", file.after_path), limit)?
             };
             Ok((before, after))
         })();
@@ -246,11 +287,14 @@ pub(crate) fn between(
     .with_catalog()
 }
 impl GitContents {
-    pub(crate) fn paths(&self) -> BTreeMap<String, FileKind> {
-        self.trees[1]
-            .iter()
-            .map(|(path, value)| (path.clone(), value.kind.clone()))
-            .collect()
+    pub(crate) fn paths(&self, side: FileSide) -> BTreeMap<String, FileKind> {
+        self.trees[match side {
+            FileSide::Before => 0,
+            FileSide::After => 1,
+        }]
+        .iter()
+        .map(|(path, value)| (path.clone(), value.kind.clone()))
+        .collect()
     }
     pub(crate) fn read_path(&self, path: &str, side: FileSide) -> Result<String, String> {
         if let Some(pair) = self.files.get(path) {
@@ -270,7 +314,7 @@ impl GitContents {
         if matches!(value.kind, FileKind::Submodule | FileKind::Other(_)) {
             return Err("Text view unavailable for this Git entry".into());
         }
-        self.limit.git_blob(&self.root, None, &value.object)
+        read_blob(&self.root, None, &value.object, self.limit)
     }
 }
 pub(crate) fn references(root: &Path) -> Result<crate::references::ReferenceSnapshot, String> {

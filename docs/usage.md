@@ -59,6 +59,12 @@ files remain available from the comparison's before side. An opened file outside
 the sidebar filter appears temporarily in italics. Git worktree comparisons read
 unchanged files from pinned base objects; refresh to include later filesystem edits.
 
+Git, jj, standalone, and evolution comparisons retain file kinds on both sides.
+A symlink-to-file transition remains visible even when the link target and file
+text match, with an explicit type-change notice. Deleted symlinks keep their
+link icon and target text; deleted submodules retain their kind and show that a
+text preview is unavailable. Empty-file additions and deletions remain distinct.
+
 Changing commits or evolution versions keeps the open file and restores its
 reading position when possible. If it is absent from the selected comparison,
 the previous diff stays as a retained preview: an eye marker and italic file row
