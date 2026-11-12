@@ -116,6 +116,19 @@ list_word_wrap = false
 # "inline", "side_by_side", or "fluid"
 default_view = "fluid"
 
+# All colors accept a shared "#RRGGBB" or a light/dark pair.
+# Background and word hues are tinted by the viewer to preserve syntax legibility.
+[diff.colors]
+added = { light = "#22863a", dark = "#4ec96e" }
+removed = { light = "#cf222e", dark = "#f85149" }
+modified = { light = "#0969da", dark = "#3794ff" }
+added_background = { light = "#22863a", dark = "#4ec96e" }
+removed_background = { light = "#cf222e", dark = "#f85149" }
+modified_background = { light = "#0969da", dark = "#3794ff" }
+word_added = { light = "#22863a", dark = "#4ec96e" }
+word_removed = { light = "#cf222e", dark = "#f85149" }
+conflict_base = { light = "#57606a", dark = "#a4b4c2" }
+
 [diff.before]
 word_wrap = false
 

@@ -307,10 +307,26 @@ pub enum DiffView {
 #[derive(Clone, Debug, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct DiffSettings {
+    pub colors: DiffColorSettings,
     pub default_view: DiffView,
     pub before: PaneSettings,
     pub after: PaneSettings,
     pub inline: PaneSettings,
+}
+
+/// Shared diff palette, independent of application control/status colors.
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct DiffColorSettings {
+    pub added: ColorSetting,
+    pub removed: ColorSetting,
+    pub modified: ColorSetting,
+    pub added_background: ColorSetting,
+    pub removed_background: ColorSetting,
+    pub modified_background: ColorSetting,
+    pub word_added: ColorSetting,
+    pub word_removed: ColorSetting,
+    pub conflict_base: ColorSetting,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq)]

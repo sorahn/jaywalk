@@ -310,6 +310,7 @@ impl Viewer {
                         .into_any_element()
                 } else if let Some(Ok(Some(state))) = self.code().map(|code| &code.standard) {
                     Diff::new(state)
+                        .colors(crate::appearance::diff_colors(cx))
                         .border_0()
                         .code_font(
                             gpui::component::Theme::global(cx).mono_font_family.clone(),

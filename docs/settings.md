@@ -158,7 +158,7 @@ accent_color = { light = "#0066b8", dark = "#3794ff" }
 accent_color = "#8b5cf6"
 ```
 
-The currently configurable color is `ui.accent_color`. Opacity settings remain
+Configurable colors include `ui.accent_color` and every entry in `diff.colors`. Opacity settings remain
 numbers and apply to their theme-derived colors. Invalid colors or appearance
 values retain the last valid settings and report a configuration error.
 
@@ -274,6 +274,41 @@ origin = true
 | Setting | Default | Meaning and allowed values |
 | --- | --- | --- |
 | `diff.default_view` | `"fluid"` | `"inline"`, `"side_by_side"` or `"fluid"` for the file viewer. Overview always uses unified/inline diff. Automatic single-column presentation for unchanged/conflicted files does not replace the saved preference. |
+
+### `diff.colors`
+
+Application-wide palette, live in every window, using the same config-source
+policy as `ui.appearance`. Every entry accepts a shared `"#RRGGBB"` or
+`{ light = "#RRGGBB", dark = "#RRGGBB" }`; omitted mode members inherit shipped
+defaults. Colors are case-insensitive. Invalid edits keep the previous palette.
+These settings do not change application accent, syntax foregrounds, or file-list
+Git status colors. They apply to the file viewer and overview without replacing
+editor state or reloading repository data.
+
+| Setting | Light default | Dark default | Use |
+| --- | --- | --- | --- |
+| `diff.colors.added` | `"#22863a"` | `"#4ec96e"` | Added line signs/bars, Fluid addition connectors and empty-side markers; current-side conflict tint. |
+| `diff.colors.removed` | `"#cf222e"` | `"#f85149"` | Removed line signs/bars, Fluid deletion connectors and empty-side markers. |
+| `diff.colors.modified` | `"#0969da"` | `"#3794ff"` | Fluid replacement connectors/markers; incoming-side conflict tint. Inline and standard split views represent replacements as removed/added lines. |
+| `diff.colors.added_background` | `"#22863a"` | `"#4ec96e"` | Added-row background hue. |
+| `diff.colors.removed_background` | `"#cf222e"` | `"#f85149"` | Removed-row background hue. |
+| `diff.colors.modified_background` | `"#0969da"` | `"#3794ff"` | Fluid replacement-row background hue. |
+| `diff.colors.word_added` | `"#22863a"` | `"#4ec96e"` | Added-word background hue. |
+| `diff.colors.word_removed` | `"#cf222e"` | `"#f85149"` | Removed-word background hue. |
+| `diff.colors.conflict_base` | `"#57606a"` | `"#a4b4c2"` | Conflict ancestor/base tint in the standard diff widget. |
+
+The viewer applies translucent emphasis: row backgrounds are subdued, changed
+words stronger, and active Fluid changes brighter. Hue overrides retain that
+emphasis and the one-pixel connector width. Text selection follows the application
+accent. Context rows, separators and hover surfaces follow the light/dark theme.
+
+```toml
+[diff.colors]
+# Same color in light and dark:
+added = "#32a852"
+# Mode-specific colors; all other entries inherit defaults:
+removed = { light = "#b91c1c", dark = "#fb7185" }
+```
 
 ### `diff.before`
 

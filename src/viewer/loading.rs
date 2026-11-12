@@ -79,6 +79,12 @@ impl Viewer {
             fluid_drag: None,
             editor_observers: Vec::new(),
         };
+        // Theme changes include OS appearance and shared diff-palette edits.
+        // Recolor existing word ranges without replacing editors or their selection.
+        cx.observe_global::<gpui::component::Theme>(|viewer, cx| {
+            viewer.refresh_word_colors(cx);
+        })
+        .detach();
         viewer.apply_saved_layout();
         if viewer.arguments.diff.is_some() {
             viewer.layout.saved.history_hidden = true;

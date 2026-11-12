@@ -206,3 +206,8 @@ The accent updates active icons, standard control fills, focus and selection.
 Icon-only toggles show their active color without a persistent filled background.
 Repository status, diff and graph colors keep their separate meanings with
 readable light/dark palettes. See [settings](settings.md#ui).
+
+Customize diff marks/connectors, row-background hues and word highlights under
+`[diff.colors]`. Like the accent, each color accepts one shared hex value or a
+light/dark pair. Edits recolor open viewers and overviews live; source syntax and
+file-list status colors keep their own palettes. See [diff colors](settings.md#diffcolors).

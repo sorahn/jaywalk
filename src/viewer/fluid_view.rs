@@ -43,7 +43,7 @@ impl Viewer {
                 let after_state = after.read(cx);
                 let before_bounds = before_viewport.get().unwrap_or(before_state.input_bounds());
                 let after_bounds = after_viewport.get().unwrap_or(after_state.input_bounds());
-                let dark = gpui::component::Theme::global(cx).is_dark();
+                let colors = crate::appearance::diff_colors(cx);
                 let line_height = before_state.line_height().unwrap_or(px(20.));
                 let before_origin = before_state.text_bounds().unwrap_or(before_bounds).origin.y;
                 let after_origin = after_state.text_bounds().unwrap_or(after_bounds).origin.y;
@@ -133,12 +133,12 @@ impl Viewer {
                                 &block.after
                             };
                             let selected = active == Some(index);
-                            let rgb = if block.before.is_empty() {
-                                if dark { 0x4ec96e00 } else { 0x22863a00 }
+                            let (mark, background) = if block.before.is_empty() {
+                                (colors.added, colors.added_background)
                             } else if block.after.is_empty() {
-                                if dark { 0xf8514900 } else { 0xcf222e00 }
+                                (colors.removed, colors.removed_background)
                             } else {
-                                if dark { 0x3794ff00 } else { 0x0969da00 }
+                                (colors.modified, colors.modified_background)
                             };
                             if lines.is_empty() {
                                 let y = origin + px(positions[lines.start]);
@@ -147,11 +147,12 @@ impl Viewer {
                                         point(viewport.left(), y - px(0.5)),
                                         size(viewport.size.width, px(1.)),
                                     ),
-                                    rgba(rgb | if selected { 0xc0 } else { 0x70 }),
+                                    mark.opacity(if selected { 192. / 255. } else { 112. / 255. }),
                                 ));
                                 continue;
                             }
-                            let color = rgba(rgb | if selected { 0x30 } else { 0x20 });
+                            let color =
+                                background.opacity(if selected { 48. / 255. } else { 32. / 255. });
                             let visible = jaywalk::fluid::clipped_tint(
                                 f32::from(origin) + positions[lines.start]
                                     ..f32::from(origin) + positions[lines.end],
@@ -176,7 +177,7 @@ impl Viewer {
                                                 bottom,
                                             ),
                                         ),
-                                        rgba(rgb | 0x20),
+                                        background.opacity(32. / 255.),
                                     ));
                                 }
                             }
@@ -196,14 +197,14 @@ impl Viewer {
                 window.with_content_mask(Some(connector_mask), |window| {
                     for (index, block) in changes.iter().enumerate() {
                         let selected = active == Some(index);
-                        let rgb = if block.before.is_empty() {
-                            if dark { 0x4ec96e00 } else { 0x22863a00 }
+                        let mark = if block.before.is_empty() {
+                            colors.added
                         } else if block.after.is_empty() {
-                            if dark { 0xf8514900 } else { 0xcf222e00 }
+                            colors.removed
                         } else {
-                            if dark { 0x3794ff00 } else { 0x0969da00 }
+                            colors.modified
                         };
-                        let color = rgba(rgb | if selected { 0xb0 } else { 0x70 });
+                        let color = mark.opacity(if selected { 176. / 255. } else { 112. / 255. });
                         let before_top = before_origin + px(geometry.before[block.before.start]);
                         let before_bottom = before_origin + px(geometry.before[block.before.end]);
                         let after_top = after_origin + px(geometry.after[block.after.start]);

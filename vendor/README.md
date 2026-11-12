@@ -58,3 +58,9 @@ Diff text bodies expose Copy/Select all through their existing focused actions,
 with Copy disabled for empty selections. Copy snapshots source text at menu-open
 because clicking a popup item can clear shared selection before action dispatch.
 Inner file-header menus take precedence.
+
+`Diff::colors` accepts a per-view `DiffColors` palette for line marks, row tints,
+word highlights and conflict colors. Without it, the widget preserves its
+original toolkit-theme defaults. The host resolves adaptive colors centrally and
+passes the same palette to individual file diffs and the overview; status
+success/danger colors elsewhere in the toolkit are unaffected.

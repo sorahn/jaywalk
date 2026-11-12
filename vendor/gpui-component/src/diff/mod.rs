@@ -199,6 +199,35 @@ struct Annotations {
     files: HashMap<SharedString, Vec<usize>>,
 }
 
+/// Per-view diff colors. Omitting an override preserves the toolkit theme.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct DiffColors {
+    pub added: Hsla,
+    pub removed: Hsla,
+    pub modified: Hsla,
+    pub added_background: Hsla,
+    pub removed_background: Hsla,
+    pub modified_background: Hsla,
+    pub word_added: Hsla,
+    pub word_removed: Hsla,
+    pub conflict_base: Hsla,
+}
+impl DiffColors {
+    fn from_theme(cx: &App) -> Self {
+        Self {
+            added: cx.theme().success,
+            removed: cx.theme().danger,
+            modified: cx.theme().info,
+            added_background: cx.theme().success,
+            removed_background: cx.theme().danger,
+            modified_background: cx.theme().info,
+            word_added: cx.theme().success,
+            word_removed: cx.theme().danger,
+            conflict_base: cx.theme().muted_foreground,
+        }
+    }
+}
+
 /// A themed readonly code-review surface in split or unified mode.
 ///
 /// All files of the supplied state share one virtualized list, each introduced
@@ -208,6 +237,7 @@ struct Annotations {
 /// commands remain owned by the application.
 #[derive(IntoElement)]
 pub struct Diff {
+    colors: Option<DiffColors>,
     state: Entity<DiffState>,
     style: StyleRefinement,
     code_font: Option<(SharedString, Pixels)>,
@@ -255,6 +285,7 @@ impl Diff {
             hunk_separator: DiffHunkSeparator::default(),
             change_indicator: DiffChangeIndicator::default(),
             change_background: true,
+            colors: None,
             soft_wrap: false,
             soft_wrap_sides: None,
             header: HeaderSlots::default(),
@@ -326,6 +357,12 @@ impl Diff {
         self.change_indicator = indicator;
         self
     }
+    /// Override diff hues without changing application-wide status colors.
+    pub fn colors(mut self, colors: DiffColors) -> Self {
+        self.colors = Some(colors);
+        self
+    }
+
     /// Tints changed lines. Default is true. Inline changes stay emphasized.
     pub fn change_background(mut self, value: bool) -> Self {
         self.change_background = value;
@@ -641,6 +678,7 @@ fn render_diff(
         hunk_separator: props.hunk_separator,
         change_indicator: props.change_indicator,
         change_background: props.change_background,
+        colors: props.colors.unwrap_or_else(|| DiffColors::from_theme(cx)),
         soft_wrap,
         side_wrap,
         preamble: props.preamble,
@@ -892,6 +930,7 @@ fn body_focused(state: &DiffState, window: &Window, cx: &mut Context<DiffState>)
 }
 
 struct CodePresentation {
+    colors: DiffColors,
     files: Vec<DiffFile>,
     presentations: Vec<Option<Arc<FilePresentation>>>,
     mode: DiffMode,
@@ -1216,7 +1255,7 @@ fn render_conflict(
         .gap_2()
         .text_xs()
         .text_color(cx.theme().muted_foreground)
-        .bg(conflict_tint(Some(part), cx).opacity(0.25));
+        .bg(conflict_tint(Some(part), &code.colors).opacity(0.25));
     if let Some(resolution) = resolution {
         let label = match resolution {
             DiffConflictResolution::Current => t!("Diff.AcceptedCurrent"),
@@ -1263,11 +1302,11 @@ fn render_conflict(
 }
 
 /// The color that marks lines of a conflict part.
-fn conflict_tint(part: Option<ConflictPart>, cx: &App) -> Hsla {
+fn conflict_tint(part: Option<ConflictPart>, colors: &DiffColors) -> Hsla {
     match part {
-        Some(ConflictPart::Current) => cx.theme().success,
-        Some(ConflictPart::Incoming) => cx.theme().info,
-        _ => cx.theme().muted_foreground,
+        Some(ConflictPart::Current) => colors.added,
+        Some(ConflictPart::Incoming) => colors.modified,
+        _ => colors.conflict_base,
     }
 }
 
@@ -1705,7 +1744,17 @@ fn line_highlights(
             (
                 range,
                 HighlightStyle {
-                    background_color: Some(status.opacity(0.3)),
+                    background_color: Some(
+                        if code.files[file].status() == DiffFileStatus::Conflicted {
+                            status
+                        } else {
+                            match side {
+                                DiffSide::Original => code.colors.word_removed,
+                                DiffSide::Modified => code.colors.word_added,
+                            }
+                        }
+                        .opacity(0.3),
+                    ),
                     ..Default::default()
                 },
             )
@@ -1803,11 +1852,11 @@ fn code_line(
         })
         .flatten();
     let status = if conflict_part.is_some() {
-        conflict_tint(conflict_part, cx)
+        conflict_tint(conflict_part, &code.colors)
     } else if side == DiffSide::Original {
-        cx.theme().danger
+        code.colors.removed
     } else {
-        cx.theme().success
+        code.colors.added
     };
     let selected = code.is_selected(file, side, ix)
         || (code.mode == DiffMode::Unified
@@ -1912,7 +1961,14 @@ fn code_line(
         .text_size(code.font_size)
         .line_height(code.row_height)
         .when(changed && code.change_background, |this| {
-            this.bg(status.opacity(0.12))
+            this.bg(if conflict_part.is_some() {
+                status
+            } else if side == DiffSide::Original {
+                code.colors.removed_background
+            } else {
+                code.colors.added_background
+            }
+            .opacity(0.12))
         })
         .when(selected, |this| this.bg(cx.theme().selection))
         .when(hover_line && !selected, |this| {

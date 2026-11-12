@@ -1,14 +1,17 @@
-//! One application accent, projected into the toolkit's existing control roles.
+//! Live application appearance and diff palettes, using the toolkit’s theme roles.
 use gpui::component::highlighter::{HighlightTheme, ThemeStyle};
 use gpui::component::{Icon, Theme, ThemeMode};
 use gpui::prelude::FluentBuilder;
 use gpui::{App, Global, Hsla, SharedString, Styled, Window, WindowAppearance, px, rgb};
-use jaywalk::settings::{Appearance, EditorSettings, RgbColor, Settings, UiSettings};
+use jaywalk::settings::{
+    Appearance, DiffColorSettings, EditorSettings, RgbColor, Settings, UiSettings,
+};
 
 #[derive(Clone)]
 struct AppAppearance {
     ui: UiSettings,
     editor: EditorSettings,
+    diff: DiffColorSettings,
     mode: Option<ThemeMode>,
 }
 impl Global for AppAppearance {}
@@ -17,6 +20,7 @@ pub(crate) fn init(settings: &Settings, cx: &mut App) {
     cx.set_global(AppAppearance {
         ui: settings.ui.clone(),
         editor: settings.editor.clone(),
+        diff: settings.diff.colors,
         mode: None,
     });
     apply(settings, cx);
@@ -26,6 +30,7 @@ pub(crate) fn apply(settings: &Settings, cx: &mut App) {
     let state = cx.global_mut::<AppAppearance>();
     state.ui = settings.ui.clone();
     state.editor = settings.editor.clone();
+    state.diff = settings.diff.colors;
     cx.set_window_appearance(match settings.ui.appearance {
         Appearance::Light => Some(WindowAppearance::Light),
         Appearance::Dark => Some(WindowAppearance::Dark),
@@ -115,6 +120,28 @@ fn code_theme(dark: bool) -> std::sync::Arc<HighlightTheme> {
     highlight.style.syntax.function = token(if dark { "#dcdcaa" } else { "#795e26" });
     highlight.style.syntax.type_ = token(if dark { "#4ec9b0" } else { "#267f99" });
     std::sync::Arc::new(highlight)
+}
+
+pub(crate) fn diff_colors(cx: &App) -> gpui::component::diff::DiffColors {
+    resolve_diff_colors(
+        cx.global::<AppAppearance>().diff,
+        Theme::global(cx).is_dark(),
+    )
+}
+
+fn resolve_diff_colors(colors: DiffColorSettings, dark: bool) -> gpui::component::diff::DiffColors {
+    let resolve = |color: jaywalk::settings::ColorSetting| rgb(color.resolve(dark).value()).into();
+    gpui::component::diff::DiffColors {
+        added: resolve(colors.added),
+        removed: resolve(colors.removed),
+        modified: resolve(colors.modified),
+        added_background: resolve(colors.added_background),
+        removed_background: resolve(colors.removed_background),
+        modified_background: resolve(colors.modified_background),
+        word_added: resolve(colors.word_added),
+        word_removed: resolve(colors.word_removed),
+        conflict_base: resolve(colors.conflict_base),
+    }
 }
 
 pub(crate) fn active_icon(name: gpui::assets::IconName, active: bool, cx: &App) -> Icon {
@@ -232,5 +259,48 @@ mod mode_tests {
         );
         assert_ne!(light.style.syntax.string, dark.style.syntax.string);
         assert_ne!(light.style.syntax.keyword, dark.style.syntax.keyword);
+    }
+}
+
+#[cfg(test)]
+mod diff_color_tests {
+    use super::resolve_diff_colors;
+    use gpui::{Hsla, rgb};
+    use jaywalk::settings::Settings;
+
+    #[test]
+    fn diff_overrides_resolve_independent_marks_backgrounds_and_words_for_each_mode() {
+        let settings = Settings::parse(
+            r##"
+[diff.colors]
+added = "#aa00cc"
+modified = { light = "#123456", dark = "#654321" }
+added_background = "#eeaa00"
+word_added = "#ff00aa"
+[diff.colors.word_removed]
+light = "#990055"
+"##,
+        )
+        .unwrap();
+        for dark in [false, true] {
+            let palette = resolve_diff_colors(settings.diff.colors, dark);
+            assert_eq!(palette.added, Hsla::from(rgb(0xaa00cc)));
+            assert_eq!(palette.added_background, Hsla::from(rgb(0xeeaa00)));
+            assert_eq!(palette.word_added, Hsla::from(rgb(0xff00aa)));
+            assert_eq!(
+                palette.modified,
+                Hsla::from(rgb(if dark { 0x654321 } else { 0x123456 }))
+            );
+            assert_eq!(
+                palette.word_removed,
+                Hsla::from(rgb(if dark { 0xf85149 } else { 0x990055 }))
+            );
+            assert_eq!(
+                palette.removed,
+                resolve_diff_colors(Settings::parse("").unwrap().diff.colors, dark).removed
+            );
+        }
+        assert!(Settings::parse("[diff.colors]\nadded='red'").is_err());
+        assert!(Settings::parse("[diff.colors]\naddded='#ffffff'").is_err());
     }
 }
