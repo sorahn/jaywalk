@@ -102,7 +102,8 @@ History is in memory, per window, capped by `navigation.history_limit`.
 
 Ctrl+R works from the welcome screen and repository views. It searches all saved
 recent repositories, independent of the welcome preview count. An empty query preserves most-recent-first ordering; typing filters names
-and paths. Enter opens the selected repository and Escape dismisses the picker.
+and paths, prioritizing exact, prefix and contiguous repository-name matches
+before fuzzy names and parent paths. Enter opens the selected repository and Escape dismisses the picker.
 Cmd+Enter (`secondary-enter`, remappable as `open_in_new_window`) opens the selected
 result in a new window in the same app process, even if that repository is already
 open. Command-click does the same on picker results and welcome recent entries.
@@ -111,7 +112,7 @@ fallback; it does not change Enter in other pickers. Ordinary Enter/click follow
 `application.single_window_mode`: enabled replaces the originating
 viewer, including for a different repository; disabled (the default) opens a new window.
 Reopening the same comparison in the reused window preserves its selection. With no viewer window, the command opens a welcome window first.
-The picker always offers Open repository as a fallback. Welcome, Compare files
+The picker always offers Open repository below matching repositories as a fallback. Welcome, Compare files
 or folders, and Clear recent repositories are also remappable commands; they
 start unbound. Repository-only commands are unavailable in welcome mode.
 

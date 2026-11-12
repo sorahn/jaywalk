@@ -74,16 +74,42 @@ fn repository_choices(directories: &[std::path::PathBuf]) -> Vec<(String, Choice
     ));
     choices
 }
-fn recent_rank(query: &str, directory: &std::path::Path) -> Option<usize> {
+// Prefer the repository name; parent directories remain searchable as a fallback.
+fn recent_rank(query: &str, directory: &std::path::Path) -> Option<(usize, usize)> {
+    let query: String = query
+        .to_lowercase()
+        .chars()
+        .filter(|c| !c.is_whitespace())
+        .collect();
+    if query.is_empty() {
+        return Some((0, 0));
+    }
+    if let Some(name) = directory.file_name() {
+        let name = name.to_string_lossy().to_lowercase();
+        if name == query {
+            return Some((0, 0));
+        }
+        if name.starts_with(&query) {
+            return Some((1, 0));
+        }
+        if let Some(offset) = name.find(&query) {
+            return Some((2, offset));
+        }
+        if let Some(score) = fuzzy_score(&query, &name) {
+            return Some((3, score));
+        }
+    }
     let display = crate::recents::display_path(directory);
     [
-        fuzzy_score(query, &display),
-        fuzzy_score(query, &directory.to_string_lossy()),
+        fuzzy_score(&query, &display),
+        fuzzy_score(&query, &directory.to_string_lossy()),
     ]
     .into_iter()
     .flatten()
     .min()
+    .map(|score| (4, score))
 }
+
 fn rank_choices(
     kind: PaletteKind,
     query: &str,
@@ -93,12 +119,18 @@ fn rank_choices(
         .into_iter()
         .filter_map(|(label, choice)| {
             let rank = match &choice {
-                Choice::File { path, status, .. } => file_rank(query, path, status.is_some()),
+                Choice::File { path, status, .. } => file_rank(query, path, status.is_some())
+                    .map(|(score, unchanged)| (0, score, unchanged)),
+                Choice::Command(jaywalk::commands::CommandId::OpenRepository)
+                    if matches!(kind, PaletteKind::Repositories) =>
+                {
+                    Some((5, 0, false))
+                }
                 Choice::Command(_) | Choice::Profile(_) | Choice::Review(_) => {
-                    fuzzy_score(query, &label).map(|score| (score, false))
+                    fuzzy_score(query, &label).map(|score| (0, score, false))
                 }
                 Choice::Repository { directory, .. } => {
-                    recent_rank(query, directory).map(|score| (score, false))
+                    recent_rank(query, directory).map(|(category, score)| (category, score, false))
                 }
             }?;
             Some((rank, label, choice))
@@ -506,7 +538,7 @@ mod tests {
         ));
         let filtered = rank_choices(PaletteKind::Repositories, "ALPHA", choices());
         assert!(
-            matches!(&filtered[..], [(_, Choice::Repository { directory, .. })] if directory == &paths[1])
+            matches!(&filtered[..], [(_, Choice::Repository { directory, .. }), (_, Choice::Command(jaywalk::commands::CommandId::OpenRepository))] if directory == &paths[1])
         );
         let empty = rank_choices(PaletteKind::Repositories, "", repository_choices(&[]));
         assert_eq!(empty.len(), 1);
@@ -515,6 +547,43 @@ mod tests {
             Choice::Command(jaywalk::commands::CommandId::OpenRepository)
         ));
     }
+    #[test]
+    fn recent_picker_prefers_names_and_keeps_open_as_a_fallback() {
+        let paths = vec![
+            std::path::PathBuf::from("/projects/other"),
+            "/repos/p-r-o".into(),
+            "/repos/man-protos".into(),
+            "/repos/protos".into(),
+            "/repos/pro".into(),
+        ];
+        let ordered = rank_choices(PaletteKind::Repositories, "pro", repository_choices(&paths));
+        let repositories: Vec<_> = ordered
+            .iter()
+            .filter_map(|(_, choice)| match choice {
+                Choice::Repository { directory, .. } => Some(directory),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            repositories,
+            vec![&paths[4], &paths[3], &paths[2], &paths[1], &paths[0]]
+        );
+        assert!(matches!(
+            ordered.last().unwrap().1,
+            Choice::Command(jaywalk::commands::CommandId::OpenRepository)
+        ));
+        let missing = rank_choices(
+            PaletteKind::Repositories,
+            "no-match",
+            repository_choices(&paths),
+        );
+        assert_eq!(missing.len(), 1);
+        assert!(matches!(
+            missing[0].1,
+            Choice::Command(jaywalk::commands::CommandId::OpenRepository)
+        ));
+    }
+
     #[test]
     fn recent_picker_matches_full_paths_and_unicode_names() {
         assert!(
