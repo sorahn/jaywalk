@@ -10,6 +10,30 @@ use std::collections::HashMap;
 
 use jaywalk::settings::{FileView as FileListMode, TreeScope};
 
+const FILE_PANEL_INSET: f32 = 8.;
+// GPUI's small icon buttons center a 14 px glyph inside a 24 px target.
+const FILE_HEADER_ICON_INSET: f32 = 5.;
+
+/// Canvas bounds start inside the row's indentation padding. Subtract the
+/// current depth before locating ancestor icon centers in window coordinates.
+fn ancestor_guide_positions(
+    content_left: f32,
+    depth: usize,
+    indent: f32,
+    icon_width: f32,
+    offset: f32,
+) -> impl Iterator<Item = f32> {
+    let root = content_left - depth as f32 * indent;
+    (0..depth).map(move |ancestor| root + ancestor as f32 * indent + icon_width / 2. + offset)
+}
+
+/// The canvas occupies the centered label content, which can be shorter than
+/// the fixed tree row. Extend guides to the row edges so adjacent segments join.
+fn guide_span(content: std::ops::Range<f32>, row_height: f32) -> std::ops::Range<f32> {
+    let center = (content.start + content.end) / 2.;
+    center - row_height / 2. ..center + row_height / 2.
+}
+
 pub(super) struct FileBrowser {
     focus: FocusHandle,
     pub(super) files: std::sync::Arc<[jaywalk::repository_file::FileEntry]>,
@@ -370,6 +394,12 @@ impl Viewer {
             .map(|comparison| (comparison.identity(), comparison.root.clone()));
         let focus = self.focus.clone();
         let repository = self.arguments.diff.is_none();
+        let icons = self.settings.files.file_icons;
+        let guides = self.settings.files.indent_guides;
+        let guide_offset = self.settings.files.indent_guide_offset;
+        let guide_color = gpui::component::Theme::global(cx)
+            .foreground
+            .opacity(self.settings.files.indent_guide_opacity);
         let tree = Tree::new(&self.browser.tree, move |_, entry, _, _, _| {
             let file_index = indices.get(&entry.item().id).copied();
             let temporary = file_index.is_some() && file_index == retained;
@@ -383,15 +413,23 @@ impl Viewer {
                     })
             };
             let mut content = div().h_flex().items_center().gap_1().whitespace_nowrap();
-            if entry.is_folder() {
-                content = content.child(if entry.is_expanded() {
-                    IconName::ChevronDown
+            let icon = if entry.is_folder() {
+                Some(if entry.is_expanded() {
+                    IconName::FolderOpen
                 } else {
-                    IconName::ChevronRight
-                });
+                    IconName::Folder
+                })
+            } else if icons {
+                file_index
+                    .and_then(|index| files.get(index))
+                    .map(file_icons::file_icon)
             } else {
-                content = content.child(div().w(px(14.)).flex_shrink_0());
-            }
+                None
+            };
+            content =
+                content.child(div().w(px(font_size)).flex_shrink_0().children(
+                    icon.map(|icon| gpui::component::Icon::new(icon).size(px(font_size))),
+                ));
             content = content.child(
                 div()
                     .whitespace_nowrap()
@@ -399,16 +437,47 @@ impl Viewer {
                     .when(temporary, |label| label.italic())
                     .child(entry.item().label.clone()),
             );
+            let depth = entry.depth();
             ListItem::new(entry.item().id.clone())
                 .h(px(row_height))
                 .py_0()
                 .text_size(px(font_size))
-                .pl(px(entry.depth() as f32 * indent_width + 8.))
+                .pl(px(entry.depth() as f32 * indent_width + FILE_PANEL_INSET))
                 .text_color(rgb(color))
                 .when(
                     reading.as_deref() == Some(entry.item().id.as_ref()),
                     |row| row.bg(reading_tint),
                 )
+                .when(guides && depth > 0, |row| {
+                    row.child(
+                        canvas(
+                            |_, _, _| (),
+                            move |bounds, _, window, _| {
+                                let span = guide_span(
+                                    f32::from(bounds.top())..f32::from(bounds.bottom()),
+                                    row_height,
+                                );
+                                for x in ancestor_guide_positions(
+                                    f32::from(bounds.left()),
+                                    depth,
+                                    indent_width,
+                                    font_size,
+                                    guide_offset,
+                                ) {
+                                    window.paint_quad(fill(
+                                        Bounds::new(
+                                            point(px(x), px(span.start)),
+                                            size(px(1.), px(span.end - span.start)),
+                                        ),
+                                        guide_color,
+                                    ));
+                                }
+                            },
+                        )
+                        .absolute()
+                        .inset_0(),
+                    )
+                })
                 .child(content)
         })
         .context_menu(move |_, entry, menu, _, _| {
@@ -445,6 +514,10 @@ impl Viewer {
     }
 
     pub(super) fn render_files(&self, cx: &mut Context<Self>) -> AnyElement {
+        let active_color = gpui::component::Theme::global(cx).primary;
+        let toggle_icon = |name: IconName, active: bool| {
+            gpui::component::Icon::new(name).when(active, |icon| icon.text_color(active_color))
+        };
         let mut panel = div()
             .track_focus(&self.browser.focus)
             .key_context("JaywalkFiles")
@@ -458,6 +531,9 @@ impl Viewer {
                     self.settings.panels.files.font.size,
                     cx,
                 )
+                .pl(px(FILE_PANEL_INSET))
+                // Align the trailing glyph, while retaining its full click target.
+                .pr(px((FILE_PANEL_INSET - FILE_HEADER_ICON_INSET).max(0.)))
                 .child(
                     div()
                         .flex_1()
@@ -506,10 +582,13 @@ impl Viewer {
                                 .ghost()
                                 .small()
                                 .compact()
-                                .icon(IconName::GitCompareArrows)
+                                .icon(toggle_icon(
+                                    IconName::GitCompareArrows,
+                                    self.file_evolution.visible,
+                                ))
                                 .when(!self.supports_evolution(), |button| button.hidden())
                                 .tooltip("File evolution")
-                                .selected(self.file_evolution.visible)
+                                .toggled(self.file_evolution.visible)
                                 .on_click(cx.listener(|this, _, window, cx| {
                                     this.toggle_evolution_panel(
                                         evolution::EvolutionKind::File,
@@ -523,9 +602,12 @@ impl Viewer {
                                 .ghost()
                                 .small()
                                 .compact()
-                                .icon(IconName::List)
+                                .icon(toggle_icon(
+                                    IconName::List,
+                                    self.browser.mode == FileListMode::List,
+                                ))
                                 .tooltip("File list")
-                                .selected(self.browser.mode == FileListMode::List)
+                                .toggled(self.browser.mode == FileListMode::List)
                                 .on_click(cx.listener(|this, _, _, cx| {
                                     this.browser.mode = FileListMode::List;
                                     this.rebuild_browser(cx);
@@ -538,9 +620,12 @@ impl Viewer {
                                 .ghost()
                                 .small()
                                 .compact()
-                                .icon(IconName::FolderTree)
+                                .icon(toggle_icon(
+                                    IconName::FolderTree,
+                                    self.browser.mode == FileListMode::Tree,
+                                ))
                                 .tooltip("Directory tree")
-                                .selected(self.browser.mode == FileListMode::Tree)
+                                .toggled(self.browser.mode == FileListMode::Tree)
                                 .on_click(cx.listener(|this, _, _, cx| {
                                     this.browser.mode = FileListMode::Tree;
                                     this.rebuild_browser(cx);
@@ -611,7 +696,8 @@ impl Viewer {
                             .h_flex()
                             .items_center()
                             .gap_2()
-                            .px_3()
+                            .pl(px(FILE_PANEL_INSET))
+                            .pr_3()
                             .min_h(px(self.settings.row_height(
                                 self.settings.files.list_row_height,
                                 self.settings.panels.files.font.size,
@@ -636,6 +722,13 @@ impl Viewer {
                             .cursor_pointer()
                             .text_color(rgb(color))
                             .child(div().w(px(14.)).flex_shrink_0().child(marker))
+                            .when(self.settings.files.file_icons, |row| {
+                                row.child(
+                                    gpui::component::Icon::new(file_icons::file_icon(file))
+                                        .size(px(self.settings.panels.files.font.size))
+                                        .flex_shrink_0(),
+                                )
+                            })
                             .child(
                                 div()
                                     .when(wrap, |label| {
@@ -934,5 +1027,34 @@ mod expansion_tests {
         assert!(!first.is_expanded() && !nested.is_expanded() && !sibling.is_expanded());
         expand_directories(&roots, None, true);
         assert!(first.is_expanded() && nested.is_expanded() && sibling.is_expanded());
+    }
+}
+
+#[cfg(test)]
+mod guide_tests {
+    use super::{ancestor_guide_positions, guide_span};
+    #[test]
+    fn adjacent_rows_join_even_when_label_content_is_shorter_than_the_row() {
+        assert_eq!(guide_span(3.0..23.0, 26.), 0.0..26.0);
+        assert_eq!(guide_span(29.0..49.0, 26.), 26.0..52.0);
+        assert_eq!(guide_span(70.0..90.0, 40.), 60.0..100.0);
+        assert_eq!(guide_span(104.0..136.0, 40.), 100.0..140.0);
+    }
+    #[test]
+    fn ancestor_columns_stay_fixed_as_row_depth_and_horizontal_scroll_change() {
+        for root in [8., -42.] {
+            for (indent, icon) in [(12., 16.), (20., 24.)] {
+                for depth in 0..6 {
+                    let content_left = root + depth as f32 * indent;
+                    let positions: Vec<_> =
+                        ancestor_guide_positions(content_left, depth, indent, icon, -2.).collect();
+                    let expected: Vec<_> = (0..depth)
+                        .map(|ancestor| root + ancestor as f32 * indent + icon / 2. - 2.)
+                        .collect();
+                    assert_eq!(positions, expected);
+                    assert!(positions.iter().all(|x| *x <= content_left));
+                }
+            }
+        }
     }
 }

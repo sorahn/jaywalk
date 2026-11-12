@@ -43,7 +43,14 @@ to the original branch comparison. **Overview** returns from an open file to the
 overview of the current comparison. Back and Forward retrace views you visited
 in this window, including comparison, file, and reading position where possible.
 
-The file pane offers list and tree modes. Tree mode can show changed files or all
+The file pane offers list and tree modes. Vertical indent guides trace ancestor
+folders; open/closed folder icons replace disclosure carets, and clicking a folder
+row toggles it. File-type icons share the bundled icon catalog and syntax filename
+associations, with generic fallback for unknown types. Icons and guides are live
+settings. The active list/tree and file-evolution header icons use the live
+theme accent instead of a selected background. When switching to All files, known folder expansion is preserved and
+new directories start collapsed; Changed files initially reveals its folders.
+ Tree mode can show changed files or all
 files in the selected revision. Cmd+P searches any file in that revision, including
 unchanged files. The flat list stays focused on changed files. Opening an unchanged file shows one
 read-only, syntax-highlighted document without change markers; it uses inline

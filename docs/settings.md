@@ -236,6 +236,10 @@ origin = true
 | --- | --- | --- |
 | `files.default_view` | `"list"` | `"list"` or `"tree"`. Both use directory-first order; list mode omits directory rows. |
 | `files.tree_scope` | `"changed"` | `"changed"` or `"all"`. Filters tree mode only. `all` includes unchanged files in the selected comparison/revision; Cmd+P searches the entire repository regardless of this filter. |
+| `files.indent_guides` | `true` | Show vertical ancestor guides in the directory tree. Applies live. |
+| `files.indent_guide_offset` | `-2` | Horizontal guide offset from ancestor icon centers in pixels; −48–48. Negative moves left. Applies live. |
+| `files.indent_guide_opacity` | `0.12` | Guide opacity using the theme foreground; 0–1. Applies live. |
+| `files.file_icons` | `true` | File-type glyphs in list/tree views; unknown types use a generic file. Folder icons always indicate open/closed state. Applies live. |
 | `files.indent_width` | `12` | Directory-tree indentation per level; 8–48. |
 | `files.compact_paths` | `true` | Condense directory components in unwrapped flat-list labels as space runs out; filenames remain intact. |
 | `files.list_word_wrap` | `false` | Wrap flat-list paths instead of scrolling them horizontally. Tree rows always remain single-line. |

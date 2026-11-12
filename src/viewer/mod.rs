@@ -27,6 +27,7 @@ mod review_context;
 use editor_presentation::standard_patch;
 use editor_presentation::{CodeComparison, PreparedFile};
 mod feedback;
+mod file_icons;
 mod files;
 mod fluid_scrollbar;
 mod fluid_view;

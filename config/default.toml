@@ -100,6 +100,11 @@ tree_scope = "changed"
 # tree_row_height = 30
 # list_row_height = 30
 indent_width = 12
+indent_guides = true
+indent_guide_opacity = 0.12
+# Shift guides relative to ancestor folder-icon centers; negative is left.
+indent_guide_offset = -2
+file_icons = true
 compact_paths = true
 list_word_wrap = false
 # Tree rows stay single-line and scroll horizontally.

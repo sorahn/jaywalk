@@ -200,6 +200,10 @@ pub struct FileSettings {
     pub tree_row_height: Option<f32>,
     pub list_row_height: Option<f32>,
     pub indent_width: f32,
+    pub indent_guides: bool,
+    pub indent_guide_opacity: f32,
+    pub indent_guide_offset: f32,
+    pub file_icons: bool,
     pub compact_paths: bool,
     pub list_word_wrap: bool,
 }
@@ -599,6 +603,18 @@ impl Config {
         if !(1..=1000).contains(&evolution.limit) {
             return Err("evolution.limit must be between 1 and 1000".into());
         }
+        bounded(
+            "files.indent_guide_opacity",
+            self.files.indent_guide_opacity,
+            0.,
+            1.,
+        )?;
+        bounded(
+            "files.indent_guide_offset",
+            self.files.indent_guide_offset,
+            -48.,
+            48.,
+        )?;
         bounded("files.indent_width", self.files.indent_width, 8., 48.)
     }
 }
@@ -729,6 +745,8 @@ mod tests {
             "[panels.files]\nmin_width=500\ndefault_width=200",
             "[diff]\ndefault_view='invalid'",
             "[panels.diff]\ngutter_width=-1",
+            "[files]\nindent_guide_opacity=1.1",
+            "[files]\nindent_guide_offset=49",
             "[panels.diff]\nshared_scrollbar_height=0",
             "[panels.diff]\nshared_scrollbar_opacity=1.1",
             "[evolution]\nlimit=0",
