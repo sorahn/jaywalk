@@ -263,3 +263,32 @@ fn finder_environment_can_read_a_jj_repository_without_launching_a_window() {
             .contains("changed files")
     );
 }
+
+#[test]
+fn untracked_paths_keep_contents_from_the_selected_base() {
+    let fixture = Fixture::new();
+    fixture.git(&["init", "-b", "main"]);
+    fixture.write("file.txt", "original\n");
+    fixture.git(&["add", "."]);
+    fixture.git(&["commit", "-m", "initial"]);
+    let base = fixture.git(&["rev-parse", "HEAD"]);
+    fixture.git(&["rm", "--cached", "file.txt"]);
+    fixture.write("file.txt", "edited\n");
+    let comparison = Comparison::load(&fixture.0, None, "@").unwrap();
+    assert_eq!(comparison.files[0].status, "modified");
+    assert_eq!(
+        content(&comparison, "file.txt"),
+        ("original\n".into(), "edited\n".into())
+    );
+    fixture.git(&["commit", "-m", "remove from index"]);
+    let comparison = Comparison::load(&fixture.0, Some(&base), "@").unwrap();
+    assert_eq!(
+        content(&comparison, "file.txt"),
+        ("original\n".into(), "edited\n".into())
+    );
+    assert!(
+        fixture
+            .git(&["ls-files", "--others", "--exclude-standard"])
+            .contains("file.txt")
+    );
+}

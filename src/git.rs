@@ -122,6 +122,7 @@ pub(crate) fn between(root: PathBuf, base: String, tip: String) -> Result<Compar
     args.push("--");
     let data = output(&root, &args)?;
     let mut fields = data.split_terminator('\0');
+    let before_tree = tree(&root, &base)?;
     let mut files = BTreeMap::new();
     while let Some(status) = fields.next() {
         let path = fields.next().ok_or("Incomplete Git diff entry")?;
@@ -146,7 +147,13 @@ pub(crate) fn between(root: PathBuf, base: String, tip: String) -> Result<Compar
             files.insert(
                 path.into(),
                 ChangedFile {
-                    status: "added".into(),
+                    // Untracked is index-relative, not base-tree-relative.
+                    status: if before_tree.contains_key(path) {
+                        "modified"
+                    } else {
+                        "added"
+                    }
+                    .into(),
                     before_path: path.into(),
                     after_path: path.into(),
                 },
@@ -154,7 +161,6 @@ pub(crate) fn between(root: PathBuf, base: String, tip: String) -> Result<Compar
         }
     }
     let files: Vec<_> = files.into_values().collect();
-    let before_tree = tree(&root, &base)?;
     let mut after_tree = if working {
         // The diff classified remaining tracked paths as unchanged. Bind their
         // bytes to the base objects, never to future filesystem reads.
