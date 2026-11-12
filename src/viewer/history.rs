@@ -123,8 +123,8 @@ fn history_row(
 }
 
 impl Viewer {
-    fn render_history_footer(&self, cx: &Context<Self>) -> AnyElement {
-        let status = if let Some(error) = &self.references.error {
+    pub(super) fn history_footer_status(&self) -> String {
+        if let Some(error) = &self.references.error {
             error.clone()
         } else if let Some(history) = self
             .repository
@@ -156,13 +156,7 @@ impl Viewer {
             }
         } else {
             String::new()
-        };
-        self.panel_footer(status, self.settings.panels.history.font.size, cx)
-            .children(
-                self.supports_evolution()
-                    .then(|| self.render_evolution_toggle(evolution::EvolutionKind::Change, cx)),
-            )
-            .into_any_element()
+        }
     }
 
     pub(super) fn render_history(&self, cx: &mut Context<Self>) -> AnyElement {
@@ -203,8 +197,7 @@ impl Viewer {
                     .child(self.remote_controls(cx)),
             ),
             div().bg(surface),
-        )
-        .footer(self.render_history_footer(cx));
+        );
         let session =
             match &self.repository {
                 LoadState::Loaded(session) => session,

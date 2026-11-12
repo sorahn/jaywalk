@@ -529,7 +529,7 @@ impl Viewer {
             .into_any_element()
     }
 
-    fn render_files_footer(&self, cx: &Context<Self>) -> AnyElement {
+    pub(super) fn files_footer_status(&self) -> String {
         let files = self
             .browser
             .files
@@ -552,12 +552,7 @@ impl Viewer {
         if self.browser.retained.is_some() {
             label.push_str(" · 1 preview");
         }
-        self.panel_footer(label, self.settings.panels.files.font.size, cx)
-            .children(
-                self.supports_evolution()
-                    .then(|| self.render_evolution_toggle(evolution::EvolutionKind::File, cx)),
-            )
-            .into_any_element()
+        label
     }
 
     pub(super) fn render_files(&self, cx: &mut Context<Self>) -> AnyElement {
@@ -650,8 +645,7 @@ impl Viewer {
                 .key_context("JaywalkFiles")
                 .relative()
                 .bg(gpui::component::Theme::global(cx).sidebar),
-        )
-        .footer(self.render_files_footer(cx));
+        );
         match self.comparison_state() {
             LoadState::Failed(error) => {
                 panel = panel.child(

@@ -100,15 +100,48 @@ impl Viewer {
             .items_center()
             .flex_shrink_0()
             .children(slots.into_iter().map(|(panel, width)| {
+                let visible = self.measured_sidebar_width(panel, cx).is_some();
                 div()
                     .h_flex()
                     .items_center()
+                    .gap(px(GAP))
                     .w(px(width))
                     .min_w_0()
                     .flex_shrink_0()
                     .when(side == Side::Left, |slot| slot.pl(px(INSET)))
-                    .when(side == Side::Right, |slot| slot.justify_end().pr(px(INSET)))
-                    .child(self.render_panel_toggle(panel, cx))
+                    .when(side == Side::Right, |slot| slot.pr(px(INSET)))
+                    .when(visible && side == Side::Right, |slot| slot.pl(px(INSET)))
+                    .when(visible && side == Side::Left, |slot| slot.pr(px(INSET)))
+                    .when(side == Side::Left, |slot| {
+                        slot.child(self.render_panel_toggle(panel, cx))
+                    })
+                    .when(visible, |slot| {
+                        let (status, kind) = match panel {
+                            jaywalk::panel_layout::PanelId::History => (
+                                self.history_footer_status(),
+                                evolution::EvolutionKind::Change,
+                            ),
+                            jaywalk::panel_layout::PanelId::Files => {
+                                (self.files_footer_status(), evolution::EvolutionKind::File)
+                            }
+                            _ => return slot,
+                        };
+                        slot.child(
+                            div()
+                                .flex_1()
+                                .min_w_0()
+                                .truncate()
+                                .text_color(gpui::component::Theme::global(cx).muted_foreground)
+                                .child(status),
+                        )
+                        .children(
+                            self.supports_evolution()
+                                .then(|| self.render_evolution_toggle(kind, cx)),
+                        )
+                    })
+                    .when(side == Side::Right, |slot| {
+                        slot.child(self.render_panel_toggle(panel, cx))
+                    })
             }))
             .into_any_element()
     }

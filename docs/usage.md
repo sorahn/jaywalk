@@ -245,7 +245,9 @@ panel-header typography, aligned edge spacing and grouped controls. Persistent
 icon toggles use the application accent instead of a selected background.
 
 Each open sidebar has a footer section matching its measured width, with its
-visibility button at the outer-facing edge and room for panel-specific controls.
+visibility button at the outer-facing edge. Its count/status appears to the left
+and its evolution toggle to the right within that section, on either side of the
+window. Counts truncate to preserve the controls in narrow panels.
 Hidden sidebars keep compact buttons; when the outside sidebar is closed, its
 button packs beside the inner sidebar’s button. Footer sections follow panel
 order, side, visibility and resizing. The comparison status belongs to the viewer
@@ -254,7 +256,7 @@ File diff controls and the bottom-dock toggle sit at the viewer footer’s right
 edge. The bottom toggle appears only when a timeline is placed in the real
 bottom dock and controls only those docked timelines.
 
-History and Files have compact info footers, with their own evolution toggle at
-the bottom right. History shows its revision count/status; Files shows changed
+History and Files put their info in the app footer only while their sidebar is
+open. History shows its revision count/status; Files shows changed
 file counts, or total/changed counts in the all-files tree, plus a retained-preview
 count when applicable. Each evolution toggle controls only its own timeline.
