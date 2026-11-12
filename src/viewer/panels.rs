@@ -303,30 +303,21 @@ impl Viewer {
             .into_any_element()
     }
 
-    pub(super) fn right_sidebar_width(&self, cx: &App) -> f32 {
+    pub(super) fn measured_sidebar_width(&self, panel: PanelId, cx: &App) -> Option<f32> {
         let columns = self.columns();
+        let index = columns.iter().position(|column| *column == Some(panel))?;
         let sizes = self.panels.sidebars.read(cx).sizes();
-        let workspace = columns
-            .iter()
-            .position(Option::is_none)
-            .expect("every layout contains the workspace");
-        columns
-            .iter()
-            .enumerate()
-            .skip(workspace + 1)
-            .map(|(index, panel)| {
-                let history = *panel == Some(PanelId::History);
-                if sizes.len() == columns.len() {
-                    sizes
-                        .get(index)
-                        .map(|size| f32::from(*size))
-                        .filter(|size| *size > 0.)
-                } else {
-                    None
-                }
-                .unwrap_or_else(|| self.sidebar_width(history))
-            })
-            .sum()
+        Some(
+            if sizes.len() == columns.len() {
+                sizes
+                    .get(index)
+                    .map(|size| f32::from(*size))
+                    .filter(|size| *size > 0.)
+            } else {
+                None
+            }
+            .unwrap_or_else(|| self.sidebar_width(panel == PanelId::History)),
+        )
     }
 
     pub(super) fn initial_code_width(&self, before: bool) -> Pixels {

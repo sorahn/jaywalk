@@ -208,58 +208,50 @@ impl Viewer {
                 .clamp(settings.min_height, settings.max_height)
         }
     }
-    pub(super) fn render_panel_toggles(
+    pub(super) fn render_panel_toggle(
         &self,
-        side: jaywalk::panel_layout::Side,
+        panel: jaywalk::panel_layout::PanelId,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        let mut controls = div().h_flex().items_center().gap_1().flex_shrink_0();
-        for panel in self.placement().sidebars(side) {
-            let history = panel == jaywalk::panel_layout::PanelId::History;
-            let label = if history {
-                "Toggle history panel"
+        let history = panel == jaywalk::panel_layout::PanelId::History;
+        let label = if history {
+            "Toggle history panel"
+        } else {
+            "Toggle changed files panel"
+        };
+        let active = if history {
+            !self.layout.saved.history_hidden
+        } else {
+            !self.layout.saved.files_hidden
+        };
+        let side = if history {
+            self.placement().history_side
+        } else {
+            self.placement().files_side
+        };
+        Button::new(if history {
+            "toggle-history-panel"
+        } else {
+            "toggle-files-panel"
+        })
+        .ghost()
+        .with_size(px(self.settings.ui.footer_control_height))
+        .w(px(self.settings.ui.footer_control_height))
+        .flex_shrink_0()
+        .compact()
+        .icon(crate::appearance::active_icon(
+            if side == jaywalk::panel_layout::Side::Left {
+                IconName::PanelLeft
             } else {
-                "Toggle changed files panel"
-            };
-            let active = if history {
-                !self.layout.saved.history_hidden
-            } else {
-                !self.layout.saved.files_hidden
-            };
-            controls =
-                controls.child(
-                    Button::new(if history {
-                        "toggle-history-panel"
-                    } else {
-                        "toggle-files-panel"
-                    })
-                    .ghost()
-                    .with_size(px(self.settings.ui.footer_control_height))
-                    .w(px(self.settings.ui.footer_control_height))
-                    .flex_shrink_0()
-                    .compact()
-                    .icon(crate::appearance::active_icon(
-                        if (if history {
-                            self.placement().history_side
-                        } else {
-                            self.placement().files_side
-                        }) == jaywalk::panel_layout::Side::Left
-                        {
-                            IconName::PanelLeft
-                        } else {
-                            IconName::PanelRight
-                        },
-                        active,
-                        cx,
-                    ))
-                    .tooltip(label)
-                    .toggled(active)
-                    .on_click(cx.listener(move |this, _, window, cx| {
-                        this.toggle_sidebar(history, window, cx)
-                    })),
-                );
-        }
-        controls.into_any_element()
+                IconName::PanelRight
+            },
+            active,
+            cx,
+        ))
+        .tooltip(label)
+        .toggled(active)
+        .on_click(cx.listener(move |this, _, window, cx| this.toggle_sidebar(history, window, cx)))
+        .into_any_element()
     }
 
     pub(super) fn bottom_timeline_state(&self) -> Option<bool> {
