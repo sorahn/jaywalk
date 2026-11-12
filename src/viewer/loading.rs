@@ -119,12 +119,15 @@ impl Viewer {
         self.begin_loading(LoadingKind::Comparison, window, cx);
         self.rebuild_browser(cx);
         let arguments = self.home_arguments();
+        let max_text_mb = self.settings.diff.max_text_file_size_mb;
         let history_query = self.history_query.clone();
         let requested_history_query = history_query.clone();
         self.requests.comparison_task = Some(cx.spawn_in(window, async move |this, cx| {
             let result = cx
                 .background_spawn(async move {
-                    let comparison = arguments.comparison()?;
+                    let comparison = arguments.comparison_with_limit(
+                        jaywalk::text_content::TextLimit::from_mib(max_text_mb)?,
+                    )?;
                     let history = if arguments.diff.is_some() {
                         jaywalk::history::History::parse("")
                     } else {

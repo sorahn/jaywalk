@@ -275,6 +275,14 @@ origin = true
 | --- | --- | --- |
 | `diff.default_view` | `"fluid"` | `"inline"`, `"side_by_side"` or `"fluid"` for the file viewer. Overview always uses unified/inline diff. Automatic single-column presentation for unchanged/conflicted files does not replace the saved preference. |
 
+| `diff.max_text_file_size_mb` | `50` | Maximum text bytes per before/after side in MiB (1,048,576 bytes). A positive integer whose byte count plus one fits the platform address space. Applies on the next comparison load or refresh. |
+
+Oversized files stay in the file browser and overview with a byte-size notice.
+Reads are bounded before decoding, diffing, and syntax highlighting; external
+file discovery compares bytes in small chunks. This is a per-side text limit,
+not an overall memory budget: an overview can retain many files, and parsed
+text/diffs require additional memory. Image-preview limits are separate future work.
+
 ### `diff.colors`
 
 Application-wide palette, live in every window, using the same config-source

@@ -354,6 +354,13 @@ impl Catalog {
     }
 
     pub fn resolve(&self, target: &Target) -> Result<Comparison, String> {
+        self.resolve_with_limit(target, crate::text_content::TextLimit::default())
+    }
+    pub fn resolve_with_limit(
+        &self,
+        target: &Target,
+        limit: crate::text_content::TextLimit,
+    ) -> Result<Comparison, String> {
         let (base, tip) = match target {
             Target::Branch { tip, base } => {
                 let tip = self.tip(tip)?;
@@ -374,8 +381,9 @@ impl Catalog {
             Target::MergeResult { merge } => (self.merge_parents(merge)?[0].clone(), merge.clone()),
         };
         match &self.operation {
-            Some(operation) => Comparison::between(self.root.clone(), operation.clone(), base, tip),
-            None => crate::git::between(self.root.clone(), base, tip),
+            Some(operation) => Comparison::between(self.root.clone(), operation.clone(), base, tip)
+                .map(|comparison| comparison.with_text_limit(limit)),
+            None => crate::git::between(self.root.clone(), base, tip, limit),
         }
     }
     pub fn root(&self) -> &std::path::Path {

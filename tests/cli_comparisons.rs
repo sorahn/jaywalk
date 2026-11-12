@@ -354,3 +354,85 @@ fn external_type_changes_remain_visible_with_identical_display_text() {
             .starts_with("File type changed:")
     }));
 }
+
+#[test]
+fn external_limit_retains_oversized_files_and_streams_equality() {
+    use jaywalk::{repository::FileSide, text_content::TextLimit};
+    let f = Fixture::new();
+    let mib = 1_048_576;
+    for (name, size) in [("below", mib - 1), ("exact", mib), ("above", mib + 1)] {
+        f.write(&format!("left/{name}"), "old");
+        f.write(&format!("right/{name}"), &"x".repeat(size));
+    }
+    // Sparse, oversized equal files are discovered without allocating their contents.
+    for side in ["left", "right"] {
+        std::fs::File::create(f.0.join(side).join("large-equal"))
+            .unwrap()
+            .set_len(64 * 1024 * 1024)
+            .unwrap();
+    }
+    let comparison = ExternalContents::comparison_with_limit(
+        &f.0.join("left"),
+        &f.0.join("right"),
+        TextLimit::from_mib(1).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(comparison.files.len(), 3);
+    for name in ["below", "exact"] {
+        assert!(comparison.read_path(name, FileSide::After).is_ok());
+    }
+    let notice = comparison.read_path("above", FileSide::After).unwrap_err();
+    assert!(notice.contains("1048577 bytes"), "{notice}");
+    assert!(notice.contains("1 MiB"), "{notice}");
+    let overview = comparison.overview();
+    assert!(
+        overview
+            .files
+            .iter()
+            .find(|file| file.file.after_path == "above")
+            .unwrap()
+            .notice
+            .as_deref()
+            .unwrap()
+            .contains("text limit")
+    );
+}
+
+#[test]
+fn git_limits_worktree_and_recorded_blobs_and_refreshes_policy() {
+    use jaywalk::{repository::FileSide, text_content::TextLimit};
+    let f = Fixture::new();
+    f.git(&["init", "-b", "main"]);
+    f.write("file.txt", "old");
+    f.git(&["add", "."]);
+    f.git(&["commit", "-m", "base"]);
+    let base = f.git(&["rev-parse", "HEAD"]);
+    f.write("file.txt", &"x".repeat(1_048_577));
+    let small = TextLimit::from_mib(1).unwrap();
+    let work = Comparison::load_with_limit(&f.0, Some(&base), "@", small).unwrap();
+    assert!(
+        work.read_path("file.txt", FileSide::After)
+            .unwrap_err()
+            .contains("1048577 bytes")
+    );
+    assert_eq!(work.files.len(), 1);
+    f.git(&["add", "."]);
+    f.git(&["commit", "-m", "large"]);
+    let tip = f.git(&["rev-parse", "HEAD"]);
+    let limited = Comparison::load_with_limit(&f.0, Some(&base), &tip, small).unwrap();
+    let raised =
+        Comparison::load_with_limit(&f.0, Some(&base), &tip, TextLimit::from_mib(2).unwrap())
+            .unwrap();
+    assert_ne!(limited.identity(), raised.identity());
+    assert!(
+        limited
+            .read_path("file.txt", FileSide::After)
+            .unwrap_err()
+            .contains("text limit")
+    );
+    assert_eq!(
+        raised.read_path("file.txt", FileSide::After).unwrap().len(),
+        1_048_577
+    );
+    assert!(limited.read_path("file.txt", FileSide::After).is_err());
+}

@@ -32,7 +32,10 @@ fn run() -> std::result::Result<(), String> {
         return Ok(());
     }
     if arguments.inspect {
-        let comparison = arguments.comparison()?;
+        let settings = SettingsSource::resolve(arguments.config.as_deref())?.read()?;
+        let comparison = arguments.comparison_with_limit(
+            jaywalk::text_content::TextLimit::from_mib(settings.diff.max_text_file_size_mb)?,
+        )?;
         println!(
             "{} changed files\nbase {}\ntip {}\noperation {}",
             comparison.files.len(),

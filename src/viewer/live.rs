@@ -280,6 +280,9 @@ impl Viewer {
         } else {
             None
         };
+        let limit =
+            jaywalk::text_content::TextLimit::from_mib(self.settings.diff.max_text_file_size_mb)
+                .expect("viewer settings are validated before publication");
         let directory = self.arguments.directory().to_owned();
         let home_arguments = self.home_arguments();
         let base = home_arguments.base.clone();
@@ -296,12 +299,13 @@ impl Viewer {
         self.live.refresh = Some(cx.spawn_in(window, async move |this, cx| {
             let result = cx
                 .background_spawn(async move {
-                    RecordedRefresh::load(
+                    RecordedRefresh::load_with_limit(
                         &directory,
                         base.as_deref(),
                         &tip,
                         change.as_ref(),
                         &history_query,
+                        limit,
                     )
                 })
                 .await;

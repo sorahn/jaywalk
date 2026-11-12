@@ -307,6 +307,7 @@ pub enum DiffView {
 #[derive(Clone, Debug, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct DiffSettings {
+    pub max_text_file_size_mb: u64,
     pub colors: DiffColorSettings,
     pub default_view: DiffView,
     pub before: PaneSettings,
@@ -500,6 +501,8 @@ impl Config {
         if !(1..=1000).contains(&self.navigation.history_limit) {
             return Err("navigation.history_limit must be between 1 and 1000".into());
         }
+        crate::text_content::TextLimit::from_mib(self.diff.max_text_file_size_mb)
+            .map_err(|error| format!("diff.max_text_file_size_mb: {error}"))?;
         bounded("window.width", self.window.width, 320., 10000.)?;
         bounded("window.height", self.window.height, 240., 10000.)?;
         if self.ui.loading_delay_ms > 5000 {
@@ -710,6 +713,24 @@ pub fn default_path() -> Result<PathBuf, String> {
 #[cfg(test)]
 mod tests {
     use super::{DiffView, Settings};
+
+    #[test]
+    fn text_limit_defaults_to_fifty_mib_and_requires_representable_integer_bytes() {
+        assert_eq!(Settings::parse("").unwrap().diff.max_text_file_size_mb, 50);
+        assert_eq!(
+            Settings::parse("[diff]\nmax_text_file_size_mb=1")
+                .unwrap()
+                .diff
+                .max_text_file_size_mb,
+            1
+        );
+        for value in ["0", "-1", "0.5", "inf", "18446744073709551615"] {
+            assert!(
+                Settings::parse(&format!("[diff]\nmax_text_file_size_mb={value}")).is_err(),
+                "{value}"
+            );
+        }
+    }
 
     #[test]
     fn welcome_recent_count_is_live_configurable_and_bounded() {

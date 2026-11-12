@@ -8,6 +8,7 @@ use std::sync::Arc;
 pub struct ExternalContents {
     left: BTreeMap<String, PathBuf>,
     right: BTreeMap<String, PathBuf>,
+    limit: crate::text_content::TextLimit,
 }
 
 fn collect(
@@ -68,7 +69,7 @@ fn entry_kind(path: &Path) -> Result<crate::repository_file::FileKind, String> {
     })
 }
 
-fn bytes(path: &Path) -> Result<Vec<u8>, String> {
+fn bytes(path: &Path, limit: crate::text_content::TextLimit) -> Result<Vec<u8>, String> {
     let metadata = std::fs::symlink_metadata(path)
         .map_err(|error| format!("Could not inspect {}: {error}", path.display()))?;
     if metadata.file_type().is_symlink() {
@@ -80,11 +81,59 @@ fn bytes(path: &Path) -> Result<Vec<u8>, String> {
             .map(|text| text.as_bytes().to_vec())
             .ok_or_else(|| format!("Non-UTF-8 link target: {}", path.display()));
     }
-    std::fs::read(path).map_err(|error| format!("Could not read {}: {error}", path.display()))
+    limit.file(path)
+}
+
+fn equal_entries(
+    before: &Path,
+    after: &Path,
+    limit: crate::text_content::TextLimit,
+) -> Result<bool, String> {
+    use std::io::BufRead;
+    let kind = entry_kind(before)?;
+    if kind != entry_kind(after)? {
+        return Ok(false);
+    }
+    if kind == crate::repository_file::FileKind::Symlink {
+        return Ok(bytes(before, limit)? == bytes(after, limit)?);
+    }
+    let open = |path: &Path| {
+        std::fs::File::open(path)
+            .map_err(|error| format!("Could not open {}: {error}", path.display()))
+    };
+    let left = open(before)?;
+    let right = open(after)?;
+    if left.metadata().map_err(|error| error.to_string())?.len()
+        != right.metadata().map_err(|error| error.to_string())?.len()
+    {
+        return Ok(false);
+    }
+    let mut left = std::io::BufReader::new(left);
+    let mut right = std::io::BufReader::new(right);
+    loop {
+        let a = left.fill_buf().map_err(|error| error.to_string())?;
+        let b = right.fill_buf().map_err(|error| error.to_string())?;
+        if a.is_empty() || b.is_empty() {
+            return Ok(a.is_empty() && b.is_empty());
+        }
+        let count = a.len().min(b.len());
+        if a[..count] != b[..count] {
+            return Ok(false);
+        }
+        left.consume(count);
+        right.consume(count);
+    }
 }
 
 impl ExternalContents {
     pub fn comparison(left: &Path, right: &Path) -> Result<Comparison, String> {
+        Self::comparison_with_limit(left, right, crate::text_content::TextLimit::default())
+    }
+    pub fn comparison_with_limit(
+        left: &Path,
+        right: &Path,
+        limit: crate::text_content::TextLimit,
+    ) -> Result<Comparison, String> {
         let left = normalize_input(left)?;
         let right = normalize_input(right)?;
         let left_kind = std::fs::symlink_metadata(&left)
@@ -96,6 +145,7 @@ impl ExternalContents {
         let mut contents = Self {
             left: BTreeMap::new(),
             right: BTreeMap::new(),
+            limit,
         };
         if left_kind.is_dir() && right_kind.is_dir() {
             collect(&left, &left, &mut contents.left)?;
@@ -130,8 +180,7 @@ impl ExternalContents {
                 (None, Some(_)) => "added",
                 (Some(_), None) => "removed",
                 (Some(before), Some(after)) => {
-                    if entry_kind(before)? == entry_kind(after)? && bytes(before)? == bytes(after)?
-                    {
+                    if equal_entries(before, after, limit)? {
                         continue;
                     }
                     "modified"
@@ -152,6 +201,7 @@ impl ExternalContents {
             files: files.into(),
             content: ContentSource::External(Arc::new(contents)),
             capture: next_capture(),
+            text_limit: limit,
             catalog: Arc::default(),
         }
         .with_catalog()
@@ -202,12 +252,7 @@ impl ExternalContents {
             let Some(path) = paths.get(name) else {
                 return Ok(String::new());
             };
-            let data = bytes(path)?;
-            if data.len() > 2_000_000 || data.contains(&0) {
-                return Err("Binary or large file: text comparison is unavailable.".into());
-            }
-            String::from_utf8(data)
-                .map_err(|error| format!("Non-UTF-8 text in {}: {error}", path.display()))
+            self.limit.text(bytes(path, self.limit)?)
         };
         read(
             match side {

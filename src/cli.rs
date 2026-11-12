@@ -47,10 +47,20 @@ impl Arguments {
     pub(crate) fn directory(&self) -> &Path {
         self.directory.as_deref().unwrap_or(Path::new("."))
     }
-    pub(crate) fn comparison(&self) -> std::result::Result<Comparison, String> {
+    pub(crate) fn comparison_with_limit(
+        &self,
+        limit: jaywalk::text_content::TextLimit,
+    ) -> std::result::Result<Comparison, String> {
         match &self.diff {
-            Some(paths) => jaywalk::external::ExternalContents::comparison(&paths[0], &paths[1]),
-            None => Comparison::load(self.directory(), self.base.as_deref(), &self.tip),
+            Some(paths) => jaywalk::external::ExternalContents::comparison_with_limit(
+                &paths[0], &paths[1], limit,
+            ),
+            None => Comparison::load_with_limit(
+                self.directory(),
+                self.base.as_deref(),
+                &self.tip,
+                limit,
+            ),
         }
     }
 }
@@ -178,7 +188,11 @@ mod welcome_tests {
         explicit.base = Some("main".into());
         explicit.normalize().unwrap();
         assert!(!explicit.welcome);
-        assert!(explicit.comparison().is_err());
+        assert!(
+            explicit
+                .comparison_with_limit(jaywalk::text_content::TextLimit::default())
+                .is_err()
+        );
         std::fs::create_dir_all(root.join("repo/.jj")).unwrap();
         std::fs::create_dir_all(root.join("repo/src")).unwrap();
         let mut repo = plain.for_repository(root.join("repo/src"));

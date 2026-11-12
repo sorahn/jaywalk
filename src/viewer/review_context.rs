@@ -301,6 +301,7 @@ impl Viewer {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        let max_text_mb = self.settings.diff.max_text_file_size_mb;
         self.checkpoint_navigation(cx);
         self.remember_reading(cx);
         self.cancel_live_refresh();
@@ -312,7 +313,10 @@ impl Viewer {
             let result = cx
                 .background_spawn(async move {
                     catalog
-                        .resolve(&target)
+                        .resolve_with_limit(
+                            &target,
+                            jaywalk::text_content::TextLimit::from_mib(max_text_mb)?,
+                        )
                         .map(|comparison| (comparison, ReviewSource::Target(target)))
                 })
                 .await;
@@ -344,6 +348,7 @@ impl Viewer {
             return;
         }
         let arguments = arguments_for_home(&self.arguments, home);
+        let max_text_mb = self.settings.diff.max_text_file_size_mb;
         self.checkpoint_navigation(cx);
         self.remember_reading(cx);
         self.cancel_live_refresh();
@@ -353,7 +358,11 @@ impl Viewer {
         self.begin_loading(LoadingKind::Comparison, window, cx);
         self.requests.comparison_task = Some(cx.spawn_in(window, async move |this, cx| {
             let result = cx
-                .background_spawn(async move { arguments.comparison() })
+                .background_spawn(async move {
+                    arguments.comparison_with_limit(jaywalk::text_content::TextLimit::from_mib(
+                        max_text_mb,
+                    )?)
+                })
                 .await;
             let _ = this.update_in(cx, |viewer, window, cx| {
                 if viewer.requests.comparison() != epoch {
