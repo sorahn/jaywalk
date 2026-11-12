@@ -211,3 +211,8 @@ Customize diff marks/connectors, row-background hues and word highlights under
 `[diff.colors]`. Like the accent, each color accepts one shared hex value or a
 light/dark pair. Edits recolor open viewers and overviews live; source syntax and
 file-list status colors keep their own palettes. See [diff colors](settings.md#diffcolors).
+
+The native title bar identifies the repository or file comparison. A compact
+application toolbar holds review and panel actions. Back/forward arrows live at
+the leading edge of the comparison bar beside the sidebars, keeping visited-view
+navigation attached to the main viewer even when sidebars are hidden or moved.

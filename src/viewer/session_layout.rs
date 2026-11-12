@@ -1,5 +1,6 @@
 //! Persist only local layout choices, leaving user TOML settings untouched.
 use super::*;
+use gpui::component::Sizable;
 use jaywalk::layout_state::{LayoutState, RepositoryLayoutStore};
 use std::path::PathBuf;
 pub(crate) struct SessionLayout {
@@ -226,6 +227,7 @@ impl Viewer {
                         "toggle-files-panel"
                     })
                     .ghost()
+                    .small()
                     .compact()
                     .icon(crate::appearance::active_icon(
                         if (if history {
@@ -252,6 +254,7 @@ impl Viewer {
             .child(
                 Button::new("toggle-timeline-panels")
                     .ghost()
+                    .small()
                     .compact()
                     .icon(crate::appearance::active_icon(
                         IconName::PanelBottom,

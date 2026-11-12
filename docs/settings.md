@@ -134,11 +134,11 @@ Appearance and accent share the existing application-wide, last-successfully-app
 | `ui.loading_delay_ms` | `200` | Delay before showing loading feedback; 0–5000. `0` shows it immediately; fast operations never expose a loading label. |
 | `ui.row_height` | `26` | Shared minimum for history, tree and list rows; 12–160. Per-view overrides below take precedence; fonts establish a readable minimum. |
 | `ui.panel_header_height` | `30` | Minimum panel-header height; 24–120. |
-| `ui.toolbar_height` | `36` | Minimum main-toolbar height; 28–120. |
+| `ui.toolbar_height` | `28` | Minimum main-toolbar height; 28–120. Compact controls grow to fit large UI fonts; changes apply live. Repository/path identification stays in the native title bar. |
 | `ui.footer_height` | `28` | Minimum footer height; 20–120. Effective height also fits its control height and at least 1.5 × footer font size. |
 | `ui.footer_font_size` | `12` | Footer label font size; 8–48. |
 | `ui.footer_control_height` | `22` | Footer control height; 16–80. |
-| `ui.comparison_bar_height` | `36` | Reserved comparison/evolution toolbar height; 24–120. Grows to fit the UI font. |
+| `ui.comparison_bar_height` | `30` | Reserved comparison/evolution toolbar height, including compact back/forward controls; 24–120. Grows to fit the UI font. |
 | `ui.font_size` | `16` | Application control font size; 8–48. Does not replace independent source/sidebar sizes. |
 | `ui.ligatures` | `true` | Enable ligatures and contextual alternates for application text. |
 | `ui.font_family` | omitted | Installed family name; defaults to the theme/system UI font. Must be nonempty when supplied. |

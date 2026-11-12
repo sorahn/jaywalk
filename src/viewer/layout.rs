@@ -59,28 +59,24 @@ impl Render for Viewer {
                         .settings
                         .ui
                         .toolbar_height
-                        .max(self.settings.ui.font_size * 1.75)))
+                        .max(self.settings.ui.font_size * 1.5)))
                     .flex_shrink_0()
                     .border_b_1()
                     .border_color(gpui::component::Theme::global(cx).border)
                     .bg(gpui::component::Theme::global(cx).muted)
-                    .child(self.render_navigation_buttons(cx))
-                    .child(div().flex_1().min_w_0().truncate().child(format!(
-                        "Jaywalk  /  {}",
-                        self.arguments.diff.as_ref().map_or_else(
-                            || self.arguments.directory().display().to_string(),
-                            |paths| format!("{} ↔ {}", paths[0].display(), paths[1].display())
-                        )
-                    )))
                     .child(
                         div()
                             .h_flex()
+                            .items_center()
+                            .w_full()
                             .flex_shrink_0()
-                            .gap_2()
+                            .gap_1()
                             .child(self.render_panel_toggles(cx))
+                            .child(div().flex_1())
                             .child(
                                 Button::new("find-file")
                                     .ghost()
+                                    .small()
                                     .compact()
                                     .icon(IconName::Search)
                                     .tooltip_with_action(
@@ -97,6 +93,7 @@ impl Render for Viewer {
                             .child(
                                 Button::new("current-work")
                                     .ghost()
+                                    .small()
                                     .label("Current work")
                                     .disabled(self.arguments.diff.is_some())
                                     .tooltip_with_action(
@@ -117,6 +114,7 @@ impl Render for Viewer {
                             .child(
                                 Button::new("whole-branch")
                                     .ghost()
+                                    .small()
                                     .label(if self.arguments.diff.is_some() {
                                         "All files"
                                     } else {
@@ -141,6 +139,7 @@ impl Render for Viewer {
                             .child(
                                 Button::new("review-source")
                                     .ghost()
+                                    .small()
                                     .compact()
                                     .icon(IconName::ChevronDown)
                                     .tooltip("Choose review branch and base")
@@ -163,17 +162,25 @@ impl Render for Viewer {
                                         )
                                     }),
                             )
-                            .child(Button::new("overview").ghost().label("Overview").on_click(
-                                cx.listener(|this, _, window, cx| {
-                                    this.show_overview(window, cx);
-                                }),
-                            ))
-                            .child(Button::new("refresh").ghost().label("Refresh").on_click(
-                                cx.listener(|this, _, window, cx| {
-                                    this.invalidate_overview();
-                                    this.refresh(window, cx);
-                                }),
-                            )),
+                            .child(
+                                Button::new("overview")
+                                    .ghost()
+                                    .small()
+                                    .label("Overview")
+                                    .on_click(cx.listener(|this, _, window, cx| {
+                                        this.show_overview(window, cx);
+                                    })),
+                            )
+                            .child(
+                                Button::new("refresh")
+                                    .ghost()
+                                    .small()
+                                    .label("Refresh")
+                                    .on_click(cx.listener(|this, _, window, cx| {
+                                        this.invalidate_overview();
+                                        this.refresh(window, cx);
+                                    })),
+                            ),
                     ),
             )
             .child(

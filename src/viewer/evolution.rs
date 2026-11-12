@@ -731,10 +731,11 @@ impl Viewer {
                 .settings
                 .ui
                 .comparison_bar_height
-                .max(self.settings.ui.font_size * 1.75 + 8.)))
+                .max(self.settings.ui.font_size * 1.5 + 4.)))
             .flex_shrink_0()
             .overflow_hidden()
             .bg(gpui::component::Theme::global(cx).sidebar)
+            .child(self.render_navigation_buttons(cx))
             .child(
                 div()
                     .flex_1()
