@@ -3,6 +3,7 @@
 use super::*;
 use gpui::component::Sizable;
 use gpui::component::diff::DiffAnnotation;
+use gpui::component::spinner::Spinner;
 use gpui::prelude::FluentBuilder as _;
 use jaywalk::overview::{CommitDetails, OverviewSeries};
 use jaywalk::repository::{ChangedFile, ComparisonIdentity};
@@ -351,16 +352,41 @@ impl Viewer {
                 .into_any_element();
         }
         let Some(loaded) = &self.overview.current else {
+            let loading = self.overview.error.is_none()
+                && (self.loading_visible(LoadingKind::Comparison)
+                    || self.loading_visible(LoadingKind::Overview));
             let text = if self.overview.error.is_some() {
                 "Overview unavailable"
-            } else if self.loading_visible(LoadingKind::Comparison)
-                || self.loading_visible(LoadingKind::Overview)
-            {
+            } else if loading {
                 "Loading overview…"
             } else {
                 ""
             };
-            return surface.child(div().p_6().child(text)).into_any_element();
+            return surface
+                .child(
+                    div()
+                        .flex_1()
+                        .min_h_0()
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .p_6()
+                        .text_size(px(self.settings.ui.font_size))
+                        .text_color(theme.muted_foreground)
+                        .child(
+                            div()
+                                .h_flex()
+                                .items_center()
+                                .gap_2()
+                                .children(loading.then(|| {
+                                    Spinner::new()
+                                        .with_size(px(self.settings.ui.font_size))
+                                        .color(theme.muted_foreground)
+                                }))
+                                .child(text),
+                        ),
+                )
+                .into_any_element();
         };
         let (title, body) = message_parts(loaded.commit.as_ref());
         let metadata = loaded
@@ -701,8 +727,8 @@ fn render_series(
     owner: WeakEntity<Viewer>,
     muted: Hsla,
 ) -> AnyElement {
-    let mut list = div().v_flex().gap_2();
-    list = list.child(div().text_xl().child("Commits in this comparison"));
+    let mut list = div().v_flex().gap_1().line_height(relative(1.35));
+    list = list.child(div().mb_1().text_xl().child("Commits in this comparison"));
     if series.commits.is_empty() {
         list = list.child(div().text_color(muted).child("No commits in this range."));
     }
