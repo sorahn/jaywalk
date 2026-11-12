@@ -137,7 +137,8 @@ impl Viewer {
         let selection = theme.list_active;
         let hover = theme.secondary_hover;
         let mut panel =
-            div().v_flex().size_full().bg(surface).child(
+            super::chrome::Panel::new(
+                "history-panel",
                 self.panel_header(
                     jaywalk::panel_layout::PanelId::History,
                     self.settings.panels.history.font.size,
@@ -180,6 +181,7 @@ impl Viewer {
                                 })),
                         ),
                 ),
+                div().bg(surface),
             );
         let session =
             match &self.repository {
@@ -289,7 +291,7 @@ impl Viewer {
         })
         .size_full()
         .track_scroll(&self.history_scroll);
-        panel = panel.child(div().flex_1().min_h_0().child(rows)).child(
+        panel = panel.child(div().flex_1().min_h_0().child(rows)).footer(
             div()
                 .px_3()
                 .py_1()

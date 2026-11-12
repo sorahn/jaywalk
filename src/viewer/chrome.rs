@@ -38,3 +38,58 @@ impl Viewer {
             })
     }
 }
+
+/// Presentation only: each body keeps its existing scroll/virtualization owner.
+#[derive(IntoElement)]
+pub(super) struct Panel {
+    frame: gpui::Stateful<gpui::Div>,
+    header: AnyElement,
+    children: Vec<AnyElement>,
+    footer: Option<AnyElement>,
+}
+impl Panel {
+    pub(super) fn new(
+        id: impl Into<ElementId>,
+        header: impl IntoElement,
+        frame: gpui::Div,
+    ) -> Self {
+        Self {
+            frame: frame.id(id),
+            header: header.into_any_element(),
+            children: Vec::new(),
+            footer: None,
+        }
+    }
+    pub(super) fn footer(mut self, footer: impl IntoElement) -> Self {
+        self.footer = Some(footer.into_any_element());
+        self
+    }
+}
+impl ParentElement for Panel {
+    fn extend(&mut self, elements: impl IntoIterator<Item = AnyElement>) {
+        self.children.extend(elements);
+    }
+}
+impl RenderOnce for Panel {
+    fn render(self, _: &mut Window, _: &mut App) -> impl IntoElement {
+        self.frame
+            .v_flex()
+            .size_full()
+            .min_w_0()
+            .min_h_0()
+            .child(div().flex_shrink_0().child(self.header))
+            .child(
+                div()
+                    .relative()
+                    .v_flex()
+                    .flex_1()
+                    .min_w_0()
+                    .min_h_0()
+                    .children(self.children),
+            )
+            .children(
+                self.footer
+                    .map(|footer| div().flex_shrink_0().child(footer)),
+            )
+    }
+}

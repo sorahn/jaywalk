@@ -823,32 +823,68 @@ impl Viewer {
         let selection = theme.list_active;
         let hover = theme.secondary_hover;
         let previous_surface = theme.secondary;
-        let mut panel = div()
-            .id(("evolution-panel", kind.id()))
-            .v_flex().size_full().bg(surface)
-            .child(div().v_flex()
-                .child(self.panel_header(match kind { EvolutionKind::Change => jaywalk::panel_layout::PanelId::ChangeEvolution, EvolutionKind::File => jaywalk::panel_layout::PanelId::FileEvolution }, font_size, cx)
-                    .child(div().flex_1().min_w_0().truncate().child(match kind {
-                        EvolutionKind::Change => "CHANGE EVOLUTION",
-                        EvolutionKind::File => "FILE EVOLUTION",
-                    }))
-                    .child(div().h_flex().items_center().gap_1()
-                    .child(self.panel_menu(match kind {
-                        EvolutionKind::Change => jaywalk::panel_layout::PanelId::ChangeEvolution,
-                        EvolutionKind::File => jaywalk::panel_layout::PanelId::FileEvolution,
-                    }))
-                    .child(Button::new("close-evolution").ghost().small().compact().icon(IconName::X)
-                        .tooltip("Hide evolution")
-                        .on_click(cx.listener(move |this, _, window, cx| this.toggle_evolution_panel(kind, window, cx))))))
-                .child(div().h_flex().gap_1().px(px(super::chrome::PANEL_INSET)).py_1()
-                    .child(Button::new("group-repeats").ghost().small().compact().label("Group")
-                        .selected(state.collapse_repeats)
-                        .tooltip("Group consecutive matching entries")
-                        .on_click(cx.listener(move |this, _, _, cx| this.toggle_repeat_grouping(kind, cx))))
-                    .child(Button::new("unchanged-rebases").ghost().small().compact().label("Rebases")
-                        .selected(state.show_unchanged_rebases)
-                        .tooltip("Show unchanged rebases (current and selected versions stay visible)")
-                        .on_click(cx.listener(move |this, _, _, cx| this.toggle_unchanged_rebases(kind, cx))))));
+        let panel_id = match kind {
+            EvolutionKind::Change => jaywalk::panel_layout::PanelId::ChangeEvolution,
+            EvolutionKind::File => jaywalk::panel_layout::PanelId::FileEvolution,
+        };
+        let header = self
+            .panel_header(panel_id, font_size, cx)
+            .child(div().flex_1().min_w_0().truncate().child(match kind {
+                EvolutionKind::Change => "CHANGE EVOLUTION",
+                EvolutionKind::File => "FILE EVOLUTION",
+            }))
+            .child(
+                div()
+                    .h_flex()
+                    .items_center()
+                    .gap_1()
+                    .child(self.panel_menu(panel_id))
+                    .child(
+                        Button::new("close-evolution")
+                            .ghost()
+                            .small()
+                            .compact()
+                            .icon(IconName::X)
+                            .tooltip("Hide evolution")
+                            .on_click(cx.listener(move |this, _, window, cx| {
+                                this.toggle_evolution_panel(kind, window, cx)
+                            })),
+                    ),
+            );
+        let filters = div()
+            .h_flex()
+            .gap_1()
+            .px(px(super::chrome::PANEL_INSET))
+            .py_1()
+            .child(
+                Button::new("group-repeats")
+                    .ghost()
+                    .small()
+                    .compact()
+                    .label("Group")
+                    .selected(state.collapse_repeats)
+                    .tooltip("Group consecutive matching entries")
+                    .on_click(
+                        cx.listener(move |this, _, _, cx| this.toggle_repeat_grouping(kind, cx)),
+                    ),
+            )
+            .child(
+                Button::new("unchanged-rebases")
+                    .ghost()
+                    .small()
+                    .compact()
+                    .label("Rebases")
+                    .selected(state.show_unchanged_rebases)
+                    .tooltip("Show unchanged rebases (current and selected versions stay visible)")
+                    .on_click(
+                        cx.listener(move |this, _, _, cx| this.toggle_unchanged_rebases(kind, cx)),
+                    ),
+            );
+        let mut panel = super::chrome::Panel::new(
+            ("evolution-panel", kind.id()),
+            div().v_flex().child(header).child(filters),
+            div().bg(surface),
+        );
         let (evolution, file_path, scroll) = match &state.state {
             TimelineState::Unselected => {
                 return panel
@@ -1208,7 +1244,7 @@ impl Viewer {
         }
         panel
             .child(div().flex_1().min_h_0().child(rows))
-            .child(details)
+            .footer(details)
             .into_any_element()
     }
 }

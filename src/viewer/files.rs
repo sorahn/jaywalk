@@ -527,113 +527,112 @@ impl Viewer {
         let dark = gpui::component::Theme::global(cx).is_dark();
         let toggle_icon =
             |name: IconName, active: bool| crate::appearance::active_icon(name, active, cx);
-        let mut panel = div()
-            .track_focus(&self.browser.focus)
-            .key_context("JaywalkFiles")
-            .relative()
-            .v_flex()
-            .size_full()
-            .bg(gpui::component::Theme::global(cx).sidebar)
+        let mut panel = super::chrome::Panel::new(
+            "files-panel",
+            self.panel_header(
+                jaywalk::panel_layout::PanelId::Files,
+                self.settings.panels.files.font.size,
+                cx,
+            )
+            .child(div().flex_1().min_w_0().truncate().child(
+                if matches!(self.comparison_state(), LoadState::Loading)
+                    && self.loading_visible(LoadingKind::Comparison)
+                {
+                    "FILES · Loading…"
+                } else {
+                    "FILES"
+                },
+            ))
             .child(
-                self.panel_header(
-                    jaywalk::panel_layout::PanelId::Files,
-                    self.settings.panels.files.font.size,
-                    cx,
-                )
-                .child(div().flex_1().min_w_0().truncate().child(
-                    if matches!(self.comparison_state(), LoadState::Loading)
-                        && self.loading_visible(LoadingKind::Comparison)
-                    {
-                        "FILES · Loading…"
-                    } else {
-                        "FILES"
-                    },
-                ))
-                .child(
-                    div()
-                        .h_flex()
-                        .gap_1()
-                        .child(self.panel_menu(jaywalk::panel_layout::PanelId::Files))
-                        .children((self.browser.mode == FileListMode::Tree).then(|| {
-                            Button::new("file-tree-scope")
-                                .ghost()
-                                .small()
-                                .compact()
-                                .label(if self.browser.scope == TreeScope::All {
-                                    "All"
+                div()
+                    .h_flex()
+                    .gap_1()
+                    .child(self.panel_menu(jaywalk::panel_layout::PanelId::Files))
+                    .children((self.browser.mode == FileListMode::Tree).then(|| {
+                        Button::new("file-tree-scope")
+                            .ghost()
+                            .small()
+                            .compact()
+                            .label(if self.browser.scope == TreeScope::All {
+                                "All"
+                            } else {
+                                "Changed"
+                            })
+                            .tooltip("Toggle changed files / all repository files")
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.browser.scope = if this.browser.scope == TreeScope::All {
+                                    TreeScope::Changed
                                 } else {
-                                    "Changed"
-                                })
-                                .tooltip("Toggle changed files / all repository files")
-                                .on_click(cx.listener(|this, _, _, cx| {
-                                    this.browser.scope = if this.browser.scope == TreeScope::All {
-                                        TreeScope::Changed
-                                    } else {
-                                        TreeScope::All
-                                    };
-                                    this.rebuild_browser(cx);
-                                    this.save_layout(cx);
-                                    cx.notify();
-                                }))
-                        }))
-                        .child(
-                            Button::new("file-evolution-toggle")
-                                .ghost()
-                                .small()
-                                .compact()
-                                .icon(toggle_icon(
-                                    IconName::GitCompareArrows,
-                                    self.file_evolution.visible,
-                                ))
-                                .when(!self.supports_evolution(), |button| button.hidden())
-                                .tooltip("File evolution")
-                                .toggled(self.file_evolution.visible)
-                                .on_click(cx.listener(|this, _, window, cx| {
-                                    this.toggle_evolution_panel(
-                                        evolution::EvolutionKind::File,
-                                        window,
-                                        cx,
-                                    )
-                                })),
-                        )
-                        .child(
-                            Button::new("file-list-mode")
-                                .ghost()
-                                .small()
-                                .compact()
-                                .icon(toggle_icon(
-                                    IconName::List,
-                                    self.browser.mode == FileListMode::List,
-                                ))
-                                .tooltip("File list")
-                                .toggled(self.browser.mode == FileListMode::List)
-                                .on_click(cx.listener(|this, _, _, cx| {
-                                    this.browser.mode = FileListMode::List;
-                                    this.rebuild_browser(cx);
-                                    this.save_layout(cx);
-                                    cx.notify();
-                                })),
-                        )
-                        .child(
-                            Button::new("file-tree-mode")
-                                .ghost()
-                                .small()
-                                .compact()
-                                .icon(toggle_icon(
-                                    IconName::FolderTree,
-                                    self.browser.mode == FileListMode::Tree,
-                                ))
-                                .tooltip("Directory tree")
-                                .toggled(self.browser.mode == FileListMode::Tree)
-                                .on_click(cx.listener(|this, _, _, cx| {
-                                    this.browser.mode = FileListMode::Tree;
-                                    this.rebuild_browser(cx);
-                                    this.save_layout(cx);
-                                    cx.notify();
-                                })),
-                        ),
-                ),
-            );
+                                    TreeScope::All
+                                };
+                                this.rebuild_browser(cx);
+                                this.save_layout(cx);
+                                cx.notify();
+                            }))
+                    }))
+                    .child(
+                        Button::new("file-evolution-toggle")
+                            .ghost()
+                            .small()
+                            .compact()
+                            .icon(toggle_icon(
+                                IconName::GitCompareArrows,
+                                self.file_evolution.visible,
+                            ))
+                            .when(!self.supports_evolution(), |button| button.hidden())
+                            .tooltip("File evolution")
+                            .toggled(self.file_evolution.visible)
+                            .on_click(cx.listener(|this, _, window, cx| {
+                                this.toggle_evolution_panel(
+                                    evolution::EvolutionKind::File,
+                                    window,
+                                    cx,
+                                )
+                            })),
+                    )
+                    .child(
+                        Button::new("file-list-mode")
+                            .ghost()
+                            .small()
+                            .compact()
+                            .icon(toggle_icon(
+                                IconName::List,
+                                self.browser.mode == FileListMode::List,
+                            ))
+                            .tooltip("File list")
+                            .toggled(self.browser.mode == FileListMode::List)
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.browser.mode = FileListMode::List;
+                                this.rebuild_browser(cx);
+                                this.save_layout(cx);
+                                cx.notify();
+                            })),
+                    )
+                    .child(
+                        Button::new("file-tree-mode")
+                            .ghost()
+                            .small()
+                            .compact()
+                            .icon(toggle_icon(
+                                IconName::FolderTree,
+                                self.browser.mode == FileListMode::Tree,
+                            ))
+                            .tooltip("Directory tree")
+                            .toggled(self.browser.mode == FileListMode::Tree)
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.browser.mode = FileListMode::Tree;
+                                this.rebuild_browser(cx);
+                                this.save_layout(cx);
+                                cx.notify();
+                            })),
+                    ),
+            ),
+            div()
+                .track_focus(&self.browser.focus)
+                .key_context("JaywalkFiles")
+                .relative()
+                .bg(gpui::component::Theme::global(cx).sidebar),
+        );
         match self.comparison_state() {
             LoadState::Failed(error) => {
                 panel = panel.child(

@@ -159,14 +159,13 @@ impl Viewer {
     }
 
     fn render_workspace(&self, cx: &mut Context<Self>) -> AnyElement {
-        let workspace = div()
-            // Compose the comparison caption after the diff has published its
-            // current scroll position, without waiting for another frame.
-            .with_dynamic_prepaint_order(|_, _| [1, 0].into_iter().collect())
-            .v_flex()
-            .size_full()
-            .child(self.render_evolution_comparison(cx))
-            .child(div().flex_1().min_h_0().child(self.render_comparison(cx)));
+        let workspace = super::chrome::Panel::new(
+            "comparison-panel",
+            self.render_evolution_comparison(cx),
+            // The caption reads scroll geometry published by the body this frame.
+            div().with_dynamic_prepaint_order(|_, _| [1, 0].into_iter().collect()),
+        )
+        .child(self.render_comparison(cx));
         if !self.bottom_visible(false) && !self.bottom_visible(true) {
             return workspace.into_any_element();
         }

@@ -251,3 +251,16 @@ and reconciles overview/navigation state on notifications, outside `render()`.
 Viewport restoration remains tied to measured editor layout. The editor
 presentation module owns background preparation, editor mounting and in-place
 updates, shared standard-diff construction and word decorations.
+
+### Panel composition
+
+`src/viewer/chrome.rs` owns the shared panel shell and header geometry. History,
+Files, the comparison workspace and both evolution timelines compose a header,
+flexible body and optional footer through that shell. It is a GPUI `RenderOnce`
+component over ordinary elements, without panel-specific state or commands.
+
+Bodies retain their existing scroll ownership: virtualized history/tree lists,
+Fluid editors and the unified diff widget must not acquire an outer scroll view.
+The comparison shell preserves body-before-caption prepaint ordering for sticky
+overview captions. Panel state, resize/docking and navigation remain with their
+existing owners.
