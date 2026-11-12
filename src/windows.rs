@@ -232,6 +232,7 @@ pub(crate) fn open_with_disposition(
             ..Default::default()
         };
         let (window, viewer) = gpui::open_window(options, cx, |window, cx| {
+            crate::appearance::watch_window(window, cx);
             cx.new(|cx| Viewer::new(arguments.clone(), settings, layout, window, cx))
         })
         .map_err(|error| format!("Could not open the viewer window: {error}"))?;

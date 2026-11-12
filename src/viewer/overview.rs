@@ -444,6 +444,7 @@ impl Viewer {
         let root = loaded.root.clone();
         let repository = self.arguments.diff.is_none();
         let diff = Diff::new(&loaded.state)
+            .colors(crate::appearance::diff_colors(cx))
             .header_context_menu(move |file, menu, _, _| {
                 let target = context_menu::FileTarget::new(
                     source.clone(),

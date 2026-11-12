@@ -10,10 +10,12 @@ per-repository interface-persistence setting.
 
 ## Files and folders
 
-File-list and directory-tree rows offer Open file diff, Copy file name, Copy
-relative path, Copy working-tree path, and Reveal working-tree location. Folder
-rows also expand/collapse their entire subtree. Right-clicking preserves the
-file currently displayed until an explicit Open action is chosen.
+File-list and directory-tree rows group Open file and Reveal in Finder (or
+Reveal in file manager) separately from Copy name, Copy relative path and Copy
+path. Copy path refers to the local working tree. Folder rows add Expand all and
+Collapse all for that folder's entire subtree. Right-clicking preserves the open
+file until an explicit Open action is chosen. Comparison-wide commands remain
+in toolbar/panel/history menus rather than every file/folder row menu.
 
 The files header/overflow offers list/tree mode, changed/all scope,
 Reveal active file in sidebar, and Collapse/Expand all folders. Folding includes

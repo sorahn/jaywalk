@@ -43,7 +43,14 @@ to the original branch comparison. **Overview** returns from an open file to the
 overview of the current comparison. Back and Forward retrace views you visited
 in this window, including comparison, file, and reading position where possible.
 
-The file pane offers list and tree modes. Tree mode can show changed files or all
+The file pane offers list and tree modes. Vertical indent guides trace ancestor
+folders; open/closed folder icons replace disclosure carets, and clicking a folder
+row toggles it. File-type icons share the bundled icon catalog and syntax filename
+associations, with generic fallback for unknown types. Icons and guides are live
+settings. The active list/tree and file-evolution header icons use the live
+`ui.accent_color` theme accent instead of a selected background. When switching
+to All files, known folder expansion is preserved and new directories start
+collapsed; Changed files initially reveals its folders. Tree mode can show changed files or all
 files in the selected revision. Cmd+P searches any file in that revision, including
 unchanged files. The flat list stays focused on changed files. Opening an unchanged file shows one
 read-only, syntax-highlighted document without change markers; it uses inline
@@ -102,7 +109,12 @@ while calculating them, without updating the working copy or recording an operat
 
 ## References and refresh
 
-Reference badges identify local branches/bookmarks and remote references. Hover
+Reference badges identify local branches/bookmarks and remote references. Bordered,
+blue branch badges mark local refs; green cloud badges mark remote-only refs and
+retain the remote-qualified name. A local badge also shows a cloud when the commit
+has visible remote refs. The +N count includes other visible refs at that commit;
+hover summaries explicitly label each ref as Local or Remote. Icons distinguish
+the kinds without relying only on color. Hover
 for full names, click a badge for its references, or use the history header's
 reference control to browse all references. Remote history and label visibility
 can be hidden independently; hiding labels does not remove history.
@@ -178,3 +190,49 @@ In fluid view, drag the short, full-width thumb in the center gutter to scroll b
 through the comparison. The up–down cursor marks the grabbable gutter; clicking above or
 below the thumb moves to that position. Each pane’s own scrollbar remains
 independent. Mouse-wheel scrolling over either pane or the gutter stays linked.
+
+Jaywalk follows system appearance by default. Set `ui.appearance` to `"light"`,
+`"dark"` or `"system"`; changes apply live across all windows, including source
+highlighting. Configure the application highlight color with a shared hex string
+or separate light/dark values:
+
+```toml
+[ui]
+appearance = "system"
+accent_color = { light = "#0066b8", dark = "#3794ff" }
+```
+
+The accent updates active icons, standard control fills, focus and selection.
+Icon-only toggles show their active color without a persistent filled background.
+Repository status, diff and graph colors keep their separate meanings with
+readable light/dark palettes. See [settings](settings.md#ui).
+
+Customize diff marks/connectors, row-background hues and word highlights under
+`[diff.colors]`. Like the accent, each color accepts one shared hex value or a
+light/dark pair. Edits recolor open viewers and overviews live; source syntax and
+file-list status colors keep their own palettes. See [diff colors](settings.md#diffcolors).
+
+The native title bar identifies the repository or file comparison. One comparison
+header holds back/forward navigation, the current comparison and its dropdown,
+evolution review modes when applicable, and Overview/Refresh icon actions.
+All changes, Current work and branch/base selection live in the comparison
+dropdown. Find File lives in the Files header; when that panel is hidden its
+search button appears in the comparison header. Cmd+P/Ctrl+P remains available
+in either layout and searches the entire repository.
+
+History, Files, Change evolution and File evolution share the same compact
+panel-header typography, aligned edge spacing and grouped controls. Persistent
+icon toggles use the application accent instead of a selected background.
+
+Panel visibility buttons sit at the outer footer edge matching each sidebar’s
+configured side; hidden panels keep their button for reopening. The bottom-dock
+button appears at the right edge only when a timeline is placed in the real
+bottom dock; it toggles only those docked timelines. File diff controls stay
+in the footer, aligned
+with the diff workspace’s right edge as sidebars resize, move or close. With
+no right sidebar, they sit directly beside the outer panel buttons.
+
+History and Files have compact info footers, with their own evolution toggle at
+the bottom right. History shows its revision count/status; Files shows changed
+file counts, or total/changed counts in the all-files tree, plus a retained-preview
+count when applicable. Each evolution toggle controls only its own timeline.

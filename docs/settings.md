@@ -125,19 +125,42 @@ section header, for example `[editor]` followed by `font_size = 14`.
 
 ### `ui`
 
+Appearance and accent share the existing application-wide, last-successfully-applied config-source policy: opening another config or successfully editing its UI settings updates the shared theme for every window. It is not a per-repository interface override.
+
 | Setting | Default | Meaning and allowed values |
 | --- | --- | --- |
+| `ui.appearance` | `"system"` | `"light"`, `"dark"` or `"system"`. Updates all windows, editor syntax and diff palettes live. System follows OS appearance changes; explicit modes override this app’s native window appearance where supported, without changing system preferences. |
+| `ui.accent_color` | `{ light = "#0066b8", dark = "#3794ff" }` | Application-wide accent: a shared `#RRGGBB` string or a light/dark pair (see below), case-insensitive hex. Updates active icons, primary controls (including checkboxes/switches), focus rings, links and selection tints live in all windows; filled controls choose a light/dark foreground. Git statuses, diff colors and graph lanes stay semantic. Invalid edits retain the last valid config. |
 | `ui.loading_delay_ms` | `200` | Delay before showing loading feedback; 0–5000. `0` shows it immediately; fast operations never expose a loading label. |
 | `ui.row_height` | `26` | Shared minimum for history, tree and list rows; 12–160. Per-view overrides below take precedence; fonts establish a readable minimum. |
 | `ui.panel_header_height` | `30` | Minimum panel-header height; 24–120. |
-| `ui.toolbar_height` | `36` | Minimum main-toolbar height; 28–120. |
-| `ui.footer_height` | `28` | Minimum footer height; 20–120. Effective height also fits its control height and at least 1.5 × footer font size. |
+| `ui.toolbar_height` | `28` | Minimum review-control height within the single comparison header; 28–120. The header fits the greater of this value, `ui.comparison_bar_height`, and its font minimum. No separate application-toolbar row. Applies live. |
+| `ui.footer_height` | `28` | Minimum application footer height; 20–120. Also sets the minimum History/Files footer height, which grows to fit their own font and evolution control. Effective height also fits its control height and at least 1.5 × footer font size. |
 | `ui.footer_font_size` | `12` | Footer label font size; 8–48. |
 | `ui.footer_control_height` | `22` | Footer control height; 16–80. |
-| `ui.comparison_bar_height` | `36` | Reserved comparison/evolution toolbar height; 24–120. Grows to fit the UI font. |
+| `ui.comparison_bar_height` | `30` | Reserved comparison/evolution toolbar height, including compact back/forward controls; 24–120. Grows to fit the UI font. |
 | `ui.font_size` | `16` | Application control font size; 8–48. Does not replace independent source/sidebar sizes. |
 | `ui.ligatures` | `true` | Enable ligatures and contextual alternates for application text. |
 | `ui.font_family` | omitted | Installed family name; defaults to the theme/system UI font. Must be nonempty when supplied. |
+
+All configurable colors use the same format. A string applies in both modes;
+a table selects a color for the active appearance. Omitted table members inherit
+their shipped defaults. These examples are alternatives:
+
+```toml
+[ui]
+appearance = "system"
+accent_color = { light = "#0066b8", dark = "#3794ff" }
+```
+
+```toml
+[ui]
+accent_color = "#8b5cf6"
+```
+
+Configurable colors include `ui.accent_color` and every entry in `diff.colors`. Opacity settings remain
+numbers and apply to their theme-derived colors. Invalid colors or appearance
+values retain the last valid settings and report a configuration error.
 
 ### `editor`
 
@@ -236,6 +259,10 @@ origin = true
 | --- | --- | --- |
 | `files.default_view` | `"list"` | `"list"` or `"tree"`. Both use directory-first order; list mode omits directory rows. |
 | `files.tree_scope` | `"changed"` | `"changed"` or `"all"`. Filters tree mode only. `all` includes unchanged files in the selected comparison/revision; Cmd+P searches the entire repository regardless of this filter. |
+| `files.indent_guides` | `true` | Show vertical ancestor guides in the directory tree. Applies live. |
+| `files.indent_guide_offset` | `-2` | Horizontal guide offset from ancestor icon centers in pixels; −48–48. Negative moves left. Applies live. |
+| `files.indent_guide_opacity` | `0.12` | Guide opacity using the theme foreground; 0–1. Applies live. |
+| `files.file_icons` | `true` | File-type glyphs in list/tree views; unknown types use a generic file. Folder icons always indicate open/closed state. Applies live. |
 | `files.indent_width` | `12` | Directory-tree indentation per level; 8–48. |
 | `files.compact_paths` | `true` | Condense directory components in unwrapped flat-list labels as space runs out; filenames remain intact. |
 | `files.list_word_wrap` | `false` | Wrap flat-list paths instead of scrolling them horizontally. Tree rows always remain single-line. |
@@ -247,6 +274,41 @@ origin = true
 | Setting | Default | Meaning and allowed values |
 | --- | --- | --- |
 | `diff.default_view` | `"fluid"` | `"inline"`, `"side_by_side"` or `"fluid"` for the file viewer. Overview always uses unified/inline diff. Automatic single-column presentation for unchanged/conflicted files does not replace the saved preference. |
+
+### `diff.colors`
+
+Application-wide palette, live in every window, using the same config-source
+policy as `ui.appearance`. Every entry accepts a shared `"#RRGGBB"` or
+`{ light = "#RRGGBB", dark = "#RRGGBB" }`; omitted mode members inherit shipped
+defaults. Colors are case-insensitive. Invalid edits keep the previous palette.
+These settings do not change application accent, syntax foregrounds, or file-list
+Git status colors. They apply to the file viewer and overview without replacing
+editor state or reloading repository data.
+
+| Setting | Light default | Dark default | Use |
+| --- | --- | --- | --- |
+| `diff.colors.added` | `"#22863a"` | `"#4ec96e"` | Added line signs/bars, Fluid addition connectors and empty-side markers; current-side conflict tint. |
+| `diff.colors.removed` | `"#cf222e"` | `"#f85149"` | Removed line signs/bars, Fluid deletion connectors and empty-side markers. |
+| `diff.colors.modified` | `"#0969da"` | `"#3794ff"` | Fluid replacement connectors/markers; incoming-side conflict tint. Inline and standard split views represent replacements as removed/added lines. |
+| `diff.colors.added_background` | `"#22863a"` | `"#4ec96e"` | Added-row background hue. |
+| `diff.colors.removed_background` | `"#cf222e"` | `"#f85149"` | Removed-row background hue. |
+| `diff.colors.modified_background` | `"#0969da"` | `"#3794ff"` | Fluid replacement-row background hue. |
+| `diff.colors.word_added` | `"#22863a"` | `"#4ec96e"` | Added-word background hue. |
+| `diff.colors.word_removed` | `"#cf222e"` | `"#f85149"` | Removed-word background hue. |
+| `diff.colors.conflict_base` | `"#57606a"` | `"#a4b4c2"` | Conflict ancestor/base tint in the standard diff widget. |
+
+The viewer applies translucent emphasis: row backgrounds are subdued, changed
+words stronger, and active Fluid changes brighter. Hue overrides retain that
+emphasis and the one-pixel connector width. Text selection follows the application
+accent. Context rows, separators and hover surfaces follow the light/dark theme.
+
+```toml
+[diff.colors]
+# Same color in light and dark:
+added = "#32a852"
+# Mode-specific colors; all other entries inherit defaults:
+removed = { light = "#b91c1c", dark = "#fb7185" }
+```
 
 ### `diff.before`
 

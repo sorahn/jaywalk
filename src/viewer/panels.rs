@@ -159,14 +159,13 @@ impl Viewer {
     }
 
     fn render_workspace(&self, cx: &mut Context<Self>) -> AnyElement {
-        let workspace = div()
-            // Compose the comparison caption after the diff has published its
-            // current scroll position, without waiting for another frame.
-            .with_dynamic_prepaint_order(|_, _| [1, 0].into_iter().collect())
-            .v_flex()
-            .size_full()
-            .child(self.render_evolution_comparison(cx))
-            .child(div().flex_1().min_h_0().child(self.render_comparison(cx)));
+        let workspace = super::chrome::Panel::new(
+            "comparison-panel",
+            self.render_comparison_header(cx),
+            // The caption reads scroll geometry published by the body this frame.
+            div().with_dynamic_prepaint_order(|_, _| [1, 0].into_iter().collect()),
+        )
+        .child(self.render_comparison(cx));
         if !self.bottom_visible(false) && !self.bottom_visible(true) {
             return workspace.into_any_element();
         }
@@ -302,6 +301,32 @@ impl Viewer {
                     .child(self.render_evolution(evolution::EvolutionKind::File, cx)),
             )
             .into_any_element()
+    }
+
+    pub(super) fn right_sidebar_width(&self, cx: &App) -> f32 {
+        let columns = self.columns();
+        let sizes = self.panels.sidebars.read(cx).sizes();
+        let workspace = columns
+            .iter()
+            .position(Option::is_none)
+            .expect("every layout contains the workspace");
+        columns
+            .iter()
+            .enumerate()
+            .skip(workspace + 1)
+            .map(|(index, panel)| {
+                let history = *panel == Some(PanelId::History);
+                if sizes.len() == columns.len() {
+                    sizes
+                        .get(index)
+                        .map(|size| f32::from(*size))
+                        .filter(|size| *size > 0.)
+                } else {
+                    None
+                }
+                .unwrap_or_else(|| self.sidebar_width(history))
+            })
+            .sum()
     }
 
     pub(super) fn initial_code_width(&self, before: bool) -> Pixels {

@@ -1,5 +1,6 @@
 //! Visited comparisons and files, independent of graph/file ordering.
 use super::*;
+use gpui::component::Sizable;
 use jaywalk::navigation::History;
 use jaywalk::repository_file::FileEntry;
 
@@ -261,7 +262,14 @@ impl Viewer {
 
 impl Viewer {
     pub(super) fn render_navigation_buttons(&self, cx: &mut Context<Self>) -> AnyElement {
-        let mut buttons = div().h_flex().items_center();
+        let mut buttons = div()
+            .h_flex()
+            .items_center()
+            .flex_shrink_0()
+            .h_full()
+            .px_1()
+            .border_r_1()
+            .border_color(gpui::component::Theme::global(cx).border);
         for (id, forward, icon, command, enabled) in [
             (
                 "view-back",
@@ -285,6 +293,7 @@ impl Viewer {
             buttons = buttons.child(
                 Button::new(id)
                     .ghost()
+                    .small()
                     .compact()
                     .icon(icon)
                     .disabled(!enabled)

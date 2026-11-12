@@ -1,7 +1,5 @@
 use super::*;
-use gpui::component::Sizable;
 use gpui::component::menu::ContextMenuExt as _;
-use gpui::prelude::FluentBuilder;
 use jaywalk::history::History;
 
 const GRAPH_MARGIN: f32 = 10.;
@@ -59,11 +57,15 @@ fn history_row(
         .child(
             canvas(
                 |_, _, _| (),
-                move |bounds, _, window, _| {
+                move |bounds, _, window, cx| {
                     let graph = &history.graph[index];
                     let x = |lane| bounds.left() + px(GRAPH_MARGIN + lane as f32 * spacing);
                     let middle = bounds.center().y;
-                    let palette = [0x5b9bd5, 0x7dc67c, 0xd9a066, 0xb18add, 0x66c4c7];
+                    let palette = if gpui::component::Theme::global(cx).is_dark() {
+                        [0x5b9bd5, 0x7dc67c, 0xd9a066, 0xb18add, 0x66c4c7]
+                    } else {
+                        [0x0969da, 0x1a7f37, 0x9a6700, 0x8250df, 0x0e7490]
+                    };
                     for stroke in &graph.strokes {
                         paint_graph_stroke(
                             stroke,
@@ -121,6 +123,36 @@ fn history_row(
 }
 
 impl Viewer {
+    fn render_history_footer(&self, cx: &Context<Self>) -> AnyElement {
+        let status = if let Some(error) = &self.references.error {
+            error.clone()
+        } else if let Some(history) = self
+            .repository
+            .ready()
+            .and_then(|session| session.history.as_ref().ok())
+        {
+            let count = history.revisions.len();
+            if self.selected_history_commit().is_some_and(|commit| {
+                !history
+                    .revisions
+                    .iter()
+                    .any(|revision| revision.commit_id == commit)
+            }) {
+                format!("{count} revisions · inspected revision outside graph")
+            } else {
+                format!("{count} recorded revisions")
+            }
+        } else {
+            String::new()
+        };
+        self.panel_footer(status, self.settings.panels.history.font.size, cx)
+            .children(
+                self.supports_evolution()
+                    .then(|| self.render_evolution_toggle(evolution::EvolutionKind::Change, cx)),
+            )
+            .into_any_element()
+    }
+
     pub(super) fn render_history(&self, cx: &mut Context<Self>) -> AnyElement {
         let theme = gpui::component::Theme::global(cx);
         let surface = theme.sidebar;
@@ -131,7 +163,8 @@ impl Viewer {
         );
         let selection = theme.list_active;
         let hover = theme.secondary_hover;
-        let mut panel = div().v_flex().size_full().bg(surface).child(
+        let mut panel = super::chrome::Panel::new(
+            "history-panel",
             self.panel_header(
                 jaywalk::panel_layout::PanelId::History,
                 self.settings.panels.history.font.size,
@@ -142,28 +175,24 @@ impl Viewer {
                     .flex_1()
                     .min_w_0()
                     .truncate()
-                    .text_size(px(self.settings.panels.history.font.size))
                     .child(if self.supports_evolution() {
                         "JJ HISTORY"
                     } else {
                         "GIT HISTORY"
                     }),
             )
-            .child(self.reference_controls(cx))
-            .child(self.remote_controls(cx))
-            .child(self.panel_menu(jaywalk::panel_layout::PanelId::History))
             .child(
-                Button::new("toggle-evolution")
-                    .ghost()
-                    .small()
-                    .compact()
-                    .icon(IconName::GitCompareArrows)
-                    .when(!self.supports_evolution(), |button| button.hidden())
-                    .selected(self.evolution.visible)
-                    .tooltip("Show change evolution")
-                    .on_click(cx.listener(|this, _, window, cx| this.toggle_evolution(window, cx))),
+                div()
+                    .h_flex()
+                    .items_center()
+                    .gap_1()
+                    .child(self.panel_menu(jaywalk::panel_layout::PanelId::History))
+                    .child(self.reference_controls(cx))
+                    .child(self.remote_controls(cx)),
             ),
-        );
+            div().bg(surface),
+        )
+        .footer(self.render_history_footer(cx));
         let session =
             match &self.repository {
                 LoadState::Loaded(session) => session,
@@ -206,16 +235,6 @@ impl Viewer {
             ComparisonScope::Evolution { anchor, .. } => Some(anchor.clone()),
         };
         let count = history.revisions.len();
-        let status = if let Some(error) = &self.references.error {
-            error.clone()
-        } else if self
-            .selected_history_commit()
-            .is_some_and(|commit| !history.revisions.iter().any(|r| r.commit_id == commit))
-        {
-            format!("{count} revisions · inspected revision outside graph")
-        } else {
-            format!("{count} recorded revisions")
-        };
         let viewer = cx.entity().downgrade();
         let height = self.settings.row_height(
             self.settings.history.row_height,
@@ -226,7 +245,7 @@ impl Viewer {
         let labels = self.references.labels;
         let badge_width = self.settings.history.reference_badge_width;
         let visibility = self.references.visibility.clone();
-        let rows = uniform_list("history-rows", count, move |visible, _, _| {
+        let rows = uniform_list("history-rows", count, move |visible, _, cx| {
             let width = GRAPH_MARGIN * 2.
                 + (history.visible_lane_count(visible.clone()) - 1) as f32 * spacing;
             visible
@@ -260,6 +279,8 @@ impl Viewer {
                                 &visibility,
                                 viewer.clone(),
                                 badge_width,
+                                font_size,
+                                cx,
                             )
                         } else {
                             None
@@ -270,15 +291,7 @@ impl Viewer {
         })
         .size_full()
         .track_scroll(&self.history_scroll);
-        panel = panel.child(div().flex_1().min_h_0().child(rows)).child(
-            div()
-                .px_3()
-                .py_1()
-                .text_size(px(self.settings.panels.history.font.size * 0.85))
-                .text_color(rgb(0x9baab4))
-                .truncate()
-                .child(status),
-        );
+        panel = panel.child(div().flex_1().min_h_0().child(rows));
         panel.into_any_element()
     }
 }

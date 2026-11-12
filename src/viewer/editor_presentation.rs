@@ -56,7 +56,7 @@ impl PreparedFile {
 
 fn word_decorations(
     ranges: &[std::ops::Range<usize>],
-    color: u32,
+    color: Hsla,
 ) -> Vec<gpui::base::input::TextDecoration> {
     ranges
         .iter()
@@ -65,7 +65,7 @@ fn word_decorations(
             gpui::base::input::TextDecoration::new(
                 range,
                 HighlightStyle {
-                    background_color: Some(rgba(color).into()),
+                    background_color: Some(color),
                     ..Default::default()
                 },
             )
@@ -74,6 +74,27 @@ fn word_decorations(
 }
 
 impl Viewer {
+    pub(super) fn refresh_word_colors(&self, cx: &mut Context<Self>) {
+        let Some(code) = self.code() else {
+            return;
+        };
+        let colors = crate::appearance::diff_colors(cx);
+        for (collection, ranges, color) in [
+            (
+                &code.decorations[0],
+                &code.model.before_words,
+                colors.word_removed,
+            ),
+            (
+                &code.decorations[1],
+                &code.model.after_words,
+                colors.word_added,
+            ),
+        ] {
+            collection.set(word_decorations(ranges, color.opacity(85. / 255.)), cx);
+        }
+    }
+
     pub(super) fn mount_file_editors(
         &mut self,
         prepared: PreparedFile,
@@ -104,9 +125,18 @@ impl Viewer {
                 editor.set_highlighter_factory(syntax.into_factory(), cx)
             });
         }
+        let colors = crate::appearance::diff_colors(cx);
         let decorations = [
-            (&before, &prepared.model.before_words, 0xf8514955),
-            (&after, &prepared.model.after_words, 0x4ec96e55),
+            (
+                &before,
+                &prepared.model.before_words,
+                colors.word_removed.opacity(85. / 255.),
+            ),
+            (
+                &after,
+                &prepared.model.after_words,
+                colors.word_added.opacity(85. / 255.),
+            ),
         ]
         .map(|(state, ranges, color)| {
             state.update(cx, |editor, cx| {
@@ -161,16 +191,17 @@ impl Viewer {
         let code = self
             .code()
             .expect("updating text keeps its editor entities");
+        let colors = crate::appearance::diff_colors(cx);
         for (collection, ranges, color) in [
             (
                 &code.decorations[0],
                 &prepared.model.before_words,
-                0xf8514955,
+                colors.word_removed.opacity(85. / 255.),
             ),
             (
                 &code.decorations[1],
                 &prepared.model.after_words,
-                0x4ec96e55,
+                colors.word_added.opacity(85. / 255.),
             ),
         ] {
             collection.set(word_decorations(ranges, color), cx);

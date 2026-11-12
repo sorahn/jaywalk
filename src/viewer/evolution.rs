@@ -302,6 +302,43 @@ impl Viewer {
         self.save_layout(cx);
     }
 
+    pub(super) fn render_evolution_toggle(
+        &self,
+        kind: EvolutionKind,
+        cx: &Context<Self>,
+    ) -> AnyElement {
+        let (id, label, active, icon) = match kind {
+            EvolutionKind::Change => (
+                "toggle-evolution",
+                "Change evolution",
+                self.evolution.visible,
+                gpui::component::Icon::new(IconName::GitFork),
+            ),
+            EvolutionKind::File => (
+                "file-evolution-toggle",
+                "File evolution",
+                self.file_evolution.visible,
+                gpui::component::Icon::default().data(include_bytes!(
+                    "../../assets/icons/diagram-flow-vertical.svg"
+                )),
+            ),
+        };
+        Button::new(id)
+            .ghost()
+            .small()
+            .compact()
+            .flex_shrink_0()
+            .icon(crate::appearance::active_icon(icon, active, cx))
+            .toggled(active)
+            .tooltip(label)
+            .on_click(
+                cx.listener(move |this, _, window, cx| {
+                    this.toggle_evolution_panel(kind, window, cx)
+                }),
+            )
+            .into_any_element()
+    }
+
     pub(super) fn toggle_evolution(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.toggle_evolution_panel(EvolutionKind::Change, window, cx);
     }
@@ -719,34 +756,40 @@ impl Viewer {
         }
     }
 
-    pub(super) fn render_evolution_comparison(&self, cx: &mut Context<Self>) -> AnyElement {
+    pub(super) fn render_comparison_header(&self, cx: &mut Context<Self>) -> AnyElement {
         let presentation = self.evolution_header_presentation();
-        let mut bar = div()
-            .h_flex()
-            .items_center()
-            .justify_between()
-            .gap_2()
-            .px_3()
-            .h(px(self
-                .settings
-                .ui
-                .comparison_bar_height
-                .max(self.settings.ui.font_size * 1.75 + 8.)))
-            .flex_shrink_0()
-            .overflow_hidden()
-            .bg(gpui::component::Theme::global(cx).sidebar)
-            .child(
-                div()
-                    .flex_1()
-                    .min_w_0()
-                    .text_xs()
-                    .truncate()
-                    .child(self.overview_comparison_label(presentation.label)),
-            );
+        let mut bar =
+            div()
+                .h_flex()
+                .items_stretch()
+                .h(px(self
+                    .settings
+                    .ui
+                    .comparison_bar_height
+                    .max(self.settings.ui.toolbar_height)
+                    .max(self.settings.ui.font_size * 1.5 + 4.)))
+                .flex_shrink_0()
+                .overflow_hidden()
+                .border_b_1()
+                .border_color(gpui::component::Theme::global(cx).border)
+                .bg(gpui::component::Theme::global(cx).sidebar)
+                .child(self.render_navigation_buttons(cx))
+                .child(
+                    div()
+                        .h_flex()
+                        .items_center()
+                        .h_full()
+                        .px_2()
+                        .flex_1()
+                        .min_w_0()
+                        .child(self.render_review_source(
+                            self.overview_comparison_label(presentation.label),
+                        )),
+                );
         if let Some(controls) = presentation.controls {
             let kind = controls.kind;
             let index = controls.index;
-            let mut modes = div().h_flex().items_center().gap_1();
+            let mut modes = div().h_flex().items_center().px_1().gap_1();
             for (id, mode, label, tooltip) in [
                 (
                     "evolution-patch",
@@ -783,6 +826,7 @@ impl Viewer {
             }
             bar = bar.child(modes);
         }
+        bar = bar.child(self.render_review_actions(cx));
         let focus = self.focus.clone();
         let overview = self.selected_file.is_none();
         let view = self.view.effective();
@@ -822,31 +866,68 @@ impl Viewer {
         let selection = theme.list_active;
         let hover = theme.secondary_hover;
         let previous_surface = theme.secondary;
-        let mut panel = div()
-            .id(("evolution-panel", kind.id()))
-            .v_flex().size_full().bg(surface)
-            .child(div().v_flex()
-                .child(self.panel_header(match kind { EvolutionKind::Change => jaywalk::panel_layout::PanelId::ChangeEvolution, EvolutionKind::File => jaywalk::panel_layout::PanelId::FileEvolution }, font_size, cx)
-                    .child(div().flex_1().min_w_0().truncate().text_size(px(font_size * 0.85)).child(match kind {
-                        EvolutionKind::Change => "CHANGE EVOLUTION",
-                        EvolutionKind::File => "FILE EVOLUTION",
-                    }))
-                    .child(self.panel_menu(match kind {
-                        EvolutionKind::Change => jaywalk::panel_layout::PanelId::ChangeEvolution,
-                        EvolutionKind::File => jaywalk::panel_layout::PanelId::FileEvolution,
-                    }))
-                    .child(Button::new("close-evolution").ghost().small().compact().icon(IconName::X)
-                        .tooltip("Hide evolution")
-                        .on_click(cx.listener(move |this, _, window, cx| this.toggle_evolution_panel(kind, window, cx)))))
-                .child(div().h_flex().gap_1().px_3().py_1()
-                    .child(Button::new("group-repeats").ghost().small().compact().label("Group")
-                        .selected(state.collapse_repeats)
-                        .tooltip("Group consecutive matching entries")
-                        .on_click(cx.listener(move |this, _, _, cx| this.toggle_repeat_grouping(kind, cx))))
-                    .child(Button::new("unchanged-rebases").ghost().small().compact().label("Rebases")
-                        .selected(state.show_unchanged_rebases)
-                        .tooltip("Show unchanged rebases (current and selected versions stay visible)")
-                        .on_click(cx.listener(move |this, _, _, cx| this.toggle_unchanged_rebases(kind, cx))))));
+        let panel_id = match kind {
+            EvolutionKind::Change => jaywalk::panel_layout::PanelId::ChangeEvolution,
+            EvolutionKind::File => jaywalk::panel_layout::PanelId::FileEvolution,
+        };
+        let header = self
+            .panel_header(panel_id, font_size, cx)
+            .child(div().flex_1().min_w_0().truncate().child(match kind {
+                EvolutionKind::Change => "CHANGE EVOLUTION",
+                EvolutionKind::File => "FILE EVOLUTION",
+            }))
+            .child(
+                div()
+                    .h_flex()
+                    .items_center()
+                    .gap_1()
+                    .child(self.panel_menu(panel_id))
+                    .child(
+                        Button::new("close-evolution")
+                            .ghost()
+                            .small()
+                            .compact()
+                            .icon(IconName::X)
+                            .tooltip("Hide evolution")
+                            .on_click(cx.listener(move |this, _, window, cx| {
+                                this.toggle_evolution_panel(kind, window, cx)
+                            })),
+                    ),
+            );
+        let filters = div()
+            .h_flex()
+            .gap_1()
+            .px(px(super::chrome::PANEL_INSET))
+            .py_1()
+            .child(
+                Button::new("group-repeats")
+                    .ghost()
+                    .small()
+                    .compact()
+                    .label("Group")
+                    .selected(state.collapse_repeats)
+                    .tooltip("Group consecutive matching entries")
+                    .on_click(
+                        cx.listener(move |this, _, _, cx| this.toggle_repeat_grouping(kind, cx)),
+                    ),
+            )
+            .child(
+                Button::new("unchanged-rebases")
+                    .ghost()
+                    .small()
+                    .compact()
+                    .label("Rebases")
+                    .selected(state.show_unchanged_rebases)
+                    .tooltip("Show unchanged rebases (current and selected versions stay visible)")
+                    .on_click(
+                        cx.listener(move |this, _, _, cx| this.toggle_unchanged_rebases(kind, cx)),
+                    ),
+            );
+        let mut panel = super::chrome::Panel::new(
+            ("evolution-panel", kind.id()),
+            div().v_flex().child(header).child(filters),
+            div().bg(surface),
+        );
         let (evolution, file_path, scroll) = match &state.state {
             TimelineState::Unselected => {
                 return panel
@@ -923,7 +1004,7 @@ impl Viewer {
                     .px_3()
                     .pb_1()
                     .text_size(px(font_size * 0.85))
-                    .text_color(rgb(0xb8c6d9))
+                    .text_color(gpui::component::Theme::global(cx).muted_foreground)
                     .truncate()
                     .child(context)
                     .tooltip(move |window, cx| Tooltip::new(tooltip.clone()).build(window, cx)),
@@ -934,7 +1015,7 @@ impl Viewer {
                     .px_3()
                     .pb_1()
                     .text_size(px(font_size * 0.85))
-                    .text_color(rgb(0xb8c6d9))
+                    .text_color(gpui::component::Theme::global(cx).muted_foreground)
                     .child("Timeline · changes since previous"),
             );
         }
@@ -972,6 +1053,7 @@ impl Viewer {
         let grouping_enabled = state.collapse_repeats;
         let operation = evolution.operation.clone();
         let menu_focus = self.focus.clone();
+        let muted_foreground = gpui::component::Theme::global(cx).muted_foreground;
         let rows = uniform_list(("evolution-rows", kind.id()), presentation.rows.len(), move |visible, _, _| {
             let width = 20. + (presentation.graph.visible_lane_count(visible.clone()) - 1) as f32 * spacing;
             visible
@@ -1065,14 +1147,14 @@ impl Viewer {
                         .child(
                             canvas(
                                 |_, _, _| (),
-                                move |bounds, _, window, _| {
+                                move |bounds, _, window, cx| {
                                     let row = &graph.graph.graph[row_index];
                                     let x = |lane| bounds.left() + px(10. + lane as f32 * spacing);
                                     let middle = bounds.center().y;
                                     let color = rgb(if row_selected || previous {
-                                        0x9dcaff
+                                        if gpui::component::Theme::global(cx).is_dark() { 0x9dcaff } else { 0x0969da }
                                     } else {
-                                        0x7797bd
+                                        if gpui::component::Theme::global(cx).is_dark() { 0x7797bd } else { 0x57606a }
                                     });
                                     for stroke in &row.strokes {
                                         super::history::paint_graph_stroke(stroke,bounds,spacing,color.into(),1.,window);
@@ -1132,7 +1214,7 @@ impl Viewer {
                                 .child(
                                     div()
                                         .text_size(px(font_size * 0.85))
-                                        .text_color(rgb(0xa6b5ca))
+                                        .text_color(muted_foreground)
                                         .truncate()
                                         .child(detail),
                                 ),
@@ -1158,7 +1240,7 @@ impl Viewer {
             .px_3()
             .py_2()
             .text_size(px(font_size * 0.85))
-            .text_color(rgb(0xb8c6d9))
+            .text_color(gpui::component::Theme::global(cx).muted_foreground)
             .child(format!(
                 "{} versions · {} {} · {} hidden{}",
                 count,
@@ -1189,19 +1271,23 @@ impl Viewer {
         if version.divergent {
             details = details.child(
                 div()
-                    .text_color(rgb(0xe5c07b))
+                    .text_color(gpui::component::Theme::global(cx).warning)
                     .child("Other current versions exist"),
             );
         }
         if version.conflict {
-            details = details.child(div().text_color(rgb(0xe58a83)).child("Contains conflicts"));
+            details = details.child(
+                div()
+                    .text_color(gpui::component::Theme::global(cx).danger)
+                    .child("Contains conflicts"),
+            );
         }
         if version.hidden {
             details = details.child(div().child("Historical / hidden revision"));
         }
         panel
             .child(div().flex_1().min_h_0().child(rows))
-            .child(details)
+            .footer(details)
             .into_any_element()
     }
 }

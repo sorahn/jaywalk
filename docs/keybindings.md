@@ -61,7 +61,7 @@ For example, `open_keybindings = ["secondary-k secondary-s"]` inside `[keybindin
 
 | Action | macOS shortcut | Alternatives |
 | --- | --- | --- |
-| Back / forward through visited views | Cmd+Option+Left / Cmd+Option+Right | Mouse navigation buttons; toolbar arrows |
+| Back / forward through visited views | Cmd+Option+Left / Cmd+Option+Right | Mouse navigation buttons; comparison-bar arrows |
 | Previous / next change | Cmd+Up / Cmd+Down | Option+Shift+F5 / Option+F5; Shift+F7 / F7 |
 | Previous / next file | Cmd+[ / Cmd+] | Option+Up / Option+Down |
 | Previous / next history entry | Cmd+Shift+[ / Cmd+Shift+] | Cmd+Option+Up / Cmd+Option+Down |

@@ -10,6 +10,28 @@ use std::collections::HashMap;
 
 use jaywalk::settings::{FileView as FileListMode, TreeScope};
 
+use super::chrome::PANEL_INSET;
+
+/// Canvas bounds start inside the row's indentation padding. Subtract the
+/// current depth before locating ancestor icon centers in window coordinates.
+fn ancestor_guide_positions(
+    content_left: f32,
+    depth: usize,
+    indent: f32,
+    icon_width: f32,
+    offset: f32,
+) -> impl Iterator<Item = f32> {
+    let root = content_left - depth as f32 * indent;
+    (0..depth).map(move |ancestor| root + ancestor as f32 * indent + icon_width / 2. + offset)
+}
+
+/// The canvas occupies the centered label content, which can be shorter than
+/// the fixed tree row. Extend guides to the row edges so adjacent segments join.
+fn guide_span(content: std::ops::Range<f32>, row_height: f32) -> std::ops::Range<f32> {
+    let center = (content.start + content.end) / 2.;
+    center - row_height / 2. ..center + row_height / 2.
+}
+
 pub(super) struct FileBrowser {
     focus: FocusHandle,
     pub(super) files: std::sync::Arc<[jaywalk::repository_file::FileEntry]>,
@@ -59,7 +81,17 @@ impl FileBrowser {
     }
 }
 
-fn file_style(status: &str) -> (&'static str, u32) {
+fn file_style(status: &str, dark: bool) -> (&'static str, u32) {
+    if !dark {
+        return match status {
+            "added" => ("A", 0x22863a),
+            "removed" => ("D", 0xc12e2a),
+            "renamed" => ("R", 0x0969da),
+            "copied" => ("C", 0x0969da),
+            "unchanged" => ("", 0x57606a),
+            _ => ("M", 0x8a6116),
+        };
+    }
     match status {
         "added" => ("A", 0x7dc67c),
         "removed" => ("D", 0xe58a83),
@@ -77,6 +109,7 @@ fn tree_items(
     width: &mut f32,
     glyph_width: f32,
     indent_width: f32,
+    expanded: bool,
 ) -> Vec<TreeItem> {
     nodes
         .into_iter()
@@ -94,12 +127,13 @@ fn tree_items(
                         width,
                         glyph_width,
                         indent_width,
+                        expanded,
                     );
                     (
                         name.clone(),
                         TreeItem::new(format!("dir:{path}"), name)
                             .children(children)
-                            .expanded(true),
+                            .expanded(expanded),
                     )
                 }
                 FileNode::File { index, name, path } => {
@@ -220,6 +254,7 @@ impl Viewer {
             &mut self.browser.tree_width,
             self.settings.panels.files.font.size * 0.5,
             self.settings.files.indent_width,
+            self.browser.scope == TreeScope::Changed,
         );
         preserve_expansion(&items, &self.browser.roots, &mut self.browser.expansion);
         let selected_tree = self.browser.tree.read(cx).selected_item().cloned();
@@ -352,6 +387,8 @@ impl Viewer {
             .then(|| self.reading_tree_target(cx))
             .flatten();
         let reading_tint = gpui::component::Theme::global(cx).secondary;
+        let dark = gpui::component::Theme::global(cx).is_dark();
+        let neutral = if dark { 0xa4b4c2 } else { 0x57606a };
         let files = self.browser.files.clone();
         let retained = self.browser.retained;
         let indices = self.browser.tree_indices.clone();
@@ -367,28 +404,42 @@ impl Viewer {
             .map(|comparison| (comparison.identity(), comparison.root.clone()));
         let focus = self.focus.clone();
         let repository = self.arguments.diff.is_none();
+        let icons = self.settings.files.file_icons;
+        let guides = self.settings.files.indent_guides;
+        let guide_offset = self.settings.files.indent_guide_offset;
+        let guide_color = gpui::component::Theme::global(cx)
+            .foreground
+            .opacity(self.settings.files.indent_guide_opacity);
         let tree = Tree::new(&self.browser.tree, move |_, entry, _, _, _| {
             let file_index = indices.get(&entry.item().id).copied();
             let temporary = file_index.is_some() && file_index == retained;
             let color = if temporary {
-                0xa4b4c2
+                neutral
             } else {
                 file_index
                     .and_then(|index| files.get(index))
-                    .map_or(0xa4b4c2, |file| {
-                        file_style(file.status().unwrap_or("unchanged")).1
+                    .map_or(neutral, |file| {
+                        file_style(file.status().unwrap_or("unchanged"), dark).1
                     })
             };
             let mut content = div().h_flex().items_center().gap_1().whitespace_nowrap();
-            if entry.is_folder() {
-                content = content.child(if entry.is_expanded() {
-                    IconName::ChevronDown
+            let icon = if entry.is_folder() {
+                Some(if entry.is_expanded() {
+                    IconName::FolderOpen
                 } else {
-                    IconName::ChevronRight
-                });
+                    IconName::Folder
+                })
+            } else if icons {
+                file_index
+                    .and_then(|index| files.get(index))
+                    .map(file_icons::file_icon)
             } else {
-                content = content.child(div().w(px(14.)).flex_shrink_0());
-            }
+                None
+            };
+            content =
+                content.child(div().w(px(font_size)).flex_shrink_0().children(
+                    icon.map(|icon| gpui::component::Icon::new(icon).size(px(font_size))),
+                ));
             content = content.child(
                 div()
                     .whitespace_nowrap()
@@ -396,16 +447,47 @@ impl Viewer {
                     .when(temporary, |label| label.italic())
                     .child(entry.item().label.clone()),
             );
+            let depth = entry.depth();
             ListItem::new(entry.item().id.clone())
                 .h(px(row_height))
                 .py_0()
                 .text_size(px(font_size))
-                .pl(px(entry.depth() as f32 * indent_width + 8.))
+                .pl(px(entry.depth() as f32 * indent_width + PANEL_INSET))
                 .text_color(rgb(color))
                 .when(
                     reading.as_deref() == Some(entry.item().id.as_ref()),
                     |row| row.bg(reading_tint),
                 )
+                .when(guides && depth > 0, |row| {
+                    row.child(
+                        canvas(
+                            |_, _, _| (),
+                            move |bounds, _, window, _| {
+                                let span = guide_span(
+                                    f32::from(bounds.top())..f32::from(bounds.bottom()),
+                                    row_height,
+                                );
+                                for x in ancestor_guide_positions(
+                                    f32::from(bounds.left()),
+                                    depth,
+                                    indent_width,
+                                    font_size,
+                                    guide_offset,
+                                ) {
+                                    window.paint_quad(fill(
+                                        Bounds::new(
+                                            point(px(x), px(span.start)),
+                                            size(px(1.), px(span.end - span.start)),
+                                        ),
+                                        guide_color,
+                                    ));
+                                }
+                            },
+                        )
+                        .absolute()
+                        .inset_0(),
+                    )
+                })
                 .child(content)
         })
         .context_menu(move |_, entry, menu, _, _| {
@@ -441,112 +523,129 @@ impl Viewer {
             .into_any_element()
     }
 
+    fn render_files_footer(&self, cx: &Context<Self>) -> AnyElement {
+        let files = self
+            .browser
+            .files
+            .iter()
+            .enumerate()
+            .filter(|(index, _)| Some(*index) != self.browser.retained);
+        let total = files.clone().count();
+        let changed = files
+            .filter(|(_, file)| file.status().is_some_and(|status| status != "unchanged"))
+            .count();
+        let mut label =
+            if self.browser.mode == FileListMode::Tree && self.browser.scope == TreeScope::All {
+                format!("{total} files · {changed} changed")
+            } else {
+                format!(
+                    "{changed} changed {}",
+                    if changed == 1 { "file" } else { "files" }
+                )
+            };
+        if self.browser.retained.is_some() {
+            label.push_str(" · 1 preview");
+        }
+        self.panel_footer(label, self.settings.panels.files.font.size, cx)
+            .children(
+                self.supports_evolution()
+                    .then(|| self.render_evolution_toggle(evolution::EvolutionKind::File, cx)),
+            )
+            .into_any_element()
+    }
+
     pub(super) fn render_files(&self, cx: &mut Context<Self>) -> AnyElement {
-        let mut panel = div()
-            .track_focus(&self.browser.focus)
-            .key_context("JaywalkFiles")
-            .relative()
-            .v_flex()
-            .size_full()
-            .bg(gpui::component::Theme::global(cx).sidebar)
+        let dark = gpui::component::Theme::global(cx).is_dark();
+        let toggle_icon =
+            |name: IconName, active: bool| crate::appearance::active_icon(name, active, cx);
+        let mut panel = super::chrome::Panel::new(
+            "files-panel",
+            self.panel_header(
+                jaywalk::panel_layout::PanelId::Files,
+                self.settings.panels.files.font.size,
+                cx,
+            )
+            .child(div().flex_1().min_w_0().truncate().child(
+                if matches!(self.comparison_state(), LoadState::Loading)
+                    && self.loading_visible(LoadingKind::Comparison)
+                {
+                    "FILES · Loading…"
+                } else {
+                    "FILES"
+                },
+            ))
             .child(
-                self.panel_header(
-                    jaywalk::panel_layout::PanelId::Files,
-                    self.settings.panels.files.font.size,
-                    cx,
-                )
-                .child(
-                    div()
-                        .flex_1()
-                        .min_w_0()
-                        .truncate()
-                        .text_size(px(self.settings.panels.files.font.size * 0.85))
-                        .child(
-                            if matches!(self.comparison_state(), LoadState::Loading)
-                                && self.loading_visible(LoadingKind::Comparison)
-                            {
-                                "FILES · Loading…"
+                div()
+                    .h_flex()
+                    .gap_1()
+                    .child(self.panel_menu(jaywalk::panel_layout::PanelId::Files))
+                    .child(self.render_find_file_button(cx))
+                    .children((self.browser.mode == FileListMode::Tree).then(|| {
+                        Button::new("file-tree-scope")
+                            .ghost()
+                            .small()
+                            .compact()
+                            .label(if self.browser.scope == TreeScope::All {
+                                "All"
                             } else {
-                                "FILES"
-                            },
-                        ),
-                )
-                .child(
-                    div()
-                        .h_flex()
-                        .gap_1()
-                        .child(self.panel_menu(jaywalk::panel_layout::PanelId::Files))
-                        .children((self.browser.mode == FileListMode::Tree).then(|| {
-                            Button::new("file-tree-scope")
-                                .ghost()
-                                .small()
-                                .compact()
-                                .label(if self.browser.scope == TreeScope::All {
-                                    "All"
+                                "Changed"
+                            })
+                            .tooltip("Toggle changed files / all repository files")
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.browser.scope = if this.browser.scope == TreeScope::All {
+                                    TreeScope::Changed
                                 } else {
-                                    "Changed"
-                                })
-                                .tooltip("Toggle changed files / all repository files")
-                                .on_click(cx.listener(|this, _, _, cx| {
-                                    this.browser.scope = if this.browser.scope == TreeScope::All {
-                                        TreeScope::Changed
-                                    } else {
-                                        TreeScope::All
-                                    };
-                                    this.rebuild_browser(cx);
-                                    this.save_layout(cx);
-                                    cx.notify();
-                                }))
-                        }))
-                        .child(
-                            Button::new("file-evolution-toggle")
-                                .ghost()
-                                .small()
-                                .compact()
-                                .icon(IconName::GitCompareArrows)
-                                .when(!self.supports_evolution(), |button| button.hidden())
-                                .tooltip("File evolution")
-                                .selected(self.file_evolution.visible)
-                                .on_click(cx.listener(|this, _, window, cx| {
-                                    this.toggle_evolution_panel(
-                                        evolution::EvolutionKind::File,
-                                        window,
-                                        cx,
-                                    )
-                                })),
-                        )
-                        .child(
-                            Button::new("file-list-mode")
-                                .ghost()
-                                .small()
-                                .compact()
-                                .icon(IconName::List)
-                                .tooltip("File list")
-                                .selected(self.browser.mode == FileListMode::List)
-                                .on_click(cx.listener(|this, _, _, cx| {
-                                    this.browser.mode = FileListMode::List;
-                                    this.rebuild_browser(cx);
-                                    this.save_layout(cx);
-                                    cx.notify();
-                                })),
-                        )
-                        .child(
-                            Button::new("file-tree-mode")
-                                .ghost()
-                                .small()
-                                .compact()
-                                .icon(IconName::FolderTree)
-                                .tooltip("Directory tree")
-                                .selected(self.browser.mode == FileListMode::Tree)
-                                .on_click(cx.listener(|this, _, _, cx| {
-                                    this.browser.mode = FileListMode::Tree;
-                                    this.rebuild_browser(cx);
-                                    this.save_layout(cx);
-                                    cx.notify();
-                                })),
-                        ),
-                ),
-            );
+                                    TreeScope::All
+                                };
+                                this.rebuild_browser(cx);
+                                this.save_layout(cx);
+                                cx.notify();
+                            }))
+                    }))
+                    .child(
+                        Button::new("file-list-mode")
+                            .ghost()
+                            .small()
+                            .compact()
+                            .icon(toggle_icon(
+                                IconName::List,
+                                self.browser.mode == FileListMode::List,
+                            ))
+                            .tooltip("File list")
+                            .toggled(self.browser.mode == FileListMode::List)
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.browser.mode = FileListMode::List;
+                                this.rebuild_browser(cx);
+                                this.save_layout(cx);
+                                cx.notify();
+                            })),
+                    )
+                    .child(
+                        Button::new("file-tree-mode")
+                            .ghost()
+                            .small()
+                            .compact()
+                            .icon(toggle_icon(
+                                IconName::FolderTree,
+                                self.browser.mode == FileListMode::Tree,
+                            ))
+                            .tooltip("Directory tree")
+                            .toggled(self.browser.mode == FileListMode::Tree)
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.browser.mode = FileListMode::Tree;
+                                this.rebuild_browser(cx);
+                                this.save_layout(cx);
+                                cx.notify();
+                            })),
+                    ),
+            ),
+            div()
+                .track_focus(&self.browser.focus)
+                .key_context("JaywalkFiles")
+                .relative()
+                .bg(gpui::component::Theme::global(cx).sidebar),
+        )
+        .footer(self.render_files_footer(cx));
         match self.comparison_state() {
             LoadState::Failed(error) => {
                 panel = panel.child(
@@ -582,9 +681,9 @@ impl Viewer {
                 for (index, file) in self.browser.files.iter().enumerate() {
                     let temporary = self.browser.retained == Some(index);
                     let (marker, color) = if temporary {
-                        ("·", 0xa4b4c2)
+                        ("·", if dark { 0xa4b4c2 } else { 0x57606a })
                     } else {
-                        file_style(file.status().unwrap_or("unchanged"))
+                        file_style(file.status().unwrap_or("unchanged"), dark)
                     };
                     let label = self.browser.labels.get(index).map_or_else(
                         || file.path().to_owned(),
@@ -608,7 +707,8 @@ impl Viewer {
                             .h_flex()
                             .items_center()
                             .gap_2()
-                            .px_3()
+                            .pl(px(PANEL_INSET))
+                            .pr_3()
                             .min_h(px(self.settings.row_height(
                                 self.settings.files.list_row_height,
                                 self.settings.panels.files.font.size,
@@ -633,6 +733,13 @@ impl Viewer {
                             .cursor_pointer()
                             .text_color(rgb(color))
                             .child(div().w(px(14.)).flex_shrink_0().child(marker))
+                            .when(self.settings.files.file_icons, |row| {
+                                row.child(
+                                    gpui::component::Icon::new(file_icons::file_icon(file))
+                                        .size(px(self.settings.panels.files.font.size))
+                                        .flex_shrink_0(),
+                                )
+                            })
                             .child(
                                 div()
                                     .when(wrap, |label| {
@@ -743,6 +850,47 @@ impl Viewer {
 mod identity_tests {
     use super::{TreeItem, preserve_expansion};
     use std::collections::HashMap;
+    #[test]
+    fn all_files_only_expands_known_folders_and_keeps_new_descendants_closed() {
+        use super::tree_items;
+        use jaywalk::file_browser::present_paths;
+        fn items(paths: &[&str], expanded: bool) -> Vec<TreeItem> {
+            let (_, nodes) = present_paths(paths);
+            tree_items(nodes, 0, &mut HashMap::new(), &mut 0., 8., 12., expanded)
+        }
+        fn folder<'a>(items: &'a [TreeItem], id: &str) -> &'a TreeItem {
+            fn find<'a>(items: &'a [TreeItem], id: &str) -> Option<&'a TreeItem> {
+                items.iter().find_map(|item| {
+                    if item.id.as_ref() == id {
+                        Some(item)
+                    } else {
+                        find(&item.children, id)
+                    }
+                })
+            }
+            find(items, id).expect("fixture folder exists")
+        }
+        let changed = items(&["src/api/changed.rs", "src/hidden/changed.rs"], true);
+        folder(&changed, "dir:src/hidden").clone().expanded(false);
+        let all = items(
+            &[
+                "src/api/changed.rs",
+                "src/hidden/changed.rs",
+                "src/new/other.rs",
+                "docs/guide.md",
+            ],
+            false,
+        );
+        preserve_expansion(&all, &changed, &mut HashMap::new());
+        assert!(folder(&all, "dir:src").is_expanded());
+        assert!(folder(&all, "dir:src/api").is_expanded());
+        assert!(!folder(&all, "dir:src/hidden").is_expanded());
+        assert!(!folder(&all, "dir:src/new").is_expanded());
+        assert!(!folder(&all, "dir:docs").is_expanded());
+        let fresh_all = items(&["src/api/a.rs", "docs/a.md"], false);
+        assert!(fresh_all.iter().all(|item| !item.is_expanded()));
+    }
+
     #[test]
     fn expansion_survives_reordering_and_collapsed_ancestors() {
         let previous = vec![
@@ -890,5 +1038,34 @@ mod expansion_tests {
         assert!(!first.is_expanded() && !nested.is_expanded() && !sibling.is_expanded());
         expand_directories(&roots, None, true);
         assert!(first.is_expanded() && nested.is_expanded() && sibling.is_expanded());
+    }
+}
+
+#[cfg(test)]
+mod guide_tests {
+    use super::{ancestor_guide_positions, guide_span};
+    #[test]
+    fn adjacent_rows_join_even_when_label_content_is_shorter_than_the_row() {
+        assert_eq!(guide_span(3.0..23.0, 26.), 0.0..26.0);
+        assert_eq!(guide_span(29.0..49.0, 26.), 26.0..52.0);
+        assert_eq!(guide_span(70.0..90.0, 40.), 60.0..100.0);
+        assert_eq!(guide_span(104.0..136.0, 40.), 100.0..140.0);
+    }
+    #[test]
+    fn ancestor_columns_stay_fixed_as_row_depth_and_horizontal_scroll_change() {
+        for root in [8., -42.] {
+            for (indent, icon) in [(12., 16.), (20., 24.)] {
+                for depth in 0..6 {
+                    let content_left = root + depth as f32 * indent;
+                    let positions: Vec<_> =
+                        ancestor_guide_positions(content_left, depth, indent, icon, -2.).collect();
+                    let expected: Vec<_> = (0..depth)
+                        .map(|ancestor| root + ancestor as f32 * indent + icon / 2. - 2.)
+                        .collect();
+                    assert_eq!(positions, expected);
+                    assert!(positions.iter().all(|x| *x <= content_left));
+                }
+            }
+        }
     }
 }

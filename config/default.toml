@@ -21,17 +21,20 @@ width = 1500
 height = 950
 
 [ui]
+# Application-wide active icons, control fills, selections and focus accents.
+appearance = "system"
+accent_color = { light = "#0066b8", dark = "#3794ff" }
 # Suppress transient loading indicators; 0 shows them immediately.
 loading_delay_ms = 200
 # Shared minimum for history, flat files and directory-tree rows.
 row_height = 26
 panel_header_height = 30
-toolbar_height = 36
+toolbar_height = 28
 footer_height = 28
 footer_font_size = 12
 footer_control_height = 22
 # Reserved comparison toolbar height; grows if the UI font needs more space.
-comparison_bar_height = 36
+comparison_bar_height = 30
 font_size = 16
 ligatures = true
 # font_family = "Helvetica Neue"
@@ -100,6 +103,11 @@ tree_scope = "changed"
 # tree_row_height = 30
 # list_row_height = 30
 indent_width = 12
+indent_guides = true
+indent_guide_opacity = 0.12
+# Shift guides relative to ancestor folder-icon centers; negative is left.
+indent_guide_offset = -2
+file_icons = true
 compact_paths = true
 list_word_wrap = false
 # Tree rows stay single-line and scroll horizontally.
@@ -107,6 +115,19 @@ list_word_wrap = false
 [diff]
 # "inline", "side_by_side", or "fluid"
 default_view = "fluid"
+
+# All colors accept a shared "#RRGGBB" or a light/dark pair.
+# Background and word hues are tinted by the viewer to preserve syntax legibility.
+[diff.colors]
+added = { light = "#22863a", dark = "#4ec96e" }
+removed = { light = "#cf222e", dark = "#f85149" }
+modified = { light = "#0969da", dark = "#3794ff" }
+added_background = { light = "#22863a", dark = "#4ec96e" }
+removed_background = { light = "#cf222e", dark = "#f85149" }
+modified_background = { light = "#0969da", dark = "#3794ff" }
+word_added = { light = "#22863a", dark = "#4ec96e" }
+word_removed = { light = "#cf222e", dark = "#f85149" }
+conflict_base = { light = "#57606a", dark = "#a4b4c2" }
 
 [diff.before]
 word_wrap = false

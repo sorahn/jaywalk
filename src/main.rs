@@ -1,11 +1,11 @@
 extern crate gpui_kit as gpui;
 
 use clap::Parser;
-use gpui::component::{Theme, ThemeMode};
 use gpui::*;
 use jaywalk::settings_reload::SettingsSource;
 
 mod about;
+mod appearance;
 mod cli;
 mod instance;
 mod interface_state;
@@ -90,18 +90,7 @@ fn run() -> std::result::Result<(), String> {
             cx.quit();
             return;
         }
-        Theme::change(ThemeMode::Dark, None, cx);
-        configure_code_theme(cx);
-        Theme::update(cx, |theme| {
-            if let Some(family) = &settings.ui.font_family {
-                theme.font_family = family.clone().into();
-            }
-            theme.font_size = px(settings.ui.font_size);
-            theme.mono_font_size = px(settings.editor.font_size);
-            if let Some(family) = &settings.editor.font_family {
-                theme.mono_font_family = family.clone().into();
-            }
-        });
+        appearance::init(&settings, cx);
         windows::listen(receiver, cx);
         if let Some(prepared) = initial
             && let Err(error) = windows::open(prepared, None, cx)
@@ -291,24 +280,4 @@ fn choose_comparison(arguments: Arguments, origin: Option<WeakEntity<Viewer>>, c
         }
     })
     .detach();
-}
-
-fn configure_code_theme(cx: &mut App) {
-    use gpui::component::highlighter::{HighlightTheme, ThemeStyle};
-    let mut highlight = (*HighlightTheme::default_dark()).clone();
-    highlight.name = "VS Code default style".into();
-    highlight.style.editor_background = Some(rgb(0x1f1f1f).into());
-    highlight.style.editor_foreground = Some(rgb(0xcccccc).into());
-    highlight.style.editor_line_number = Some(rgb(0x6e7681).into());
-    let token = |hex: &str| -> Option<ThemeStyle> {
-        Some(serde_json::from_value(serde_json::json!({"color": hex})).expect("valid theme color"))
-    };
-    highlight.style.syntax.comment = token("#6a9955");
-    highlight.style.syntax.comment_doc = token("#6a9955");
-    highlight.style.syntax.keyword = token("#569cd6");
-    highlight.style.syntax.string = token("#ce9178");
-    highlight.style.syntax.number = token("#b5cea8");
-    highlight.style.syntax.function = token("#dcdcaa");
-    highlight.style.syntax.type_ = token("#4ec9b0");
-    Theme::global_mut(cx).highlight_theme = std::sync::Arc::new(highlight);
 }
