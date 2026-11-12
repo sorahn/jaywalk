@@ -3467,6 +3467,8 @@ version = "0.1.1"
 dependencies = [
  "async-channel",
  "clap",
+ "core-foundation 0.10.1",
+ "core-foundation-sys",
  "gpui-kit",
  "gpui-pre",
  "notify",

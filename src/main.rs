@@ -75,6 +75,7 @@ fn run() -> std::result::Result<(), String> {
     let initial = (!arguments.instance_server)
         .then(|| windows::PreparedWindow::load(arguments.clone(), settings.clone()));
     let reopen_arguments = arguments.for_welcome();
+    let scrollbar_preference = platform::read_scrollbar_preference();
     let application = gpui::application().with_assets(gpui::assets::AllAssets);
     application.on_reopen(move |cx| {
         if !windows::has_viewer_windows(cx) {
@@ -83,6 +84,7 @@ fn run() -> std::result::Result<(), String> {
     });
     application.run(move |cx| {
         gpui::init(cx);
+        platform::install_scrollbar_preference(scrollbar_preference, cx);
         windows::init(cx);
         interface_state::init(cx);
         settings_service::init(cx);

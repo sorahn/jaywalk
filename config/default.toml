@@ -71,9 +71,11 @@ ligatures = true
 
 [panels.diff]
 gutter_width = 48
-# Shared fluid scrollbar spans the gutter with a fixed-height thumb.
+# Shared fluid scrollbar spans the gutter; its thumb stays inset at both ends.
 shared_scrollbar_height = 12
 shared_scrollbar_opacity = 0.12
+# system, jump, or page. Unknown system preferences fall back to jump.
+shared_scrollbar_click = "system"
 min_code_width = 100
 # The before/after panes default to an even split of the remaining width.
 

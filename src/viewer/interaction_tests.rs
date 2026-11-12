@@ -544,3 +544,87 @@ fn loading_completion_repaints_after_initial_geometry_frames(cx: &mut TestAppCon
     assert!(cx.debug_bounds("history-row-0").is_some());
     assert!(cx.debug_bounds("file-header").is_some());
 }
+
+#[gpui_test::test]
+fn page_click_moves_one_viewport_without_starting_a_jump_drag(cx: &mut TestAppContext) {
+    let fixture = Fixture::new();
+    fixture.replace(&"before\n".repeat(200), &"after\n".repeat(400));
+    let (viewer, cx) = setup(&fixture, cx);
+    cx.update(|_, app| {
+        viewer.update(app, |viewer, cx| {
+            viewer.settings.panels.diff.shared_scrollbar_click =
+                jaywalk::settings::ScrollbarClick::Page;
+            viewer.navigation_target = None;
+            viewer.scroll_comparison(-100000., cx);
+        })
+    });
+    draw(cx);
+    let viewport = cx.update(|_, app| {
+        f32::from(
+            viewer
+                .read(app)
+                .code()
+                .unwrap()
+                .before
+                .read(app)
+                .input_bounds()
+                .size
+                .height,
+        )
+    });
+    let gutter = cx.debug_bounds("fluid-gutter").unwrap();
+    let click = point(gutter.center().x, gutter.bottom() - px(2.));
+    cx.simulate_mouse_down(click, MouseButton::Left, Default::default());
+    draw(cx);
+    assert_eq!(
+        cx.update(|_, app| viewer.read(app).fluid.position),
+        viewport
+    );
+    assert!(cx.update(|_, app| viewer.read(app).fluid_drag.is_none()));
+    cx.simulate_mouse_move(
+        point(gutter.center().x, gutter.top() + px(2.)),
+        Some(MouseButton::Left),
+        Default::default(),
+    );
+    draw(cx);
+    assert_eq!(
+        cx.update(|_, app| viewer.read(app).fluid.position),
+        viewport
+    );
+    cx.simulate_mouse_up(click, MouseButton::Left, Default::default());
+    draw(cx);
+    let thumb = cx.update(|_, app| {
+        let viewer = viewer.read(app);
+        let code = viewer.code().unwrap();
+        let geometry =
+            super::comparison_geometry(code.before.read(app), code.after.read(app), &code.model);
+        jaywalk::fluid::SharedScrollTrack::new(
+            geometry.scroll_extent(&code.model),
+            viewport,
+            f32::from(gutter.size.height),
+            viewer.settings.panels.diff.shared_scrollbar_height,
+            viewer.fluid.position,
+        )
+        .thumb
+    });
+    let grab = point(
+        gutter.center().x,
+        gutter.top() + px((thumb.start + thumb.end) / 2.),
+    );
+    cx.simulate_mouse_down(grab, MouseButton::Left, Default::default());
+    draw(cx);
+    assert!(cx.update(|_, app| viewer.read(app).fluid_drag.is_some()));
+    cx.simulate_mouse_move(
+        point(gutter.center().x, gutter.top()),
+        Some(MouseButton::Left),
+        Default::default(),
+    );
+    draw(cx);
+    cx.simulate_mouse_up(
+        point(gutter.center().x, gutter.top()),
+        MouseButton::Left,
+        Default::default(),
+    );
+    draw(cx);
+    assert_eq!(cx.update(|_, app| viewer.read(app).fluid.position), 0.);
+}

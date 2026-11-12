@@ -209,10 +209,18 @@ values retain the last valid settings and report a configuration error.
 
 | Setting | Default | Meaning and allowed values |
 | --- | --- | --- |
-| `panels.diff.shared_scrollbar_height` | `12` | Fixed shared thumb height in pixels; 1–1000, clipped to the track. Spans the full fluid gutter width. Applies live. |
+| `panels.diff.shared_scrollbar_height` | `12` | Fixed shared thumb height in pixels; 1–1000, clipped to the track. Spans the fluid gutter width, with inset travel and faint grabber ridges. Applies live. |
 | `panels.diff.shared_scrollbar_opacity` | `0.12` | Shared thumb opacity; 0–1, brighter on hover/drag. Zero hides the thumb while keeping the gutter interactive. Applies live. |
+| `panels.diff.shared_scrollbar_click` | `"system"` | Track clicks: `system`, `jump`, or `page`. `page` moves one viewport toward the click; `jump` centers the thumb at the click. `system` uses the desktop preference captured at startup, falling back to `jump` if unavailable. Overrides apply live; restart to reread OS preferences. Thumb dragging always covers the full scroll range. |
 | `panels.diff.gutter_width` | `48` | Fluid connector-gutter width; 8–240. |
 | `panels.diff.min_code_width` | `100` | Minimum width of each Fluid code pane; 32–2000. The initial before/after split is even. |
+
+The shared Fluid scrollbar reads macOS `AppleScrollerPagingBehavior` through
+CoreFoundation. On KDE it reads `[KDE] ScrollbarLeftClickNavigatesByPage` from
+`kdeglobals`; other Linux desktops use `gtk-primary-button-warps-slider` in
+`gtk-4.0/settings.ini`, then `gtk-3.0/settings.ini`. Linux file lookup follows
+user-first XDG configuration directories, then the `/etc` GTK defaults. Missing, unreadable or malformed
+preferences use `jump`; session-only toolkit overrides are not queried.
 
 ### `history`
 

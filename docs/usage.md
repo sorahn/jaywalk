@@ -207,8 +207,13 @@ base you are reviewing. See [context menus](context-menus.md#branch-review-conte
 for ambiguity, merged branches and live/pinned behavior.
 
 In fluid view, drag the short, full-width thumb in the center gutter to scroll both panes
-through the comparison. The up–down cursor marks the grabbable gutter; clicking above or
-below the thumb moves to that position. Each pane’s own scrollbar remains
+through the comparison. Its travel stays about 5% clear of each end so the thumb
+remains discoverable, with three faint grabber ridges that brighten on hover/drag.
+The up–down cursor marks the grabbable gutter. Track clicks follow
+`panels.diff.shared_scrollbar_click`: `system` (default), `jump`, or `page`.
+Paging moves one viewport toward the click; jumping moves to the clicked position.
+System preferences are read at startup, with `jump` as the fallback. Dragging the
+thumb still reaches the entire comparison; holding a page click does not repeat. Each pane’s own scrollbar remains
 independent. Mouse-wheel scrolling over either pane or the gutter stays linked.
 
 Jaywalk follows system appearance by default. Set `ui.appearance` to `"light"`,

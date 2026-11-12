@@ -228,12 +228,31 @@ pub struct SidebarSettings {
     pub max_width: f32,
 }
 
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ScrollbarClick {
+    System,
+    Jump,
+    Page,
+}
+impl ScrollbarClick {
+    pub fn resolve(self, system: Option<Self>) -> Self {
+        match self {
+            Self::System => system
+                .filter(|mode| *mode != Self::System)
+                .unwrap_or(Self::Jump),
+            explicit => explicit,
+        }
+    }
+}
+
 #[derive(Clone, Debug, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct DiffPanelSettings {
     pub gutter_width: f32,
     pub shared_scrollbar_height: f32,
     pub shared_scrollbar_opacity: f32,
+    pub shared_scrollbar_click: ScrollbarClick,
     pub min_code_width: f32,
 }
 
@@ -862,6 +881,7 @@ mod tests {
             "[files]\nindent_guide_offset=49",
             "[panels.diff]\nshared_scrollbar_height=0",
             "[panels.diff]\nshared_scrollbar_opacity=1.1",
+            "[panels.diff]\nshared_scrollbar_click='invalid'",
             "[evolution]\nlimit=0",
             "[evolution]\nmin_height=500\ndefault_height=200",
             "[file_evolution]\nmin_height=500\ndefault_height=200",

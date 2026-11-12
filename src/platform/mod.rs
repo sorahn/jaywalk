@@ -1,7 +1,11 @@
 //! Native integration stays outside the portable viewer.
 use gpui::*;
 mod opener;
+mod scrollbar;
 pub(crate) use opener::open_text_file;
+pub(crate) use scrollbar::{
+    install_scrollbar_preference, read_scrollbar_preference, system_scrollbar_click,
+};
 
 #[cfg(target_os = "macos")]
 mod macos;
