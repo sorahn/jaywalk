@@ -23,8 +23,6 @@ enum PanelGroup {
 
 pub(super) struct PanelLayout {
     sidebars: Entity<ResizableState>,
-    _sidebar_observer: Subscription,
-    _diff_observer: Subscription,
     diff: Entity<ResizableState>,
     before_width: Rc<Cell<Option<Pixels>>>,
     sidebar_widths: [Rc<Cell<Option<Pixels>>>; 2],
@@ -45,42 +43,31 @@ fn measure_width(
         let previous = measured.replace(Some(bounds.size.width));
         if previous != Some(bounds.size.width) {
             let viewer = viewer.clone();
-            window.defer(cx, move |_, cx| {
-                let _ = viewer.update(cx, |viewer, cx| {
-                    if previous.is_some()
-                        && let Some(position) = reflow
-                    {
+            window.defer(cx, move |window, cx| {
+                if previous.is_some()
+                    && let Some(position) = reflow
+                {
+                    let _ = viewer.update(cx, |viewer, _| {
                         viewer.live.pending_position.get_or_insert(position);
-                    }
-                    cx.notify();
-                });
+                    });
+                }
+                window.refresh();
             });
         }
     }
 }
 
 impl PanelLayout {
-    // Header/footer chrome lives outside the resizable group. It must redraw
-    // when the group's measured sizes change, including during a drag.
-    fn observed_state(cx: &mut Context<Viewer>) -> (Entity<ResizableState>, Subscription) {
-        let state = cx.new(|_| ResizableState::default());
-        let observer = cx.observe(&state, |_, _, cx| cx.notify());
-        (state, observer)
-    }
-    fn reset_diff(&mut self, cx: &mut Context<Viewer>) {
-        (self.diff, self._diff_observer) = Self::observed_state(cx);
+    fn reset_diff(&mut self, cx: &mut App) {
+        self.diff = cx.new(|_| ResizableState::default());
         self.before_width.set(None);
     }
-    pub(super) fn new(cx: &mut Context<Viewer>) -> Self {
-        let (sidebars, sidebar_observer) = Self::observed_state(cx);
-        let (diff, diff_observer) = Self::observed_state(cx);
+    pub(super) fn new(cx: &mut App) -> Self {
         Self {
-            sidebars,
-            diff,
+            sidebars: cx.new(|_| ResizableState::default()),
+            diff: cx.new(|_| ResizableState::default()),
             before_width: Rc::new(Cell::new(None)),
             sidebar_widths: std::array::from_fn(|_| Rc::new(Cell::new(None))),
-            _sidebar_observer: sidebar_observer,
-            _diff_observer: diff_observer,
             evolution: cx.new(|_| ResizableState::default()),
             file_evolution: cx.new(|_| ResizableState::default()),
             bottom: cx.new(|_| ResizableState::default()),
@@ -300,7 +287,7 @@ impl Viewer {
     pub(super) fn rebuild_sidebar_layout(&mut self, cx: &mut Context<Self>) {
         // Reinitialize native distribution from the saved widths after a pane's
         // visibility changes; otherwise showing it can shrink both sidebars.
-        (self.panels.sidebars, self.panels._sidebar_observer) = PanelLayout::observed_state(cx);
+        self.panels.sidebars = cx.new(|_| ResizableState::default());
         for width in &self.panels.sidebar_widths {
             width.set(None);
         }
@@ -449,10 +436,19 @@ impl Viewer {
             .max(self.settings.panels.diff.min_code_width))
     }
 
-    pub(super) fn sidebar_bounds_marker(&self) -> AnyElement {
+    pub(super) fn sidebar_bounds_marker(&self, cx: &Context<Self>) -> AnyElement {
         let bounds = self.panels.sidebar_bounds.clone();
+        let viewer = cx.entity().downgrade();
         canvas(
-            move |current, _, _| bounds.set(Some(current)),
+            move |current, _, cx| {
+                bounds.set(Some(current));
+                // GPUI replaces each window's accessed-entity set per frame.
+                // Retain this dependency even in a geometry-only redraw, so
+                // later async repository/file notifications still repaint it.
+                if let Some(viewer) = viewer.upgrade() {
+                    let _ = viewer.read(cx);
+                }
+            },
             |_, _, _, _| {},
         )
         .absolute()

@@ -53,7 +53,7 @@ impl Render for Viewer {
                     .flex_1()
                     .min_h_0()
                     .child(self.render_workbench(f32::from(window.bounds().size.width), cx))
-                    .child(self.sidebar_bounds_marker()),
+                    .child(self.sidebar_bounds_marker(cx)),
             )
             .child(self.render_footer(window, cx))
             .children(self.render_palette(cx))

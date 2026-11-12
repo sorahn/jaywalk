@@ -521,3 +521,26 @@ fn choosing_a_branch_keeps_the_loaded_overview_caption_visible(cx: &mut TestAppC
     draw(cx);
     assert!(cx.debug_bounds("comparison-caption").unwrap().size.width > px(40.));
 }
+
+#[gpui_test::test]
+fn loading_completion_repaints_after_initial_geometry_frames(cx: &mut TestAppContext) {
+    let fixture = Fixture::new();
+    let (viewer, cx) = setup(&fixture, cx);
+    cx.update(|window, app| {
+        viewer.update(app, |viewer, cx| {
+            viewer.selected_file = None;
+            viewer.panels = super::panels::PanelLayout::new(cx);
+            viewer.load_repository(Some("file.txt".into()), window, cx);
+        })
+    });
+    // Unlike setup(), paint geometry while the load task is still pending.
+    // Native startup can take this order; parking the executor first hides it.
+    for _ in 0..2 {
+        cx.update(|window, app| window.draw(app).clear(app));
+    }
+    assert!(cx.debug_bounds("history-row-0").is_none());
+    cx.run_until_parked();
+    cx.update(|window, app| window.draw(app).clear(app));
+    assert!(cx.debug_bounds("history-row-0").is_some());
+    assert!(cx.debug_bounds("file-header").is_some());
+}

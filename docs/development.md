@@ -299,3 +299,8 @@ independent editor offsets, wrapping and window/divider reflow. Geometry tests
 cover insertion/deletion-only sides, unequal replacements, direction reversal
 and endpoint clamping with different wrapping heights. These are behavioral
 regressions, not substitutes for native visual comparison with reference clips.
+
+Startup coverage also paints geometry before releasing a repository load. Native
+startup still has a separate smoke check: the simulated platform did not expose
+a stale-frame dependency issue found in inactive native windows. Keep the owning
+viewer in the per-frame entity dependency set when adding geometry callbacks.
