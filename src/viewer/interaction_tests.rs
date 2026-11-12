@@ -223,3 +223,48 @@ fn file_header_tracks_window_and_pane_resizing(cx: &mut TestAppContext) {
         "header {header:?}, moved {moved:?}, old {gutter:?}"
     );
 }
+
+#[gpui_test::test]
+fn footer_stays_single_line_and_controls_fit_narrow_viewers(cx: &mut TestAppContext) {
+    let fixture = Fixture::new();
+    let (viewer, cx) = setup(&fixture, cx);
+    for font_size in [12., 18.] {
+        cx.update(|_, app| {
+            viewer.update(app, |viewer, cx| {
+                viewer.settings.ui.footer_font_size = font_size;
+                cx.notify();
+            })
+        });
+        for width in [1500., 900., 700., 500.] {
+            cx.simulate_resize(size(px(width), px(800.)));
+            draw(cx);
+            let footer = cx.debug_bounds("viewer-footer").unwrap();
+            let controls = cx.debug_bounds("diff-footer-controls").unwrap();
+            let counter = cx.debug_bounds("change-counter").unwrap();
+            assert!(
+                counter.size.height <= footer.size.height,
+                "counter {counter:?}, footer {footer:?}"
+            );
+            assert!(
+                controls.left() >= footer.left(),
+                "controls {controls:?}, footer {footer:?}"
+            );
+            assert!(
+                controls.right() <= footer.right(),
+                "controls {controls:?}, footer {footer:?}"
+            );
+            let reserved = counter.size.width;
+            cx.update(|_, app| {
+                viewer.update(app, |viewer, cx| {
+                    viewer.active_change = Some(0);
+                    cx.notify();
+                })
+            });
+            draw(cx);
+            assert_eq!(
+                cx.debug_bounds("change-counter").unwrap().size.width,
+                reserved
+            );
+        }
+    }
+}

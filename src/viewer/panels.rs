@@ -1,4 +1,5 @@
 use super::*;
+use gpui::base::ElementExt as _;
 use gpui::base::{ResizableState, ResizeHandleRenderer};
 use gpui::component::Sizable;
 use gpui::component::menu::DropdownMenu;
@@ -26,11 +27,26 @@ pub(super) struct PanelLayout {
     _diff_observer: Subscription,
     diff: Entity<ResizableState>,
     before_width: Rc<Cell<Option<Pixels>>>,
+    sidebar_widths: [Rc<Cell<Option<Pixels>>>; 2],
     evolution: Entity<ResizableState>,
     file_evolution: Entity<ResizableState>,
     bottom: Entity<ResizableState>,
     bottom_split: Entity<ResizableState>,
     sidebar_bounds: Rc<Cell<Option<Bounds<Pixels>>>>,
+}
+
+fn measure_width(
+    measured: Rc<Cell<Option<Pixels>>>,
+    viewer: WeakEntity<Viewer>,
+) -> impl Fn(Bounds<Pixels>, &mut Window, &mut App) + 'static {
+    move |bounds, window, cx| {
+        if measured.replace(Some(bounds.size.width)) != Some(bounds.size.width) {
+            let viewer = viewer.clone();
+            window.defer(cx, move |_, cx| {
+                let _ = viewer.update(cx, |_, cx| cx.notify());
+            });
+        }
+    }
 }
 
 impl PanelLayout {
@@ -52,6 +68,7 @@ impl PanelLayout {
             sidebars,
             diff,
             before_width: Rc::new(Cell::new(None)),
+            sidebar_widths: std::array::from_fn(|_| Rc::new(Cell::new(None))),
             _sidebar_observer: sidebar_observer,
             _diff_observer: diff_observer,
             evolution: cx.new(|_| ResizableState::default()),
@@ -154,6 +171,11 @@ impl Viewer {
                         .child(
                             div()
                                 .size_full()
+                                .relative()
+                                .on_prepaint(measure_width(
+                                    self.panels.sidebar_widths[usize::from(!history)].clone(),
+                                    cx.entity().downgrade(),
+                                ))
                                 .font(typography::panel_font(&settings.font, cx))
                                 .child(if history {
                                     self.render_history_sidebar(cx)
@@ -252,6 +274,9 @@ impl Viewer {
         // Reinitialize native distribution from the saved widths after a pane's
         // visibility changes; otherwise showing it can shrink both sidebars.
         (self.panels.sidebars, self.panels._sidebar_observer) = PanelLayout::observed_state(cx);
+        for width in &self.panels.sidebar_widths {
+            width.set(None);
+        }
     }
 
     pub(super) fn sidebar_group(&self, cx: &Context<Self>) -> ResizablePanelGroup {
@@ -265,16 +290,7 @@ impl Viewer {
         &self,
         cx: &Context<Self>,
     ) -> impl Fn(Bounds<Pixels>, &mut Window, &mut App) + 'static {
-        let measured = self.panels.before_width.clone();
-        let viewer = cx.entity().downgrade();
-        move |bounds, window, cx| {
-            if measured.replace(Some(bounds.size.width)) != Some(bounds.size.width) {
-                let viewer = viewer.clone();
-                window.defer(cx, move |_, cx| {
-                    let _ = viewer.update(cx, |_, cx| cx.notify());
-                });
-            }
-        }
+        measure_width(self.panels.before_width.clone(), cx.entity().downgrade())
     }
 
     pub(super) fn measured_before_width(&self, cx: &App) -> Pixels {
@@ -355,6 +371,11 @@ impl Viewer {
     pub(super) fn measured_sidebar_width(&self, panel: PanelId, cx: &App) -> Option<f32> {
         let columns = self.columns();
         let index = columns.iter().position(|column| *column == Some(panel))?;
+        if let Some(width) =
+            self.panels.sidebar_widths[usize::from(panel != PanelId::History)].get()
+        {
+            return Some(f32::from(width));
+        }
         let sizes = self.panels.sidebars.read(cx).sizes();
         Some(
             if sizes.len() == columns.len() {

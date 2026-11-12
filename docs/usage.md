@@ -272,3 +272,8 @@ The single-file viewer uses the same compact header height and text sizing as
 the panel headers. In Fluid view, the filename and Before/After (or interdiff
 version) labels share one row, with pane-aligned gutter dividers and a solid
 bottom border. Rename/type notices remain inline in that row.
+
+At narrow viewer widths, the footer groups wrapping/view controls under a diff
+display-options menu and uses a compact change counter. The full counter remains
+available on hover. Counts stay on one line; drawer footer sections follow drawn
+widths when the window constrains the sidebars.

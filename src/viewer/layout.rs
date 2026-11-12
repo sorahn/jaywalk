@@ -64,6 +64,7 @@ impl Viewer {
     pub(super) fn render_change_counter(
         &self,
         total: usize,
+        compact: bool,
         window: &Window,
         cx: &App,
     ) -> AnyElement {
@@ -85,7 +86,12 @@ impl Viewer {
             // custom UI fonts may lack tabular figures or use different widths.
             let width = ('0'..='9')
                 .map(|digit| {
-                    let label = format!("Change {} of {total}", digit.to_string().repeat(digits));
+                    let number = digit.to_string().repeat(digits);
+                    let label = if compact {
+                        format!("{number}/{total}")
+                    } else {
+                        format!("Change {number} of {total}")
+                    };
                     let run = TextRun {
                         len: label.len(),
                         font: font.clone(),
@@ -97,14 +103,22 @@ impl Viewer {
                         .width
                 })
                 .fold(px(0.), Pixels::max);
+            let current = self.active_change.map_or(0, |index| index + 1).min(total);
+            let label = if compact {
+                format!("{current}/{total}")
+            } else {
+                format!("Change {current} of {total}")
+            };
+            let tooltip = format!("Change {current} of {total}");
             return div()
-                .w(px(f32::from(width).ceil()))
+                .id("change-counter")
+                .debug_selector(|| "change-counter".into())
+                .w(px(f32::from(width).ceil() + 2.))
+                .whitespace_nowrap()
                 .flex_shrink_0()
                 .font_features(features)
-                .child(format!(
-                    "Change {} of {total}",
-                    self.active_change.map_or(0, |index| index + 1).min(total)
-                ))
+                .child(label)
+                .tooltip(move |window, cx| Tooltip::new(tooltip.clone()).build(window, cx))
                 .into_any_element();
         }
         let label = if self.code().is_none() {

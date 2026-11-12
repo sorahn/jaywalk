@@ -1,6 +1,7 @@
 //! Footer controls follow panel placement while the diff group follows the workspace edge.
 use super::*;
 use gpui::component::Sizable;
+use gpui::component::menu::DropdownMenu as _;
 use gpui::prelude::FluentBuilder;
 use jaywalk::panel_layout::Side;
 
@@ -39,6 +40,7 @@ impl Viewer {
             .border_color(gpui::component::Theme::global(cx).border)
             .bg(gpui::component::Theme::global(cx).muted)
             .text_size(px(self.settings.ui.footer_font_size))
+            .whitespace_nowrap()
             .child(self.render_drawer_footer(Side::Left, cx))
             .child(
                 div()
@@ -80,7 +82,11 @@ impl Viewer {
             .into_any_element()
     }
 
-    fn render_drawer_footer(&self, side: Side, cx: &mut Context<Self>) -> AnyElement {
+    fn drawer_footer_slots(
+        &self,
+        side: Side,
+        cx: &App,
+    ) -> Vec<(jaywalk::panel_layout::PanelId, f32)> {
         let mut panels = self.placement().sidebars(side);
         // Right-side allocation starts at the right window edge; rendering is
         // still in ordinary left-to-right order.
@@ -96,6 +102,11 @@ impl Viewer {
         if side == Side::Right {
             slots.reverse();
         }
+        slots
+    }
+
+    fn render_drawer_footer(&self, side: Side, cx: &mut Context<Self>) -> AnyElement {
+        let slots = self.drawer_footer_slots(side, cx);
         div()
             .h_flex()
             .items_center()
@@ -149,31 +160,68 @@ impl Viewer {
     }
 
     fn render_diff_controls(&self, window: &Window, cx: &mut Context<Self>) -> AnyElement {
+        let drawer_width: f32 = [Side::Left, Side::Right]
+            .into_iter()
+            .flat_map(|side| self.drawer_footer_slots(side, cx))
+            .map(|(_, width)| width)
+            .sum();
+        let available = f32::from(window.bounds().size.width) - drawer_width - 2. * INSET;
+        let compact = available
+            < self.settings.ui.footer_font_size * 30. + self.settings.ui.footer_control_height * 4.;
+        let focus = self.focus.clone();
+        let view = self.view.effective();
+        let wrap = self.wrapping.enabled(view);
+        let line_numbers = self.line_numbers;
         let total = self.code().map_or(0, |CodeComparison { model, .. }| {
             model.blocks.iter().filter(|block| block.changed).count()
         });
         div()
+            .debug_selector(|| "diff-footer-controls".into())
             .h_flex()
             .items_center()
             .flex_shrink_0()
             .when(self.selected_file.is_none(), |controls| controls.hidden())
             .gap_2()
-            .child(
-                Button::new("word-wrap")
-                    .ghost()
-                    .with_size(px(self.settings.ui.footer_control_height))
-                    .compact()
-                    .icon(crate::appearance::active_icon(
-                        IconName::TextWrap,
-                        self.wrapping.enabled(self.view.effective()),
-                        cx,
-                    ))
-                    .tooltip("Word wrap")
-                    .toggled(self.wrapping.enabled(self.view.effective()))
-                    .on_click(cx.listener(|this, _, window, cx| this.toggle_wrap(window, cx))),
-            )
-            .child(self.render_view_toggle(cx))
-            .child(self.render_change_counter(total, window, cx))
+            .when(compact, |controls| {
+                controls.child(
+                    Button::new("diff-controls-menu")
+                        .ghost()
+                        .compact()
+                        .debug_selector(|| "diff-controls-menu".into())
+                        .with_size(px(self.settings.ui.footer_control_height))
+                        .icon(IconName::Ellipsis)
+                        .tooltip("Diff display options")
+                        .dropdown_menu(move |menu, _, _| {
+                            context_menu::diff_commands(
+                                menu.action_context(focus.clone()),
+                                view,
+                                wrap,
+                                line_numbers,
+                            )
+                        }),
+                )
+            })
+            .when(!compact, |controls| {
+                controls
+                    .child(
+                        Button::new("word-wrap")
+                            .ghost()
+                            .with_size(px(self.settings.ui.footer_control_height))
+                            .compact()
+                            .icon(crate::appearance::active_icon(
+                                IconName::TextWrap,
+                                self.wrapping.enabled(self.view.effective()),
+                                cx,
+                            ))
+                            .tooltip("Word wrap")
+                            .toggled(self.wrapping.enabled(self.view.effective()))
+                            .on_click(
+                                cx.listener(|this, _, window, cx| this.toggle_wrap(window, cx)),
+                            ),
+                    )
+                    .child(self.render_view_toggle(cx))
+            })
+            .child(self.render_change_counter(total, compact, window, cx))
             .child(
                 Button::new("previous-change")
                     .ghost()
