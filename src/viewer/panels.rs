@@ -22,7 +22,10 @@ enum PanelGroup {
 
 pub(super) struct PanelLayout {
     sidebars: Entity<ResizableState>,
+    _sidebar_observer: Subscription,
+    _diff_observer: Subscription,
     diff: Entity<ResizableState>,
+    before_width: Rc<Cell<Option<Pixels>>>,
     evolution: Entity<ResizableState>,
     file_evolution: Entity<ResizableState>,
     bottom: Entity<ResizableState>,
@@ -31,10 +34,26 @@ pub(super) struct PanelLayout {
 }
 
 impl PanelLayout {
-    pub(super) fn new(cx: &mut App) -> Self {
+    // Header/footer chrome lives outside the resizable group. It must redraw
+    // when the group's measured sizes change, including during a drag.
+    fn observed_state(cx: &mut Context<Viewer>) -> (Entity<ResizableState>, Subscription) {
+        let state = cx.new(|_| ResizableState::default());
+        let observer = cx.observe(&state, |_, _, cx| cx.notify());
+        (state, observer)
+    }
+    fn reset_diff(&mut self, cx: &mut Context<Viewer>) {
+        (self.diff, self._diff_observer) = Self::observed_state(cx);
+        self.before_width.set(None);
+    }
+    pub(super) fn new(cx: &mut Context<Viewer>) -> Self {
+        let (sidebars, sidebar_observer) = Self::observed_state(cx);
+        let (diff, diff_observer) = Self::observed_state(cx);
         Self {
-            sidebars: cx.new(|_| ResizableState::default()),
-            diff: cx.new(|_| ResizableState::default()),
+            sidebars,
+            diff,
+            before_width: Rc::new(Cell::new(None)),
+            _sidebar_observer: sidebar_observer,
+            _diff_observer: diff_observer,
             evolution: cx.new(|_| ResizableState::default()),
             file_evolution: cx.new(|_| ResizableState::default()),
             bottom: cx.new(|_| ResizableState::default()),
@@ -229,10 +248,10 @@ impl Viewer {
             .into_any_element()
     }
 
-    pub(super) fn rebuild_sidebar_layout(&mut self, cx: &mut App) {
+    pub(super) fn rebuild_sidebar_layout(&mut self, cx: &mut Context<Self>) {
         // Reinitialize native distribution from the saved widths after a pane's
         // visibility changes; otherwise showing it can shrink both sidebars.
-        self.panels.sidebars = cx.new(|_| ResizableState::default());
+        (self.panels.sidebars, self.panels._sidebar_observer) = PanelLayout::observed_state(cx);
     }
 
     pub(super) fn sidebar_group(&self, cx: &Context<Self>) -> ResizablePanelGroup {
@@ -242,7 +261,26 @@ impl Viewer {
             .with_handle_appearance(self.reset_handle_appearance(PanelGroup::Sidebars, cx))
     }
 
+    pub(super) fn measure_before_width(
+        &self,
+        cx: &Context<Self>,
+    ) -> impl Fn(Bounds<Pixels>, &mut Window, &mut App) + 'static {
+        let measured = self.panels.before_width.clone();
+        let viewer = cx.entity().downgrade();
+        move |bounds, window, cx| {
+            if measured.replace(Some(bounds.size.width)) != Some(bounds.size.width) {
+                let viewer = viewer.clone();
+                window.defer(cx, move |_, cx| {
+                    let _ = viewer.update(cx, |_, cx| cx.notify());
+                });
+            }
+        }
+    }
+
     pub(super) fn measured_before_width(&self, cx: &App) -> Pixels {
+        if let Some(width) = self.panels.before_width.get() {
+            return width;
+        }
         self.panels
             .diff
             .read(cx)
@@ -529,7 +567,7 @@ impl Viewer {
             }
             PanelGroup::Diff => {
                 self.layout.saved.before_fraction = None;
-                self.panels.diff = cx.new(|_| ResizableState::default());
+                self.panels.reset_diff(cx);
             }
         }
         self.save_layout(cx);
@@ -588,7 +626,7 @@ impl Viewer {
             self.panels.bottom = cx.new(|_| ResizableState::default());
         }
         if previous.panels.diff != self.settings.panels.diff {
-            self.panels.diff = cx.new(|_| ResizableState::default());
+            self.panels.reset_diff(cx);
         }
         if previous.evolution.default_height != self.settings.evolution.default_height {
             self.layout.saved.change_height = None;

@@ -42,6 +42,7 @@ impl Viewer {
             .child(self.render_drawer_footer(Side::Left, cx))
             .child(
                 div()
+                    .debug_selector(|| "viewer-footer".into())
                     .h_flex()
                     .items_center()
                     .flex_1()
@@ -131,6 +132,7 @@ impl Viewer {
                                 .flex_1()
                                 .min_w_0()
                                 .truncate()
+                                .debug_selector(move || format!("drawer-status-{panel:?}"))
                                 .text_color(gpui::component::Theme::global(cx).muted_foreground)
                                 .child(status),
                         )

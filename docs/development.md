@@ -285,3 +285,11 @@ used by the app; production backend features remain unchanged. Import that
 alias as `gpui` in context-backed integration tests, and import the normal Kit
 facade for components. Native rendering and interaction still need separate
 verification.
+
+`just test-ui` runs the viewer interaction suite using GPUI simulated windows,
+keyboard and pointer events. It covers recent-picker filtering/selection/Escape,
+commit hover without selection, click-to-inspect, drawer buttons and footer
+visibility, and header alignment after window resizing and divider drags. It uses
+disposable Git fixtures, in-memory recents and disabled layout persistence/live
+watching. It does not activate a native window or move the system pointer. These
+tests also run as part of `just check`; native rendering still needs review.

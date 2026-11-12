@@ -182,6 +182,18 @@ fn history_step(current: Option<usize>, delta: i32, count: usize) -> Option<Hist
 }
 
 impl Viewer {
+    #[cfg(test)]
+    pub(super) fn palette_test_state(
+        &self,
+        cx: &App,
+    ) -> (Option<PaletteKind>, String, Option<usize>) {
+        let state = self.palette.state.read(cx);
+        (
+            self.palette.open,
+            state.query(cx).to_string(),
+            state.selected_index().map(|index| index.row),
+        )
+    }
     pub(super) fn open_palette(
         &mut self,
         kind: PaletteKind,

@@ -46,6 +46,8 @@ mod references;
 mod review;
 mod session_layout;
 pub(crate) use session_layout::SessionLayout;
+#[cfg(test)]
+mod interaction_tests;
 mod settings;
 mod typography;
 mod welcome;

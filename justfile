@@ -24,6 +24,10 @@ fmt-check:
 test *args:
     cargo test --locked "$@"
 
+# Exercise simulated windows/input without native activation or mouse movement.
+test-ui:
+    cargo test --locked --bin jaywalk viewer::interaction_tests
+
 # Check all targets with warnings treated as errors.
 clippy:
     cargo clippy --locked --all-targets -- -D warnings

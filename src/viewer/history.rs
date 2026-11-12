@@ -49,6 +49,7 @@ fn history_row(
     let hover_history = history.clone();
     div()
         .id(SharedString::from(format!("revision:{commit_id}")))
+        .debug_selector(move || format!("history-row-{index}"))
         .h(px(height))
         .w_full()
         .h_flex()
@@ -176,6 +177,7 @@ fn revision_hover(revision: &jaywalk::history::Revision, cx: &App) -> AnyElement
         revision.description.trim_end().to_owned()
     };
     div()
+        .debug_selector(|| "commit-hover".into())
         .v_flex()
         .gap_2()
         .min_w_0()

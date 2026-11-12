@@ -234,6 +234,7 @@ impl Viewer {
         } else {
             "toggle-files-panel"
         })
+        .debug_selector(move || format!("drawer-toggle-{panel:?}"))
         .ghost()
         .with_size(px(self.settings.ui.footer_control_height))
         .w(px(self.settings.ui.footer_control_height))

@@ -1,4 +1,5 @@
 use super::*;
+use gpui::base::ElementExt as _;
 use gpui::component::menu::{ContextMenuExt as _, DropdownMenu as _};
 use gpui::component::{Icon, Sizable};
 use gpui::prelude::FluentBuilder;
@@ -175,6 +176,7 @@ impl Viewer {
             .panel_header_height
             .max(self.settings.ui.font_size * 1.5);
         let title = div()
+            .debug_selector(|| "before-header".into())
             .h_flex()
             .items_center()
             .gap_2()
@@ -263,6 +265,7 @@ impl Viewer {
         let line_numbers = self.line_numbers;
         header
             .id("diff-file-header")
+            .debug_selector(|| "file-header".into())
             .context_menu(move |menu, _, _| {
                 let menu = menu.action_context(focus.clone());
                 let menu = match &target {
@@ -518,27 +521,35 @@ impl Viewer {
                                                 ..Pixels::MAX,
                                         )
                                         .child(
-                                            div().v_flex().size_full().child(
-                                                div()
-                                                    .relative()
-                                                    .v_flex()
-                                                    .flex_1()
-                                                    .min_h_0()
-                                                    .child(
-                                                        Editor::new(left)
-                                                            .text_size(px(self.code_font_size))
-                                                            .font_features(typography::features(
-                                                                self.settings.editor.ligatures,
-                                                            ))
-                                                            .readonly(true)
-                                                            .bordered(false)
-                                                            .flex_1()
-                                                            .min_h_0(),
-                                                    )
-                                                    .child(fluid_view::measure_viewport(
-                                                        before_viewport.clone(),
-                                                    )),
-                                            ),
+                                            div()
+                                                .v_flex()
+                                                .size_full()
+                                                .on_prepaint(self.measure_before_width(cx))
+                                                .child(
+                                                    div()
+                                                        .relative()
+                                                        .v_flex()
+                                                        .flex_1()
+                                                        .min_h_0()
+                                                        .child(
+                                                            Editor::new(left)
+                                                                .text_size(px(self.code_font_size))
+                                                                .font_features(
+                                                                    typography::features(
+                                                                        self.settings
+                                                                            .editor
+                                                                            .ligatures,
+                                                                    ),
+                                                                )
+                                                                .readonly(true)
+                                                                .bordered(false)
+                                                                .flex_1()
+                                                                .min_h_0(),
+                                                        )
+                                                        .child(fluid_view::measure_viewport(
+                                                            before_viewport.clone(),
+                                                        )),
+                                                ),
                                         ),
                                 )
                                 .child(
@@ -557,6 +568,7 @@ impl Viewer {
                                                 .border_color(
                                                     gpui::component::Theme::global(cx).border,
                                                 )
+                                                .debug_selector(|| "fluid-gutter".into())
                                                 .cursor(CursorStyle::ResizeUpDown)
                                                 .child(
                                                     canvas(
