@@ -106,6 +106,7 @@ pub(super) struct OverviewState {
     generation: u64,
     pub(super) error: Option<String>,
     restore_offset: Option<ListOffset>,
+    restore_collapsed: HashSet<String>,
 }
 #[derive(Clone)]
 pub(super) struct OverviewCheckpoint {
@@ -140,6 +141,7 @@ impl Viewer {
         self.invalidate_overview();
         self.finish_loading(LoadingKind::Overview);
         self.overview.restore_offset = None;
+        self.overview.restore_collapsed.clear();
         if let Some(checkpoint) = checkpoint {
             checkpoint.loaded.state.update(cx, |state, cx| {
                 state.restore_viewport_offset(checkpoint.offset, cx);
@@ -202,6 +204,21 @@ impl Viewer {
             });
         }
     }
+    pub(super) fn preserve_overview_reading(&mut self, cx: &App) {
+        if self.selected_file.is_none()
+            && let Some(loaded) = &self.overview.current
+        {
+            let state = loaded.state.read(cx);
+            self.overview.restore_offset = Some(state.viewport_offset());
+            self.overview.restore_collapsed = state
+                .files()
+                .iter()
+                .filter(|file| state.is_file_collapsed(file.path()))
+                .map(|file| file.path().to_string())
+                .collect();
+        }
+    }
+
     pub(super) fn invalidate_overview(&mut self) {
         self.overview.requested = None;
         self.overview.generation += 1;
@@ -274,6 +291,12 @@ impl Viewer {
                                 .with_mode(DiffMode::Unified)
                                 .with_context_lines(Some(context))
                                 .with_expansion_lines(expansion)
+                        });
+                        let collapsed = std::mem::take(&mut viewer.overview.restore_collapsed);
+                        state.update(cx, |state, cx| {
+                            for path in collapsed {
+                                state.set_file_collapsed(&path, true, cx);
+                            }
                         });
                         if let Some(offset) = viewer.overview.restore_offset.take() {
                             state.update(cx, |state, cx| state.restore_viewport_offset(offset, cx));

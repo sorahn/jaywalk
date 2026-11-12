@@ -163,7 +163,9 @@ max_height = 700
 min_files_height = 120
 
 [live]
+# Git watches saved worktree/index changes; jj follows recorded operations.
 enabled = true
+# Git fallback scan interval and jj recorded-operation polling interval.
 poll_interval_ms = 1500
 
 # Configuration reload is independent of recorded repository refresh above.

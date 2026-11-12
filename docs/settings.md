@@ -365,8 +365,8 @@ removed = { light = "#b91c1c", dark = "#fb7185" }
 
 | Setting | Default | Meaning and allowed values |
 | --- | --- | --- |
-| `live.enabled` | `true` | Follow recorded repository updates in the background. Does not enable fetching, import external Git changes into jj, or snapshot working files. Independent of settings reload. |
-| `live.poll_interval_ms` | `1500` | Recorded repository refresh polling interval; integer 250–60000. |
+| `live.enabled` | `true` | Automatically follow plain Git worktree/index changes and recorded jj operations. Git watchers are shared per repository and debounce saves for 250 ms; ignored build trees are excluded from directory registration. Working-copy views update in place; commit/evolution inspection stays pinned while history updates. Watcher failures/missed events fall back to read-only metadata scans. Does not fetch, import into jj, or snapshot jj working files. Applies live, independently of settings reload. |
+| `live.poll_interval_ms` | `1500` | Git fallback metadata-scan/retry interval and jj recorded-operation polling interval; integer 250–60000. Native Git events can trigger earlier refresh. Applies live. |
 
 ### `settings`
 

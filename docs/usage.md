@@ -25,7 +25,9 @@ explicit `--base` and `--tip`. Unsnapshotted working-file edits are not captured
 In a plain Git repository, the default compares HEAD with staged, unstaged, and
 untracked worktree files. `--base REV --tip REV` compares recorded commits;
 `--tip @` means the worktree. Contents are captured when a comparison loads, so
-selecting another file does not mix in later edits. Merge commits use the first
+selecting another file does not mix in later edits. Automatic worktree refresh
+installs a new coherent capture, retaining the open file and reading position.
+Merge commits use the first
 parent for their patch. Evolution controls require jj metadata.
 
 With `[application] single_window_mode = true`, `jw`, normal
@@ -45,7 +47,9 @@ you are reading, with a corresponding reading indicator in the sidebar.
 
 Plain Git repositories also have a virtual working-copy row above HEAD. Select
 it to review current staged, unstaged, and untracked changes against HEAD. It
-remains visible as “no changes” when clean; use Refresh to capture later edits.
+remains visible as “no changes” when clean. With `live.enabled = true` (the default),
+saves and index changes refresh this view automatically after a short debounce.
+Historical commit views stay pinned while their history graph updates.
 This row has no commit ID, branch-comparison actions, or change evolution.
 
 Select a commit in history to see its message and patch. **All changes** returns
