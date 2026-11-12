@@ -69,3 +69,8 @@ Row rebuilds retain a file-header viewport anchor and its offset instead of
 retargeting it to the first source line. This keeps the overview preamble visible
 when toggling full-file context. Code-row anchors continue to follow source lines.
 Headless host regressions live in `tests/overview_scroll.rs`.
+
+`DiffState::change_navigation_position` exposes the last navigated changed group
+and projection count so standard diff footers can report the same position as
+Fluid. Row rebuilds clear that selection. Range disclosure buttons expose debug
+selectors for simulated-window folding regressions in both standard modes.

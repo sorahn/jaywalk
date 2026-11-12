@@ -135,6 +135,7 @@ pub struct NavigationSettings {
 #[serde(deny_unknown_fields)]
 pub struct ApplicationSettings {
     pub quit_on_last_window: bool,
+    pub single_window_mode: bool,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq)]
@@ -227,12 +228,31 @@ pub struct SidebarSettings {
     pub max_width: f32,
 }
 
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ScrollbarClick {
+    System,
+    Jump,
+    Page,
+}
+impl ScrollbarClick {
+    pub fn resolve(self, system: Option<Self>) -> Self {
+        match self {
+            Self::System => system
+                .filter(|mode| *mode != Self::System)
+                .unwrap_or(Self::Jump),
+            explicit => explicit,
+        }
+    }
+}
+
 #[derive(Clone, Debug, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct DiffPanelSettings {
     pub gutter_width: f32,
     pub shared_scrollbar_height: f32,
     pub shared_scrollbar_opacity: f32,
+    pub shared_scrollbar_click: ScrollbarClick,
     pub min_code_width: f32,
 }
 
@@ -308,6 +328,9 @@ pub enum DiffView {
 #[serde(deny_unknown_fields)]
 pub struct DiffSettings {
     pub max_text_file_size_mb: u64,
+    pub collapse_unchanged: bool,
+    pub context_lines: usize,
+    pub expansion_lines: usize,
     pub colors: DiffColorSettings,
     pub default_view: DiffView,
     pub before: PaneSettings,
@@ -625,6 +648,11 @@ impl Config {
             40.,
             300.,
         )?;
+        if self.diff.context_lines > 100 || !(1..=1000).contains(&self.diff.expansion_lines) {
+            return Err(
+                "diff context must be 0–100 lines and expansion must be 1–1000 lines".into(),
+            );
+        }
         if self.overview.context_lines > 100 || !(1..=1000).contains(&self.overview.expansion_lines)
         {
             return Err(
@@ -713,6 +741,43 @@ pub fn default_path() -> Result<PathBuf, String> {
 #[cfg(test)]
 mod tests {
     use super::{DiffView, Settings};
+
+    #[test]
+    fn standard_context_limits_and_defaults() {
+        let defaults = Settings::parse("").unwrap();
+        assert!(!defaults.diff.collapse_unchanged);
+        assert_eq!(defaults.diff.context_lines, 3);
+        assert_eq!(defaults.diff.expansion_lines, 20);
+        assert!(
+            Settings::parse(
+                "[diff]\ncollapse_unchanged=true\ncontext_lines=0\nexpansion_lines=1000"
+            )
+            .is_ok()
+        );
+        for setting in [
+            "context_lines=101",
+            "context_lines=-1",
+            "expansion_lines=0",
+            "expansion_lines=1001",
+        ] {
+            assert!(
+                Settings::parse(&format!("[diff]\n{setting}")).is_err(),
+                "{setting}"
+            );
+        }
+    }
+
+    #[test]
+    fn single_window_mode_is_opt_in_and_requires_a_boolean() {
+        assert!(!Settings::parse("").unwrap().application.single_window_mode);
+        assert!(
+            Settings::parse("[application]\nsingle_window_mode=true")
+                .unwrap()
+                .application
+                .single_window_mode
+        );
+        assert!(Settings::parse("[application]\nsingle_window_mode='reuse'").is_err());
+    }
 
     #[test]
     fn text_limit_defaults_to_fifty_mib_and_requires_representable_integer_bytes() {
@@ -849,6 +914,7 @@ mod tests {
             "[files]\nindent_guide_offset=49",
             "[panels.diff]\nshared_scrollbar_height=0",
             "[panels.diff]\nshared_scrollbar_opacity=1.1",
+            "[panels.diff]\nshared_scrollbar_click='invalid'",
             "[evolution]\nlimit=0",
             "[evolution]\nmin_height=500\ndefault_height=200",
             "[file_evolution]\nmin_height=500\ndefault_height=200",

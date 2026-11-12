@@ -296,6 +296,7 @@ impl Viewer {
             CommandId::PreviousFile => self.navigate_file(-1, window, cx),
             CommandId::NextRevision => self.navigate_revision(1, window, cx),
             CommandId::PreviousRevision => self.navigate_revision(-1, window, cx),
+            CommandId::ToggleUnchangedLines => self.toggle_unchanged_lines(cx),
             CommandId::ToggleLineNumbers => {
                 let position = self.prepare_display_reflow(cx);
                 if self.view.effective() != ViewMode::Fluid {
@@ -349,6 +350,8 @@ impl Viewer {
                 self.set_view_mode(self.settings.diff.default_view, cx);
                 self.wrapping = Wrapping::from_settings(&self.settings.diff);
                 self.line_numbers = self.settings.editor.line_numbers;
+                self.collapse_unchanged = self.settings.diff.collapse_unchanged;
+                self.apply_standard_context(cx);
                 self.apply_file_view();
                 self.rebuild_browser(cx);
                 for panel in [&mut self.evolution, &mut self.file_evolution] {

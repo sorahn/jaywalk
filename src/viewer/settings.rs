@@ -110,6 +110,15 @@ impl Viewer {
         if previous.diff.default_view != self.settings.diff.default_view {
             self.set_view_mode(self.settings.diff.default_view, cx);
         }
+        if previous.diff.collapse_unchanged != self.settings.diff.collapse_unchanged {
+            self.collapse_unchanged = self.settings.diff.collapse_unchanged;
+        }
+        if previous.diff.collapse_unchanged != self.settings.diff.collapse_unchanged
+            || previous.diff.context_lines != self.settings.diff.context_lines
+            || previous.diff.expansion_lines != self.settings.diff.expansion_lines
+        {
+            self.apply_standard_context(cx);
+        }
         for (current, old, new) in [
             (
                 &mut self.wrapping.before,

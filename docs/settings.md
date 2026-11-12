@@ -103,6 +103,7 @@ section header, for example `[editor]` followed by `font_size = 14`.
 | Setting | Default | Meaning and allowed values |
 | --- | --- | --- |
 | `application.quit_on_last_window` | `true` | Quit when the final actual window closes, including About. `false` keeps the app available with no windows. This is application-wide: opening another config or editing this value updates the shared policy; CLI waiters are notified before shutdown. |
+| `application.single_window_mode` | `false` | Normal opens from `jw`, Ctrl+R/recent repositories, welcome, and Open actions replace the originating viewer, or the active/most recently used viewer for a CLI launch, even for a different repository, range, or config. `false` opens a new window on each normal open. Explicit Open in new window and the recent-picker modifier always create a new window. Applies on the next open; uses the application-wide last-applied config-source policy. |
 
 ### `welcome`
 
@@ -208,10 +209,18 @@ values retain the last valid settings and report a configuration error.
 
 | Setting | Default | Meaning and allowed values |
 | --- | --- | --- |
-| `panels.diff.shared_scrollbar_height` | `12` | Fixed shared thumb height in pixels; 1–1000, clipped to the track. Spans the full fluid gutter width. Applies live. |
+| `panels.diff.shared_scrollbar_height` | `12` | Fixed shared thumb height in pixels; 1–1000, clipped to the track. Spans the fluid gutter width, with inset travel and faint grabber ridges. Applies live. |
 | `panels.diff.shared_scrollbar_opacity` | `0.12` | Shared thumb opacity; 0–1, brighter on hover/drag. Zero hides the thumb while keeping the gutter interactive. Applies live. |
+| `panels.diff.shared_scrollbar_click` | `"system"` | Track clicks: `system`, `jump`, or `page`. `page` moves one viewport toward the click; `jump` centers the thumb at the click. `system` uses the desktop preference captured at startup, falling back to `jump` if unavailable. Overrides apply live; restart to reread OS preferences. Thumb dragging always covers the full scroll range. |
 | `panels.diff.gutter_width` | `48` | Fluid connector-gutter width; 8–240. |
 | `panels.diff.min_code_width` | `100` | Minimum width of each Fluid code pane; 32–2000. The initial before/after split is even. |
+
+The shared Fluid scrollbar reads macOS `AppleScrollerPagingBehavior` through
+CoreFoundation. On KDE it reads `[KDE] ScrollbarLeftClickNavigatesByPage` from
+`kdeglobals`; other Linux desktops use `gtk-primary-button-warps-slider` in
+`gtk-4.0/settings.ini`, then `gtk-3.0/settings.ini`. Linux file lookup follows
+user-first XDG configuration directories, then the `/etc` GTK defaults. Missing, unreadable or malformed
+preferences use `jump`; session-only toolkit overrides are not queried.
 
 ### `history`
 
@@ -274,7 +283,9 @@ origin = true
 | Setting | Default | Meaning and allowed values |
 | --- | --- | --- |
 | `diff.default_view` | `"fluid"` | `"inline"`, `"side_by_side"` or `"fluid"` for the file viewer. Overview always uses unified/inline diff. Automatic single-column presentation for unchanged/conflicted files does not replace the saved preference. |
-
+| `diff.collapse_unchanged` | `false` | Fold unchanged ranges in single-file inline and side-by-side views. Applies live; the footer icon beside Word wrap or remappable toggle overrides it, remembered per repository when layout persistence is enabled. Fluid always shows full files. |
+| `diff.context_lines` | `3` | Context on each side of an edit in folded standard views; integer 0–100. Applies live. Independent of overview context. |
+| `diff.expansion_lines` | `20` | Lines revealed by each partial range disclosure in standard views; integer 1–1000. Applies live. |
 | `diff.max_text_file_size_mb` | `50` | Maximum text bytes per before/after side in MiB (1,048,576 bytes). A positive integer whose byte count plus one fits the platform address space. Applies on the next comparison load or refresh. |
 
 Oversized files stay in the file browser and overview with a byte-size notice.
@@ -364,8 +375,8 @@ removed = { light = "#b91c1c", dark = "#fb7185" }
 
 | Setting | Default | Meaning and allowed values |
 | --- | --- | --- |
-| `live.enabled` | `true` | Follow recorded repository updates in the background. Does not enable fetching, import external Git changes into jj, or snapshot working files. Independent of settings reload. |
-| `live.poll_interval_ms` | `1500` | Recorded repository refresh polling interval; integer 250–60000. |
+| `live.enabled` | `true` | Automatically follow plain Git worktree/index changes and recorded jj operations. Git watchers are shared per repository and debounce saves for 250 ms; ignored build trees are excluded from directory registration. Working-copy views update in place; commit/evolution inspection stays pinned while history updates. Watcher failures/missed events fall back to read-only metadata scans. Does not fetch, import into jj, or snapshot jj working files. Applies live, independently of settings reload. |
+| `live.poll_interval_ms` | `1500` | Git fallback metadata-scan/retry interval and jj recorded-operation polling interval; integer 250–60000. Native Git events can trigger earlier refresh. Applies live. |
 
 ### `settings`
 

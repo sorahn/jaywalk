@@ -15,6 +15,8 @@ struct GitValue {
     kind: FileKind,
 }
 
+const WORKING_TREE: &str = "working tree";
+
 type TextPair = Result<(String, String), String>;
 #[derive(Clone, Debug)]
 pub(crate) struct GitContents {
@@ -96,7 +98,7 @@ pub(crate) fn load(
     let root = PathBuf::from(root.trim_end_matches('\n'));
     let base = resolve(&root, base.unwrap_or("HEAD"))?;
     let tip = if tip == "@" {
-        "working tree".into()
+        WORKING_TREE.into()
     } else {
         resolve(&root, tip)?
     };
@@ -129,7 +131,7 @@ pub(crate) fn between(
     tip: String,
     limit: crate::text_content::TextLimit,
 ) -> Result<Comparison, String> {
-    let working = tip == "working tree";
+    let working = tip == WORKING_TREE;
     let recorded_tip = if working {
         resolve(&root, "HEAD")?
     } else {
@@ -416,7 +418,7 @@ pub(crate) fn history(root: &Path, query: &HistoryQuery) -> Result<History, Stri
         "-n",
         &limit,
         "-z",
-        "--format=%H%x00%P%x00%s%x00%an",
+        "--format=%H%x00%P%x00%B%x00%an%x00%aI",
     ];
     let roots = query.roots(&references);
     if roots.is_empty() {
@@ -426,11 +428,11 @@ pub(crate) fn history(root: &Path, query: &HistoryQuery) -> Result<History, Stri
     args.push("--");
     let data = output(root, &args)?;
     let fields: Vec<_> = data.split_terminator('\0').collect();
-    if !fields.len().is_multiple_of(4) {
+    if !fields.len().is_multiple_of(5) {
         return Err("Incomplete Git history entry".into());
     }
-    let revisions = fields
-        .as_chunks::<4>()
+    let mut revisions: Vec<_> = fields
+        .as_chunks::<5>()
         .0
         .iter()
         .map(|entry| Revision {
@@ -438,18 +440,47 @@ pub(crate) fn history(root: &Path, query: &HistoryQuery) -> Result<History, Stri
             change_id: entry[0].into(),
             description: entry[2].into(),
             author: entry[3].into(),
+            timestamp: entry[4].into(),
             parents: entry[1].split_whitespace().map(str::to_owned).collect(),
             references: vec![],
             working_copy: false,
             empty: false,
         })
         .collect();
+    if query.includes_working_copy() {
+        let head = resolve(root, "HEAD")?;
+        let empty =
+            output(root, &["status", "--porcelain", "--untracked-files=normal"])?.is_empty();
+        revisions.insert(
+            0,
+            Revision {
+                commit_id: WORKING_TREE.into(),
+                change_id: String::new(),
+                description: String::new(),
+                author: String::new(),
+                timestamp: String::new(),
+                parents: vec![head],
+                references: vec![],
+                working_copy: true,
+                empty,
+            },
+        );
+        revisions.truncate(query.limit());
+    }
     Ok(History::new(revisions).with_references(references))
 }
 pub(crate) fn for_revision(
     comparison: &Comparison,
     revision: &Revision,
 ) -> Result<Comparison, String> {
+    if revision.is_virtual_working_copy() {
+        return between(
+            comparison.root.clone(),
+            resolve(&comparison.root, "HEAD")?,
+            WORKING_TREE.into(),
+            comparison.text_limit,
+        );
+    }
     let base = match revision.parents.first() {
         Some(parent) => parent.clone(),
         None => output(&comparison.root, &["hash-object", "-t", "tree", "--stdin"])?

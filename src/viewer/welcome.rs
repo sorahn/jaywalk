@@ -42,7 +42,7 @@ impl Viewer {
             welcome.error = None;
         }
         match disposition {
-            crate::windows::OpenDisposition::Reuse => crate::open_arguments(
+            crate::windows::OpenDisposition::Configured => crate::open_arguments(
                 self.arguments.for_repository(directory),
                 Some(cx.entity().downgrade()),
                 true,
@@ -153,7 +153,7 @@ impl Viewer {
                         let disposition = if event.modifiers().secondary() {
                             crate::windows::OpenDisposition::NewWindow
                         } else {
-                            crate::windows::OpenDisposition::Reuse
+                            crate::windows::OpenDisposition::Configured
                         };
                         viewer.open_repository_path(path.clone(), disposition, cx)
                     })),

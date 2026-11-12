@@ -186,6 +186,7 @@ impl Version {
             change_id: self.change_id.clone(),
             description: self.description.clone(),
             author: String::new(),
+            timestamp: String::new(),
             references: Vec::new(),
             parents: self.parents.clone(),
             working_copy: false,

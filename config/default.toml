@@ -8,6 +8,8 @@ additional_directories = []
 
 [application]
 quit_on_last_window = true
+# Reuse the current viewer for CLI, recent-repository and normal Open actions.
+single_window_mode = false
 
 # In-memory visited views per window; reducing the limit trims old entries live.
 [navigation]
@@ -69,9 +71,11 @@ ligatures = true
 
 [panels.diff]
 gutter_width = 48
-# Shared fluid scrollbar spans the gutter with a fixed-height thumb.
+# Shared fluid scrollbar spans the gutter; its thumb stays inset at both ends.
 shared_scrollbar_height = 12
 shared_scrollbar_opacity = 0.12
+# system, jump, or page. Unknown system preferences fall back to jump.
+shared_scrollbar_click = "system"
 min_code_width = 100
 # The before/after panes default to an even split of the remaining width.
 
@@ -117,6 +121,10 @@ list_word_wrap = false
 max_text_file_size_mb = 50
 # "inline", "side_by_side", or "fluid"
 default_view = "fluid"
+# Standard inline/side-by-side views; Fluid always shows full files.
+collapse_unchanged = false
+context_lines = 3
+expansion_lines = 20
 
 # All colors accept a shared "#RRGGBB" or a light/dark pair.
 # Background and word hues are tinted by the viewer to preserve syntax legibility.
@@ -161,7 +169,9 @@ max_height = 700
 min_files_height = 120
 
 [live]
+# Git watches saved worktree/index changes; jj follows recorded operations.
 enabled = true
+# Git fallback scan interval and jj recorded-operation polling interval.
 poll_interval_ms = 1500
 
 # Configuration reload is independent of recorded repository refresh above.

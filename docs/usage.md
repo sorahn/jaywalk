@@ -15,9 +15,8 @@ jw . --file src/main.rs
 Bare `jw` opens the welcome page, regardless of the terminal's current directory.
 `jw .` opens the current repository. Ctrl+R searches all saved recent repositories;
 Enter opens a result and Escape dismisses the picker. Command+Enter or Command-click
-opens a new window. Ordinary reopening focuses the existing matching window while
-preserving its selection. Different revision endpoints or config files can have
-separate windows. File → Clear recent repositories clears saved recent history.
+opens a new window. Ordinary opens follow `application.single_window_mode`;
+reopening the same comparison in the reused window preserves its selection. File → Clear recent repositories clears saved recent history.
 
 In a colocated checkout, Jaywalk prefers jj. Its default comparison uses the
 recorded tip and its nearest immutable ancestor; ambiguous endpoints require an
@@ -26,8 +25,16 @@ explicit `--base` and `--tip`. Unsnapshotted working-file edits are not captured
 In a plain Git repository, the default compares HEAD with staged, unstaged, and
 untracked worktree files. `--base REV --tip REV` compares recorded commits;
 `--tip @` means the worktree. Contents are captured when a comparison loads, so
-selecting another file does not mix in later edits. Merge commits use the first
+selecting another file does not mix in later edits. Automatic worktree refresh
+installs a new coherent capture, retaining the open file and reading position.
+Merge commits use the first
 parent for their patch. Evolution controls require jj metadata.
+
+With `[application] single_window_mode = true`, `jw`, normal
+Open actions, and choosing a repository with Ctrl+R replace the current viewer,
+even for another repository. CLI launches use the active or most recently used
+viewer. The default is `false`, opening a new window for each request. The recent
+picker's explicit Open in new window action/modifier always opens another window.
 
 ## Overview and files
 
@@ -37,6 +44,13 @@ collapsed. Expand a range for context, use **Show full files** for everything,
 or choose **Open file** for the regular diff viewer. Clicking a file header folds
 that file; its Open file action remains separate. Sticky headers show which file
 you are reading, with a corresponding reading indicator in the sidebar.
+
+Plain Git repositories also have a virtual working-copy row above HEAD. Select
+it to review current staged, unstaged, and untracked changes against HEAD. It
+remains visible as “no changes” when clean. With `live.enabled = true` (the default),
+saves and index changes refresh this view automatically after a short debounce.
+Historical commit views stay pinned while their history graph updates.
+This row has no commit ID, branch-comparison actions, or change evolution.
 
 Select a commit in history to see its message and patch. **All changes** returns
 to the original branch comparison. **Overview** returns from an open file to the
@@ -151,8 +165,8 @@ paths match literally, so renames appear as additions and deletions. Symlink tar
 are compared without traversing directory symlinks. Use Refresh to reread inputs.
 
 Normal launches return the shell prompt immediately. `--wait` waits for the requested
-window to close, including when reusing a window; closing another window does not
-release it. Use it when another tool supplies temporary paths. Quitting Jaywalk
+comparison's window to close or be replaced by another comparison; closing another
+window does not release it. Use it when another tool supplies temporary paths. Quitting Jaywalk
 also releases waiting clients.
 
 ## Use with jj diff
@@ -193,8 +207,13 @@ base you are reviewing. See [context menus](context-menus.md#branch-review-conte
 for ambiguity, merged branches and live/pinned behavior.
 
 In fluid view, drag the short, full-width thumb in the center gutter to scroll both panes
-through the comparison. The up–down cursor marks the grabbable gutter; clicking above or
-below the thumb moves to that position. Each pane’s own scrollbar remains
+through the comparison. Its travel stays about 5% clear of each end so the thumb
+remains discoverable, with three faint grabber ridges that brighten on hover/drag.
+The up–down cursor marks the grabbable gutter. Track clicks follow
+`panels.diff.shared_scrollbar_click`: `system` (default), `jump`, or `page`.
+Paging moves one viewport toward the click; jumping moves to the clicked position.
+System preferences are read at startup, with `jump` as the fallback. Dragging the
+thumb still reaches the entire comparison; holding a page click does not repeat. Each pane’s own scrollbar remains
 independent. Mouse-wheel scrolling over either pane or the gutter stays linked.
 
 Jaywalk follows system appearance by default. Set `ui.appearance` to `"light"`,
@@ -230,15 +249,36 @@ History, Files, Change evolution and File evolution share the same compact
 panel-header typography, aligned edge spacing and grouped controls. Persistent
 icon toggles use the application accent instead of a selected background.
 
-Panel visibility buttons sit at the outer footer edge matching each sidebar’s
-configured side; hidden panels keep their button for reopening. The bottom-dock
-button appears at the right edge only when a timeline is placed in the real
-bottom dock; it toggles only those docked timelines. File diff controls stay
-in the footer, aligned
-with the diff workspace’s right edge as sidebars resize, move or close. With
-no right sidebar, they sit directly beside the outer panel buttons.
+Each open sidebar has a footer section matching its measured width, with its
+visibility button at the outer-facing edge. Its count/status appears to the left
+and its evolution toggle to the right within that section, on either side of the
+window. Counts truncate to preserve the controls in narrow panels.
+Hidden sidebars keep compact buttons; when the outside sidebar is closed, its
+button packs beside the inner sidebar’s button. Footer sections follow panel
+order, side, visibility and resizing. The comparison status belongs to the viewer
+footer, beginning at its left edge after any compact closed-panel buttons.
+File diff controls and the bottom-dock toggle sit at the viewer footer’s right
+edge. The bottom toggle appears only when a timeline is placed in the real
+bottom dock and controls only those docked timelines.
 
-History and Files have compact info footers, with their own evolution toggle at
-the bottom right. History shows its revision count/status; Files shows changed
+History and Files put their info in the app footer only while their sidebar is
+open. History shows its revision count/status; Files shows changed
 file counts, or total/changed counts in the all-files tree, plus a retained-preview
 count when applicable. Each evolution toggle controls only its own timeline.
+
+Hover a history row for its message, author, authored timestamp, full commit ID,
+jj change ID when available, merge parent count and local/remote references.
+The plain Git working-copy row describes uncommitted changes instead of showing
+a commit identity. Hover details use the loaded snapshot and do not refresh or
+record working files. Very long messages are clipped to keep the card compact;
+commit details and copy actions remain available from the row context menu.
+
+The single-file viewer uses the same compact header height and text sizing as
+the panel headers. In Fluid view, the filename and Before/After (or interdiff
+version) labels share one row, with pane-aligned gutter dividers and a solid
+bottom border. Rename/type notices remain inline in that row.
+
+At narrow viewer widths, the footer groups wrapping/view controls under a diff
+display-options menu and uses a compact change counter. The full counter remains
+available on hover. Counts stay on one line; drawer footer sections follow drawn
+widths when the window constrains the sidebars.

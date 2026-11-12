@@ -3,6 +3,7 @@
 use super::*;
 use gpui::component::Sizable;
 use gpui::component::diff::DiffAnnotation;
+use gpui::component::spinner::Spinner;
 use gpui::prelude::FluentBuilder as _;
 use jaywalk::overview::{CommitDetails, OverviewSeries};
 use jaywalk::repository::{ChangedFile, ComparisonIdentity};
@@ -106,6 +107,7 @@ pub(super) struct OverviewState {
     generation: u64,
     pub(super) error: Option<String>,
     restore_offset: Option<ListOffset>,
+    restore_collapsed: HashSet<String>,
 }
 #[derive(Clone)]
 pub(super) struct OverviewCheckpoint {
@@ -140,6 +142,7 @@ impl Viewer {
         self.invalidate_overview();
         self.finish_loading(LoadingKind::Overview);
         self.overview.restore_offset = None;
+        self.overview.restore_collapsed.clear();
         if let Some(checkpoint) = checkpoint {
             checkpoint.loaded.state.update(cx, |state, cx| {
                 state.restore_viewport_offset(checkpoint.offset, cx);
@@ -202,6 +205,21 @@ impl Viewer {
             });
         }
     }
+    pub(super) fn preserve_overview_reading(&mut self, cx: &App) {
+        if self.selected_file.is_none()
+            && let Some(loaded) = &self.overview.current
+        {
+            let state = loaded.state.read(cx);
+            self.overview.restore_offset = Some(state.viewport_offset());
+            self.overview.restore_collapsed = state
+                .files()
+                .iter()
+                .filter(|file| state.is_file_collapsed(file.path()))
+                .map(|file| file.path().to_string())
+                .collect();
+        }
+    }
+
     pub(super) fn invalidate_overview(&mut self) {
         self.overview.requested = None;
         self.overview.generation += 1;
@@ -275,6 +293,12 @@ impl Viewer {
                                 .with_context_lines(Some(context))
                                 .with_expansion_lines(expansion)
                         });
+                        let collapsed = std::mem::take(&mut viewer.overview.restore_collapsed);
+                        state.update(cx, |state, cx| {
+                            for path in collapsed {
+                                state.set_file_collapsed(&path, true, cx);
+                            }
+                        });
                         if let Some(offset) = viewer.overview.restore_offset.take() {
                             state.update(cx, |state, cx| state.restore_viewport_offset(offset, cx));
                         }
@@ -328,16 +352,41 @@ impl Viewer {
                 .into_any_element();
         }
         let Some(loaded) = &self.overview.current else {
+            let loading = self.overview.error.is_none()
+                && (self.loading_visible(LoadingKind::Comparison)
+                    || self.loading_visible(LoadingKind::Overview));
             let text = if self.overview.error.is_some() {
                 "Overview unavailable"
-            } else if self.loading_visible(LoadingKind::Comparison)
-                || self.loading_visible(LoadingKind::Overview)
-            {
+            } else if loading {
                 "Loading overview…"
             } else {
                 ""
             };
-            return surface.child(div().p_6().child(text)).into_any_element();
+            return surface
+                .child(
+                    div()
+                        .flex_1()
+                        .min_h_0()
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .p_6()
+                        .text_size(px(self.settings.ui.font_size))
+                        .text_color(theme.muted_foreground)
+                        .child(
+                            div()
+                                .h_flex()
+                                .items_center()
+                                .gap_2()
+                                .children(loading.then(|| {
+                                    Spinner::new()
+                                        .with_size(px(self.settings.ui.font_size))
+                                        .color(theme.muted_foreground)
+                                }))
+                                .child(text),
+                        ),
+                )
+                .into_any_element();
         };
         let (title, body) = message_parts(loaded.commit.as_ref());
         let metadata = loaded
@@ -607,12 +656,18 @@ impl Element for ComparisonCaption {
         window: &mut Window,
         cx: &mut App,
     ) -> (LayoutId, ()) {
-        let style = Style {
-            size: size(relative(1.).into(), window.line_height().into()),
-            ..Style::default()
-        };
-        (window.request_layout(style, [], cx), ())
+        // Supply real text to intrinsic layout. A percentage-width leaf with
+        // no content collapses to zero inside the comparison button's flex row.
+        let mut content = div()
+            .min_w_0()
+            .truncate()
+            .child(self.label.clone())
+            .into_any_element();
+        let layout = content.request_layout(window, cx);
+        self.content = Some(content);
+        (layout, ())
     }
+
     fn prepaint(
         &mut self,
         _: Option<&GlobalElementId>,
@@ -628,6 +683,7 @@ impl Element for ComparisonCaption {
             self.label.clone()
         };
         let mut content = div()
+            .debug_selector(|| "comparison-caption".into())
             .w(bounds.size.width)
             .truncate()
             .child(caption)
@@ -671,8 +727,8 @@ fn render_series(
     owner: WeakEntity<Viewer>,
     muted: Hsla,
 ) -> AnyElement {
-    let mut list = div().v_flex().gap_2();
-    list = list.child(div().text_xl().child("Commits in this comparison"));
+    let mut list = div().v_flex().gap_1().line_height(relative(1.35));
+    list = list.child(div().mb_1().text_xl().child("Commits in this comparison"));
     if series.commits.is_empty() {
         list = list.child(div().text_color(muted).child("No commits in this range."));
     }

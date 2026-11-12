@@ -1,4 +1,5 @@
 use super::*;
+use gpui::base::ElementExt as _;
 use gpui::base::{ResizableState, ResizeHandleRenderer};
 use gpui::component::Sizable;
 use gpui::component::menu::DropdownMenu;
@@ -23,28 +24,76 @@ enum PanelGroup {
 pub(super) struct PanelLayout {
     sidebars: Entity<ResizableState>,
     diff: Entity<ResizableState>,
+    before_width: Rc<Cell<Option<Pixels>>>,
+    sidebar_widths: [Rc<Cell<Option<Pixels>>>; 2],
     evolution: Entity<ResizableState>,
     file_evolution: Entity<ResizableState>,
     bottom: Entity<ResizableState>,
     bottom_split: Entity<ResizableState>,
     sidebar_bounds: Rc<Cell<Option<Bounds<Pixels>>>>,
+    window_size: Option<Size<Pixels>>,
+}
+
+fn measure_width(
+    measured: Rc<Cell<Option<Pixels>>>,
+    viewer: WeakEntity<Viewer>,
+    reflow: Option<(usize, usize, f32)>,
+) -> impl Fn(Bounds<Pixels>, &mut Window, &mut App) + 'static {
+    move |bounds, window, cx| {
+        let previous = measured.replace(Some(bounds.size.width));
+        if previous != Some(bounds.size.width) {
+            let viewer = viewer.clone();
+            window.defer(cx, move |window, cx| {
+                if previous.is_some()
+                    && let Some(position) = reflow
+                {
+                    let _ = viewer.update(cx, |viewer, _| {
+                        viewer.live.pending_position.get_or_insert(position);
+                    });
+                }
+                window.refresh();
+            });
+        }
+    }
 }
 
 impl PanelLayout {
+    fn reset_diff(&mut self, cx: &mut App) {
+        self.diff = cx.new(|_| ResizableState::default());
+        self.before_width.set(None);
+    }
     pub(super) fn new(cx: &mut App) -> Self {
         Self {
             sidebars: cx.new(|_| ResizableState::default()),
             diff: cx.new(|_| ResizableState::default()),
+            before_width: Rc::new(Cell::new(None)),
+            sidebar_widths: std::array::from_fn(|_| Rc::new(Cell::new(None))),
             evolution: cx.new(|_| ResizableState::default()),
             file_evolution: cx.new(|_| ResizableState::default()),
             bottom: cx.new(|_| ResizableState::default()),
             bottom_split: cx.new(|_| ResizableState::default()),
             sidebar_bounds: Rc::new(Cell::new(None)),
+            window_size: None,
         }
     }
 }
 
 impl Viewer {
+    pub(super) fn preserve_window_reflow(&mut self, window: &Window, cx: &App) {
+        let size = window.bounds().size;
+        if self
+            .panels
+            .window_size
+            .replace(size)
+            .is_some_and(|previous| previous != size)
+        {
+            // Capture source lines before the editors rebuild their wrap maps.
+            if self.live.pending_position.is_none() {
+                self.preserve_reflow_position(cx);
+            }
+        }
+    }
+
     pub(super) fn placement(&self) -> &Placement {
         self.layout
             .saved
@@ -135,6 +184,12 @@ impl Viewer {
                         .child(
                             div()
                                 .size_full()
+                                .relative()
+                                .on_prepaint(measure_width(
+                                    self.panels.sidebar_widths[usize::from(!history)].clone(),
+                                    cx.entity().downgrade(),
+                                    None,
+                                ))
                                 .font(typography::panel_font(&settings.font, cx))
                                 .child(if history {
                                     self.render_history_sidebar(cx)
@@ -229,10 +284,13 @@ impl Viewer {
             .into_any_element()
     }
 
-    pub(super) fn rebuild_sidebar_layout(&mut self, cx: &mut App) {
+    pub(super) fn rebuild_sidebar_layout(&mut self, cx: &mut Context<Self>) {
         // Reinitialize native distribution from the saved widths after a pane's
         // visibility changes; otherwise showing it can shrink both sidebars.
         self.panels.sidebars = cx.new(|_| ResizableState::default());
+        for width in &self.panels.sidebar_widths {
+            width.set(None);
+        }
     }
 
     pub(super) fn sidebar_group(&self, cx: &Context<Self>) -> ResizablePanelGroup {
@@ -240,6 +298,34 @@ impl Viewer {
             .with_state(&self.panels.sidebars)
             .on_resize(self.record_panel_resize(PanelGroup::Sidebars, cx))
             .with_handle_appearance(self.reset_handle_appearance(PanelGroup::Sidebars, cx))
+    }
+
+    pub(super) fn measure_before_width(
+        &self,
+        cx: &Context<Self>,
+    ) -> impl Fn(Bounds<Pixels>, &mut Window, &mut App) + 'static {
+        let reflow = (!self.reveal_after_layout && self.navigation_target.is_none())
+            .then(|| self.reflow_position(cx))
+            .flatten();
+        measure_width(
+            self.panels.before_width.clone(),
+            cx.entity().downgrade(),
+            reflow,
+        )
+    }
+
+    pub(super) fn measured_before_width(&self, cx: &App) -> Pixels {
+        if let Some(width) = self.panels.before_width.get() {
+            return width;
+        }
+        self.panels
+            .diff
+            .read(cx)
+            .sizes()
+            .first()
+            .copied()
+            .filter(|width| *width > px(0.))
+            .unwrap_or_else(|| self.initial_code_width(true))
     }
 
     pub(super) fn diff_group(&self, cx: &Context<Self>) -> ResizablePanelGroup {
@@ -303,30 +389,26 @@ impl Viewer {
             .into_any_element()
     }
 
-    pub(super) fn right_sidebar_width(&self, cx: &App) -> f32 {
+    pub(super) fn measured_sidebar_width(&self, panel: PanelId, cx: &App) -> Option<f32> {
         let columns = self.columns();
+        let index = columns.iter().position(|column| *column == Some(panel))?;
+        if let Some(width) =
+            self.panels.sidebar_widths[usize::from(panel != PanelId::History)].get()
+        {
+            return Some(f32::from(width));
+        }
         let sizes = self.panels.sidebars.read(cx).sizes();
-        let workspace = columns
-            .iter()
-            .position(Option::is_none)
-            .expect("every layout contains the workspace");
-        columns
-            .iter()
-            .enumerate()
-            .skip(workspace + 1)
-            .map(|(index, panel)| {
-                let history = *panel == Some(PanelId::History);
-                if sizes.len() == columns.len() {
-                    sizes
-                        .get(index)
-                        .map(|size| f32::from(*size))
-                        .filter(|size| *size > 0.)
-                } else {
-                    None
-                }
-                .unwrap_or_else(|| self.sidebar_width(history))
-            })
-            .sum()
+        Some(
+            if sizes.len() == columns.len() {
+                sizes
+                    .get(index)
+                    .map(|size| f32::from(*size))
+                    .filter(|size| *size > 0.)
+            } else {
+                None
+            }
+            .unwrap_or_else(|| self.sidebar_width(panel == PanelId::History)),
+        )
     }
 
     pub(super) fn initial_code_width(&self, before: bool) -> Pixels {
@@ -354,10 +436,19 @@ impl Viewer {
             .max(self.settings.panels.diff.min_code_width))
     }
 
-    pub(super) fn sidebar_bounds_marker(&self) -> AnyElement {
+    pub(super) fn sidebar_bounds_marker(&self, cx: &Context<Self>) -> AnyElement {
         let bounds = self.panels.sidebar_bounds.clone();
+        let viewer = cx.entity().downgrade();
         canvas(
-            move |current, _, _| bounds.set(Some(current)),
+            move |current, _, cx| {
+                bounds.set(Some(current));
+                // GPUI replaces each window's accessed-entity set per frame.
+                // Retain this dependency even in a geometry-only redraw, so
+                // later async repository/file notifications still repaint it.
+                if let Some(viewer) = viewer.upgrade() {
+                    let _ = viewer.read(cx);
+                }
+            },
             |_, _, _, _| {},
         )
         .absolute()
@@ -527,7 +618,7 @@ impl Viewer {
             }
             PanelGroup::Diff => {
                 self.layout.saved.before_fraction = None;
-                self.panels.diff = cx.new(|_| ResizableState::default());
+                self.panels.reset_diff(cx);
             }
         }
         self.save_layout(cx);
@@ -586,7 +677,7 @@ impl Viewer {
             self.panels.bottom = cx.new(|_| ResizableState::default());
         }
         if previous.panels.diff != self.settings.panels.diff {
-            self.panels.diff = cx.new(|_| ResizableState::default());
+            self.panels.reset_diff(cx);
         }
         if previous.evolution.default_height != self.settings.evolution.default_height {
             self.layout.saved.change_height = None;

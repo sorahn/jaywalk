@@ -197,6 +197,70 @@ mod tests {
     }
 
     #[test]
+    fn mixed_empty_and_unequal_changes_scroll_continuously_and_reversibly() {
+        let unchanged = |n: usize| (0..n).map(|i| format!("line {i}\n")).collect::<String>();
+        let cases = [
+            (String::new(), "added\n".repeat(100)),
+            ("deleted\n".repeat(100), String::new()),
+            (
+                format!("{}{}{}", unchanged(30), "old\n".repeat(3), unchanged(40)),
+                format!("{}{}{}", unchanged(30), "new\n".repeat(80), unchanged(40)),
+            ),
+            (
+                format!("{}{}", unchanged(40), "removed\n".repeat(90)),
+                unchanged(40),
+            ),
+        ];
+        for (before, after) in cases {
+            let diff = FileDiff::new(&before, &after);
+            let mut layout = geometry(&diff);
+            // Exercise different wrapping heights on corresponding lines too.
+            for (positions, height) in [
+                (&mut layout.before, &mut layout.before_height),
+                (&mut layout.after, &mut layout.after_height),
+            ] {
+                let mut y = 0.;
+                for (line, position) in positions.iter_mut().enumerate() {
+                    *position = y;
+                    y += if line % 7 == 0 { 80. } else { 20. };
+                }
+                *height = positions.last().copied().unwrap_or(0.) + 20.;
+            }
+            for viewport in [20., 200., 10000.] {
+                let mut scroll = FluidScroll::default();
+                let mut previous = (0., 0.);
+                let limit = (layout.scroll_extent(&diff) - viewport).max(0.);
+                for _ in 0..(limit / 7.).ceil() as usize + 1 {
+                    let current = scroll.advance(7., &diff, &layout, viewport);
+                    for (old, new) in [(previous.0, current.0), (previous.1, current.1)] {
+                        assert!(
+                            new >= old - 0.01 && new - old <= 7.01,
+                            "{previous:?} -> {current:?}"
+                        );
+                    }
+                    previous = current;
+                }
+                assert_eq!(
+                    previous,
+                    (
+                        (layout.before_height - viewport).max(0.),
+                        (layout.after_height - viewport).max(0.)
+                    )
+                );
+                if limit > 100. {
+                    scroll.advance(-limit / 2., &diff, &layout, viewport);
+                    let original = scroll.advance(0., &diff, &layout, viewport);
+                    scroll.advance(-17., &diff, &layout, viewport);
+                    let restored = scroll.advance(17., &diff, &layout, viewport);
+                    assert!((original.0 - restored.0).abs() < 0.01);
+                    assert!((original.1 - restored.1).abs() < 0.01);
+                }
+                assert_eq!(scroll.advance(-100000., &diff, &layout, viewport), (0., 0.));
+            }
+        }
+    }
+
+    #[test]
     fn continues_when_one_document_cannot_scroll() {
         let diff = FileDiff::new("short\n", &"added\n".repeat(100));
         let mut scroll = FluidScroll::default();
@@ -332,32 +396,50 @@ pub struct SharedScrollTrack {
     pub thumb: std::ops::Range<f32>,
     limit: f32,
     travel: f32,
+    inset: f32,
 }
 impl SharedScrollTrack {
     pub fn new(extent: f32, viewport: f32, track: f32, thumb_height: f32, position: f32) -> Self {
         let limit = (extent - viewport).max(0.);
         let height = thumb_height.min(track);
-        let travel = (track - height).max(0.);
-        let top = if limit > 0. {
-            position.clamp(0., limit) / limit * travel
-        } else {
-            0.
-        };
+        let remaining = (track - height).max(0.);
+        // Keep both ends discoverable. Tiny tracks retain at least half their
+        // remaining travel rather than losing the ability to drag altogether.
+        let inset = (track * 0.05).min(remaining / 4.);
+        let travel = remaining - 2. * inset;
+        let top = inset
+            + if limit > 0. {
+                position.clamp(0., limit) / limit * travel
+            } else {
+                0.
+            };
         Self {
             thumb: top..top + height,
             limit,
             travel,
+            inset,
         }
     }
     pub fn scrollable(&self) -> bool {
         self.limit > 0. && self.travel > 0.
+    }
+    /// One viewport toward the click, in virtual comparison coordinates.
+    pub fn page_at(&self, pointer: f32, position: f32, viewport: f32) -> f32 {
+        let delta = if pointer < self.thumb.start {
+            -viewport
+        } else if pointer >= self.thumb.end {
+            viewport
+        } else {
+            0.
+        };
+        (position + delta).clamp(0., self.limit)
     }
     pub fn position_at(&self, pointer: f32, grab_fraction: f32) -> f32 {
         if !self.scrollable() {
             return 0.;
         }
         let top = pointer - grab_fraction * (self.thumb.end - self.thumb.start);
-        (top / self.travel).clamp(0., 1.) * self.limit
+        ((top - self.inset) / self.travel).clamp(0., 1.) * self.limit
     }
 }
 #[cfg(test)]
@@ -374,15 +456,40 @@ mod shared_scroll_tests {
     #[test]
     fn fixed_thumb_preserves_pointer_grab_and_handles_short_tracks() {
         let track = SharedScrollTrack::new(100000., 800., 800., 28., 0.);
-        assert_eq!(track.thumb, 0.0..28.0);
+        assert_eq!(track.thumb, 40.0..68.0);
         assert_eq!(
             SharedScrollTrack::new(1000., 800., 800., 28., 0.).thumb,
             track.thumb
         );
-        assert_eq!(track.position_at(7., 0.25), 0.);
-        assert_eq!(track.position_at(779., 0.25), 99200.);
+        assert_eq!(track.position_at(47., 0.25), 0.);
+        assert_eq!(track.position_at(739., 0.25), 99200.);
         assert!(!SharedScrollTrack::new(100000., 800., 10., 28., 0.).scrollable());
         assert!(!SharedScrollTrack::new(200., 800., 800., 28., 0.).scrollable());
+    }
+    #[test]
+    fn inset_thumb_keeps_full_range_and_preserves_every_grab_point() {
+        for position in [0., 1600., 3200.] {
+            let track = SharedScrollTrack::new(4000., 800., 800., 28., position);
+            assert!(track.thumb.start >= 40. && track.thumb.end <= 760.);
+            for grab in [0., 0.25, 0.5, 1.] {
+                let pointer = track.thumb.start + grab * (track.thumb.end - track.thumb.start);
+                assert!((track.position_at(pointer, grab) - position).abs() < 0.01);
+            }
+        }
+        let short = SharedScrollTrack::new(4000., 800., 30., 28., 3200.);
+        assert!(short.scrollable());
+        assert_eq!(short.thumb, 1.5..29.5);
+        assert_eq!(short.position_at(0., 0.5), 0.);
+        assert_eq!(short.position_at(30., 0.5), 3200.);
+    }
+    #[test]
+    fn track_paging_moves_one_viewport_without_jumping_to_the_pointer() {
+        let track = SharedScrollTrack::new(4000., 800., 800., 28., 1600.);
+        assert_eq!(track.page_at(0., 1600., 800.), 800.);
+        assert_eq!(track.page_at(800., 1600., 800.), 2400.);
+        assert_eq!(track.page_at(400., 1600., 800.), 1600.);
+        assert_eq!(track.page_at(0., 100., 800.), 0.);
+        assert_eq!(track.page_at(800., 3000., 800.), 3200.);
     }
     #[test]
     fn large_append_uses_shared_extent_after_short_pane_stops() {

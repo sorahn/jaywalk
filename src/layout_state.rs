@@ -30,6 +30,7 @@ pub struct LayoutState {
     pub wrap_after: Option<bool>,
     pub wrap_inline: Option<bool>,
     pub line_numbers: Option<bool>,
+    pub collapse_unchanged: Option<bool>,
     pub change_grouping: Option<bool>,
     pub file_grouping: Option<bool>,
     pub change_rebases: Option<bool>,

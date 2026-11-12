@@ -1,6 +1,8 @@
 use super::*;
+use gpui::base::ElementExt as _;
 use gpui::component::menu::{ContextMenuExt as _, DropdownMenu as _};
 use gpui::component::{Icon, Sizable};
+use gpui::prelude::FluentBuilder;
 
 impl Viewer {
     pub(super) fn render_find_file_button(&self, cx: &Context<Self>) -> Button {
@@ -128,36 +130,6 @@ impl Viewer {
         let updating = self.loading_visible(LoadingKind::Comparison)
             || self.loading_visible(LoadingKind::File)
             || self.loading_visible(LoadingKind::Live);
-        let mut header = div()
-            .v_flex()
-            .px_3()
-            .py_1()
-            .border_b_1()
-            .border_color(gpui::component::Theme::global(cx).border)
-            .bg(gpui::component::Theme::global(cx).sidebar)
-            .child(
-                div()
-                    .h_flex()
-                    .items_center()
-                    .gap_2()
-                    .children(
-                        (self.is_retained_preview()
-                            || matches!(self.comparison_state(), LoadState::Failed(_)))
-                        .then(|| {
-                            div().flex_shrink_0().child(
-                                Icon::new(IconName::Eye).size(px(self.settings.ui.font_size)),
-                            )
-                        }),
-                    )
-                    .child(
-                        div()
-                            .flex_1()
-                            .min_w_0()
-                            .truncate()
-                            .child(file.path().to_owned()),
-                    )
-                    .children(updating.then(|| div().flex_shrink_0().text_sm().child("Updating…"))),
-            );
         let detail = match file.status().unwrap_or("unchanged") {
             "renamed" => Some(format!(
                 "Renamed from {}{}",
@@ -195,23 +167,106 @@ impl Viewer {
                     Some(format!("Unsupported entry: {kind}"))
                 }
             });
-        if let Some(detail) = detail {
-            header = header.child(
+        let theme = gpui::component::Theme::global(cx);
+        let split = self.view.effective() == ViewMode::Fluid && self.code().is_some();
+        let font_size = self.settings.ui.font_size * 0.85;
+        let height = self
+            .settings
+            .ui
+            .panel_header_height
+            .max(self.settings.ui.font_size * 1.5);
+        let title = div()
+            .debug_selector(|| "before-header".into())
+            .h_flex()
+            .items_center()
+            .gap_2()
+            .min_w_0()
+            .h_full()
+            .px(px(super::chrome::PANEL_INSET))
+            .when(split, |title| {
+                title.w(self.measured_before_width(cx)).flex_shrink_0()
+            })
+            .when(!split, |title| title.flex_1())
+            .children(
+                (self.is_retained_preview()
+                    || matches!(self.comparison_state(), LoadState::Failed(_)))
+                .then(|| Icon::new(IconName::Eye).size(px(font_size))),
+            )
+            .child(
                 div()
-                    .text_sm()
-                    .text_color(gpui::component::Theme::global(cx).muted_foreground)
-                    .whitespace_normal()
-                    .child(detail),
-            );
-        }
+                    .flex_1()
+                    .min_w_0()
+                    .truncate()
+                    .child(file.path().to_owned()),
+            )
+            .children(detail.map(|detail| {
+                div()
+                    .max_w(rems(24.))
+                    .truncate()
+                    .text_color(theme.muted_foreground)
+                    .child(detail)
+            }))
+            .children(updating.then(|| div().flex_shrink_0().child("Updating…")))
+            .when(split, |title| {
+                title.child(
+                    div()
+                        .flex_shrink_0()
+                        .text_color(theme.muted_foreground)
+                        .child(if self.is_interdiff() {
+                            "Previous (rebased)"
+                        } else {
+                            "Before"
+                        }),
+                )
+            });
+        let header = div()
+            .h_flex()
+            .items_center()
+            .min_w_0()
+            .flex_shrink_0()
+            .h(px(height))
+            .text_size(px(font_size))
+            .border_b_1()
+            .border_color(theme.border)
+            .bg(theme.sidebar)
+            .child(title)
+            .when(split, |header| {
+                header
+                    .child(
+                        div()
+                            .w(px(self.settings.panels.diff.gutter_width))
+                            .h_full()
+                            .flex_shrink_0()
+                            .border_l_1()
+                            .border_r_1()
+                            .border_color(theme.border),
+                    )
+                    .child(
+                        div()
+                            .h_flex()
+                            .items_center()
+                            .h_full()
+                            .flex_1()
+                            .min_w_0()
+                            .px(px(super::chrome::PANEL_INSET))
+                            .text_color(theme.muted_foreground)
+                            .child(if self.is_interdiff() {
+                                "Selected version"
+                            } else {
+                                "After"
+                            }),
+                    )
+            });
         let target = self.current_file_target();
         let owner = cx.entity().downgrade();
         let focus = self.focus.clone();
         let view = self.view.effective();
         let wrap = self.wrapping.enabled(view);
         let line_numbers = self.line_numbers;
+        let collapsed = self.standard_context_collapsed();
         header
             .id("diff-file-header")
+            .debug_selector(|| "file-header".into())
             .context_menu(move |menu, _, _| {
                 let menu = menu.action_context(focus.clone());
                 let menu = match &target {
@@ -220,7 +275,7 @@ impl Viewer {
                     }
                     None => menu,
                 };
-                context_menu::diff_commands(menu, view, wrap, line_numbers)
+                context_menu::diff_commands(menu, view, wrap, line_numbers, collapsed)
             })
             .into_any_element()
     }
@@ -470,13 +525,7 @@ impl Viewer {
                                             div()
                                                 .v_flex()
                                                 .size_full()
-                                                .child(div().flex_shrink_0().px_3().py_1().child(
-                                                    if self.is_interdiff() {
-                                                        "PREVIOUS (rebased)"
-                                                    } else {
-                                                        "BEFORE"
-                                                    },
-                                                ))
+                                                .on_prepaint(self.measure_before_width(cx))
                                                 .child(
                                                     div()
                                                         .relative()
@@ -515,6 +564,12 @@ impl Viewer {
                                         .child(
                                             div()
                                                 .size_full()
+                                                .border_l_1()
+                                                .border_r_1()
+                                                .border_color(
+                                                    gpui::component::Theme::global(cx).border,
+                                                )
+                                                .debug_selector(|| "fluid-gutter".into())
                                                 .cursor(CursorStyle::ResizeUpDown)
                                                 .child(
                                                     canvas(
@@ -535,41 +590,27 @@ impl Viewer {
                                                 ..Pixels::MAX,
                                         )
                                         .child(
-                                            div()
-                                                .v_flex()
-                                                .size_full()
-                                                .child(div().flex_shrink_0().px_3().py_1().child(
-                                                    if self.is_interdiff() {
-                                                        "SELECTED VERSION"
-                                                    } else {
-                                                        "AFTER"
-                                                    },
-                                                ))
-                                                .child(
-                                                    div()
-                                                        .relative()
-                                                        .v_flex()
-                                                        .flex_1()
-                                                        .min_h_0()
-                                                        .child(
-                                                            Editor::new(right)
-                                                                .text_size(px(self.code_font_size))
-                                                                .font_features(
-                                                                    typography::features(
-                                                                        self.settings
-                                                                            .editor
-                                                                            .ligatures,
-                                                                    ),
-                                                                )
-                                                                .readonly(true)
-                                                                .bordered(false)
-                                                                .flex_1()
-                                                                .min_h_0(),
-                                                        )
-                                                        .child(fluid_view::measure_viewport(
-                                                            after_viewport.clone(),
-                                                        )),
-                                                ),
+                                            div().v_flex().size_full().child(
+                                                div()
+                                                    .relative()
+                                                    .v_flex()
+                                                    .flex_1()
+                                                    .min_h_0()
+                                                    .child(
+                                                        Editor::new(right)
+                                                            .text_size(px(self.code_font_size))
+                                                            .font_features(typography::features(
+                                                                self.settings.editor.ligatures,
+                                                            ))
+                                                            .readonly(true)
+                                                            .bordered(false)
+                                                            .flex_1()
+                                                            .min_h_0(),
+                                                    )
+                                                    .child(fluid_view::measure_viewport(
+                                                        after_viewport.clone(),
+                                                    )),
+                                            ),
                                         ),
                                 ),
                         )

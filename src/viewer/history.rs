@@ -1,5 +1,6 @@
 use super::*;
 use gpui::component::menu::ContextMenuExt as _;
+use gpui::component::tooltip::{ManagedTooltipExt as _, Tooltip};
 use jaywalk::history::History;
 
 const GRAPH_MARGIN: f32 = 10.;
@@ -45,8 +46,10 @@ fn history_row(
     let description = revision.summary();
     let target = history_menu::RevisionTarget::from_revision(revision);
     let menu_owner = viewer.clone();
+    let hover_history = history.clone();
     div()
         .id(SharedString::from(format!("revision:{commit_id}")))
+        .debug_selector(move || format!("history-row-{index}"))
         .h(px(height))
         .w_full()
         .h_flex()
@@ -102,6 +105,12 @@ fn history_row(
                 .child(description),
         )
         .children(badge)
+        .managed_tooltip(move |window, cx| {
+            let history = hover_history.clone();
+            Tooltip::element(move |_, cx| revision_hover(&history.revisions[index], cx))
+                .max_w(rems(36.))
+                .build(window, cx)
+        })
         .on_click(move |_, window, cx| {
             let _ = viewer.update(cx, |viewer, cx| {
                 viewer.select_revision(&commit_id, window, cx)
@@ -122,16 +131,87 @@ fn history_row(
         .into_any_element()
 }
 
+/// Uses the loaded history snapshot; hovering never queries or snapshots a repository.
+fn revision_hover(revision: &jaywalk::history::Revision, cx: &App) -> AnyElement {
+    let muted = gpui::component::Theme::global(cx).muted_foreground;
+    let mut details = Vec::new();
+    if revision.is_virtual_working_copy() {
+        details.push("Uncommitted working changes against HEAD".to_owned());
+    } else {
+        if !revision.author.is_empty() {
+            details.push(format!("Author: {}", revision.author));
+        }
+        if !revision.timestamp.is_empty() {
+            details.push(format!("Authored: {}", revision.timestamp));
+        }
+        details.push(format!("Commit: {}", revision.commit_id));
+        if !revision.change_id.is_empty() && revision.change_id != revision.commit_id {
+            details.push(format!("Change: {}", revision.change_id));
+        }
+        if revision.working_copy {
+            details.push("Current working-copy revision".into());
+        }
+        if revision.parents.len() > 1 {
+            details.push(format!("Merge: {} parents", revision.parents.len()));
+        }
+        details.extend(revision.references.iter().map(|reference| {
+            format!(
+                "{}: {}{}",
+                if reference.remote().is_some() {
+                    "Remote"
+                } else {
+                    "Local"
+                },
+                reference.display_name(),
+                if reference.conflicted {
+                    " (conflicted)"
+                } else {
+                    ""
+                }
+            )
+        }));
+    }
+    let message = if revision.description.is_empty() {
+        revision.summary()
+    } else {
+        revision.description.trim_end().to_owned()
+    };
+    div()
+        .debug_selector(|| "commit-hover".into())
+        .v_flex()
+        .gap_2()
+        .min_w_0()
+        .max_w(rems(34.))
+        .child(div().max_h(rems(16.)).overflow_hidden().child(message))
+        .child(
+            div()
+                .v_flex()
+                .gap_1()
+                .text_xs()
+                .text_color(muted)
+                .children(details.into_iter().map(|line| div().child(line))),
+        )
+        .into_any_element()
+}
+
 impl Viewer {
-    fn render_history_footer(&self, cx: &Context<Self>) -> AnyElement {
-        let status = if let Some(error) = &self.references.error {
+    pub(super) fn history_footer_status(&self) -> String {
+        if let Some(error) = &self.references.error {
             error.clone()
         } else if let Some(history) = self
             .repository
             .ready()
             .and_then(|session| session.history.as_ref().ok())
         {
-            let count = history.revisions.len();
+            let virtual_working_copy = history
+                .revisions
+                .iter()
+                .any(|revision| revision.is_virtual_working_copy());
+            let count = history
+                .revisions
+                .iter()
+                .filter(|revision| !revision.is_virtual_working_copy())
+                .count();
             if self.selected_history_commit().is_some_and(|commit| {
                 !history
                     .revisions
@@ -140,17 +220,15 @@ impl Viewer {
             }) {
                 format!("{count} revisions · inspected revision outside graph")
             } else {
-                format!("{count} recorded revisions")
+                if virtual_working_copy {
+                    format!("{count} commits · working copy")
+                } else {
+                    format!("{count} recorded revisions")
+                }
             }
         } else {
             String::new()
-        };
-        self.panel_footer(status, self.settings.panels.history.font.size, cx)
-            .children(
-                self.supports_evolution()
-                    .then(|| self.render_evolution_toggle(evolution::EvolutionKind::Change, cx)),
-            )
-            .into_any_element()
+        }
     }
 
     pub(super) fn render_history(&self, cx: &mut Context<Self>) -> AnyElement {
@@ -191,8 +269,7 @@ impl Viewer {
                     .child(self.remote_controls(cx)),
             ),
             div().bg(surface),
-        )
-        .footer(self.render_history_footer(cx));
+        );
         let session =
             match &self.repository {
                 LoadState::Loaded(session) => session,

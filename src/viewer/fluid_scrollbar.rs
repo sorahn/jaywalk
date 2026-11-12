@@ -1,6 +1,7 @@
 //! The connector gutter doubles as a shared virtual-comparison scrollbar.
 use super::*;
 use jaywalk::fluid::SharedScrollTrack;
+use jaywalk::settings::ScrollbarClick;
 
 pub(super) fn paint_shared_scrollbar(
     viewer: WeakEntity<Viewer>,
@@ -54,6 +55,24 @@ pub(super) fn paint_shared_scrollbar(
             ),
             color,
         ));
+        let height = px(track.thumb.end - track.thumb.start);
+        if height >= px(8.) && clip.size.width >= px(8.) {
+            let width = (clip.size.width * 0.5).min(px(18.));
+            let x = clip.center().x - width / 2.;
+            let middle = clip.top() + px((track.thumb.start + track.thumb.end) / 2.);
+            let boost = if hovered || active { 2. } else { 1. };
+            let theme = gpui::component::Theme::global(cx);
+            let ridge = theme.foreground.opacity((opacity * boost * 2.).min(1.));
+            let shadow = theme.background.opacity((opacity * boost * 1.5).min(1.));
+            for offset in [-3., 0., 3.] {
+                let y = middle + px(offset);
+                window.paint_quad(fill(Bounds::new(point(x, y), size(width, px(1.))), ridge));
+                window.paint_quad(fill(
+                    Bounds::new(point(x, y + px(1.)), size(width, px(1.))),
+                    shadow,
+                ));
+            }
+        }
     });
     let down_viewer = viewer.clone();
     let thumb = track.thumb.clone();
@@ -65,16 +84,28 @@ pub(super) fn paint_shared_scrollbar(
             return;
         }
         let y = f32::from(event.position.y - clip.top());
-        let grab = if thumb.contains(&y) {
-            (y - thumb.start) / (thumb.end - thumb.start)
-        } else {
-            0.5
-        };
         let _ = down_viewer.update(cx, |viewer, cx| {
-            viewer.fluid_drag = Some(grab);
             viewer.navigation_target = None;
-            if !thumb.contains(&y) {
-                viewer.scroll_comparison(track.position_at(y, grab) - viewer.fluid.position, cx);
+            if thumb.contains(&y) {
+                viewer.fluid_drag = Some((y - thumb.start) / (thumb.end - thumb.start));
+            } else {
+                let mode = viewer
+                    .settings
+                    .panels
+                    .diff
+                    .shared_scrollbar_click
+                    .resolve(crate::platform::system_scrollbar_click(cx));
+                let target = match mode {
+                    ScrollbarClick::Page => {
+                        viewer.fluid_drag = None;
+                        track.page_at(y, viewer.fluid.position, viewport)
+                    }
+                    ScrollbarClick::Jump | ScrollbarClick::System => {
+                        viewer.fluid_drag = Some(0.5);
+                        track.position_at(y, 0.5)
+                    }
+                };
+                viewer.scroll_comparison(target - viewer.fluid.position, cx);
             }
             cx.notify();
         });

@@ -3,6 +3,7 @@ use gpui::component::tooltip::Tooltip;
 
 impl Render for Viewer {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        self.preserve_window_reflow(window, cx);
         let root = div()
             .id("viewer-root")
             .key_context("Jaywalk")
@@ -52,7 +53,7 @@ impl Render for Viewer {
                     .flex_1()
                     .min_h_0()
                     .child(self.render_workbench(f32::from(window.bounds().size.width), cx))
-                    .child(self.sidebar_bounds_marker()),
+                    .child(self.sidebar_bounds_marker(cx)),
             )
             .child(self.render_footer(window, cx))
             .children(self.render_palette(cx))
@@ -64,10 +65,11 @@ impl Viewer {
     pub(super) fn render_change_counter(
         &self,
         total: usize,
+        compact: bool,
         window: &Window,
         cx: &App,
     ) -> AnyElement {
-        if self.view.effective() == ViewMode::Fluid && total > 0 && self.code().is_some() {
+        if !self.standard_context_collapsed() && total > 0 && self.code().is_some() {
             let mut features = typography::features(self.settings.ui.ligatures)
                 .0
                 .as_ref()
@@ -85,7 +87,12 @@ impl Viewer {
             // custom UI fonts may lack tabular figures or use different widths.
             let width = ('0'..='9')
                 .map(|digit| {
-                    let label = format!("Change {} of {total}", digit.to_string().repeat(digits));
+                    let number = digit.to_string().repeat(digits);
+                    let label = if compact {
+                        format!("{number}/{total}")
+                    } else {
+                        format!("Change {number} of {total}")
+                    };
                     let run = TextRun {
                         len: label.len(),
                         font: font.clone(),
@@ -97,14 +104,29 @@ impl Viewer {
                         .width
                 })
                 .fold(px(0.), Pixels::max);
+            let active = if self.view.effective() == ViewMode::Fluid {
+                self.active_change
+            } else {
+                self.code()
+                    .and_then(|code| code.standard.as_ref().ok()?.as_ref())
+                    .and_then(|state| state.read(cx).change_navigation_position().0)
+            };
+            let current = active.map_or(0, |index| index + 1).min(total);
+            let label = if compact {
+                format!("{current}/{total}")
+            } else {
+                format!("Change {current} of {total}")
+            };
+            let tooltip = format!("Change {current} of {total}");
             return div()
-                .w(px(f32::from(width).ceil()))
+                .id("change-counter")
+                .debug_selector(|| "change-counter".into())
+                .w(px(f32::from(width).ceil() + 2.))
+                .whitespace_nowrap()
                 .flex_shrink_0()
                 .font_features(features)
-                .child(format!(
-                    "Change {} of {total}",
-                    self.active_change.map_or(0, |index| index + 1).min(total)
-                ))
+                .child(label)
+                .tooltip(move |window, cx| Tooltip::new(tooltip.clone()).build(window, cx))
                 .into_any_element();
         }
         let label = if self.code().is_none() {

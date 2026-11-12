@@ -67,6 +67,7 @@ impl SeriesEntry {
                 .unwrap_or_default()
                 .into(),
             author: self.details.author.clone(),
+            timestamp: self.details.timestamp.clone(),
             references: vec![],
             parents: self.parents,
             working_copy: self.details.working_copy,

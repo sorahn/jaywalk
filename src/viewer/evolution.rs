@@ -832,13 +832,14 @@ impl Viewer {
         let view = self.view.effective();
         let wrap = self.wrapping.enabled(view);
         let line_numbers = self.line_numbers;
+        let collapsed = self.standard_context_collapsed();
         bar.id("comparison-context-menu")
             .context_menu(move |menu, _, _| {
                 let menu = menu.action_context(focus.clone());
                 let menu = if overview {
                     context_menu::overview_commands(menu)
                 } else {
-                    context_menu::diff_commands(menu, view, wrap, line_numbers)
+                    context_menu::diff_commands(menu, view, wrap, line_numbers, collapsed)
                 };
                 context_menu::command_entries(
                     menu.separator(),
@@ -1067,7 +1068,7 @@ impl Viewer {
                     let group_head = timeline.versions[index].commit_id.clone();
                     let version = &timeline.versions[index];
                     let menu_target = history_menu::VersionTarget {
-                        revision: history_menu::RevisionTarget { commit: version.commit_id.clone(), change: version.change_id.clone(), message: version.description.clone(), parents: version.parents.clone() },
+                        revision: history_menu::RevisionTarget::from_revision(&version.revision()),
                         operation_id: version.operation_id.clone(), kind, operation: operation.clone(), file_path: file_path.clone(), index,
                         has_predecessors: !version.predecessors.is_empty(),
                     };
@@ -1341,6 +1342,7 @@ mod timeline_tests {
             change_id: "bbbbbbbb".into(),
             description: "edit file".into(),
             author: String::new(),
+            timestamp: String::new(),
             references: vec![],
             parents: vec![],
             working_copy: false,
@@ -1416,12 +1418,7 @@ impl Viewer {
         };
         let version = session.timeline.versions.get(session.selected)?;
         Some(history_menu::VersionTarget {
-            revision: history_menu::RevisionTarget {
-                commit: version.commit_id.clone(),
-                change: version.change_id.clone(),
-                message: version.description.clone(),
-                parents: version.parents.clone(),
-            },
+            revision: history_menu::RevisionTarget::from_revision(&version.revision()),
             operation_id: version.operation_id.clone(),
             kind,
             operation: session.operation.clone(),

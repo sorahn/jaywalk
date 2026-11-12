@@ -222,7 +222,21 @@ pub(super) fn diff_commands(
     view: ViewMode,
     wrap: bool,
     line_numbers: bool,
+    collapsed: bool,
 ) -> PopupMenu {
+    let menu = if view != ViewMode::Fluid {
+        command_entries(menu, &[(CommandId::ToggleUnchangedLines, collapsed)])
+    } else {
+        menu
+    };
+    let mut menu = menu;
+    for command in [CommandId::PreviousChange, CommandId::NextChange] {
+        menu = menu.item(
+            PopupMenuItem::new(command.label())
+                .disabled(collapsed)
+                .action(Box::new(commands::ExecuteCommand { command })),
+        );
+    }
     command_entries(
         menu,
         &[
@@ -231,8 +245,6 @@ pub(super) fn diff_commands(
             (CommandId::ViewFluid, view == ViewMode::Fluid),
             (CommandId::ToggleWrap, wrap),
             (CommandId::ToggleLineNumbers, line_numbers),
-            (CommandId::PreviousChange, false),
-            (CommandId::NextChange, false),
             (CommandId::Overview, false),
             (CommandId::AllChanges, false),
             (CommandId::CurrentWork, false),

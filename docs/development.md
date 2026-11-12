@@ -285,3 +285,22 @@ used by the app; production backend features remain unchanged. Import that
 alias as `gpui` in context-backed integration tests, and import the normal Kit
 facade for components. Native rendering and interaction still need separate
 verification.
+
+`just test-ui` runs the viewer interaction suite using GPUI simulated windows,
+keyboard and pointer events. It covers recent-picker filtering/selection/Escape,
+commit hover without selection, click-to-inspect, drawer buttons and footer
+visibility, and header alignment after window resizing and divider drags. It uses
+disposable Git fixtures, in-memory recents and disabled layout persistence/live
+watching. It does not activate a native window or move the system pointer. These
+tests also run as part of `just check`; native rendering still needs review.
+
+The same headless suite exercises Fluid wheel input, shared gutter dragging,
+independent editor offsets, wrapping and window/divider reflow. Geometry tests
+cover insertion/deletion-only sides, unequal replacements, direction reversal
+and endpoint clamping with different wrapping heights. These are behavioral
+regressions, not substitutes for native visual comparison with reference clips.
+
+Startup coverage also paints geometry before releasing a repository load. Native
+startup still has a separate smoke check: the simulated platform did not expose
+a stale-frame dependency issue found in inactive native windows. Keep the owning
+viewer in the per-frame entity dependency set when adding geometry callbacks.
