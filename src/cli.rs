@@ -99,7 +99,12 @@ impl Arguments {
                 return Err("A diff launch requires two input paths.".into());
             }
             for path in paths {
-                *path = canonical(path)?;
+                let input = if path.is_absolute() {
+                    path.clone()
+                } else {
+                    directory.join(&*path)
+                };
+                *path = jaywalk::external::normalize_input(&input)?;
             }
         }
         if let Some(config) = &mut self.config {

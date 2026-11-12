@@ -292,3 +292,39 @@ fn untracked_paths_keep_contents_from_the_selected_base() {
             .contains("file.txt")
     );
 }
+
+#[cfg(unix)]
+#[test]
+fn standalone_links_compare_targets_including_dangling_and_directory_links() {
+    let fixture = Fixture::new();
+    fixture.write("target-a", "same");
+    fixture.write("target-b", "same");
+    let left = fixture.0.join("left-link");
+    let right = fixture.0.join("right-link");
+    std::os::unix::fs::symlink("target-a", &left).unwrap();
+    std::os::unix::fs::symlink("target-b", &right).unwrap();
+    let comparison = ExternalContents::comparison(&left, &right).unwrap();
+    assert_eq!(comparison.root.file_name().unwrap(), "right-link");
+    assert_eq!(
+        content(&comparison, "right-link"),
+        ("target-a".into(), "target-b".into())
+    );
+    std::fs::remove_file(&right).unwrap();
+    std::os::unix::fs::symlink("missing-target", &right).unwrap();
+    let comparison = ExternalContents::comparison(&left, &right).unwrap();
+    assert_eq!(content(&comparison, "right-link").1, "missing-target");
+    std::fs::remove_file(&left).unwrap();
+    std::fs::create_dir(fixture.0.join("directory-target")).unwrap();
+    std::os::unix::fs::symlink("directory-target", &left).unwrap();
+    let comparison = ExternalContents::comparison(&left, &right).unwrap();
+    assert_eq!(
+        content(&comparison, "right-link"),
+        ("directory-target".into(), "missing-target".into())
+    );
+    assert_eq!(
+        jaywalk::external::normalize_input(&right).unwrap(),
+        std::fs::canonicalize(&fixture.0)
+            .unwrap()
+            .join("right-link")
+    );
+}

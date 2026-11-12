@@ -41,6 +41,23 @@ fn collect(
     Ok(())
 }
 
+/// Resolve parents without dereferencing a comparison's final entry.
+pub fn normalize_input(path: &Path) -> Result<PathBuf, String> {
+    let normalized = if let Some(name) = path.file_name() {
+        let parent = path
+            .parent()
+            .filter(|parent| !parent.as_os_str().is_empty())
+            .unwrap_or(Path::new("."));
+        std::fs::canonicalize(parent).map(|parent| parent.join(name))
+    } else {
+        std::fs::canonicalize(path)
+    }
+    .map_err(|error| format!("Could not open {}: {error}", path.display()))?;
+    std::fs::symlink_metadata(&normalized)
+        .map_err(|error| format!("Could not inspect {}: {error}", normalized.display()))?;
+    Ok(normalized)
+}
+
 fn bytes(path: &Path) -> Result<Vec<u8>, String> {
     let metadata = std::fs::symlink_metadata(path)
         .map_err(|error| format!("Could not inspect {}: {error}", path.display()))?;
@@ -58,19 +75,23 @@ fn bytes(path: &Path) -> Result<Vec<u8>, String> {
 
 impl ExternalContents {
     pub fn comparison(left: &Path, right: &Path) -> Result<Comparison, String> {
-        let left = std::fs::canonicalize(left)
-            .map_err(|error| format!("Could not open {}: {error}", left.display()))?;
-        let right = std::fs::canonicalize(right)
-            .map_err(|error| format!("Could not open {}: {error}", right.display()))?;
+        let left = normalize_input(left)?;
+        let right = normalize_input(right)?;
+        let left_kind = std::fs::symlink_metadata(&left)
+            .map_err(|error| error.to_string())?
+            .file_type();
+        let right_kind = std::fs::symlink_metadata(&right)
+            .map_err(|error| error.to_string())?
+            .file_type();
         let mut contents = Self {
             left: BTreeMap::new(),
             right: BTreeMap::new(),
         };
-        if left.is_dir() && right.is_dir() {
+        if left_kind.is_dir() && right_kind.is_dir() {
             collect(&left, &left, &mut contents.left)?;
             collect(&right, &right, &mut contents.right)?;
-        } else if (left.is_file() || left == Path::new("/dev/null"))
-            && (right.is_file() || right == Path::new("/dev/null"))
+        } else if (left_kind.is_file() || left_kind.is_symlink() || left == Path::new("/dev/null"))
+            && (right_kind.is_file() || right_kind.is_symlink() || right == Path::new("/dev/null"))
         {
             let label = if right == Path::new("/dev/null") {
                 &left
