@@ -242,6 +242,17 @@ impl Viewer {
             .with_handle_appearance(self.reset_handle_appearance(PanelGroup::Sidebars, cx))
     }
 
+    pub(super) fn measured_before_width(&self, cx: &App) -> Pixels {
+        self.panels
+            .diff
+            .read(cx)
+            .sizes()
+            .first()
+            .copied()
+            .filter(|width| *width > px(0.))
+            .unwrap_or_else(|| self.initial_code_width(true))
+    }
+
     pub(super) fn diff_group(&self, cx: &Context<Self>) -> ResizablePanelGroup {
         h_resizable("code-panes")
             .with_state(&self.panels.diff)

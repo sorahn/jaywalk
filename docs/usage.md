@@ -267,3 +267,8 @@ The plain Git working-copy row describes uncommitted changes instead of showing
 a commit identity. Hover details use the loaded snapshot and do not refresh or
 record working files. Very long messages are clipped to keep the card compact;
 commit details and copy actions remain available from the row context menu.
+
+The single-file viewer uses the same compact header height and text sizing as
+the panel headers. In Fluid view, the filename and Before/After (or interdiff
+version) labels share one row, with pane-aligned gutter dividers and a solid
+bottom border. Rename/type notices remain inline in that row.
