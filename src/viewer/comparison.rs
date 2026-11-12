@@ -1,8 +1,106 @@
 use super::*;
-use gpui::component::menu::ContextMenuExt as _;
+use gpui::component::menu::{ContextMenuExt as _, DropdownMenu as _};
 use gpui::component::{Icon, Sizable};
 
 impl Viewer {
+    pub(super) fn render_find_file_button(&self, cx: &Context<Self>) -> Button {
+        Button::new("find-file")
+            .ghost()
+            .small()
+            .compact()
+            .icon(IconName::Search)
+            .tooltip_with_action(
+                "Find any repository file",
+                &commands::ExecuteCommand {
+                    command: jaywalk::commands::CommandId::FindFile,
+                },
+                None,
+            )
+            .on_click(cx.listener(|this, _, window, cx| {
+                this.execute_command(jaywalk::commands::CommandId::FindFile, window, cx);
+            }))
+    }
+
+    pub(super) fn render_review_source(&self, caption: AnyElement) -> AnyElement {
+        use jaywalk::commands::CommandId;
+        let repository = self.arguments.diff.is_none();
+        let aggregate = matches!(
+            self.repository.ready().map(|session| &session.scope),
+            Some(ComparisonScope::Aggregate)
+        );
+        let focus = self.focus.clone();
+        Button::new("review-source")
+            .ghost()
+            .small()
+            .compact()
+            .w_full()
+            .min_w_0()
+            .justify_start()
+            .text_xs()
+            .icon(IconName::ChevronDown)
+            .child(div().flex_1().min_w_0().truncate().child(caption))
+            .tooltip("Choose comparison: all changes, current work, branch or base")
+            .disabled(self.repository.ready().is_none())
+            .dropdown_menu(move |menu, _, _| {
+                let mut entries = vec![
+                    (CommandId::AllChanges, aggregate),
+                    (CommandId::OpenedComparison, false),
+                ];
+                if repository {
+                    entries.extend([
+                        (CommandId::CurrentWork, false),
+                        (CommandId::ChooseReview, false),
+                        (CommandId::ChooseReviewBase, false),
+                    ]);
+                }
+                context_menu::command_entries(menu.action_context(focus.clone()), &entries)
+            })
+            .into_any_element()
+    }
+
+    pub(super) fn render_review_actions(&self, cx: &Context<Self>) -> AnyElement {
+        use jaywalk::commands::CommandId;
+        let overview = self.selected_file.is_none();
+        let mut actions = div()
+            .h_flex()
+            .items_center()
+            .h_full()
+            .px_1()
+            .flex_shrink_0()
+            .border_l_1()
+            .border_color(gpui::component::Theme::global(cx).border);
+        if self.layout.saved.files_hidden {
+            actions = actions.child(self.render_find_file_button(cx));
+        }
+        for (id, icon, command, active) in [
+            (
+                "overview",
+                IconName::LayoutDashboard,
+                CommandId::Overview,
+                overview,
+            ),
+            ("refresh", IconName::RefreshCw, CommandId::Refresh, false),
+        ] {
+            actions = actions.child(
+                Button::new(id)
+                    .ghost()
+                    .small()
+                    .compact()
+                    .icon(crate::appearance::active_icon(icon, active, cx))
+                    .toggled(active)
+                    .tooltip_with_action(
+                        command.label(),
+                        &commands::ExecuteCommand { command },
+                        None,
+                    )
+                    .on_click(cx.listener(move |this, _, window, cx| {
+                        this.execute_command(command, window, cx)
+                    })),
+            );
+        }
+        actions.into_any_element()
+    }
+
     pub(super) fn unchanged_file_summary(&self) -> &'static str {
         let status = self
             .selected_file

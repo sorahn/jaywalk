@@ -548,6 +548,7 @@ impl Viewer {
                     .h_flex()
                     .gap_1()
                     .child(self.panel_menu(jaywalk::panel_layout::PanelId::Files))
+                    .child(self.render_find_file_button(cx))
                     .children((self.browser.mode == FileListMode::Tree).then(|| {
                         Button::new("file-tree-scope")
                             .ghost()

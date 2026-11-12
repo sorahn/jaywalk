@@ -134,7 +134,7 @@ Appearance and accent share the existing application-wide, last-successfully-app
 | `ui.loading_delay_ms` | `200` | Delay before showing loading feedback; 0–5000. `0` shows it immediately; fast operations never expose a loading label. |
 | `ui.row_height` | `26` | Shared minimum for history, tree and list rows; 12–160. Per-view overrides below take precedence; fonts establish a readable minimum. |
 | `ui.panel_header_height` | `30` | Minimum panel-header height; 24–120. |
-| `ui.toolbar_height` | `28` | Minimum main-toolbar height; 28–120. Compact controls grow to fit large UI fonts; changes apply live. Repository/path identification stays in the native title bar. |
+| `ui.toolbar_height` | `28` | Minimum review-control height within the single comparison header; 28–120. The header fits the greater of this value, `ui.comparison_bar_height`, and its font minimum. No separate application-toolbar row. Applies live. |
 | `ui.footer_height` | `28` | Minimum footer height; 20–120. Effective height also fits its control height and at least 1.5 × footer font size. |
 | `ui.footer_font_size` | `12` | Footer label font size; 8–48. |
 | `ui.footer_control_height` | `22` | Footer control height; 16–80. |

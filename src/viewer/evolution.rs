@@ -719,35 +719,40 @@ impl Viewer {
         }
     }
 
-    pub(super) fn render_evolution_comparison(&self, cx: &mut Context<Self>) -> AnyElement {
+    pub(super) fn render_comparison_header(&self, cx: &mut Context<Self>) -> AnyElement {
         let presentation = self.evolution_header_presentation();
-        let mut bar = div()
-            .h_flex()
-            .items_center()
-            .justify_between()
-            .gap_2()
-            .px_3()
-            .h(px(self
-                .settings
-                .ui
-                .comparison_bar_height
-                .max(self.settings.ui.font_size * 1.5 + 4.)))
-            .flex_shrink_0()
-            .overflow_hidden()
-            .bg(gpui::component::Theme::global(cx).sidebar)
-            .child(self.render_navigation_buttons(cx))
-            .child(
-                div()
-                    .flex_1()
-                    .min_w_0()
-                    .text_xs()
-                    .truncate()
-                    .child(self.overview_comparison_label(presentation.label)),
-            );
+        let mut bar =
+            div()
+                .h_flex()
+                .items_stretch()
+                .h(px(self
+                    .settings
+                    .ui
+                    .comparison_bar_height
+                    .max(self.settings.ui.toolbar_height)
+                    .max(self.settings.ui.font_size * 1.5 + 4.)))
+                .flex_shrink_0()
+                .overflow_hidden()
+                .border_b_1()
+                .border_color(gpui::component::Theme::global(cx).border)
+                .bg(gpui::component::Theme::global(cx).sidebar)
+                .child(self.render_navigation_buttons(cx))
+                .child(
+                    div()
+                        .h_flex()
+                        .items_center()
+                        .h_full()
+                        .px_2()
+                        .flex_1()
+                        .min_w_0()
+                        .child(self.render_review_source(
+                            self.overview_comparison_label(presentation.label),
+                        )),
+                );
         if let Some(controls) = presentation.controls {
             let kind = controls.kind;
             let index = controls.index;
-            let mut modes = div().h_flex().items_center().gap_1();
+            let mut modes = div().h_flex().items_center().px_1().gap_1();
             for (id, mode, label, tooltip) in [
                 (
                     "evolution-patch",
@@ -784,6 +789,7 @@ impl Viewer {
             }
             bar = bar.child(modes);
         }
+        bar = bar.child(self.render_review_actions(cx));
         let focus = self.focus.clone();
         let overview = self.selected_file.is_none();
         let view = self.view.effective();

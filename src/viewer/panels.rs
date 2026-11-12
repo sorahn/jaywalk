@@ -161,7 +161,7 @@ impl Viewer {
     fn render_workspace(&self, cx: &mut Context<Self>) -> AnyElement {
         let workspace = super::chrome::Panel::new(
             "comparison-panel",
-            self.render_evolution_comparison(cx),
+            self.render_comparison_header(cx),
             // The caption reads scroll geometry published by the body this frame.
             div().with_dynamic_prepaint_order(|_, _| [1, 0].into_iter().collect()),
         )

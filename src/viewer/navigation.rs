@@ -266,7 +266,8 @@ impl Viewer {
             .h_flex()
             .items_center()
             .flex_shrink_0()
-            .pr_1()
+            .h_full()
+            .px_1()
             .border_r_1()
             .border_color(gpui::component::Theme::global(cx).border);
         for (id, forward, icon, command, enabled) in [

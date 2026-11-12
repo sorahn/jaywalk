@@ -212,10 +212,13 @@ Customize diff marks/connectors, row-background hues and word highlights under
 light/dark pair. Edits recolor open viewers and overviews live; source syntax and
 file-list status colors keep their own palettes. See [diff colors](settings.md#diffcolors).
 
-The native title bar identifies the repository or file comparison. A compact
-application toolbar holds review actions. Back/forward arrows live at
-the leading edge of the comparison bar beside the sidebars, keeping visited-view
-navigation attached to the main viewer even when sidebars are hidden or moved.
+The native title bar identifies the repository or file comparison. One comparison
+header holds back/forward navigation, the current comparison and its dropdown,
+evolution review modes when applicable, and Overview/Refresh icon actions.
+All changes, Current work and branch/base selection live in the comparison
+dropdown. Find File lives in the Files header; when that panel is hidden its
+search button appears in the comparison header. Cmd+P/Ctrl+P remains available
+in either layout and searches the entire repository.
 
 History, Files, Change evolution and File evolution share the same compact
 panel-header typography, aligned edge spacing and grouped controls. Persistent
