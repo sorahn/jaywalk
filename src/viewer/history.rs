@@ -226,7 +226,7 @@ impl Viewer {
         let labels = self.references.labels;
         let badge_width = self.settings.history.reference_badge_width;
         let visibility = self.references.visibility.clone();
-        let rows = uniform_list("history-rows", count, move |visible, _, _| {
+        let rows = uniform_list("history-rows", count, move |visible, _, cx| {
             let width = GRAPH_MARGIN * 2.
                 + (history.visible_lane_count(visible.clone()) - 1) as f32 * spacing;
             visible
@@ -260,6 +260,8 @@ impl Viewer {
                                 &visibility,
                                 viewer.clone(),
                                 badge_width,
+                                font_size,
+                                cx,
                             )
                         } else {
                             None

@@ -155,9 +155,18 @@ impl Comparison {
     }
 }
 
+/// A shared badge identifies a local tip with one or more visible remote refs.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ReferenceBadgeKind {
+    Local,
+    Remote,
+    Shared,
+}
+
 /// Local labels precede remote labels; the overflow counter has its own slot.
 #[derive(Debug, PartialEq, Eq)]
 pub struct ReferenceBadge {
+    pub kind: ReferenceBadgeKind,
     pub name: String,
     pub additional: usize,
 }
@@ -165,7 +174,20 @@ pub fn compact_label(references: &[&Reference]) -> Option<ReferenceBadge> {
     let preferred = references
         .iter()
         .min_by_key(|reference| (reference.remote().is_some(), reference.display_name()))?;
+    let has_local = references
+        .iter()
+        .any(|reference| reference.remote().is_none());
+    let has_remote = references
+        .iter()
+        .any(|reference| reference.remote().is_some());
     Some(ReferenceBadge {
+        kind: if has_local && has_remote {
+            ReferenceBadgeKind::Shared
+        } else if has_remote {
+            ReferenceBadgeKind::Remote
+        } else {
+            ReferenceBadgeKind::Local
+        },
         name: format!(
             "{}{}",
             preferred.display_name(),
@@ -176,7 +198,7 @@ pub fn compact_label(references: &[&Reference]) -> Option<ReferenceBadge> {
 }
 #[cfg(test)]
 mod tests {
-    use super::{Reference, ReferenceBadge, ReferenceKind, compact_label};
+    use super::{Reference, ReferenceBadge, ReferenceBadgeKind, ReferenceKind, compact_label};
     #[test]
     fn badge_prefers_local_and_keeps_overflow_bounded_to_one_label() {
         let remote = Reference {
@@ -196,6 +218,7 @@ mod tests {
         assert_eq!(
             compact_label(&[&remote, &local]),
             Some(ReferenceBadge {
+                kind: ReferenceBadgeKind::Shared,
                 name: "main".into(),
                 additional: 1
             })
@@ -203,11 +226,53 @@ mod tests {
         assert_eq!(
             compact_label(&[&local, &remote]),
             Some(ReferenceBadge {
+                kind: ReferenceBadgeKind::Shared,
                 name: "main".into(),
                 additional: 1
             })
         );
         assert_eq!(compact_label(&[]), None);
+    }
+    #[test]
+    fn badge_distinguishes_local_remote_and_shared_targets_without_name_guessing() {
+        let local = Reference {
+            name: "origin/a-local-name".into(),
+            target: "abc".into(),
+            kind: ReferenceKind::Local,
+            tracked_by: vec![],
+            conflicted: false,
+        };
+        let remote = Reference {
+            name: "feature/日本語".into(),
+            kind: ReferenceKind::Remote {
+                remote: "upstream".into(),
+                tracking: None,
+            },
+            ..local.clone()
+        };
+        let second_remote = Reference {
+            kind: ReferenceKind::Remote {
+                remote: "origin".into(),
+                tracking: None,
+            },
+            conflicted: true,
+            ..remote.clone()
+        };
+        assert_eq!(
+            compact_label(&[&local]).unwrap().kind,
+            ReferenceBadgeKind::Local
+        );
+        let only_remote = compact_label(&[&remote]).unwrap();
+        assert_eq!(only_remote.kind, ReferenceBadgeKind::Remote);
+        assert_eq!(only_remote.name, "upstream/feature/日本語");
+        let remotes = compact_label(&[&remote, &second_remote]).unwrap();
+        assert_eq!(remotes.kind, ReferenceBadgeKind::Remote);
+        assert_eq!(remotes.name, "origin/feature/日本語 !");
+        assert_eq!(remotes.additional, 1);
+        let shared = compact_label(&[&second_remote, &local, &remote]).unwrap();
+        assert_eq!(shared.kind, ReferenceBadgeKind::Shared);
+        assert_eq!(shared.name, local.name);
+        assert_eq!(shared.additional, 2);
     }
 }
 

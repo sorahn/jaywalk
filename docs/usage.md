@@ -102,7 +102,12 @@ while calculating them, without updating the working copy or recording an operat
 
 ## References and refresh
 
-Reference badges identify local branches/bookmarks and remote references. Hover
+Reference badges identify local branches/bookmarks and remote references. Bordered,
+blue branch badges mark local refs; green cloud badges mark remote-only refs and
+retain the remote-qualified name. A local badge also shows a cloud when the commit
+has visible remote refs. The +N count includes other visible refs at that commit;
+hover summaries explicitly label each ref as Local or Remote. Icons distinguish
+the kinds without relying only on color. Hover
 for full names, click a badge for its references, or use the history header's
 reference control to browse all references. Remote history and label visibility
 can be hidden independently; hiding labels does not remove history.

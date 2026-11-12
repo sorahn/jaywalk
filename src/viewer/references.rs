@@ -3,8 +3,10 @@ use super::*;
 use gpui::component::Sizable;
 use gpui::component::menu::{ContextMenuExt as _, PopupMenuItem};
 use gpui::component::popover::Popover;
+use gpui::component::tag::Tag;
 use gpui::prelude::FluentBuilder;
 use jaywalk::history::{HistoryQuery, RemoteVisibility};
+use jaywalk::references::ReferenceBadgeKind;
 
 pub(super) struct ReferenceState {
     pub(super) visibility: RemoteVisibility,
@@ -462,6 +464,8 @@ pub(super) fn reference_badge(
     visibility: &RemoteVisibility,
     viewer: WeakEntity<Viewer>,
     badge_width: f32,
+    font_size: f32,
+    cx: &App,
 ) -> Option<AnyElement> {
     let revision = &history.revisions[index];
     let visible: Vec<_> = revision
@@ -472,9 +476,48 @@ pub(super) fn reference_badge(
     let label = jaywalk::references::compact_label(&visible)?;
     let summary = visible
         .iter()
-        .map(|r| r.display_name())
+        .map(|r| {
+            format!(
+                "{}: {}{}",
+                if r.remote().is_some() {
+                    "Remote"
+                } else {
+                    "Local"
+                },
+                r.display_name(),
+                if r.conflicted {
+                    " · conflicted target"
+                } else {
+                    ""
+                },
+            )
+        })
         .collect::<Vec<_>>()
         .join("\n");
+    let theme = gpui::component::Theme::global(cx);
+    let (icon, tint) = match label.kind {
+        ReferenceBadgeKind::Remote => (IconName::Cloud, theme.success),
+        ReferenceBadgeKind::Local | ReferenceBadgeKind::Shared => (IconName::GitBranch, theme.info),
+    };
+    let shared = label.kind == ReferenceBadgeKind::Shared;
+    let icon_size = px(font_size * 0.75);
+    // At the narrowest configured widths, combine the two scope glyphs and
+    // reserve the remaining space for the count instead of overflowing the tag.
+    let stacked = shared && badge_width < font_size * 4.;
+    let leading_icon = div()
+        .relative()
+        .size(icon_size)
+        .flex_shrink_0()
+        .child(gpui::component::Icon::new(icon).size(icon_size))
+        .when(stacked, |icon| {
+            icon.child(
+                gpui::component::Icon::new(IconName::Cloud)
+                    .size(icon_size * 0.65)
+                    .absolute()
+                    .right_0()
+                    .bottom_0(),
+            )
+        });
     let target = revision.commit_id.clone();
     let snapshot = history.references.clone();
     let visibility = visibility.clone();
@@ -487,21 +530,41 @@ pub(super) fn reference_badge(
                     .compact()
                     .max_w(px(badge_width))
                     .flex_shrink_0()
+                    .p_0()
+                    .mr_1()
                     .child(
-                        div()
-                            .h_flex()
-                            .items_center()
-                            .gap_1()
-                            .max_w(px(badge_width - 12.))
+                        Tag::custom(tint.opacity(0.14), tint, tint.opacity(0.5))
+                            .small()
+                            .max_w(px(badge_width))
                             .min_w_0()
-                            .child(div().min_w_0().truncate().child(label.name))
-                            .when(label.additional > 0, |row| {
-                                row.child(
-                                    div()
-                                        .flex_shrink_0()
-                                        .child(format!("+{}", label.additional)),
-                                )
-                            }),
+                            .px_1()
+                            .py_0p5()
+                            .text_size(px(font_size * 0.75))
+                            .child(
+                                div()
+                                    .h_flex()
+                                    .items_center()
+                                    .gap_0p5()
+                                    .min_w_0()
+                                    .child(leading_icon)
+                                    .when(!stacked, |row| {
+                                        row.child(div().min_w_0().truncate().child(label.name))
+                                    })
+                                    .when(shared && !stacked, |row| {
+                                        row.child(
+                                            gpui::component::Icon::new(IconName::Cloud)
+                                                .size(icon_size)
+                                                .flex_shrink_0(),
+                                        )
+                                    })
+                                    .when(label.additional > 0, |row| {
+                                        row.child(
+                                            div()
+                                                .flex_shrink_0()
+                                                .child(format!("+{}", label.additional)),
+                                        )
+                                    }),
+                            ),
                     )
                     .tooltip(summary),
             )
