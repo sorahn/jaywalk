@@ -2,8 +2,9 @@
 pub mod grouping;
 use crate::history::{History, Revision};
 use crate::repository::{ChangedFile, Comparison, ContentSource, FileSide, query};
+use crate::repository_file::FileKind;
 use serde::Deserialize;
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::PathBuf;
 #[cfg(test)]
 use std::process::Command;
@@ -404,6 +405,42 @@ pub(crate) struct EvolutionContents {
 }
 
 impl EvolutionContents {
+    pub(crate) fn paths(
+        &self,
+        side: FileSide,
+        mut target: BTreeMap<String, FileKind>,
+    ) -> BTreeMap<String, FileKind> {
+        // Unchanged paths come from the target tree. Changed paths must use
+        // jj's synthesized interdiff values rather than original commit trees.
+        for path in self.entries.keys() {
+            target.remove(path);
+        }
+        let insert = |target: &mut BTreeMap<String, FileKind>, path: &str, value: &FileValue| {
+            // jj reports an absent side with an empty file_type string.
+            if !value.kind.is_empty() {
+                let kind = if value.conflict {
+                    FileKind::Conflict
+                } else {
+                    FileKind::from(value.kind.as_str())
+                };
+                target.insert(path.to_owned(), kind);
+            }
+        };
+        match side {
+            FileSide::Before => {
+                for (path, key) in self.before_paths.iter() {
+                    insert(&mut target, path, &self.entries[key].0);
+                }
+            }
+            FileSide::After => {
+                for (path, (_, value)) in self.entries.iter() {
+                    insert(&mut target, path, value);
+                }
+            }
+        }
+        target
+    }
+
     fn blob(
         &self,
         value: &FileValue,
@@ -649,6 +686,44 @@ mod tests {
         fn drop(&mut self) {
             let _ = std::fs::remove_dir_all(&self.0);
         }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn evolution_catalog_uses_synthesized_side_kinds_and_keeps_deleted_links() {
+        use crate::repository_file::FileKind;
+        let f = Fixture::new();
+        f.write("type.txt", "../target");
+        f.run(&["describe", "-m", "baseline"]);
+        f.run(&["bookmark", "create", "main"]);
+        f.run(&["new", "-m", "first version"]);
+        std::fs::remove_file(f.0.join("type.txt")).unwrap();
+        std::os::unix::fs::symlink("../target", f.0.join("type.txt")).unwrap();
+        std::os::unix::fs::symlink("../gone", f.0.join("gone.txt")).unwrap();
+        f.run(&["describe", "-m", "first version"]);
+        std::fs::remove_file(f.0.join("type.txt")).unwrap();
+        f.write("type.txt", "../target");
+        std::fs::remove_file(f.0.join("gone.txt")).unwrap();
+        f.run(&["status"]);
+        let comparison = Comparison::load(&f.0, Some("main"), "@").unwrap();
+        let evolution = comparison.evolution(&comparison.tip, 100).unwrap();
+        let diff = comparison.for_evolution(&evolution.versions[0]).unwrap();
+        let changed = diff.catalog.find("type.txt").unwrap();
+        assert_eq!(
+            changed.type_change_notice().as_deref(),
+            Some("File type changed: symlink → regular file")
+        );
+        assert_eq!(
+            diff.read_file(changed).unwrap(),
+            ("../target".into(), "../target".into())
+        );
+        let removed = diff.catalog.find("gone.txt").unwrap();
+        assert_eq!(removed.content_kind(), &FileKind::Symlink);
+        assert_eq!(removed.status(), Some("removed"));
+        assert_eq!(
+            diff.read_file(removed).unwrap(),
+            ("../gone".into(), "".into())
+        );
     }
 
     #[test]

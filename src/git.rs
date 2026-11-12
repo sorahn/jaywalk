@@ -218,6 +218,24 @@ pub(crate) fn between(
     // into an already displayed worktree comparison.
     let mut contents = BTreeMap::new();
     for file in &files {
+        // Capture kind independently of text acquisition: a before-side read
+        // may be unavailable or oversized, without hiding the after-side kind.
+        let metadata = (working && file.status != "removed").then(|| {
+            let path = root.join(&file.after_path);
+            std::fs::symlink_metadata(&path)
+                .map_err(|error| format!("Could not inspect {}: {error}", path.display()))
+        });
+        if let Some(Ok(metadata)) = &metadata
+            && let Some(value) = after_tree.get_mut(&file.after_path)
+        {
+            value.kind = if metadata.file_type().is_symlink() {
+                FileKind::Symlink
+            } else if metadata.is_dir() {
+                FileKind::Submodule
+            } else {
+                FileKind::Regular
+            };
+        }
         let pair = (|| {
             let before = if file.status == "added" {
                 String::new()
@@ -228,17 +246,11 @@ pub(crate) fn between(
                 String::new()
             } else if working {
                 let path = root.join(&file.after_path);
-                let metadata = std::fs::symlink_metadata(&path)
-                    .map_err(|error| format!("Could not inspect {}: {error}", path.display()))?;
-                if let Some(value) = after_tree.get_mut(&file.after_path) {
-                    value.kind = if metadata.file_type().is_symlink() {
-                        FileKind::Symlink
-                    } else if metadata.is_dir() {
-                        FileKind::Submodule
-                    } else {
-                        FileKind::Regular
-                    };
-                }
+                let metadata = metadata
+                    .as_ref()
+                    .expect("changed working-tree paths have a captured metadata result")
+                    .as_ref()
+                    .map_err(Clone::clone)?;
                 if metadata.file_type().is_symlink() {
                     let target = std::fs::read_link(&path).map_err(|error| {
                         format!("Could not read link {}: {error}", path.display())
@@ -275,11 +287,14 @@ pub(crate) fn between(
     .with_catalog()
 }
 impl GitContents {
-    pub(crate) fn paths(&self) -> BTreeMap<String, FileKind> {
-        self.trees[1]
-            .iter()
-            .map(|(path, value)| (path.clone(), value.kind.clone()))
-            .collect()
+    pub(crate) fn paths(&self, side: FileSide) -> BTreeMap<String, FileKind> {
+        self.trees[match side {
+            FileSide::Before => 0,
+            FileSide::After => 1,
+        }]
+        .iter()
+        .map(|(path, value)| (path.clone(), value.kind.clone()))
+        .collect()
     }
     pub(crate) fn read_path(&self, path: &str, side: FileSide) -> Result<String, String> {
         if let Some(pair) = self.files.get(path) {

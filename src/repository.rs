@@ -368,29 +368,25 @@ impl Comparison {
             self.catalog = catalog;
             return Ok(self);
         }
-        let paths = match &self.content {
-            ContentSource::Git(contents) => contents.paths(),
-            ContentSource::External(contents) => contents.paths()?,
-            ContentSource::Recorded | ContentSource::Evolution(_) => {
-                let template = r#""[" ++ json(path) ++ "," ++ json(file_type) ++ "]\n""#;
-                let output = query(
-                    &self.root,
-                    &self.operation,
-                    &["file", "list", "-r", &self.tip, "-T", template],
-                )?;
-                let mut paths = std::collections::BTreeMap::new();
-                for line in output.lines() {
-                    let [path, kind]: [String; 2] = serde_json::from_str(line)
-                        .map_err(|error| format!("Invalid revision file entry: {error}"))?;
-                    paths.insert(path, FileKind::from(kind.as_str()));
-                }
-                paths
+        let (before, after) = match &self.content {
+            ContentSource::Git(contents) => (
+                contents.paths(FileSide::Before),
+                contents.paths(FileSide::After),
+            ),
+            ContentSource::External(contents) => (
+                contents.paths(FileSide::Before)?,
+                contents.paths(FileSide::After)?,
+            ),
+            ContentSource::Recorded => (self.file_kinds(&self.base)?, self.file_kinds(&self.tip)?),
+            ContentSource::Evolution(contents) => {
+                let target = self.file_kinds(&self.tip)?;
+                (
+                    contents.paths(FileSide::Before, target.clone()),
+                    contents.paths(FileSide::After, target),
+                )
             }
         };
-        let mut catalog = FileCatalog::new(paths, &self.files);
-        if let ContentSource::External(contents) = &self.content {
-            contents.annotate_catalog(&mut catalog)?;
-        }
+        let catalog = FileCatalog::new(before, after, &self.files);
         self.catalog = Arc::new(catalog);
         let mut cached = cache
             .lock()
@@ -482,7 +478,30 @@ impl Comparison {
     }
 
     pub fn contents(&self, file: &ChangedFile) -> Result<(String, String), String> {
-        self.read_file(&FileEntry::from(file))
+        match self.catalog.find(&file.after_path) {
+            Some(entry) => self.read_file(entry),
+            None => self.read_file(&FileEntry::from(file)),
+        }
+    }
+
+    fn file_kinds(
+        &self,
+        revision: &str,
+    ) -> Result<std::collections::BTreeMap<String, FileKind>, String> {
+        let template = r#""[" ++ json(path) ++ "," ++ json(file_type) ++ "]\n""#;
+        let output = query(
+            &self.root,
+            &self.operation,
+            &["file", "list", "-r", revision, "-T", template],
+        )?;
+        output
+            .lines()
+            .map(|line| {
+                let [path, kind]: [String; 2] = serde_json::from_str(line)
+                    .map_err(|error| format!("Invalid revision file entry: {error}"))?;
+                Ok((path, FileKind::from(kind.as_str())))
+            })
+            .collect()
     }
 
     fn file_contents(&self, revision: &str, path: &str) -> Result<String, String> {

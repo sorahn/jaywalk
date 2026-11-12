@@ -207,45 +207,28 @@ impl ExternalContents {
         .with_catalog()
     }
 
-    pub(crate) fn annotate_catalog(
-        &self,
-        catalog: &mut crate::repository_file::FileCatalog,
-    ) -> Result<(), String> {
-        let names: BTreeSet<_> = self.left.keys().chain(self.right.keys()).collect();
-        for name in names {
-            let before = self
-                .left
-                .get(name)
-                .map(|path| entry_kind(path))
-                .transpose()?;
-            let after = self
-                .right
-                .get(name)
-                .map(|path| entry_kind(path))
-                .transpose()?;
-            catalog.set_kinds(name, before, after);
-        }
-        Ok(())
-    }
-
     pub(crate) fn paths(
         &self,
+        side: FileSide,
     ) -> Result<BTreeMap<String, crate::repository_file::FileKind>, String> {
-        self.right
-            .iter()
-            .map(|(path, source)| {
-                let metadata = std::fs::symlink_metadata(source)
-                    .map_err(|error| format!("Could not inspect {}: {error}", source.display()))?;
-                Ok((
-                    path.clone(),
-                    if metadata.is_symlink() {
-                        crate::repository_file::FileKind::Symlink
-                    } else {
-                        crate::repository_file::FileKind::Regular
-                    },
-                ))
-            })
-            .collect()
+        match side {
+            FileSide::Before => &self.left,
+            FileSide::After => &self.right,
+        }
+        .iter()
+        .map(|(path, source)| {
+            let metadata = std::fs::symlink_metadata(source)
+                .map_err(|error| format!("Could not inspect {}: {error}", source.display()))?;
+            Ok((
+                path.clone(),
+                if metadata.is_symlink() {
+                    crate::repository_file::FileKind::Symlink
+                } else {
+                    crate::repository_file::FileKind::Regular
+                },
+            ))
+        })
+        .collect()
     }
     pub(crate) fn read_path(&self, path: &str, side: FileSide) -> Result<String, String> {
         let read = |paths: &BTreeMap<String, PathBuf>, name: &str| -> Result<String, String> {

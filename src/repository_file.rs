@@ -176,6 +176,7 @@ pub struct FileCatalog {
 }
 impl FileCatalog {
     pub(crate) fn new(
+        before: std::collections::BTreeMap<String, FileKind>,
         paths: std::collections::BTreeMap<String, FileKind>,
         changes: &[ChangedFile],
     ) -> Self {
@@ -190,33 +191,28 @@ impl FileCatalog {
             .collect();
         let mut renames = std::collections::BTreeMap::new();
         for file in changes {
-            let kind = entries
+            let before_kind = before.get(&file.before_path);
+            let after_kind = entries
                 .get(&file.after_path)
-                .map_or(FileKind::Regular, |entry| entry.content_kind.clone());
-            entries.insert(
-                file.after_path.clone(),
-                FileEntry::from(file).with_content_kind(kind),
-            );
+                .map(|entry| &entry.content_kind);
+            // Presence comes from source trees, not whether displayed text is empty.
+            let kind = after_kind
+                .or(before_kind)
+                .cloned()
+                .unwrap_or(FileKind::Regular);
+            let type_change = before_kind
+                .zip(after_kind)
+                .filter(|(before, after)| before != after)
+                .map(|(before, after)| (before.clone(), after.clone()));
+            let mut entry = FileEntry::from(file).with_content_kind(kind);
+            entry.type_change = type_change;
+            entries.insert(file.after_path.clone(), entry);
             if file.status == "renamed" {
                 renames.insert(file.before_path.clone(), file.after_path.clone());
             }
         }
         Self { entries, renames }
     }
-    pub(crate) fn set_kinds(
-        &mut self,
-        path: &str,
-        before: Option<FileKind>,
-        after: Option<FileKind>,
-    ) {
-        if let Some(entry) = self.entries.get_mut(path) {
-            if let Some(kind) = after.as_ref().or(before.as_ref()) {
-                entry.content_kind = kind.clone();
-            }
-            entry.type_change = before.zip(after).filter(|(before, after)| before != after);
-        }
-    }
-
     pub fn entries(&self) -> impl ExactSizeIterator<Item = &FileEntry> {
         self.entries.values()
     }
@@ -233,6 +229,56 @@ impl FileCatalog {
 mod catalog_tests {
     use super::{ChangeKind, FileCatalog, FileKind};
     use crate::repository::ChangedFile;
+    #[test]
+    fn renamed_and_copied_entries_use_source_kinds_without_hiding_unchanged_sources() {
+        let before = [("source", FileKind::Symlink), ("old", FileKind::Symlink)]
+            .into_iter()
+            .map(|(path, kind)| (path.into(), kind))
+            .collect();
+        let after = [
+            ("source", FileKind::Symlink),
+            ("copy", FileKind::Regular),
+            ("renamed", FileKind::Symlink),
+        ]
+        .into_iter()
+        .map(|(path, kind)| (path.into(), kind))
+        .collect();
+        let changes = [
+            ChangedFile {
+                status: "copied".into(),
+                before_path: "source".into(),
+                after_path: "copy".into(),
+            },
+            ChangedFile {
+                status: "renamed".into(),
+                before_path: "old".into(),
+                after_path: "renamed".into(),
+            },
+        ];
+        let catalog = FileCatalog::new(before, after, &changes);
+        assert!(catalog.find("source").unwrap().kind().is_none());
+        assert_eq!(
+            catalog
+                .find("copy")
+                .unwrap()
+                .type_change_notice()
+                .as_deref(),
+            Some("File type changed: symlink → regular file")
+        );
+        assert_eq!(catalog.find("old").unwrap().path(), "renamed");
+        assert_eq!(
+            catalog.find("renamed").unwrap().content_kind(),
+            &FileKind::Symlink
+        );
+        assert!(
+            catalog
+                .find("renamed")
+                .unwrap()
+                .type_change_notice()
+                .is_none()
+        );
+    }
+
     #[test]
     fn full_tree_preserves_unchanged_sources_deleted_paths_and_rename_aliases() {
         let paths = ["original.rs", "renamed.rs", "never.rs", "link"]
@@ -265,7 +311,7 @@ mod catalog_tests {
                 after_path: "copy.rs".into(),
             },
         ];
-        let catalog = FileCatalog::new(paths, &changes);
+        let catalog = FileCatalog::new(Default::default(), paths, &changes);
         assert_eq!(catalog.entries().len(), 6);
         assert_eq!(catalog.find("old.rs").unwrap().path(), "renamed.rs");
         assert!(catalog.find("original.rs").unwrap().kind().is_none());
