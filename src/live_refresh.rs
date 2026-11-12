@@ -84,6 +84,52 @@ impl RecordedRefresh {
     }
 }
 
+/// Read-only refresh of the original Git review plus its optional virtual row.
+pub struct GitRefresh {
+    pub home: Comparison,
+    pub history: History,
+    pub revision: Option<Revision>,
+    pub comparison: Comparison,
+}
+impl GitRefresh {
+    pub fn load(
+        directory: &Path,
+        base: Option<&str>,
+        tip: &str,
+        working_copy: bool,
+        history_query: &HistoryQuery,
+        limit: crate::text_content::TextLimit,
+    ) -> Result<Self, String> {
+        let home = Comparison::load_with_limit(directory, base, tip, limit)?;
+        if home.supports_evolution() {
+            return Err("Git refresh requires a plain Git repository".into());
+        }
+        let history = home.history(history_query)?;
+        let revision = if working_copy {
+            Some(
+                history
+                    .revisions
+                    .iter()
+                    .find(|revision| revision.is_virtual_working_copy())
+                    .cloned()
+                    .ok_or("Working copy is outside the current history query")?,
+            )
+        } else {
+            None
+        };
+        let comparison = match &revision {
+            Some(revision) => home.for_revision(revision)?,
+            None => home.clone(),
+        };
+        Ok(Self {
+            home,
+            history,
+            revision,
+            comparison,
+        })
+    }
+}
+
 #[derive(Default)]
 pub struct RefreshGate {
     failed_operation: Option<String>,
