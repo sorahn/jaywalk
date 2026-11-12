@@ -167,7 +167,9 @@ impl Viewer {
             .sum();
         let available = f32::from(window.bounds().size.width) - drawer_width - 2. * INSET;
         let compact = available
-            < self.settings.ui.footer_font_size * 30. + self.settings.ui.footer_control_height * 4.;
+            < self.settings.ui.footer_font_size * 30.
+                + self.settings.ui.footer_control_height * 5.
+                + 8.;
         let focus = self.focus.clone();
         let view = self.view.effective();
         let wrap = self.wrapping.enabled(view);
@@ -216,19 +218,55 @@ impl Viewer {
             .when(!compact, |controls| {
                 controls
                     .child(
-                        Button::new("word-wrap")
-                            .ghost()
-                            .with_size(px(self.settings.ui.footer_control_height))
-                            .compact()
-                            .icon(crate::appearance::active_icon(
-                                IconName::TextWrap,
-                                self.wrapping.enabled(self.view.effective()),
-                                cx,
-                            ))
-                            .tooltip("Word wrap")
-                            .toggled(self.wrapping.enabled(self.view.effective()))
-                            .on_click(
-                                cx.listener(|this, _, window, cx| this.toggle_wrap(window, cx)),
+                        div()
+                            .h_flex()
+                            .items_center()
+                            .gap_1()
+                            .mr(px(8.))
+                            .child(
+                                Button::new("word-wrap")
+                                    .ghost()
+                                    .with_size(px(self.settings.ui.footer_control_height))
+                                    .compact()
+                                    .icon(crate::appearance::active_icon(
+                                        IconName::TextWrap,
+                                        wrap,
+                                        cx,
+                                    ))
+                                    .tooltip("Word wrap")
+                                    .toggled(wrap)
+                                    .on_click(cx.listener(|this, _, window, cx| {
+                                        this.toggle_wrap(window, cx)
+                                    })),
+                            )
+                            .when(
+                                view != ViewMode::Fluid
+                                    && self
+                                        .code()
+                                        .is_some_and(|code| matches!(code.standard, Ok(Some(_)))),
+                                |options| {
+                                    options.child(
+                                        Button::new("file-context")
+                                            .debug_selector(|| "file-context".into())
+                                            .ghost()
+                                            .with_size(px(self.settings.ui.footer_control_height))
+                                            .compact()
+                                            .icon(crate::appearance::active_icon(
+                                                IconName::FoldVertical,
+                                                collapsed,
+                                                cx,
+                                            ))
+                                            .tooltip(if collapsed {
+                                                "Show full file"
+                                            } else {
+                                                "Fold unchanged lines"
+                                            })
+                                            .toggled(collapsed)
+                                            .on_click(cx.listener(|this, _, _, cx| {
+                                                this.toggle_unchanged_lines(cx)
+                                            })),
+                                    )
+                                },
                             ),
                     )
                     .child(self.render_view_toggle(cx))

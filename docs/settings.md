@@ -283,7 +283,7 @@ origin = true
 | Setting | Default | Meaning and allowed values |
 | --- | --- | --- |
 | `diff.default_view` | `"fluid"` | `"inline"`, `"side_by_side"` or `"fluid"` for the file viewer. Overview always uses unified/inline diff. Automatic single-column presentation for unchanged/conflicted files does not replace the saved preference. |
-| `diff.collapse_unchanged` | `false` | Fold unchanged ranges in single-file inline and side-by-side views. Applies live; the header or remappable toggle overrides it, remembered per repository when layout persistence is enabled. Fluid always shows full files. |
+| `diff.collapse_unchanged` | `false` | Fold unchanged ranges in single-file inline and side-by-side views. Applies live; the footer icon beside Word wrap or remappable toggle overrides it, remembered per repository when layout persistence is enabled. Fluid always shows full files. |
 | `diff.context_lines` | `3` | Context on each side of an edit in folded standard views; integer 0–100. Applies live. Independent of overview context. |
 | `diff.expansion_lines` | `20` | Lines revealed by each partial range disclosure in standard views; integer 1–1000. Applies live. |
 | `diff.max_text_file_size_mb` | `50` | Maximum text bytes per before/after side in MiB (1,048,576 bytes). A positive integer whose byte count plus one fits the platform address space. Applies on the next comparison load or refresh. |
