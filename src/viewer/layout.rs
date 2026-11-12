@@ -144,6 +144,7 @@ impl Viewer {
     }
     pub(super) fn status_notice(&self, cx: &App) -> Option<AnyElement> {
         let theme = gpui::component::Theme::global(cx);
+        let live_message = self.live.notice.as_ref().map(super::live::LiveNotice::text);
         let (message, color): (&str, _) = if let Some(message) = &self.config.error {
             (message, theme.danger)
         } else if let Some(message) = self
@@ -161,8 +162,11 @@ impl Viewer {
         {
             ("Updating overview…", theme.warning)
         } else {
-            let message = self.live.message.as_ref()?;
-            if message == "Updating recorded changes…" && !self.loading_visible(LoadingKind::Live)
+            let message = live_message.as_deref()?;
+            if matches!(
+                self.live.notice,
+                Some(super::live::LiveNotice::UpdatingRecorded)
+            ) && !self.loading_visible(LoadingKind::Live)
             {
                 return None;
             }

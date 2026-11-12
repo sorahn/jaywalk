@@ -7,9 +7,9 @@ use gpui_test::{TestAppContext, VisualTestContext};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-struct Fixture(PathBuf);
+pub(super) struct Fixture(pub(super) PathBuf);
 impl Fixture {
-    fn new() -> Self {
+    pub(super) fn new() -> Self {
         static NEXT: AtomicUsize = AtomicUsize::new(0);
         let root = std::env::temp_dir().join(format!(
             "jaywalk-interactions-{}-{}",
@@ -55,7 +55,7 @@ impl Drop for Fixture {
         let _ = std::fs::remove_dir_all(&self.0);
     }
 }
-fn setup<'a>(
+pub(super) fn setup<'a>(
     fixture: &Fixture,
     cx: &'a mut TestAppContext,
 ) -> (Entity<Viewer>, &'a mut VisualTestContext) {

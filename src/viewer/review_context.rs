@@ -231,7 +231,9 @@ impl Viewer {
                 }
                 match result {
                     Err(error) => {
-                        viewer.live.message = Some(format!("Review unchanged: {error}"));
+                        viewer.live.notice = Some(super::live::LiveNotice::Diagnostic(format!(
+                            "Review unchanged: {error}"
+                        )));
                         cx.notify();
                     }
                     Ok((catalog, decision)) => {
@@ -331,7 +333,9 @@ impl Viewer {
                         viewer.install_review(comparison, source, window, cx)
                     }
                     Err(error) => {
-                        viewer.live.message = Some(format!("Review unchanged: {error}"));
+                        viewer.live.notice = Some(super::live::LiveNotice::Diagnostic(format!(
+                            "Review unchanged: {error}"
+                        )));
                         cx.notify();
                     }
                 }
@@ -375,7 +379,9 @@ impl Viewer {
                         viewer.install_review(comparison, ReviewSource::Home(home), window, cx)
                     }
                     Err(error) => {
-                        viewer.live.message = Some(format!("Review unchanged: {error}"));
+                        viewer.live.notice = Some(super::live::LiveNotice::Diagnostic(format!(
+                            "Review unchanged: {error}"
+                        )));
                         cx.notify();
                     }
                 }

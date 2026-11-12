@@ -19,7 +19,7 @@ impl Viewer {
         if let Some(welcome) = &mut self.welcome {
             welcome.error = Some(error);
         } else {
-            self.live.message = Some(error);
+            self.live.notice = Some(super::live::LiveNotice::Diagnostic(error));
         }
         cx.notify();
     }

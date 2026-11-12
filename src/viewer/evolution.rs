@@ -469,9 +469,9 @@ impl Viewer {
                         }
                     }
                     Err(error) => {
-                        viewer.live.message = Some(format!(
+                        viewer.live.notice = Some(super::live::LiveNotice::Diagnostic(format!(
                             "Evolution reload failed; keeping the previous timeline: {error}"
-                        ))
+                        )))
                     }
                 }
                 cx.notify();

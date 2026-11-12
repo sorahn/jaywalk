@@ -252,8 +252,7 @@ impl Viewer {
             self.load_evolution(anchor, window, cx);
         }
         self.navigation.pinned = true;
-        self.live.message =
-            Some("Visited view · Refresh or select a comparison to follow recorded changes".into());
+        self.live.notice = Some(super::live::LiveNotice::VisitedView);
         self.navigation.suppress = false;
         window.focus(&self.focus, cx);
         cx.notify();

@@ -192,7 +192,7 @@ impl Viewer {
                     let _ = this.update(cx, |viewer, cx| match result {
                         Ok(path) => cx.reveal_path(&path),
                         Err(error) => {
-                            viewer.live.message = Some(error);
+                            viewer.live.notice = Some(super::live::LiveNotice::Diagnostic(error));
                             cx.notify();
                         }
                     });
