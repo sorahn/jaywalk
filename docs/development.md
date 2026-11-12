@@ -125,6 +125,11 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer scripts/bundle-macos.sh
 Output is `target/debug/Jaywalk.app` or `target/release/Jaywalk.app`. The script
 compiles `packaging/macos/jaywalk.icon` with Xcode's `actool`, includes modern
 and legacy icon resources, merges icon metadata, and applies an ad hoc signature.
+Bundling and CLI installation explicitly build the native host target into
+`target/<host>/<profile>/`, ignoring inherited Cargo target-directory and
+cross-target settings. Version extraction and copying use those exact artifacts;
+stale binaries in `target/<profile>/` are never consumed. Ordinary Cargo and
+`just build` commands still honor your Cargo settings.
 Generated assets stay under `target/`. This is a local build, without notarization
 or an installer.
 
@@ -152,7 +157,10 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer scripts/install-cli.sh 
 ```
 
 The default destination is `~/.local/bin`; keep it on PATH. The installer builds
-the binaries and macOS bundle, then links `jw` to this checkout. It refuses to
+the binaries and macOS bundle, then links `jw` to this checkout. On macOS the
+link targets the launcher inside the signed bundle; on Linux it targets the
+explicit native build directory. Existing links made by the previous installer
+are upgraded when rerunning it with the same checkout and profile. It refuses to
 replace an unrelated existing command. Keep the checkout and its `target/`
 binaries in place while using the link. Rerun after rebuilding to refresh the bundle.
 
