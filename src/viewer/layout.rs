@@ -3,6 +3,7 @@ use gpui::component::tooltip::Tooltip;
 
 impl Render for Viewer {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        self.preserve_window_reflow(window, cx);
         let root = div()
             .id("viewer-root")
             .key_context("Jaywalk")

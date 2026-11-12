@@ -197,6 +197,70 @@ mod tests {
     }
 
     #[test]
+    fn mixed_empty_and_unequal_changes_scroll_continuously_and_reversibly() {
+        let unchanged = |n: usize| (0..n).map(|i| format!("line {i}\n")).collect::<String>();
+        let cases = [
+            (String::new(), "added\n".repeat(100)),
+            ("deleted\n".repeat(100), String::new()),
+            (
+                format!("{}{}{}", unchanged(30), "old\n".repeat(3), unchanged(40)),
+                format!("{}{}{}", unchanged(30), "new\n".repeat(80), unchanged(40)),
+            ),
+            (
+                format!("{}{}", unchanged(40), "removed\n".repeat(90)),
+                unchanged(40),
+            ),
+        ];
+        for (before, after) in cases {
+            let diff = FileDiff::new(&before, &after);
+            let mut layout = geometry(&diff);
+            // Exercise different wrapping heights on corresponding lines too.
+            for (positions, height) in [
+                (&mut layout.before, &mut layout.before_height),
+                (&mut layout.after, &mut layout.after_height),
+            ] {
+                let mut y = 0.;
+                for (line, position) in positions.iter_mut().enumerate() {
+                    *position = y;
+                    y += if line % 7 == 0 { 80. } else { 20. };
+                }
+                *height = positions.last().copied().unwrap_or(0.) + 20.;
+            }
+            for viewport in [20., 200., 10000.] {
+                let mut scroll = FluidScroll::default();
+                let mut previous = (0., 0.);
+                let limit = (layout.scroll_extent(&diff) - viewport).max(0.);
+                for _ in 0..(limit / 7.).ceil() as usize + 1 {
+                    let current = scroll.advance(7., &diff, &layout, viewport);
+                    for (old, new) in [(previous.0, current.0), (previous.1, current.1)] {
+                        assert!(
+                            new >= old - 0.01 && new - old <= 7.01,
+                            "{previous:?} -> {current:?}"
+                        );
+                    }
+                    previous = current;
+                }
+                assert_eq!(
+                    previous,
+                    (
+                        (layout.before_height - viewport).max(0.),
+                        (layout.after_height - viewport).max(0.)
+                    )
+                );
+                if limit > 100. {
+                    scroll.advance(-limit / 2., &diff, &layout, viewport);
+                    let original = scroll.advance(0., &diff, &layout, viewport);
+                    scroll.advance(-17., &diff, &layout, viewport);
+                    let restored = scroll.advance(17., &diff, &layout, viewport);
+                    assert!((original.0 - restored.0).abs() < 0.01);
+                    assert!((original.1 - restored.1).abs() < 0.01);
+                }
+                assert_eq!(scroll.advance(-100000., &diff, &layout, viewport), (0., 0.));
+            }
+        }
+    }
+
+    #[test]
     fn continues_when_one_document_cannot_scroll() {
         let diff = FileDiff::new("short\n", &"added\n".repeat(100));
         let mut scroll = FluidScroll::default();

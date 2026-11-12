@@ -71,13 +71,18 @@ impl Viewer {
         if self.view.effective() != ViewMode::Fluid && !self.view.is_single_file() {
             return;
         }
-        if let Some(snapshot) = self.capture_reading(cx) {
-            self.live.pending_position = Some((
-                snapshot.before.line,
-                snapshot.after.line,
-                snapshot.horizontal,
-            ));
+        if let Some(position) = self.reflow_position(cx) {
+            self.live.pending_position = Some(position);
         }
+    }
+
+    pub(super) fn reflow_position(&self, cx: &App) -> Option<(usize, usize, f32)> {
+        let snapshot = self.capture_reading(cx)?;
+        Some((
+            snapshot.before.line,
+            snapshot.after.line,
+            snapshot.horizontal,
+        ))
     }
 
     pub(super) fn capture_reading(&self, cx: &App) -> Option<ReadingSnapshot> {

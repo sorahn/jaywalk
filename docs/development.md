@@ -293,3 +293,9 @@ visibility, and header alignment after window resizing and divider drags. It use
 disposable Git fixtures, in-memory recents and disabled layout persistence/live
 watching. It does not activate a native window or move the system pointer. These
 tests also run as part of `just check`; native rendering still needs review.
+
+The same headless suite exercises Fluid wheel input, shared gutter dragging,
+independent editor offsets, wrapping and window/divider reflow. Geometry tests
+cover insertion/deletion-only sides, unequal replacements, direction reversal
+and endpoint clamping with different wrapping heights. These are behavioral
+regressions, not substitutes for native visual comparison with reference clips.

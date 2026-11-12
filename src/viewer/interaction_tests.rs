@@ -25,6 +25,12 @@ impl Fixture {
         std::fs::write(fixture.0.join("file.txt"), "changed\n").unwrap();
         fixture
     }
+    fn replace(&self, before: &str, after: &str) {
+        std::fs::write(self.0.join("file.txt"), before).unwrap();
+        self.git(&["add", "file.txt"]);
+        self.git(&["commit", "--amend", "--no-edit"]);
+        std::fs::write(self.0.join("file.txt"), after).unwrap();
+    }
     fn git(&self, args: &[&str]) {
         let output = std::process::Command::new("git")
             .current_dir(&self.0)
@@ -267,4 +273,205 @@ fn footer_stays_single_line_and_controls_fit_narrow_viewers(cx: &mut TestAppCont
             );
         }
     }
+}
+
+fn offsets(viewer: &Entity<Viewer>, cx: &mut VisualTestContext) -> (f32, f32) {
+    cx.update(|_, app| {
+        let code = viewer.read(app).code().unwrap();
+        (
+            -f32::from(code.before.read(app).scroll_offset().y),
+            -f32::from(code.after.read(app).scroll_offset().y),
+        )
+    })
+}
+
+#[gpui_test::test]
+fn fluid_wheel_shared_drag_and_independent_offsets_keep_their_roles(cx: &mut TestAppContext) {
+    let fixture = Fixture::new();
+    let common = (0..80).map(|i| format!("common {i}\n")).collect::<String>();
+    fixture.replace(
+        &format!("{common}{}tail\n", "before\n".repeat(10)),
+        &format!("{common}{}tail\n", "after\n".repeat(160)),
+    );
+    let (viewer, cx) = setup(&fixture, cx);
+    cx.update(|_, app| {
+        viewer.update(app, |viewer, cx| {
+            viewer.navigation_target = None;
+            viewer.scroll_comparison(-100000., cx);
+        })
+    });
+    draw(cx);
+    assert_eq!(offsets(&viewer, cx), (0., 0.));
+    let position = cx.update(|_, app| {
+        viewer
+            .read(app)
+            .code()
+            .unwrap()
+            .before
+            .read(app)
+            .input_bounds()
+            .center()
+    });
+    cx.simulate_event(gpui_test::ScrollWheelEvent {
+        position,
+        delta: gpui_test::ScrollDelta::Pixels(point(px(0.), px(-120.))),
+        ..Default::default()
+    });
+    draw(cx);
+    let scrolled = offsets(&viewer, cx);
+    assert!(scrolled.0 > 0. && scrolled.1 > 0.);
+    cx.simulate_event(gpui_test::ScrollWheelEvent {
+        position,
+        delta: gpui_test::ScrollDelta::Pixels(point(px(0.), px(120.))),
+        ..Default::default()
+    });
+    draw(cx);
+    assert_eq!(offsets(&viewer, cx), (0., 0.));
+    // Direct editor scrollbar changes can move a pane independently.
+    cx.update(|_, app| {
+        viewer.update(app, |viewer, cx| {
+            viewer.code().unwrap().after.update(cx, |editor, cx| {
+                editor.set_scroll_offset(point(px(0.), px(-300.)), cx)
+            });
+        })
+    });
+    draw(cx);
+    let independent = offsets(&viewer, cx);
+    assert_eq!(independent.0, 0.);
+    assert!(independent.1 > 0.);
+    let gutter = cx.debug_bounds("fluid-gutter").unwrap();
+    let bottom = point(gutter.center().x, gutter.bottom() - px(3.));
+    cx.simulate_mouse_down(bottom, MouseButton::Left, Default::default());
+    draw(cx);
+    cx.simulate_mouse_move(
+        point(gutter.center().x, gutter.top() + px(2.)),
+        Some(MouseButton::Left),
+        Default::default(),
+    );
+    draw(cx);
+    cx.simulate_mouse_up(
+        point(gutter.center().x, gutter.top() + px(2.)),
+        MouseButton::Left,
+        Default::default(),
+    );
+    draw(cx);
+    assert_eq!(offsets(&viewer, cx), (0., 0.));
+    cx.update(|_, app| {
+        viewer.update(app, |viewer, cx| {
+            viewer.navigation_target = None;
+            viewer.scroll_comparison(100000., cx);
+        })
+    });
+    draw(cx);
+    let end = offsets(&viewer, cx);
+    assert!(end.0 > 0. && end.1 > end.0);
+    cx.update(|_, app| {
+        viewer.update(app, |viewer, cx| {
+            viewer.navigation_target = None;
+            viewer.scroll_comparison(100000., cx);
+        })
+    });
+    draw(cx);
+    assert_eq!(offsets(&viewer, cx), end);
+}
+
+#[gpui_test::test]
+fn fluid_wrap_and_resize_preserve_the_reading_line(cx: &mut TestAppContext) {
+    let fixture = Fixture::new();
+    let source = (0..140)
+        .map(|i| format!("line {i} {}\n", "long text ".repeat(15)))
+        .collect::<String>();
+    fixture.replace(&source, &source.replace("line 90", "changed line 90"));
+    let (viewer, cx) = setup(&fixture, cx);
+    cx.update(|_, app| {
+        viewer.update(app, |viewer, cx| {
+            viewer.navigation_target = None;
+            viewer.scroll_comparison(-100000., cx);
+        })
+    });
+    draw(cx);
+    cx.update(|_, app| {
+        viewer.update(app, |viewer, cx| {
+            viewer.navigation_target = None;
+            viewer.scroll_comparison(800., cx);
+        })
+    });
+    draw(cx);
+    let line = cx.update(|_, app| {
+        viewer
+            .read(app)
+            .code()
+            .unwrap()
+            .before
+            .read(app)
+            .visible_row_range()
+            .unwrap()
+            .start
+    });
+    cx.dispatch_action(super::commands::ExecuteCommand {
+        command: jaywalk::commands::CommandId::ToggleWrap,
+    });
+    draw(cx);
+    let wrapped = cx.update(|_, app| {
+        viewer
+            .read(app)
+            .code()
+            .unwrap()
+            .before
+            .read(app)
+            .visible_row_range()
+            .unwrap()
+            .start
+    });
+    assert!(line.abs_diff(wrapped) <= 1, "line {line} -> {wrapped}");
+    cx.simulate_resize(size(px(1100.), px(800.)));
+    draw(cx);
+    let resized = cx.update(|_, app| {
+        viewer
+            .read(app)
+            .code()
+            .unwrap()
+            .before
+            .read(app)
+            .visible_row_range()
+            .unwrap()
+            .start
+    });
+    assert!(
+        wrapped.abs_diff(resized) <= 1,
+        "wrapped {wrapped} -> resized {resized}"
+    );
+    let gutter = cx.debug_bounds("fluid-gutter").unwrap();
+    let position = point(gutter.left() - px(2.), gutter.top() + px(80.));
+    cx.simulate_mouse_down(position, MouseButton::Left, Default::default());
+    draw(cx);
+    for delta in [10., 80.] {
+        cx.simulate_mouse_move(
+            position - point(px(delta), px(0.)),
+            Some(MouseButton::Left),
+            Default::default(),
+        );
+        draw(cx);
+    }
+    cx.simulate_mouse_up(
+        position - point(px(80.), px(0.)),
+        MouseButton::Left,
+        Default::default(),
+    );
+    draw(cx);
+    let dragged = cx.update(|_, app| {
+        viewer
+            .read(app)
+            .code()
+            .unwrap()
+            .before
+            .read(app)
+            .visible_row_range()
+            .unwrap()
+            .start
+    });
+    assert!(
+        resized.abs_diff(dragged) <= 1,
+        "resized {resized} -> dragged {dragged}"
+    );
 }

@@ -33,17 +33,27 @@ pub(super) struct PanelLayout {
     bottom: Entity<ResizableState>,
     bottom_split: Entity<ResizableState>,
     sidebar_bounds: Rc<Cell<Option<Bounds<Pixels>>>>,
+    window_size: Option<Size<Pixels>>,
 }
 
 fn measure_width(
     measured: Rc<Cell<Option<Pixels>>>,
     viewer: WeakEntity<Viewer>,
+    reflow: Option<(usize, usize, f32)>,
 ) -> impl Fn(Bounds<Pixels>, &mut Window, &mut App) + 'static {
     move |bounds, window, cx| {
-        if measured.replace(Some(bounds.size.width)) != Some(bounds.size.width) {
+        let previous = measured.replace(Some(bounds.size.width));
+        if previous != Some(bounds.size.width) {
             let viewer = viewer.clone();
             window.defer(cx, move |_, cx| {
-                let _ = viewer.update(cx, |_, cx| cx.notify());
+                let _ = viewer.update(cx, |viewer, cx| {
+                    if previous.is_some()
+                        && let Some(position) = reflow
+                    {
+                        viewer.live.pending_position.get_or_insert(position);
+                    }
+                    cx.notify();
+                });
             });
         }
     }
@@ -76,11 +86,27 @@ impl PanelLayout {
             bottom: cx.new(|_| ResizableState::default()),
             bottom_split: cx.new(|_| ResizableState::default()),
             sidebar_bounds: Rc::new(Cell::new(None)),
+            window_size: None,
         }
     }
 }
 
 impl Viewer {
+    pub(super) fn preserve_window_reflow(&mut self, window: &Window, cx: &App) {
+        let size = window.bounds().size;
+        if self
+            .panels
+            .window_size
+            .replace(size)
+            .is_some_and(|previous| previous != size)
+        {
+            // Capture source lines before the editors rebuild their wrap maps.
+            if self.live.pending_position.is_none() {
+                self.preserve_reflow_position(cx);
+            }
+        }
+    }
+
     pub(super) fn placement(&self) -> &Placement {
         self.layout
             .saved
@@ -175,6 +201,7 @@ impl Viewer {
                                 .on_prepaint(measure_width(
                                     self.panels.sidebar_widths[usize::from(!history)].clone(),
                                     cx.entity().downgrade(),
+                                    None,
                                 ))
                                 .font(typography::panel_font(&settings.font, cx))
                                 .child(if history {
@@ -290,7 +317,14 @@ impl Viewer {
         &self,
         cx: &Context<Self>,
     ) -> impl Fn(Bounds<Pixels>, &mut Window, &mut App) + 'static {
-        measure_width(self.panels.before_width.clone(), cx.entity().downgrade())
+        let reflow = (!self.reveal_after_layout && self.navigation_target.is_none())
+            .then(|| self.reflow_position(cx))
+            .flatten();
+        measure_width(
+            self.panels.before_width.clone(),
+            cx.entity().downgrade(),
+            reflow,
+        )
     }
 
     pub(super) fn measured_before_width(&self, cx: &App) -> Pixels {
