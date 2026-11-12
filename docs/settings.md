@@ -135,7 +135,7 @@ Appearance and accent share the existing application-wide, last-successfully-app
 | `ui.row_height` | `26` | Shared minimum for history, tree and list rows; 12–160. Per-view overrides below take precedence; fonts establish a readable minimum. |
 | `ui.panel_header_height` | `30` | Minimum panel-header height; 24–120. |
 | `ui.toolbar_height` | `28` | Minimum review-control height within the single comparison header; 28–120. The header fits the greater of this value, `ui.comparison_bar_height`, and its font minimum. No separate application-toolbar row. Applies live. |
-| `ui.footer_height` | `28` | Minimum footer height; 20–120. Effective height also fits its control height and at least 1.5 × footer font size. |
+| `ui.footer_height` | `28` | Minimum application footer height; 20–120. Also sets the minimum History/Files footer height, which grows to fit their own font and evolution control. Effective height also fits its control height and at least 1.5 × footer font size. |
 | `ui.footer_font_size` | `12` | Footer label font size; 8–48. |
 | `ui.footer_control_height` | `22` | Footer control height; 16–80. |
 | `ui.comparison_bar_height` | `30` | Reserved comparison/evolution toolbar height, including compact back/forward controls; 24–120. Grows to fit the UI font. |

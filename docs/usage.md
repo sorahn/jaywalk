@@ -225,7 +225,14 @@ panel-header typography, aligned edge spacing and grouped controls. Persistent
 icon toggles use the application accent instead of a selected background.
 
 Panel visibility buttons sit at the outer footer edge matching each sidebar’s
-configured side; hidden panels keep their button for reopening. The timeline
-button is at the right edge. File diff controls stay in the footer, aligned
+configured side; hidden panels keep their button for reopening. The bottom-dock
+button appears at the right edge only when a timeline is placed in the real
+bottom dock; it toggles only those docked timelines. File diff controls stay
+in the footer, aligned
 with the diff workspace’s right edge as sidebars resize, move or close. With
 no right sidebar, they sit directly beside the outer panel buttons.
+
+History and Files have compact info footers, with their own evolution toggle at
+the bottom right. History shows its revision count/status; Files shows changed
+file counts, or total/changed counts in the all-files tree, plus a retained-preview
+count when applicable. Each evolution toggle controls only its own timeline.

@@ -523,6 +523,37 @@ impl Viewer {
             .into_any_element()
     }
 
+    fn render_files_footer(&self, cx: &Context<Self>) -> AnyElement {
+        let files = self
+            .browser
+            .files
+            .iter()
+            .enumerate()
+            .filter(|(index, _)| Some(*index) != self.browser.retained);
+        let total = files.clone().count();
+        let changed = files
+            .filter(|(_, file)| file.status().is_some_and(|status| status != "unchanged"))
+            .count();
+        let mut label =
+            if self.browser.mode == FileListMode::Tree && self.browser.scope == TreeScope::All {
+                format!("{total} files · {changed} changed")
+            } else {
+                format!(
+                    "{changed} changed {}",
+                    if changed == 1 { "file" } else { "files" }
+                )
+            };
+        if self.browser.retained.is_some() {
+            label.push_str(" · 1 preview");
+        }
+        self.panel_footer(label, self.settings.panels.files.font.size, cx)
+            .children(
+                self.supports_evolution()
+                    .then(|| self.render_evolution_toggle(evolution::EvolutionKind::File, cx)),
+            )
+            .into_any_element()
+    }
+
     pub(super) fn render_files(&self, cx: &mut Context<Self>) -> AnyElement {
         let dark = gpui::component::Theme::global(cx).is_dark();
         let toggle_icon =
@@ -572,26 +603,6 @@ impl Viewer {
                             }))
                     }))
                     .child(
-                        Button::new("file-evolution-toggle")
-                            .ghost()
-                            .small()
-                            .compact()
-                            .icon(toggle_icon(
-                                IconName::GitCompareArrows,
-                                self.file_evolution.visible,
-                            ))
-                            .when(!self.supports_evolution(), |button| button.hidden())
-                            .tooltip("File evolution")
-                            .toggled(self.file_evolution.visible)
-                            .on_click(cx.listener(|this, _, window, cx| {
-                                this.toggle_evolution_panel(
-                                    evolution::EvolutionKind::File,
-                                    window,
-                                    cx,
-                                )
-                            })),
-                    )
-                    .child(
                         Button::new("file-list-mode")
                             .ghost()
                             .small()
@@ -633,7 +644,8 @@ impl Viewer {
                 .key_context("JaywalkFiles")
                 .relative()
                 .bg(gpui::component::Theme::global(cx).sidebar),
-        );
+        )
+        .footer(self.render_files_footer(cx));
         match self.comparison_state() {
             LoadState::Failed(error) => {
                 panel = panel.child(

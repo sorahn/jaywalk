@@ -144,8 +144,8 @@ fn resolve_diff_colors(colors: DiffColorSettings, dark: bool) -> gpui::component
     }
 }
 
-pub(crate) fn active_icon(name: gpui::assets::IconName, active: bool, cx: &App) -> Icon {
-    Icon::new(name).when(active, |icon| icon.text_color(Theme::global(cx).primary))
+pub(crate) fn active_icon(icon: impl Into<Icon>, active: bool, cx: &App) -> Icon {
+    Icon::new(icon).when(active, |icon| icon.text_color(Theme::global(cx).primary))
 }
 
 /// Call inside Theme::update so component tokens, base controls and all windows

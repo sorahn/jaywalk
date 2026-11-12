@@ -302,6 +302,43 @@ impl Viewer {
         self.save_layout(cx);
     }
 
+    pub(super) fn render_evolution_toggle(
+        &self,
+        kind: EvolutionKind,
+        cx: &Context<Self>,
+    ) -> AnyElement {
+        let (id, label, active, icon) = match kind {
+            EvolutionKind::Change => (
+                "toggle-evolution",
+                "Change evolution",
+                self.evolution.visible,
+                gpui::component::Icon::new(IconName::GitFork),
+            ),
+            EvolutionKind::File => (
+                "file-evolution-toggle",
+                "File evolution",
+                self.file_evolution.visible,
+                gpui::component::Icon::default().data(include_bytes!(
+                    "../../assets/icons/diagram-flow-vertical.svg"
+                )),
+            ),
+        };
+        Button::new(id)
+            .ghost()
+            .small()
+            .compact()
+            .flex_shrink_0()
+            .icon(crate::appearance::active_icon(icon, active, cx))
+            .toggled(active)
+            .tooltip(label)
+            .on_click(
+                cx.listener(move |this, _, window, cx| {
+                    this.toggle_evolution_panel(kind, window, cx)
+                }),
+            )
+            .into_any_element()
+    }
+
     pub(super) fn toggle_evolution(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.toggle_evolution_panel(EvolutionKind::Change, window, cx);
     }

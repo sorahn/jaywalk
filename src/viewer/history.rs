@@ -1,7 +1,5 @@
 use super::*;
-use gpui::component::Sizable;
 use gpui::component::menu::ContextMenuExt as _;
-use gpui::prelude::FluentBuilder;
 use jaywalk::history::History;
 
 const GRAPH_MARGIN: f32 = 10.;
@@ -125,10 +123,39 @@ fn history_row(
 }
 
 impl Viewer {
+    fn render_history_footer(&self, cx: &Context<Self>) -> AnyElement {
+        let status = if let Some(error) = &self.references.error {
+            error.clone()
+        } else if let Some(history) = self
+            .repository
+            .ready()
+            .and_then(|session| session.history.as_ref().ok())
+        {
+            let count = history.revisions.len();
+            if self.selected_history_commit().is_some_and(|commit| {
+                !history
+                    .revisions
+                    .iter()
+                    .any(|revision| revision.commit_id == commit)
+            }) {
+                format!("{count} revisions · inspected revision outside graph")
+            } else {
+                format!("{count} recorded revisions")
+            }
+        } else {
+            String::new()
+        };
+        self.panel_footer(status, self.settings.panels.history.font.size, cx)
+            .children(
+                self.supports_evolution()
+                    .then(|| self.render_evolution_toggle(evolution::EvolutionKind::Change, cx)),
+            )
+            .into_any_element()
+    }
+
     pub(super) fn render_history(&self, cx: &mut Context<Self>) -> AnyElement {
         let theme = gpui::component::Theme::global(cx);
         let surface = theme.sidebar;
-        let muted = theme.muted_foreground;
         let stripe = surface.blend(
             theme
                 .foreground
@@ -136,53 +163,36 @@ impl Viewer {
         );
         let selection = theme.list_active;
         let hover = theme.secondary_hover;
-        let mut panel =
-            super::chrome::Panel::new(
-                "history-panel",
-                self.panel_header(
-                    jaywalk::panel_layout::PanelId::History,
-                    self.settings.panels.history.font.size,
-                    cx,
-                )
-                .child(
-                    div()
-                        .flex_1()
-                        .min_w_0()
-                        .truncate()
-                        .child(if self.supports_evolution() {
-                            "JJ HISTORY"
-                        } else {
-                            "GIT HISTORY"
-                        }),
-                )
-                .child(
-                    div()
-                        .h_flex()
-                        .items_center()
-                        .gap_1()
-                        .child(self.panel_menu(jaywalk::panel_layout::PanelId::History))
-                        .child(self.reference_controls(cx))
-                        .child(self.remote_controls(cx))
-                        .child(
-                            Button::new("toggle-evolution")
-                                .ghost()
-                                .small()
-                                .compact()
-                                .icon(crate::appearance::active_icon(
-                                    IconName::GitCompareArrows,
-                                    self.evolution.visible,
-                                    cx,
-                                ))
-                                .when(!self.supports_evolution(), |button| button.hidden())
-                                .toggled(self.evolution.visible)
-                                .tooltip("Show change evolution")
-                                .on_click(cx.listener(|this, _, window, cx| {
-                                    this.toggle_evolution(window, cx)
-                                })),
-                        ),
-                ),
-                div().bg(surface),
-            );
+        let mut panel = super::chrome::Panel::new(
+            "history-panel",
+            self.panel_header(
+                jaywalk::panel_layout::PanelId::History,
+                self.settings.panels.history.font.size,
+                cx,
+            )
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .truncate()
+                    .child(if self.supports_evolution() {
+                        "JJ HISTORY"
+                    } else {
+                        "GIT HISTORY"
+                    }),
+            )
+            .child(
+                div()
+                    .h_flex()
+                    .items_center()
+                    .gap_1()
+                    .child(self.panel_menu(jaywalk::panel_layout::PanelId::History))
+                    .child(self.reference_controls(cx))
+                    .child(self.remote_controls(cx)),
+            ),
+            div().bg(surface),
+        )
+        .footer(self.render_history_footer(cx));
         let session =
             match &self.repository {
                 LoadState::Loaded(session) => session,
@@ -225,16 +235,6 @@ impl Viewer {
             ComparisonScope::Evolution { anchor, .. } => Some(anchor.clone()),
         };
         let count = history.revisions.len();
-        let status = if let Some(error) = &self.references.error {
-            error.clone()
-        } else if self
-            .selected_history_commit()
-            .is_some_and(|commit| !history.revisions.iter().any(|r| r.commit_id == commit))
-        {
-            format!("{count} revisions · inspected revision outside graph")
-        } else {
-            format!("{count} recorded revisions")
-        };
         let viewer = cx.entity().downgrade();
         let height = self.settings.row_height(
             self.settings.history.row_height,
@@ -291,15 +291,7 @@ impl Viewer {
         })
         .size_full()
         .track_scroll(&self.history_scroll);
-        panel = panel.child(div().flex_1().min_h_0().child(rows)).footer(
-            div()
-                .px_3()
-                .py_1()
-                .text_size(px(self.settings.panels.history.font.size * 0.85))
-                .text_color(muted)
-                .truncate()
-                .child(status),
-        );
+        panel = panel.child(div().flex_1().min_h_0().child(rows));
         panel.into_any_element()
     }
 }

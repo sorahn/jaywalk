@@ -91,6 +91,6 @@ by default. Use **Reset repository interface choices** to restore configured def
 
 Jaywalk's original code is [GPL-3.0-only](LICENSE). Third-party code retains its
 own licenses, including the Apache-2.0 licensed vendored components; see
-[vendor/README.md](vendor/README.md).
+[vendor/README.md](vendor/README.md) and [additional icon notices](assets/icons/README.md).
 
 See [context menus](docs/context-menus.md) for panel, file and history actions.

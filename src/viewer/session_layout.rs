@@ -262,7 +262,17 @@ impl Viewer {
         controls.into_any_element()
     }
 
+    pub(super) fn bottom_timeline_state(&self) -> Option<bool> {
+        self.supports_evolution()
+            .then(|| {
+                self.placement()
+                    .bottom_visibility(self.evolution.visible, self.file_evolution.visible)
+            })
+            .flatten()
+    }
+
     pub(super) fn render_timeline_toggle(&self, cx: &mut Context<Self>) -> AnyElement {
+        let active = self.bottom_timeline_state().unwrap_or(false);
         Button::new("toggle-timeline-panels")
             .ghost()
             .with_size(px(self.settings.ui.footer_control_height))
@@ -271,17 +281,18 @@ impl Viewer {
             .compact()
             .icon(crate::appearance::active_icon(
                 IconName::PanelBottom,
-                self.evolution.visible || self.file_evolution.visible,
+                active,
                 cx,
             ))
-            .tooltip("Toggle evolution panels")
-            .toggled(self.evolution.visible || self.file_evolution.visible)
+            .tooltip("Toggle bottom panel")
+            .toggled(active)
             .on_click(cx.listener(|this, _, window, cx| {
-                let visible = !(this.evolution.visible || this.file_evolution.visible);
-                if this.evolution.visible != visible {
+                let (mut change, mut file) = (this.evolution.visible, this.file_evolution.visible);
+                this.placement().toggle_bottom(&mut change, &mut file);
+                if this.evolution.visible != change {
                     this.toggle_evolution(window, cx);
                 }
-                if this.file_evolution.visible != visible {
+                if this.file_evolution.visible != file {
                     this.toggle_evolution_panel(evolution::EvolutionKind::File, window, cx);
                 }
             }))

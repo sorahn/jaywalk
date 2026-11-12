@@ -15,9 +15,11 @@ impl Viewer {
     pub(super) fn render_footer(&self, window: &Window, cx: &mut Context<Self>) -> AnyElement {
         let control_height = self.settings.ui.footer_control_height;
         // Hidden panels retain an edge button so they can be reopened.
-        let right_count = self.placement().sidebars(Side::Right).len() + 1;
+        let right_sidebars = self.placement().sidebars(Side::Right).len();
+        let bottom = self.bottom_timeline_state().is_some();
+        let right_count = right_sidebars + usize::from(bottom);
         let right_controls_width =
-            right_count as f32 * control_height + (right_count - 1) as f32 * GAP;
+            right_count as f32 * control_height + right_count.saturating_sub(1) as f32 * GAP;
         let spacer = right_spacer(self.right_sidebar_width(cx), right_controls_width);
         div()
             .h_flex()
@@ -30,7 +32,10 @@ impl Viewer {
             .border_color(gpui::component::Theme::global(cx).border)
             .bg(gpui::component::Theme::global(cx).muted)
             .text_size(px(self.settings.ui.footer_font_size))
-            .child(self.render_panel_toggles(Side::Left, cx))
+            .children(
+                (!self.placement().sidebars(Side::Left).is_empty())
+                    .then(|| self.render_panel_toggles(Side::Left, cx)),
+            )
             .child(
                 div()
                     .h_flex()
@@ -68,17 +73,17 @@ impl Viewer {
                     )
                     .child(div().w(px(spacer)).flex_shrink_0()),
             )
-            .child(
+            .children((right_count > 0).then(|| {
                 div()
                     .h_flex()
                     .items_center()
                     .gap(px(GAP))
                     .flex_shrink_0()
-                    .child(self.render_timeline_toggle(cx))
+                    .children(bottom.then(|| self.render_timeline_toggle(cx)))
                     .children(
-                        (right_count > 1).then(|| self.render_panel_toggles(Side::Right, cx)),
-                    ),
-            )
+                        (right_sidebars > 0).then(|| self.render_panel_toggles(Side::Right, cx)),
+                    )
+            }))
             .into_any_element()
     }
 

@@ -70,6 +70,26 @@ impl Placement {
             .collect()
     }
 
+    /// Visibility of the real bottom dock, ignoring sidebar timelines.
+    pub fn bottom_visibility(&self, change_visible: bool, file_visible: bool) -> Option<bool> {
+        let change = self.change_evolution == EvolutionDock::Bottom;
+        let file = self.file_evolution == EvolutionDock::Bottom;
+        (change || file).then_some((change && change_visible) || (file && file_visible))
+    }
+
+    /// Toggle only timelines placed in the bottom dock; retain sidebar visibility.
+    pub fn toggle_bottom(&self, change_visible: &mut bool, file_visible: &mut bool) {
+        let Some(active) = self.bottom_visibility(*change_visible, *file_visible) else {
+            return;
+        };
+        if self.change_evolution == EvolutionDock::Bottom {
+            *change_visible = !active;
+        }
+        if self.file_evolution == EvolutionDock::Bottom {
+            *file_visible = !active;
+        }
+    }
+
     pub fn sidebars(&self, side: Side) -> Vec<PanelId> {
         let ordered = match self.sidebar_order {
             SidebarOrder::HistoryFirst => [PanelId::History, PanelId::Files],
@@ -89,6 +109,37 @@ impl Placement {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn bottom_toggle_does_not_hide_or_open_sidebar_timelines() {
+        let mut placement = crate::settings::Settings::default()
+            .layout
+            .placement
+            .clone();
+        for change_dock in [EvolutionDock::Sidebar, EvolutionDock::Bottom] {
+            for file_dock in [EvolutionDock::Sidebar, EvolutionDock::Bottom] {
+                placement.change_evolution = change_dock;
+                placement.file_evolution = file_dock;
+                for change in [false, true] {
+                    for file in [false, true] {
+                        let before = placement.bottom_visibility(change, file);
+                        let (mut next_change, mut next_file) = (change, file);
+                        placement.toggle_bottom(&mut next_change, &mut next_file);
+                        if change_dock == EvolutionDock::Sidebar {
+                            assert_eq!(next_change, change);
+                        }
+                        if file_dock == EvolutionDock::Sidebar {
+                            assert_eq!(next_file, file);
+                        }
+                        assert_eq!(
+                            placement.bottom_visibility(next_change, next_file),
+                            before.map(|active| !active)
+                        );
+                    }
+                }
+            }
+        }
+    }
+
     #[test]
     fn hiding_one_right_sidebar_keeps_the_other_and_the_workspace() {
         let placement = Placement {

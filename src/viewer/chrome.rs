@@ -9,6 +9,29 @@ pub(super) const PANEL_INSET: f32 = 8.;
 const HEADER_ICON_INSET: f32 = 5.;
 
 impl Viewer {
+    pub(super) fn panel_footer(&self, label: String, font_size: f32, cx: &App) -> gpui::Div {
+        // Match header edge alignment and keep room for a small 24 px control,
+        // including its border, even when the application footer is compact.
+        div()
+            .h_flex()
+            .items_center()
+            .gap_1()
+            .pl(px(PANEL_INSET))
+            .pr(px((PANEL_INSET - HEADER_ICON_INSET).max(0.)))
+            .h(px(self
+                .settings
+                .footer_height()
+                .max(font_size * 1.5)
+                .max(25.)))
+            .flex_shrink_0()
+            .border_t_1()
+            .border_color(Theme::global(cx).border)
+            .bg(Theme::global(cx).sidebar)
+            .text_color(Theme::global(cx).muted_foreground)
+            .text_size(px(font_size * 0.85))
+            .child(div().flex_1().min_w_0().truncate().child(label))
+    }
+
     pub(super) fn panel_header(
         &self,
         panel: PanelId,
