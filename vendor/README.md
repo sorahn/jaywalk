@@ -64,3 +64,8 @@ word highlights and conflict colors. Without it, the widget preserves its
 original toolkit-theme defaults. The host resolves adaptive colors centrally and
 passes the same palette to individual file diffs and the overview; status
 success/danger colors elsewhere in the toolkit are unaffected.
+
+Row rebuilds retain a file-header viewport anchor and its offset instead of
+retargeting it to the first source line. This keeps the overview preamble visible
+when toggling full-file context. Code-row anchors continue to follow source lines.
+Headless host regressions live in `tests/overview_scroll.rs`.

@@ -1336,11 +1336,23 @@ impl DiffState {
         }
     }
 
-    /// Rebuilds rows and restores the source line at the top of the viewport.
+    /// Rebuilds rows while retaining a visible header or the current source line.
     fn rebuild_at_anchor(&mut self) {
-        let anchor = self.row_position(self.list.logical_scroll_top().item_ix);
+        let top = self.list.logical_scroll_top();
+        // The first file header can contain a host preamble. Anchoring it to
+        // the next source line would scroll that content out of the viewport.
+        let header = match self.rows.get(top.item_ix) {
+            Some(DisplayRow::File(file)) => Some(*file),
+            _ => None,
+        };
+        let anchor = self.row_position(top.item_ix);
         self.rebuild(false);
-        if let Some(anchor) = anchor {
+        if let Some(item_ix) = header.and_then(|file| self.header_rows.get(file)).copied() {
+            self.list.scroll_to(ListOffset {
+                item_ix,
+                offset_in_item: top.offset_in_item,
+            });
+        } else if let Some(anchor) = anchor {
             self.reveal_line(&anchor);
         }
     }

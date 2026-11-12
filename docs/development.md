@@ -264,3 +264,14 @@ Fluid editors and the unified diff widget must not acquire an outer scroll view.
 The comparison shell preserves body-before-caption prepaint ordering for sticky
 overview captions. Panel state, resize/docking and navigation remain with their
 existing owners.
+
+### Headless UI-state regressions
+
+`just test --test overview_scroll` exercises GPUI entities and scroll anchors
+without creating or activating a window. It covers context expansion at the
+overview header and source-line anchoring while reading code. The dev-only
+`gpui-test` alias enables test support on the exact GPUI core version already
+used by the app; production backend features remain unchanged. Import that
+alias as `gpui` in context-backed integration tests, and import the normal Kit
+facade for components. Native rendering and interaction still need separate
+verification.
