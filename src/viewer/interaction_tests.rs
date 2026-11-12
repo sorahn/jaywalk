@@ -628,3 +628,183 @@ fn page_click_moves_one_viewport_without_starting_a_jump_drag(cx: &mut TestAppCo
     draw(cx);
     assert_eq!(cx.update(|_, app| viewer.read(app).fluid.position), 0.);
 }
+
+#[gpui_test::test]
+fn standard_folding_disclosures_and_navigation_match_both_modes(cx: &mut TestAppContext) {
+    use jaywalk::settings::DiffView;
+    let fixture = Fixture::new();
+    let before = (1..=180)
+        .map(|line| format!("unchanged λ {line}\n"))
+        .collect::<String>();
+    let after = before
+        .replace("λ 20\n", "changed 20\n")
+        .replace("λ 140\n", "changed 140\n");
+    fixture.replace(&before, &after);
+    let (viewer, cx) = setup(&fixture, cx);
+    for mode in [DiffView::SideBySide, DiffView::Inline] {
+        cx.update(|_, app| {
+            viewer.update(app, |viewer, cx| {
+                viewer.collapse_unchanged = false;
+                viewer.apply_standard_context(cx);
+                viewer.set_view_mode(mode, cx);
+            })
+        });
+        draw(cx);
+        let state = cx.update(|_, app| {
+            viewer
+                .read(app)
+                .code()
+                .unwrap()
+                .standard
+                .as_ref()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .clone()
+        });
+        assert_eq!(cx.update(|_, app| state.read(app).context_lines()), None);
+        // The standard widget's selected group drives the same fixed-width counter.
+        cx.simulate_keystrokes("f7");
+        draw(cx);
+        let first = cx.update(|_, app| state.read(app).change_navigation_position());
+        assert_eq!(first.1, 2);
+        assert!(first.0.is_some());
+        assert!(cx.debug_bounds("change-counter").is_some());
+        let width = cx.debug_bounds("change-counter").unwrap().size.width;
+        cx.simulate_keystrokes("f7");
+        draw(cx);
+        assert_ne!(
+            cx.update(|_, app| state.read(app).change_navigation_position().0),
+            first.0
+        );
+        assert_eq!(cx.debug_bounds("change-counter").unwrap().size.width, width);
+        let button = cx.debug_bounds("file-context").unwrap().center();
+        cx.simulate_click(button, Default::default());
+        draw(cx);
+        assert_eq!(cx.update(|_, app| state.read(app).context_lines()), Some(3));
+        assert!(cx.debug_bounds("change-counter").is_none());
+        // Copy uses source ranges, including folded Unicode lines, without fold labels.
+        cx.update(|_, app| {
+            state.update(app, |state, cx| {
+                let path = state.files()[0].path().clone();
+                state.set_selected_lines(
+                    Some(gpui_kit::component::diff::DiffLineRange::new(
+                        path,
+                        gpui_kit::component::diff::DiffSide::Modified,
+                        1,
+                        180,
+                    )),
+                    cx,
+                );
+                assert_eq!(state.selected_text(cx), after);
+                state.set_selected_lines(None, cx);
+            });
+        });
+        let offset = cx.update(|_, app| state.read(app).viewport_offset());
+        // Disabled buttons and remappable shortcuts must both leave context alone.
+        let button = cx.debug_bounds("next-change").unwrap().center();
+        cx.simulate_click(button, Default::default());
+        cx.simulate_keystrokes("f7 shift-f7");
+        draw(cx);
+        let actual = cx.update(|_, app| state.read(app).viewport_offset());
+        assert_eq!(actual.item_ix, offset.item_ix);
+        assert_eq!(actual.offset_in_item, offset.offset_in_item);
+        cx.update(|_, app| {
+            state.update(app, |state, cx| {
+                state.restore_viewport_offset(
+                    gpui_test::ListOffset {
+                        item_ix: 0,
+                        offset_in_item: px(0.),
+                    },
+                    cx,
+                )
+            })
+        });
+        draw(cx);
+        let disclosure = cx
+            .debug_bounds("diff-expand-0-0")
+            .expect("leading unchanged range has a disclosure");
+        cx.simulate_click(disclosure.center(), Default::default());
+        draw(cx);
+        assert!(
+            cx.debug_bounds("diff-expand-0-0").is_none(),
+            "the shared disclosure expands the row in either mode"
+        );
+        let button = cx.debug_bounds("file-context").unwrap().center();
+        cx.simulate_click(button, Default::default());
+        draw(cx);
+        assert_eq!(cx.update(|_, app| state.read(app).context_lines()), None);
+        assert!(cx.debug_bounds("change-counter").is_some());
+    }
+    // Fluid ignores the standard folding preference.
+    cx.update(|_, app| {
+        viewer.update(app, |viewer, cx| {
+            viewer.collapse_unchanged = true;
+            viewer.apply_standard_context(cx);
+            viewer.set_view_mode(DiffView::Fluid, cx);
+        })
+    });
+    draw(cx);
+    assert!(cx.debug_bounds("file-context").is_none());
+    assert!(cx.debug_bounds("change-counter").is_some());
+}
+
+#[gpui_test::test]
+fn standard_folding_settings_apply_live_and_preserve_toolbar_overrides(cx: &mut TestAppContext) {
+    use jaywalk::settings::DiffView;
+    let fixture = Fixture::new();
+    let before = (1..=100)
+        .map(|line| format!("line {line}\n"))
+        .collect::<String>();
+    fixture.replace(&before, &before.replace("line 50\n", "changed\n"));
+    let (viewer, cx) = setup(&fixture, cx);
+    cx.update(|window, app| {
+        viewer.update(app, |viewer, cx| {
+            viewer.set_view_mode(DiffView::SideBySide, cx);
+            let mut settings = viewer.settings.clone();
+            settings.diff.collapse_unchanged = true;
+            settings.diff.context_lines = 1;
+            settings.diff.expansion_lines = 5;
+            viewer.apply_settings(settings, window, cx);
+        })
+    });
+    draw(cx);
+    let state = cx.update(|_, app| {
+        viewer
+            .read(app)
+            .code()
+            .unwrap()
+            .standard
+            .as_ref()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .clone()
+    });
+    assert_eq!(cx.update(|_, app| state.read(app).context_lines()), Some(1));
+    let button = cx.debug_bounds("file-context").unwrap().center();
+    cx.simulate_click(button, Default::default());
+    draw(cx);
+    cx.update(|window, app| {
+        viewer.update(app, |viewer, cx| {
+            let mut settings = viewer.settings.clone();
+            settings.diff.context_lines = 2;
+            viewer.apply_settings(settings, window, cx);
+            assert!(
+                !viewer.collapse_unchanged,
+                "unrelated settings retain the toolbar override"
+            );
+        })
+    });
+    draw(cx);
+    assert_eq!(cx.update(|_, app| state.read(app).context_lines()), None);
+    let button = cx.debug_bounds("file-context").unwrap().center();
+    cx.simulate_click(button, Default::default());
+    draw(cx);
+    assert_eq!(cx.update(|_, app| state.read(app).context_lines()), Some(2));
+    assert_eq!(
+        cx.update(|_, app| viewer.read(app).layout.saved.collapse_unchanged),
+        None,
+        "fixture persistence stays disabled"
+    );
+}

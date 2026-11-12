@@ -121,6 +121,10 @@ list_word_wrap = false
 max_text_file_size_mb = 50
 # "inline", "side_by_side", or "fluid"
 default_view = "fluid"
+# Standard inline/side-by-side views; Fluid always shows full files.
+collapse_unchanged = false
+context_lines = 3
+expansion_lines = 20
 
 # All colors accept a shared "#RRGGBB" or a light/dark pair.
 # Background and word hues are tinted by the viewer to preserve syntax legibility.

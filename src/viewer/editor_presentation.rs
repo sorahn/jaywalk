@@ -148,6 +148,7 @@ impl Viewer {
             cx.observe(&before, |_, _, cx| cx.notify()),
             cx.observe(&after, |_, _, cx| cx.notify()),
         ];
+        self.observe_standard_diff(&standard, cx);
         CodeComparison {
             before,
             after,
@@ -254,8 +255,9 @@ impl Viewer {
         }) = &mut self.selected_file
         {
             code.model = Rc::new(prepared.model);
-            code.standard = standard;
+            code.standard = standard.clone();
         }
+        self.observe_standard_diff(&standard, cx);
         self.active_change = None;
         self.navigation_target = None;
     }
@@ -278,11 +280,28 @@ impl Viewer {
                         .map(|file| file.with_language(language.clone())),
                     cx,
                 )
-                .with_context_lines(None)
+                .with_context_lines(
+                    self.collapse_unchanged
+                        .then_some(self.settings.diff.context_lines),
+                )
+                .with_expansion_lines(self.settings.diff.expansion_lines)
                 .with_mode(mode)
             }))
         })
     }
+    fn observe_standard_diff(
+        &mut self,
+        standard: &Result<Option<Entity<DiffState>>, String>,
+        cx: &mut Context<Self>,
+    ) {
+        // Only one standard observer is retained when a followed file refreshes.
+        self.editor_observers.truncate(2);
+        if let Ok(Some(state)) = standard {
+            self.editor_observers
+                .push(cx.observe(state, |_, _, cx| cx.notify()));
+        }
+    }
+
     fn restore_standard_diff(
         &mut self,
         standard: &Result<Option<Entity<DiffState>>, String>,

@@ -176,6 +176,7 @@ pub(crate) struct Viewer {
     view: jaywalk::view_choice::ViewChoice,
     code_font_size: f32,
     line_numbers: bool,
+    collapse_unchanged: bool,
     wrapping: Wrapping,
     horizontal_position: f32,
     reveal_after_layout: bool,
@@ -466,7 +467,40 @@ impl Viewer {
         });
     }
 
+    fn standard_context_collapsed(&self) -> bool {
+        self.selected_file.is_some()
+            && self.view.effective() != ViewMode::Fluid
+            && self.collapse_unchanged
+    }
+
+    fn apply_standard_context(&mut self, cx: &mut Context<Self>) {
+        if let Some(Ok(Some(state))) = self.code().map(|code| &code.standard) {
+            state.update(cx, |state, cx| {
+                state.set_context_lines(
+                    self.collapse_unchanged
+                        .then_some(self.settings.diff.context_lines),
+                    cx,
+                );
+                state.set_expansion_lines(self.settings.diff.expansion_lines, cx);
+            });
+        }
+        self.reveal_after_layout = false;
+        cx.notify();
+    }
+
+    fn toggle_unchanged_lines(&mut self, cx: &mut Context<Self>) {
+        if self.view.effective() == ViewMode::Fluid || self.code().is_none() {
+            return;
+        }
+        self.collapse_unchanged = !self.collapse_unchanged;
+        self.apply_standard_context(cx);
+        self.save_layout(cx);
+    }
+
     fn navigate_change(&mut self, direction: i32, cx: &mut Context<Self>) {
+        if self.standard_context_collapsed() {
+            return;
+        }
         if self.selected_file.is_none() {
             self.navigate_overview_change(direction, cx);
             return;

@@ -43,6 +43,7 @@ impl Viewer {
             recent_recorded: false,
             code_font_size: settings.editor.font_size,
             line_numbers: settings.editor.line_numbers,
+            collapse_unchanged: settings.diff.collapse_unchanged,
             config: settings::ConfigState::new(),
             live: live::LiveState::new(),
             feedback: feedback::Feedback::default(),

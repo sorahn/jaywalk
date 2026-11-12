@@ -221,6 +221,7 @@ pub struct DiffState {
     header_rows: Vec<usize>,
     rows: Rc<Vec<DisplayRow>>,
     change_rows: Vec<usize>,
+    last_navigated_change: Option<usize>,
     list: ListState,
     pub(crate) preamble_height: Pixels,
     horizontal_scroll: ScrollHandle,
@@ -354,6 +355,7 @@ impl DiffState {
             header_rows: Vec::new(),
             rows: Rc::default(),
             change_rows: Vec::new(),
+            last_navigated_change: None,
             list: ListState::new(0, ListAlignment::Top, px(0.)),
             preamble_height: px(0.),
             horizontal_scroll: ScrollHandle::new(),
@@ -876,6 +878,18 @@ impl DiffState {
         cx.notify();
     }
 
+    /// Zero-based navigation selection (or group at the viewport), and total groups.
+    /// A rebuild clears the navigation selection; ordinary scrolling leaves it intact.
+    pub fn change_navigation_position(&self) -> (Option<usize>, usize) {
+        let current = self.last_navigated_change.or_else(|| {
+            let top = self.list.logical_scroll_top().item_ix;
+            (!self.change_rows.is_empty()).then(|| {
+                self.change_rows.partition_point(|row| *row <= top).saturating_sub(1)
+            })
+        });
+        (current, self.change_rows.len())
+    }
+
     /// Moves to the next changed group after the current viewport, across files,
     /// wrapping to the first once the list is scrolled to its end.
     pub fn next_change(&mut self, cx: &mut Context<Self>) {
@@ -1282,6 +1296,7 @@ impl DiffState {
                 .or(groups.last().copied())
         };
         if let Some(ix) = target {
+            self.last_navigated_change = groups.binary_search(&ix).ok();
             self.list.scroll_to(ListOffset {
                 item_ix: ix,
                 offset_in_item: px(0.),
@@ -1363,6 +1378,7 @@ impl DiffState {
         let rows = self.project_rows();
         self.file_rows = source_rows(&self.files, &rows);
         self.change_rows = changed_groups(&rows);
+        self.last_navigated_change = None;
         self.header_rows = rows
             .iter()
             .enumerate()

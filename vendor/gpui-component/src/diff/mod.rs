@@ -1180,6 +1180,7 @@ fn render_fold(
         let state = code.state.clone();
         let pairs = pairs.clone();
         Button::new(id)
+            .debug_selector(move || format!("diff-{}-{file}-{}", id.0, id.1))
             .ghost()
             .xsmall()
             .w_auto()

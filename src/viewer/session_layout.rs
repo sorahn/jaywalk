@@ -96,6 +96,9 @@ impl Viewer {
         if let Some(numbers) = self.layout.saved.line_numbers {
             self.line_numbers = numbers;
         }
+        if let Some(collapse) = self.layout.saved.collapse_unchanged {
+            self.collapse_unchanged = collapse;
+        }
         for (panel, grouping, rebases) in [
             (
                 &mut self.evolution,
@@ -132,6 +135,7 @@ impl Viewer {
         self.layout.saved.wrap_after = Some(self.wrapping.after);
         self.layout.saved.wrap_inline = Some(self.wrapping.inline);
         self.layout.saved.line_numbers = Some(self.line_numbers);
+        self.layout.saved.collapse_unchanged = Some(self.collapse_unchanged);
         self.layout.saved.change_grouping = Some(self.evolution.collapse_repeats);
         self.layout.saved.file_grouping = Some(self.file_evolution.collapse_repeats);
         self.layout.saved.change_rebases = Some(self.evolution.show_unchanged_rebases);

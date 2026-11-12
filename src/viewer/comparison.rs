@@ -206,6 +206,28 @@ impl Viewer {
                     .text_color(theme.muted_foreground)
                     .child(detail)
             }))
+            .when(
+                !split
+                    && self
+                        .code()
+                        .is_some_and(|code| matches!(code.standard, Ok(Some(_)))),
+                |title| {
+                    title.child(
+                        Button::new("file-context")
+                            .debug_selector(|| "file-context".into())
+                            .ghost()
+                            .compact()
+                            .label(if self.collapse_unchanged {
+                                "Show full file"
+                            } else {
+                                "Fold unchanged lines"
+                            })
+                            .on_click(
+                                cx.listener(|this, _, _, cx| this.toggle_unchanged_lines(cx)),
+                            ),
+                    )
+                },
+            )
             .children(updating.then(|| div().flex_shrink_0().child("Updating…")))
             .when(split, |title| {
                 title.child(
@@ -263,6 +285,7 @@ impl Viewer {
         let view = self.view.effective();
         let wrap = self.wrapping.enabled(view);
         let line_numbers = self.line_numbers;
+        let collapsed = self.standard_context_collapsed();
         header
             .id("diff-file-header")
             .debug_selector(|| "file-header".into())
@@ -274,7 +297,7 @@ impl Viewer {
                     }
                     None => menu,
                 };
-                context_menu::diff_commands(menu, view, wrap, line_numbers)
+                context_menu::diff_commands(menu, view, wrap, line_numbers, collapsed)
             })
             .into_any_element()
     }

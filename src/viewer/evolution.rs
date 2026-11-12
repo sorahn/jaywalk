@@ -832,13 +832,14 @@ impl Viewer {
         let view = self.view.effective();
         let wrap = self.wrapping.enabled(view);
         let line_numbers = self.line_numbers;
+        let collapsed = self.standard_context_collapsed();
         bar.id("comparison-context-menu")
             .context_menu(move |menu, _, _| {
                 let menu = menu.action_context(focus.clone());
                 let menu = if overview {
                     context_menu::overview_commands(menu)
                 } else {
-                    context_menu::diff_commands(menu, view, wrap, line_numbers)
+                    context_menu::diff_commands(menu, view, wrap, line_numbers, collapsed)
                 };
                 context_menu::command_entries(
                     menu.separator(),

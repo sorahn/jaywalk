@@ -189,6 +189,7 @@ layout/reset/remote-management command merely to fill the table.
 | `keybindings.toggle_change_evolution` | `["secondary-k e"]` | Toggle change evolution |
 | `keybindings.toggle_file_evolution` | `["secondary-k f"]` | Toggle file evolution |
 | `keybindings.toggle_wrap` | `["alt-z", "secondary-k z"]` | Toggle word wrap |
+| `keybindings.toggle_unchanged_lines` | `[]` | Toggle overview-style unchanged-line folding in single-file inline/side-by-side diffs. |
 | `keybindings.toggle_line_numbers` | `["secondary-;"]` | Toggle line numbers |
 | `keybindings.view_inline` | `["secondary-k 1"]` | View: inline |
 | `keybindings.view_side_by_side` | `["secondary-k 2"]` | View: side by side |
@@ -423,3 +424,8 @@ subject. See [context menus](context-menus.md).
 | `keybindings.branch_changes` | `[]` | Review branch containing this commit… |
 | `keybindings.merged_branch` | `[]` | Review merged branch changes |
 | `keybindings.merge_result` | `[]` | Review merge result |
+
+Full-file diffs show the current navigation position as “Change X of Y”. Folded
+single-file diffs show “Y changes”; next/previous change buttons and commands
+are inactive until Show full file is selected. Range disclosures work in both
+standard modes and expand both aligned panes together.

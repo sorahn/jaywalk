@@ -69,7 +69,7 @@ impl Viewer {
         window: &Window,
         cx: &App,
     ) -> AnyElement {
-        if self.view.effective() == ViewMode::Fluid && total > 0 && self.code().is_some() {
+        if !self.standard_context_collapsed() && total > 0 && self.code().is_some() {
             let mut features = typography::features(self.settings.ui.ligatures)
                 .0
                 .as_ref()
@@ -104,7 +104,14 @@ impl Viewer {
                         .width
                 })
                 .fold(px(0.), Pixels::max);
-            let current = self.active_change.map_or(0, |index| index + 1).min(total);
+            let active = if self.view.effective() == ViewMode::Fluid {
+                self.active_change
+            } else {
+                self.code()
+                    .and_then(|code| code.standard.as_ref().ok()?.as_ref())
+                    .and_then(|state| state.read(cx).change_navigation_position().0)
+            };
+            let current = active.map_or(0, |index| index + 1).min(total);
             let label = if compact {
                 format!("{current}/{total}")
             } else {

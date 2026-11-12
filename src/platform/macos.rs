@@ -50,6 +50,7 @@ pub(super) fn update_menus(cx: &mut App) {
             ])),
             item(ToggleWrap),
             item(ToggleLineNumbers),
+            item(ToggleUnchangedLines),
             MenuItem::separator(),
             MenuItem::submenu(Menu::new("References").items([
                 item(ShowReferences),

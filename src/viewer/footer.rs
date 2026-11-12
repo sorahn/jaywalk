@@ -172,8 +172,19 @@ impl Viewer {
         let view = self.view.effective();
         let wrap = self.wrapping.enabled(view);
         let line_numbers = self.line_numbers;
-        let total = self.code().map_or(0, |CodeComparison { model, .. }| {
-            model.blocks.iter().filter(|block| block.changed).count()
+        let collapsed = self.standard_context_collapsed();
+        let total = self.code().map_or(0, |code| {
+            if view != ViewMode::Fluid
+                && let Ok(Some(state)) = &code.standard
+            {
+                state.read(cx).change_navigation_position().1
+            } else {
+                code.model
+                    .blocks
+                    .iter()
+                    .filter(|block| block.changed)
+                    .count()
+            }
         });
         div()
             .debug_selector(|| "diff-footer-controls".into())
@@ -197,6 +208,7 @@ impl Viewer {
                                 view,
                                 wrap,
                                 line_numbers,
+                                collapsed,
                             )
                         }),
                 )
@@ -224,11 +236,13 @@ impl Viewer {
             .child(self.render_change_counter(total, compact, window, cx))
             .child(
                 Button::new("previous-change")
+                    .debug_selector(|| "previous-change".into())
                     .ghost()
                     .with_size(px(self.settings.ui.footer_control_height))
                     .label("↑")
                     .disabled(
-                        self.code().is_none()
+                        self.standard_context_collapsed()
+                            || self.code().is_none()
                             || total == 0
                             || (self.view.effective() != ViewMode::Fluid
                                 && self
@@ -239,11 +253,13 @@ impl Viewer {
             )
             .child(
                 Button::new("next-change")
+                    .debug_selector(|| "next-change".into())
                     .ghost()
                     .with_size(px(self.settings.ui.footer_control_height))
                     .label("↓")
                     .disabled(
-                        self.code().is_none()
+                        self.standard_context_collapsed()
+                            || self.code().is_none()
                             || total == 0
                             || (self.view.effective() != ViewMode::Fluid
                                 && self
