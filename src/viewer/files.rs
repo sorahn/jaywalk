@@ -514,10 +514,8 @@ impl Viewer {
     }
 
     pub(super) fn render_files(&self, cx: &mut Context<Self>) -> AnyElement {
-        let active_color = gpui::component::Theme::global(cx).primary;
-        let toggle_icon = |name: IconName, active: bool| {
-            gpui::component::Icon::new(name).when(active, |icon| icon.text_color(active_color))
-        };
+        let toggle_icon =
+            |name: IconName, active: bool| crate::appearance::active_icon(name, active, cx);
         let mut panel = div()
             .track_focus(&self.browser.focus)
             .key_context("JaywalkFiles")

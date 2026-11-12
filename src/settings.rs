@@ -6,6 +6,29 @@ use std::path::{Path, PathBuf};
 
 pub const DEFAULT_CONFIG: &str = include_str!("../config/default.toml");
 
+/// A validated RGB setting, written as #RRGGBB in TOML.
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq)]
+#[serde(try_from = "String")]
+pub struct RgbColor(u32);
+impl RgbColor {
+    pub fn value(self) -> u32 {
+        self.0
+    }
+}
+impl TryFrom<String> for RgbColor {
+    type Error = String;
+    fn try_from(value: String) -> Result<Self, Self::Error> {
+        let hex = value
+            .strip_prefix('#')
+            .filter(|hex| hex.len() == 6)
+            .filter(|hex| hex.bytes().all(|byte| byte.is_ascii_hexdigit()))
+            .ok_or_else(|| format!("invalid RGB color {value:?}; expected #RRGGBB"))?;
+        u32::from_str_radix(hex, 16)
+            .map(Self)
+            .map_err(|error| error.to_string())
+    }
+}
+
 #[derive(Clone, Debug, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct ReloadSettings {
@@ -122,6 +145,7 @@ pub struct WindowSettings {
 #[derive(Clone, Debug, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct UiSettings {
+    pub accent_color: RgbColor,
     pub loading_delay_ms: u64,
     pub row_height: f32,
     pub panel_header_height: f32,
@@ -881,5 +905,28 @@ mod resolved_config_tests {
         let settings = Settings::resolve(config, profile).unwrap();
         assert_eq!(settings.editor.font_family.as_deref(), Some("Example"));
         assert!(settings.keybindings[&crate::commands::CommandId::FindFile].is_empty());
+    }
+}
+
+#[cfg(test)]
+mod color_tests {
+    use super::Settings;
+    #[test]
+    fn application_accent_accepts_rgb_hex_and_rejects_invalid_config() {
+        assert_eq!(
+            Settings::parse("").unwrap().ui.accent_color.value(),
+            0x3794ff
+        );
+        for text in ["#A1b2C3", "#a1b2c3"] {
+            let source = format!("[ui]\naccent_color = '{text}'");
+            assert_eq!(
+                Settings::parse(&source).unwrap().ui.accent_color.value(),
+                0xa1b2c3
+            );
+        }
+        for text in ["red", "3794ff", "#fff", "#3794ffff", "#zzzzzz"] {
+            let source = format!("[ui]\naccent_color = '{text}'");
+            assert!(Settings::parse(&source).is_err(), "accepted {text}");
+        }
     }
 }

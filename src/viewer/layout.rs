@@ -232,9 +232,13 @@ impl Render for Viewer {
                                     .ghost()
                                     .with_size(px(self.settings.ui.footer_control_height))
                                     .compact()
-                                    .icon(IconName::TextWrap)
+                                    .icon(crate::appearance::active_icon(
+                                        IconName::TextWrap,
+                                        self.wrapping.enabled(self.view.effective()),
+                                        cx,
+                                    ))
                                     .tooltip("Word wrap")
-                                    .selected(self.wrapping.enabled(self.view.effective()))
+                                    .toggled(self.wrapping.enabled(self.view.effective()))
                                     .on_click(cx.listener(|this, _, window, cx| {
                                         this.toggle_wrap(window, cx)
                                     })),

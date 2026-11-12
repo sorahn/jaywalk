@@ -237,9 +237,13 @@ impl Viewer {
                     .ghost()
                     .with_size(px(self.settings.ui.footer_control_height))
                     .compact()
-                    .icon(icon)
+                    .icon(crate::appearance::active_icon(
+                        icon,
+                        self.view.effective() == mode,
+                        cx,
+                    ))
                     .tooltip(label)
-                    .selected(self.view.effective() == mode)
+                    .toggled(self.view.effective() == mode)
                     .on_click(cx.listener(move |this, _, _, cx| this.set_view_mode(mode, cx))),
             );
         }

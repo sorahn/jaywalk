@@ -213,6 +213,11 @@ impl Viewer {
             (true, "Toggle history panel"),
             (false, "Toggle changed files panel"),
         ] {
+            let active = if history {
+                !self.layout.saved.history_hidden
+            } else {
+                !self.layout.saved.files_hidden
+            };
             controls =
                 controls.child(
                     Button::new(if history {
@@ -222,7 +227,7 @@ impl Viewer {
                     })
                     .ghost()
                     .compact()
-                    .icon(
+                    .icon(crate::appearance::active_icon(
                         if (if history {
                             self.placement().history_side
                         } else {
@@ -233,13 +238,11 @@ impl Viewer {
                         } else {
                             IconName::PanelRight
                         },
-                    )
+                        active,
+                        cx,
+                    ))
                     .tooltip(label)
-                    .selected(if history {
-                        !self.layout.saved.history_hidden
-                    } else {
-                        !self.layout.saved.files_hidden
-                    })
+                    .toggled(active)
                     .on_click(cx.listener(move |this, _, window, cx| {
                         this.toggle_sidebar(history, window, cx)
                     })),
@@ -250,9 +253,13 @@ impl Viewer {
                 Button::new("toggle-timeline-panels")
                     .ghost()
                     .compact()
-                    .icon(IconName::PanelBottom)
+                    .icon(crate::appearance::active_icon(
+                        IconName::PanelBottom,
+                        self.evolution.visible || self.file_evolution.visible,
+                        cx,
+                    ))
                     .tooltip("Toggle evolution panels")
-                    .selected(self.evolution.visible || self.file_evolution.visible)
+                    .toggled(self.evolution.visible || self.file_evolution.visible)
                     .on_click(cx.listener(|this, _, window, cx| {
                         let visible = !(this.evolution.visible || this.file_evolution.visible);
                         if this.evolution.visible != visible {

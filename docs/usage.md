@@ -48,9 +48,9 @@ folders; open/closed folder icons replace disclosure carets, and clicking a fold
 row toggles it. File-type icons share the bundled icon catalog and syntax filename
 associations, with generic fallback for unknown types. Icons and guides are live
 settings. The active list/tree and file-evolution header icons use the live
-theme accent instead of a selected background. When switching to All files, known folder expansion is preserved and
-new directories start collapsed; Changed files initially reveals its folders.
- Tree mode can show changed files or all
+`ui.accent_color` theme accent instead of a selected background. When switching
+to All files, known folder expansion is preserved and new directories start
+collapsed; Changed files initially reveals its folders. Tree mode can show changed files or all
 files in the selected revision. Cmd+P searches any file in that revision, including
 unchanged files. The flat list stays focused on changed files. Opening an unchanged file shows one
 read-only, syntax-highlighted document without change markers; it uses inline
@@ -190,3 +190,7 @@ In fluid view, drag the short, full-width thumb in the center gutter to scroll b
 through the comparison. The up–down cursor marks the grabbable gutter; clicking above or
 below the thumb moves to that position. Each pane’s own scrollbar remains
 independent. Mouse-wheel scrolling over either pane or the gutter stays linked.
+
+Set `[ui] accent_color = "#3794ff"` to choose the application highlight color.
+It updates active icons, standard control fills, focus and selection accents
+across all windows live; repository status and diff colors remain distinct.

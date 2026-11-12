@@ -6,6 +6,7 @@ use gpui::*;
 use jaywalk::settings_reload::SettingsSource;
 
 mod about;
+mod appearance;
 mod cli;
 mod instance;
 mod interface_state;
@@ -93,6 +94,7 @@ fn run() -> std::result::Result<(), String> {
         Theme::change(ThemeMode::Dark, None, cx);
         configure_code_theme(cx);
         Theme::update(cx, |theme| {
+            appearance::apply_accent(theme, settings.ui.accent_color);
             if let Some(family) = &settings.ui.font_family {
                 theme.font_family = family.clone().into();
             }

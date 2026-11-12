@@ -157,9 +157,13 @@ impl Viewer {
                     .ghost()
                     .small()
                     .compact()
-                    .icon(IconName::GitCompareArrows)
+                    .icon(crate::appearance::active_icon(
+                        IconName::GitCompareArrows,
+                        self.evolution.visible,
+                        cx,
+                    ))
                     .when(!self.supports_evolution(), |button| button.hidden())
-                    .selected(self.evolution.visible)
+                    .toggled(self.evolution.visible)
                     .tooltip("Show change evolution")
                     .on_click(cx.listener(|this, _, window, cx| this.toggle_evolution(window, cx))),
             ),

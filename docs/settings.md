@@ -125,8 +125,11 @@ section header, for example `[editor]` followed by `font_size = 14`.
 
 ### `ui`
 
+The accent shares the existing application-wide, last-successfully-applied config-source policy: opening another config or successfully editing its UI settings updates the shared theme for every window. It is not a per-repository interface override.
+
 | Setting | Default | Meaning and allowed values |
 | --- | --- | --- |
+| `ui.accent_color` | `"#3794ff"` | Application-wide accent as `#RRGGBB`, case-insensitive hex. Updates active icons, primary controls (including checkboxes/switches), focus rings, links and selection tints live in all windows; filled controls choose a light/dark foreground. Git statuses, diff colors and graph lanes stay semantic. Invalid edits retain the last valid config. |
 | `ui.loading_delay_ms` | `200` | Delay before showing loading feedback; 0–5000. `0` shows it immediately; fast operations never expose a loading label. |
 | `ui.row_height` | `26` | Shared minimum for history, tree and list rows; 12–160. Per-view overrides below take precedence; fonts establish a readable minimum. |
 | `ui.panel_header_height` | `30` | Minimum panel-header height; 24–120. |
