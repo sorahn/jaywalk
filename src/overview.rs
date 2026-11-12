@@ -220,6 +220,10 @@ impl Comparison {
             .files
             .iter()
             .map(|file| {
+                let type_notice = self
+                    .catalog
+                    .find(&file.after_path)
+                    .and_then(|entry| entry.type_change_notice());
                 let (patch, notice) = match self
                     .catalog
                     .find(&file.after_path)
@@ -227,7 +231,7 @@ impl Comparison {
                 {
                     Ok((before, after)) => {
                         let notice = if before == after {
-                            Some(
+                            Some(type_notice.clone().unwrap_or_else(|| {
                                 match file.status.as_str() {
                                     "renamed" => "Renamed · contents unchanged",
                                     "copied" => "Copied · contents unchanged",
@@ -235,10 +239,10 @@ impl Comparison {
                                     "removed" => "Deleted empty file",
                                     _ => "File metadata changed",
                                 }
-                                .to_owned(),
-                            )
+                                .to_owned()
+                            }))
                         } else {
-                            None
+                            type_notice
                         };
                         (overview_patch(file, Some((&before, &after))), notice)
                     }

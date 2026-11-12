@@ -58,6 +58,16 @@ pub fn normalize_input(path: &Path) -> Result<PathBuf, String> {
     Ok(normalized)
 }
 
+fn entry_kind(path: &Path) -> Result<crate::repository_file::FileKind, String> {
+    let metadata = std::fs::symlink_metadata(path)
+        .map_err(|error| format!("Could not inspect {}: {error}", path.display()))?;
+    Ok(if metadata.is_symlink() {
+        crate::repository_file::FileKind::Symlink
+    } else {
+        crate::repository_file::FileKind::Regular
+    })
+}
+
 fn bytes(path: &Path) -> Result<Vec<u8>, String> {
     let metadata = std::fs::symlink_metadata(path)
         .map_err(|error| format!("Could not inspect {}: {error}", path.display()))?;
@@ -120,7 +130,8 @@ impl ExternalContents {
                 (None, Some(_)) => "added",
                 (Some(_), None) => "removed",
                 (Some(before), Some(after)) => {
-                    if bytes(before)? == bytes(after)? {
+                    if entry_kind(before)? == entry_kind(after)? && bytes(before)? == bytes(after)?
+                    {
                         continue;
                     }
                     "modified"
@@ -144,6 +155,27 @@ impl ExternalContents {
             catalog: Arc::default(),
         }
         .with_catalog()
+    }
+
+    pub(crate) fn annotate_catalog(
+        &self,
+        catalog: &mut crate::repository_file::FileCatalog,
+    ) -> Result<(), String> {
+        let names: BTreeSet<_> = self.left.keys().chain(self.right.keys()).collect();
+        for name in names {
+            let before = self
+                .left
+                .get(name)
+                .map(|path| entry_kind(path))
+                .transpose()?;
+            let after = self
+                .right
+                .get(name)
+                .map(|path| entry_kind(path))
+                .transpose()?;
+            catalog.set_kinds(name, before, after);
+        }
+        Ok(())
     }
 
     pub(crate) fn paths(

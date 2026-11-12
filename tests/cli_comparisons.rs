@@ -328,3 +328,29 @@ fn standalone_links_compare_targets_including_dangling_and_directory_links() {
             .join("right-link")
     );
 }
+
+#[cfg(unix)]
+#[test]
+fn external_type_changes_remain_visible_with_identical_display_text() {
+    let fixture = Fixture::new();
+    fixture.write("left/link-to-file", "../target");
+    fixture.write("right/file-to-link", "../target");
+    std::os::unix::fs::symlink("../target", fixture.0.join("right/link-to-file")).unwrap();
+    std::os::unix::fs::symlink("../target", fixture.0.join("left/file-to-link")).unwrap();
+    let comparison =
+        ExternalContents::comparison(&fixture.0.join("left"), &fixture.0.join("right")).unwrap();
+    assert_eq!(comparison.files.len(), 2);
+    for path in ["link-to-file", "file-to-link"] {
+        let entry = comparison.catalog.find(path).unwrap();
+        let (before, after) = comparison.read_file(entry).unwrap();
+        assert_eq!(before, after);
+        assert!(entry.type_change_notice().unwrap().contains("symlink"));
+    }
+    let overview = comparison.overview();
+    assert!(overview.files.iter().all(|file| {
+        file.notice
+            .as_deref()
+            .unwrap()
+            .starts_with("File type changed:")
+    }));
+}

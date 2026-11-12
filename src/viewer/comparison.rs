@@ -182,15 +182,19 @@ impl Viewer {
             }
             _ => None,
         };
-        let detail = match file.content_kind() {
-            jaywalk::repository_file::FileKind::Regular => detail,
-            jaywalk::repository_file::FileKind::Symlink => Some("Symbolic link · target".into()),
-            jaywalk::repository_file::FileKind::Conflict => Some("Conflicted file".into()),
-            jaywalk::repository_file::FileKind::Submodule => Some("Git submodule".into()),
-            jaywalk::repository_file::FileKind::Other(kind) => {
-                Some(format!("Unsupported entry: {kind}"))
-            }
-        };
+        let detail = file
+            .type_change_notice()
+            .or_else(|| match file.content_kind() {
+                jaywalk::repository_file::FileKind::Regular => detail,
+                jaywalk::repository_file::FileKind::Symlink => {
+                    Some("Symbolic link · target".into())
+                }
+                jaywalk::repository_file::FileKind::Conflict => Some("Conflicted file".into()),
+                jaywalk::repository_file::FileKind::Submodule => Some("Git submodule".into()),
+                jaywalk::repository_file::FileKind::Other(kind) => {
+                    Some(format!("Unsupported entry: {kind}"))
+                }
+            });
         if let Some(detail) = detail {
             header = header.child(
                 div()

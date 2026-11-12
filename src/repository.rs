@@ -364,7 +364,11 @@ impl Comparison {
                 paths
             }
         };
-        self.catalog = Arc::new(FileCatalog::new(paths, &self.files));
+        let mut catalog = FileCatalog::new(paths, &self.files);
+        if let ContentSource::External(contents) = &self.content {
+            contents.annotate_catalog(&mut catalog)?;
+        }
+        self.catalog = Arc::new(catalog);
         let mut cached = cache
             .lock()
             .map_err(|_| "File catalog cache lock poisoned")?;
@@ -394,8 +398,12 @@ impl Comparison {
 
     /// Metadata lookup remains changed-only until full-tree enumeration is added.
     pub fn changed_file(&self, path: &str) -> Option<FileEntry> {
-        crate::file_browser::find_file(&self.files, path)
-            .map(|index| FileEntry::from(&self.files[index]))
+        crate::file_browser::find_file(&self.files, path).map(|index| {
+            self.catalog
+                .find(&self.files[index].after_path)
+                .cloned()
+                .unwrap_or_else(|| FileEntry::from(&self.files[index]))
+        })
     }
 
     /// Read by source-side path, independent of a change-list position or status.

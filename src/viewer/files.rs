@@ -229,7 +229,13 @@ impl Viewer {
                     comparison
                         .files
                         .iter()
-                        .map(jaywalk::repository_file::FileEntry::from)
+                        .map(|file| {
+                            comparison
+                                .catalog
+                                .find(&file.after_path)
+                                .cloned()
+                                .unwrap_or_else(|| jaywalk::repository_file::FileEntry::from(file))
+                        })
                         .collect()
                 }
             })
