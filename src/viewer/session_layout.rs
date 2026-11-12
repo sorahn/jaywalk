@@ -208,12 +208,19 @@ impl Viewer {
                 .clamp(settings.min_height, settings.max_height)
         }
     }
-    pub(super) fn render_panel_toggles(&self, cx: &mut Context<Self>) -> AnyElement {
-        let mut controls = div().h_flex().items_center().gap_1();
-        for (history, label) in [
-            (true, "Toggle history panel"),
-            (false, "Toggle changed files panel"),
-        ] {
+    pub(super) fn render_panel_toggles(
+        &self,
+        side: jaywalk::panel_layout::Side,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let mut controls = div().h_flex().items_center().gap_1().flex_shrink_0();
+        for panel in self.placement().sidebars(side) {
+            let history = panel == jaywalk::panel_layout::PanelId::History;
+            let label = if history {
+                "Toggle history panel"
+            } else {
+                "Toggle changed files panel"
+            };
             let active = if history {
                 !self.layout.saved.history_hidden
             } else {
@@ -227,7 +234,9 @@ impl Viewer {
                         "toggle-files-panel"
                     })
                     .ghost()
-                    .small()
+                    .with_size(px(self.settings.ui.footer_control_height))
+                    .w(px(self.settings.ui.footer_control_height))
+                    .flex_shrink_0()
                     .compact()
                     .icon(crate::appearance::active_icon(
                         if (if history {
@@ -250,29 +259,32 @@ impl Viewer {
                     })),
                 );
         }
-        controls
-            .child(
-                Button::new("toggle-timeline-panels")
-                    .ghost()
-                    .small()
-                    .compact()
-                    .icon(crate::appearance::active_icon(
-                        IconName::PanelBottom,
-                        self.evolution.visible || self.file_evolution.visible,
-                        cx,
-                    ))
-                    .tooltip("Toggle evolution panels")
-                    .toggled(self.evolution.visible || self.file_evolution.visible)
-                    .on_click(cx.listener(|this, _, window, cx| {
-                        let visible = !(this.evolution.visible || this.file_evolution.visible);
-                        if this.evolution.visible != visible {
-                            this.toggle_evolution(window, cx);
-                        }
-                        if this.file_evolution.visible != visible {
-                            this.toggle_evolution_panel(evolution::EvolutionKind::File, window, cx);
-                        }
-                    })),
-            )
+        controls.into_any_element()
+    }
+
+    pub(super) fn render_timeline_toggle(&self, cx: &mut Context<Self>) -> AnyElement {
+        Button::new("toggle-timeline-panels")
+            .ghost()
+            .with_size(px(self.settings.ui.footer_control_height))
+            .w(px(self.settings.ui.footer_control_height))
+            .flex_shrink_0()
+            .compact()
+            .icon(crate::appearance::active_icon(
+                IconName::PanelBottom,
+                self.evolution.visible || self.file_evolution.visible,
+                cx,
+            ))
+            .tooltip("Toggle evolution panels")
+            .toggled(self.evolution.visible || self.file_evolution.visible)
+            .on_click(cx.listener(|this, _, window, cx| {
+                let visible = !(this.evolution.visible || this.file_evolution.visible);
+                if this.evolution.visible != visible {
+                    this.toggle_evolution(window, cx);
+                }
+                if this.file_evolution.visible != visible {
+                    this.toggle_evolution_panel(evolution::EvolutionKind::File, window, cx);
+                }
+            }))
             .into_any_element()
     }
 }

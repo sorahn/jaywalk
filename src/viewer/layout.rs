@@ -2,7 +2,6 @@ use super::*;
 use gpui::component::Sizable;
 use gpui::component::menu::DropdownMenu as _;
 use gpui::component::tooltip::Tooltip;
-use gpui::prelude::FluentBuilder;
 
 impl Render for Viewer {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
@@ -71,7 +70,6 @@ impl Render for Viewer {
                             .w_full()
                             .flex_shrink_0()
                             .gap_1()
-                            .child(self.render_panel_toggles(cx))
                             .child(div().flex_1())
                             .child(
                                 Button::new("find-file")
@@ -191,110 +189,19 @@ impl Render for Viewer {
                     .child(self.render_workbench(f32::from(window.bounds().size.width), cx))
                     .child(self.sidebar_bounds_marker()),
             )
-            .child(
-                div()
-                    .h_flex()
-                    .justify_between()
-                    .items_center()
-                    .px_2()
-                    .h(px(self.settings.footer_height()))
-                    .border_t_1()
-                    .border_color(gpui::component::Theme::global(cx).border)
-                    .bg(gpui::component::Theme::global(cx).muted)
-                    .text_size(px(self.settings.ui.footer_font_size))
-                    .gap_3()
-                    .flex_shrink_0()
-                    .child(
-                        div()
-                            .h_flex()
-                            .items_center()
-                            .gap_3()
-                            .flex_1()
-                            .min_w_0()
-                            .child(div().min_w_0().truncate().child(format!(
-                                "{}  |  {}",
-                                if self.arguments.diff.is_some() {
-                                    "Read-only comparison"
-                                } else if !self.supports_evolution() {
-                                    "Read-only Git snapshot"
-                                } else {
-                                    "Read-only jj snapshot"
-                                },
-                                self.scope_label()
-                            )))
-                            .children(self.status_notice(cx)),
-                    )
-                    .child({
-                        let total = self.code().map_or(0, |CodeComparison { model, .. }| {
-                            model.blocks.iter().filter(|block| block.changed).count()
-                        });
-                        div()
-                            .h_flex()
-                            .items_center()
-                            .flex_shrink_0()
-                            .when(self.selected_file.is_none(), |controls| controls.hidden())
-                            .gap_2()
-                            .child(
-                                Button::new("word-wrap")
-                                    .ghost()
-                                    .with_size(px(self.settings.ui.footer_control_height))
-                                    .compact()
-                                    .icon(crate::appearance::active_icon(
-                                        IconName::TextWrap,
-                                        self.wrapping.enabled(self.view.effective()),
-                                        cx,
-                                    ))
-                                    .tooltip("Word wrap")
-                                    .toggled(self.wrapping.enabled(self.view.effective()))
-                                    .on_click(cx.listener(|this, _, window, cx| {
-                                        this.toggle_wrap(window, cx)
-                                    })),
-                            )
-                            .child(self.render_view_toggle(cx))
-                            .child(self.render_change_counter(total, window, cx))
-                            .child(
-                                Button::new("previous-change")
-                                    .ghost()
-                                    .with_size(px(self.settings.ui.footer_control_height))
-                                    .label("↑")
-                                    .disabled(
-                                        self.code().is_none()
-                                            || total == 0
-                                            || (self.view.effective() != ViewMode::Fluid
-                                                && self.code().is_none_or(|code| {
-                                                    !matches!(code.standard, Ok(Some(_)))
-                                                })),
-                                    )
-                                    .on_click(
-                                        cx.listener(|this, _, _, cx| this.navigate_change(-1, cx)),
-                                    ),
-                            )
-                            .child(
-                                Button::new("next-change")
-                                    .ghost()
-                                    .with_size(px(self.settings.ui.footer_control_height))
-                                    .label("↓")
-                                    .disabled(
-                                        self.code().is_none()
-                                            || total == 0
-                                            || (self.view.effective() != ViewMode::Fluid
-                                                && self.code().is_none_or(|code| {
-                                                    !matches!(code.standard, Ok(Some(_)))
-                                                })),
-                                    )
-                                    .on_click(
-                                        cx.listener(|this, _, _, cx| this.navigate_change(1, cx)),
-                                    ),
-                            )
-                    }),
-            )
+            .child(self.render_footer(window, cx))
             .children(self.render_palette(cx))
             .into_any_element()
     }
 }
 
 impl Viewer {
-    fn render_change_counter(&self, total: usize, window: &Window, cx: &App) -> AnyElement {
+    pub(super) fn render_change_counter(
+        &self,
+        total: usize,
+        window: &Window,
+        cx: &App,
+    ) -> AnyElement {
         if self.view.effective() == ViewMode::Fluid && total > 0 && self.code().is_some() {
             let mut features = typography::features(self.settings.ui.ligatures)
                 .0
@@ -348,7 +255,7 @@ impl Viewer {
             .child(label)
             .into_any_element()
     }
-    fn status_notice(&self, cx: &App) -> Option<AnyElement> {
+    pub(super) fn status_notice(&self, cx: &App) -> Option<AnyElement> {
         let theme = gpui::component::Theme::global(cx);
         let (message, color): (&str, _) = if let Some(message) = &self.config.error {
             (message, theme.danger)

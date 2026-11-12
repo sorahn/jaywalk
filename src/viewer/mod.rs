@@ -31,6 +31,7 @@ mod file_icons;
 mod files;
 mod fluid_scrollbar;
 mod fluid_view;
+mod footer;
 mod geometry;
 mod history;
 mod keyboard;

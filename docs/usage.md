@@ -213,10 +213,16 @@ light/dark pair. Edits recolor open viewers and overviews live; source syntax an
 file-list status colors keep their own palettes. See [diff colors](settings.md#diffcolors).
 
 The native title bar identifies the repository or file comparison. A compact
-application toolbar holds review and panel actions. Back/forward arrows live at
+application toolbar holds review actions. Back/forward arrows live at
 the leading edge of the comparison bar beside the sidebars, keeping visited-view
 navigation attached to the main viewer even when sidebars are hidden or moved.
 
 History, Files, Change evolution and File evolution share the same compact
 panel-header typography, aligned edge spacing and grouped controls. Persistent
 icon toggles use the application accent instead of a selected background.
+
+Panel visibility buttons sit at the outer footer edge matching each sidebar’s
+configured side; hidden panels keep their button for reopening. The timeline
+button is at the right edge. File diff controls stay in the footer, aligned
+with the diff workspace’s right edge as sidebars resize, move or close. With
+no right sidebar, they sit directly beside the outer panel buttons.
