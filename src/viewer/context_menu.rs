@@ -39,14 +39,25 @@ pub(super) fn file_menu(
 ) -> PopupMenu {
     for command in [
         CommandId::OpenFile,
+        CommandId::RevealInFileManager,
         CommandId::CopyFileName,
         CommandId::CopyRelativePath,
         CommandId::CopyPath,
-        CommandId::RevealInFileManager,
     ] {
         if target.directory && command == CommandId::OpenFile {
             continue;
         }
+        if command == CommandId::CopyFileName {
+            menu = menu.separator();
+        }
+        let label = match command {
+            CommandId::OpenFile => "Open file",
+            CommandId::CopyFileName => "Copy name",
+            CommandId::CopyPath => "Copy path",
+            CommandId::RevealInFileManager if cfg!(target_os = "macos") => "Reveal in Finder",
+            CommandId::RevealInFileManager => "Reveal in file manager",
+            _ => command.label(),
+        };
         let disabled = matches!(
             command,
             CommandId::CopyPath | CommandId::RevealInFileManager
@@ -54,7 +65,7 @@ pub(super) fn file_menu(
         let subject = target.clone();
         let owner = viewer.clone();
         menu = menu.item(
-            PopupMenuItem::new(command.label())
+            PopupMenuItem::new(label)
                 .action(Box::new(commands::ExecuteCommand { command }))
                 .disabled(disabled)
                 .on_click(move |_, window, cx| {
@@ -71,9 +82,9 @@ pub(super) fn file_menu(
             let owner = viewer.clone();
             menu = menu.item(
                 PopupMenuItem::new(if expanded {
-                    "Expand this folder recursively"
+                    "Expand all"
                 } else {
-                    "Collapse this folder recursively"
+                    "Collapse all"
                 })
                 .on_click(move |_, _, cx| {
                     let _ = owner.update(cx, |viewer, cx| {
@@ -88,14 +99,7 @@ pub(super) fn file_menu(
             );
         }
     }
-    command_entries(
-        menu.separator(),
-        &[
-            (CommandId::AllChanges, false),
-            (CommandId::CurrentWork, false),
-            (CommandId::ChooseReview, false),
-        ],
-    )
+    menu
 }
 
 impl FileTarget {
