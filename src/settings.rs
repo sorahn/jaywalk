@@ -135,6 +135,7 @@ pub struct NavigationSettings {
 #[serde(deny_unknown_fields)]
 pub struct ApplicationSettings {
     pub quit_on_last_window: bool,
+    pub single_window_mode: bool,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq)]
@@ -713,6 +714,18 @@ pub fn default_path() -> Result<PathBuf, String> {
 #[cfg(test)]
 mod tests {
     use super::{DiffView, Settings};
+
+    #[test]
+    fn single_window_mode_is_opt_in_and_requires_a_boolean() {
+        assert!(!Settings::parse("").unwrap().application.single_window_mode);
+        assert!(
+            Settings::parse("[application]\nsingle_window_mode=true")
+                .unwrap()
+                .application
+                .single_window_mode
+        );
+        assert!(Settings::parse("[application]\nsingle_window_mode='reuse'").is_err());
+    }
 
     #[test]
     fn text_limit_defaults_to_fifty_mib_and_requires_representable_integer_bytes() {

@@ -103,6 +103,7 @@ section header, for example `[editor]` followed by `font_size = 14`.
 | Setting | Default | Meaning and allowed values |
 | --- | --- | --- |
 | `application.quit_on_last_window` | `true` | Quit when the final actual window closes, including About. `false` keeps the app available with no windows. This is application-wide: opening another config or editing this value updates the shared policy; CLI waiters are notified before shutdown. |
+| `application.single_window_mode` | `false` | Normal opens from `jw`, Ctrl+R/recent repositories, welcome, and Open actions replace the originating viewer, or the active/most recently used viewer for a CLI launch, even for a different repository, range, or config. `false` opens a new window on each normal open. Explicit Open in new window and the recent-picker modifier always create a new window. Applies on the next open; uses the application-wide last-applied config-source policy. |
 
 ### `welcome`
 

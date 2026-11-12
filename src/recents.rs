@@ -14,6 +14,26 @@ pub(crate) struct Recents {
     sender: async_channel::Sender<Change>,
 }
 impl Global for Recents {}
+/// In-memory service for headless window tests. OS-thread storage writers
+/// cannot wake GPUI's deterministic foreground scheduler from another thread.
+#[cfg(test)]
+pub(crate) fn init_without_storage(cx: &mut App) {
+    let (sender, receiver) = async_channel::unbounded();
+    cx.set_global(Recents {
+        repositories: Vec::new(),
+        error: None,
+        sender,
+    });
+    cx.spawn(async move |_| {
+        while let Ok(change) = receiver.recv().await {
+            if let Change::Flush(done) = change {
+                let _ = done.try_send(());
+            }
+        }
+    })
+    .detach();
+}
+
 pub(crate) fn init(store: RecentStore, cx: &mut App) {
     let (sender, receiver) = async_channel::unbounded();
     let (results, errors) = async_channel::unbounded();

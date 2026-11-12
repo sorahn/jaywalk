@@ -8,6 +8,8 @@ additional_directories = []
 
 [application]
 quit_on_last_window = true
+# Reuse the current viewer for CLI, recent-repository and normal Open actions.
+single_window_mode = false
 
 # In-memory visited views per window; reducing the limit trims old entries live.
 [navigation]

@@ -116,7 +116,7 @@ fn open_arguments(
         origin,
         require_repository,
         None,
-        windows::OpenDisposition::Reuse,
+        windows::OpenDisposition::Configured,
         cx,
     );
 }
@@ -141,7 +141,7 @@ fn show_recent_repository_picker(arguments: Arguments, cx: &mut App) {
         None,
         false,
         Some(jaywalk::commands::CommandId::OpenRecent),
-        windows::OpenDisposition::Reuse,
+        windows::OpenDisposition::Configured,
         cx,
     );
 }
@@ -167,10 +167,15 @@ fn open_arguments_after(
             .await;
         let result = match result {
             Ok(prepared) => cx.update(|cx| {
-                let arguments = prepared.arguments.clone();
-                windows::open_with_disposition(prepared, None, disposition, cx)?;
+                let id = windows::open_with_disposition(
+                    prepared,
+                    None,
+                    disposition,
+                    origin.as_ref(),
+                    cx,
+                )?;
                 if let Some(command) = after_open {
-                    windows::dispatch_command(&arguments, command, cx)?;
+                    windows::dispatch_command(id, command, cx)?;
                 }
                 Ok(())
             }),
@@ -204,7 +209,7 @@ fn report_open_error(
             .await;
         match settings {
             Ok(prepared) => cx.update(|cx| match windows::open(prepared, None, cx) {
-                Ok(()) => windows::report_welcome_error(&arguments, error, cx),
+                Ok(id) => windows::report_welcome_error(id, error, cx),
                 Err(open_error) => {
                     eprintln!("{error}; could not show welcome: {open_error}")
                 }
@@ -216,7 +221,7 @@ fn report_open_error(
 }
 // Keep File > Open Repository usable when the app stays open without windows.
 fn choose_repository(arguments: Arguments, origin: Option<WeakEntity<Viewer>>, cx: &mut App) {
-    choose_repository_with_disposition(arguments, origin, windows::OpenDisposition::Reuse, cx);
+    choose_repository_with_disposition(arguments, origin, windows::OpenDisposition::Configured, cx);
 }
 fn choose_repository_in_new_window(
     arguments: Arguments,

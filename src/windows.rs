@@ -8,25 +8,33 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::mpsc::Sender;
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum OpenDisposition {
-    Reuse,
+    Configured,
     NewWindow,
 }
 fn reuse_priority(
     disposition: OpenDisposition,
-    existing: &Key,
-    requested: &Key,
-    welcome: bool,
+    single_window_mode: bool,
+    origin: bool,
+    active: bool,
 ) -> Option<u8> {
-    if disposition == OpenDisposition::NewWindow {
+    if disposition == OpenDisposition::NewWindow || !single_window_mode {
         None
-    } else if existing == requested {
-        Some(0)
-    } else if welcome && existing.config == requested.config {
-        Some(1)
     } else {
-        None
+        Some(if origin {
+            0
+        } else if active {
+            1
+        } else {
+            2
+        })
+    }
+}
+
+fn release_waiters(waiting: &mut Vec<Sender<Response>>) {
+    for client in waiting.drain(..) {
+        let _ = client.send(Response::Closed);
     }
 }
 
@@ -69,7 +77,7 @@ struct Record {
     window: AnyWindowHandle,
     viewer: Entity<Viewer>,
     waiting: Vec<Sender<Response>>,
-    last_opened: std::time::Instant,
+    last_used: std::time::Instant,
 }
 #[derive(Default)]
 struct Windows(HashMap<WindowId, Record>);
@@ -79,9 +87,8 @@ pub(crate) fn init(cx: &mut App) {
     cx.set_global(Windows::default());
     cx.on_window_closed(|cx, id| {
         if let Some(record) = cx.global_mut::<Windows>().0.remove(&id) {
-            for client in record.waiting {
-                let _ = client.send(Response::Closed);
-            }
+            let mut record = record;
+            release_waiters(&mut record.waiting);
         }
     })
     .detach();
@@ -146,15 +153,16 @@ pub(crate) fn open(
     prepared: PreparedWindow,
     reply: Option<Sender<Response>>,
     cx: &mut App,
-) -> Result<(), String> {
-    open_with_disposition(prepared, reply, OpenDisposition::Reuse, cx)
+) -> Result<WindowId, String> {
+    open_with_disposition(prepared, reply, OpenDisposition::Configured, None, cx)
 }
 pub(crate) fn open_with_disposition(
     prepared: PreparedWindow,
     reply: Option<Sender<Response>>,
     disposition: OpenDisposition,
+    origin: Option<&WeakEntity<Viewer>>,
     cx: &mut App,
-) -> Result<(), String> {
+) -> Result<WindowId, String> {
     let PreparedWindow {
         arguments,
         settings,
@@ -168,6 +176,7 @@ pub(crate) fn open_with_disposition(
     crate::settings_service::publish(source, settings.clone(), cx)?;
     let settings = (*state.read(cx).current).clone();
     let key = Key::new(&arguments);
+    let active = cx.active_window().map(|window| window.window_id());
     let existing = cx
         .global::<Windows>()
         .0
@@ -175,13 +184,13 @@ pub(crate) fn open_with_disposition(
         .filter_map(|record| {
             let priority = reuse_priority(
                 disposition,
-                &record.key,
-                &key,
-                record.viewer.read(cx).is_welcome(),
+                settings.application.single_window_mode,
+                origin.is_some_and(|origin| origin.entity_id() == record.viewer.entity_id()),
+                active == Some(record.window.window_id()),
             )?;
             Some((
                 priority,
-                std::cmp::Reverse(record.last_opened),
+                std::cmp::Reverse(record.last_used),
                 record.window,
                 record.viewer.clone(),
                 record.key != key,
@@ -214,8 +223,11 @@ pub(crate) fn open_with_disposition(
             .0
             .get_mut(&window.window_id())
             .expect("the reused window remains registered");
+        if different_subject {
+            release_waiters(&mut record.waiting);
+        }
         record.key = key;
-        record.last_opened = std::time::Instant::now();
+        record.last_used = std::time::Instant::now();
         window.window_id()
     } else {
         let options = WindowOptions {
@@ -233,7 +245,22 @@ pub(crate) fn open_with_disposition(
         };
         let (window, viewer) = gpui::open_window(options, cx, |window, cx| {
             crate::appearance::watch_window(window, cx);
-            cx.new(|cx| Viewer::new(arguments.clone(), settings, layout, window, cx))
+            let viewer = cx.new(|cx| Viewer::new(arguments.clone(), settings, layout, window, cx));
+            // Register once per native window, rather than per replaced repository.
+            viewer.update(cx, |_, cx| {
+                cx.observe_window_activation(window, |_, window, cx| {
+                    if window.is_window_active()
+                        && let Some(record) = cx
+                            .global_mut::<Windows>()
+                            .0
+                            .get_mut(&window.window_handle().window_id())
+                    {
+                        record.last_used = std::time::Instant::now();
+                    }
+                })
+                .detach();
+            });
+            viewer
         })
         .map_err(|error| format!("Could not open the viewer window: {error}"))?;
         cx.global_mut::<Windows>().0.insert(
@@ -243,7 +270,7 @@ pub(crate) fn open_with_disposition(
                 window,
                 viewer,
                 waiting: Vec::new(),
-                last_opened: std::time::Instant::now(),
+                last_used: std::time::Instant::now(),
             },
         );
         window.window_id()
@@ -260,60 +287,172 @@ pub(crate) fn open_with_disposition(
         }
     }
     cx.activate(true);
-    Ok(())
+    Ok(id)
 }
 
 #[cfg(all(test, unix))]
 mod tests {
-    use super::{Key, OpenDisposition, Subject, reuse_priority};
+    use super::{Key, OpenDisposition, reuse_priority};
     use crate::Arguments;
     use clap::Parser;
-    #[test]
-    fn explicit_new_window_bypasses_matching_and_welcome_windows() {
-        let repo = Key {
-            subject: Subject::Repository {
-                directory: "/repo".into(),
-                base: None,
-                tip: "@".into(),
-            },
-            config: None,
-        };
-        let welcome = Key {
-            subject: Subject::Welcome,
-            config: None,
-        };
-        assert_eq!(
-            reuse_priority(OpenDisposition::Reuse, &repo, &repo, false),
-            Some(0)
-        );
-        assert_eq!(
-            reuse_priority(OpenDisposition::Reuse, &welcome, &repo, true),
-            Some(1)
-        );
-        assert_eq!(
-            reuse_priority(OpenDisposition::NewWindow, &repo, &repo, false),
-            None
-        );
-        assert_eq!(
-            reuse_priority(OpenDisposition::NewWindow, &welcome, &repo, true),
-            None
-        );
-        assert_eq!(
-            reuse_priority(OpenDisposition::Reuse, &welcome, &repo, false),
-            None
-        );
-        let other_profile = Key {
-            config: Some("/other.toml".into()),
-            ..welcome
-        };
-        assert_eq!(
-            reuse_priority(OpenDisposition::Reuse, &other_profile, &repo, true),
-            None
-        );
+    // TestAppContext uses GPUI's test platform: no native desktop window opens.
+    #[gpui_test::test]
+    fn configured_opens_replace_the_origin_and_new_opens_keep_distinct_windows(
+        cx: &mut gpui_test::TestAppContext,
+    ) {
+        let root = std::env::temp_dir().join(format!("jaywalk-routing-{}", std::process::id()));
+        std::fs::create_dir_all(root.join("one/.git")).unwrap();
+        std::fs::create_dir_all(root.join("two/.git")).unwrap();
+        let config = root.join("config.toml");
+        std::fs::write(&config, "").unwrap();
+        let mut one = Arguments::parse_from(["jaywalk", root.join("one").to_str().unwrap()]);
+        one.config = Some(config.clone());
+        one.normalize().unwrap();
+        let two = one.for_repository(root.join("two"));
+        let mut settings = jaywalk::settings::Settings::default();
+        // Exercise routing without starting the production layout writer on
+        // an OS thread outside GPUI's deterministic test scheduler.
+        settings.layout.remember_per_repository = false;
+        settings.application.single_window_mode = true;
+        cx.update(|app| {
+            gpui_kit::init(app);
+            super::init(app);
+            crate::settings_service::init(app);
+            crate::recents::init_without_storage(app);
+            crate::windows::apply_application_settings(&settings.application, app);
+            crate::viewer::init(&one, &settings, app).unwrap();
+            crate::appearance::init(&settings, app);
+            let (client, response) = std::sync::mpsc::channel();
+            let mut waiting = one.clone();
+            waiting.wait = true;
+            let first = super::open(
+                super::PreparedWindow::load(waiting, settings.clone()),
+                Some(client),
+                app,
+            )
+            .unwrap();
+            assert!(matches!(
+                response.recv().unwrap(),
+                crate::instance::Response::Opened
+            ));
+            let origin = app.global::<super::Windows>().0[&first].viewer.downgrade();
+            let same = super::open(
+                super::PreparedWindow::load(one.clone(), settings.clone()),
+                None,
+                app,
+            )
+            .unwrap();
+            assert_eq!(same, first);
+            assert!(response.try_recv().is_err());
+            // The requested repository differs: single-window mode still replaces it.
+            let replaced = super::open_with_disposition(
+                super::PreparedWindow::load(two.clone(), settings.clone()),
+                None,
+                OpenDisposition::Configured,
+                Some(&origin),
+                app,
+            )
+            .unwrap();
+            assert_eq!(first, replaced);
+            assert!(matches!(
+                response.recv().unwrap(),
+                crate::instance::Response::Closed
+            ));
+            assert_eq!(app.global::<super::Windows>().0.len(), 1);
+            assert!(app.global::<super::Windows>().0[&first].key == Key::new(&two));
+            let explicit = super::open_with_disposition(
+                super::PreparedWindow::load(two.clone(), settings.clone()),
+                None,
+                OpenDisposition::NewWindow,
+                Some(&origin),
+                app,
+            )
+            .unwrap();
+            assert_ne!(first, explicit);
+            // Recent-picker origin wins over the other, more recently opened window.
+            let current = super::open_with_disposition(
+                super::PreparedWindow::load(one.clone(), settings.clone()),
+                None,
+                OpenDisposition::Configured,
+                Some(&origin),
+                app,
+            )
+            .unwrap();
+            assert_eq!(current, first);
+            // A CLI-style request has no origin and reuses the active/recent viewer.
+            let cli = super::open(
+                super::PreparedWindow::load(two.clone(), settings.clone()),
+                None,
+                app,
+            )
+            .unwrap();
+            assert_eq!(cli, first);
+            let mut multiple = settings.clone();
+            multiple.application.single_window_mode = false;
+            let third = super::open(
+                super::PreparedWindow::load(two.clone(), multiple),
+                None,
+                app,
+            )
+            .unwrap();
+            assert_ne!(third, first);
+            assert_ne!(third, explicit);
+            assert_eq!(app.global::<super::Windows>().0.len(), 3);
+        });
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
-    fn aliases_and_subdirectories_reuse_a_window_but_other_comparisons_do_not() {
+    fn configured_mode_reuses_the_origin_then_active_viewer_without_matching_repositories() {
+        assert_eq!(
+            reuse_priority(OpenDisposition::Configured, true, true, false),
+            Some(0)
+        );
+        assert_eq!(
+            reuse_priority(OpenDisposition::Configured, true, false, true),
+            Some(1)
+        );
+        assert_eq!(
+            reuse_priority(OpenDisposition::Configured, true, false, false),
+            Some(2)
+        );
+        for origin in [false, true] {
+            for active in [false, true] {
+                assert_eq!(
+                    reuse_priority(OpenDisposition::Configured, false, origin, active),
+                    None
+                );
+                for single in [false, true] {
+                    assert_eq!(
+                        reuse_priority(OpenDisposition::NewWindow, single, origin, active),
+                        None
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn replacing_a_comparison_releases_all_wait_clients_once() {
+        let (one, first) = std::sync::mpsc::channel();
+        let (two, second) = std::sync::mpsc::channel();
+        let mut clients = vec![one, two];
+        super::release_waiters(&mut clients);
+        assert!(matches!(
+            first.recv().unwrap(),
+            crate::instance::Response::Closed
+        ));
+        assert!(matches!(
+            second.recv().unwrap(),
+            crate::instance::Response::Closed
+        ));
+        assert!(clients.is_empty());
+        super::release_waiters(&mut clients);
+        assert!(first.try_recv().is_err());
+    }
+
+    #[test]
+    fn window_keys_preserve_aliases_and_distinguish_comparison_ranges() {
         let root = std::env::temp_dir().join(format!("jw-window-key-{}", std::process::id()));
         std::fs::create_dir_all(root.join("repo/.git")).unwrap();
         std::fs::create_dir_all(root.join("repo/src")).unwrap();
@@ -352,13 +491,11 @@ pub(crate) fn has_viewer_windows(cx: &App) -> bool {
     cx.try_global::<Windows>()
         .is_some_and(|windows| !windows.0.is_empty())
 }
-pub(crate) fn report_welcome_error(arguments: &Arguments, error: String, cx: &mut App) {
-    let key = Key::new(arguments);
+pub(crate) fn report_welcome_error(id: WindowId, error: String, cx: &mut App) {
     let viewer = cx
         .global::<Windows>()
         .0
-        .values()
-        .find(|record| record.key == key)
+        .get(&id)
         .map(|record| record.viewer.clone());
     if let Some(viewer) = viewer {
         viewer.update(cx, |viewer, cx| viewer.report_open_error(error, cx));
@@ -366,16 +503,14 @@ pub(crate) fn report_welcome_error(arguments: &Arguments, error: String, cx: &mu
 }
 
 pub(crate) fn dispatch_command(
-    arguments: &Arguments,
+    id: WindowId,
     command: jaywalk::commands::CommandId,
     cx: &mut App,
 ) -> Result<(), String> {
-    let key = Key::new(arguments);
     let (window, viewer) = cx
         .global::<Windows>()
         .0
-        .values()
-        .find(|record| record.key == key)
+        .get(&id)
         .map(|record| (record.window, record.viewer.clone()))
         .ok_or("The requested viewer window is no longer open")?;
     window

@@ -15,9 +15,8 @@ jw . --file src/main.rs
 Bare `jw` opens the welcome page, regardless of the terminal's current directory.
 `jw .` opens the current repository. Ctrl+R searches all saved recent repositories;
 Enter opens a result and Escape dismisses the picker. Command+Enter or Command-click
-opens a new window. Ordinary reopening focuses the existing matching window while
-preserving its selection. Different revision endpoints or config files can have
-separate windows. File → Clear recent repositories clears saved recent history.
+opens a new window. Ordinary opens follow `application.single_window_mode`;
+reopening the same comparison in the reused window preserves its selection. File → Clear recent repositories clears saved recent history.
 
 In a colocated checkout, Jaywalk prefers jj. Its default comparison uses the
 recorded tip and its nearest immutable ancestor; ambiguous endpoints require an
@@ -28,6 +27,12 @@ untracked worktree files. `--base REV --tip REV` compares recorded commits;
 `--tip @` means the worktree. Contents are captured when a comparison loads, so
 selecting another file does not mix in later edits. Merge commits use the first
 parent for their patch. Evolution controls require jj metadata.
+
+With `[application] single_window_mode = true`, `jw`, normal
+Open actions, and choosing a repository with Ctrl+R replace the current viewer,
+even for another repository. CLI launches use the active or most recently used
+viewer. The default is `false`, opening a new window for each request. The recent
+picker's explicit Open in new window action/modifier always opens another window.
 
 ## Overview and files
 
@@ -156,8 +161,8 @@ paths match literally, so renames appear as additions and deletions. Symlink tar
 are compared without traversing directory symlinks. Use Refresh to reread inputs.
 
 Normal launches return the shell prompt immediately. `--wait` waits for the requested
-window to close, including when reusing a window; closing another window does not
-release it. Use it when another tool supplies temporary paths. Quitting Jaywalk
+comparison's window to close or be replaced by another comparison; closing another
+window does not release it. Use it when another tool supplies temporary paths. Quitting Jaywalk
 also releases waiting clients.
 
 ## Use with jj diff

@@ -286,7 +286,7 @@ impl Viewer {
                     Choice::Profile(name) => this.select_keybindings_profile(name, window, cx),
                     Choice::Repository { directory, .. } => this.open_repository_path(
                         directory,
-                        crate::windows::OpenDisposition::Reuse,
+                        crate::windows::OpenDisposition::Configured,
                         cx,
                     ),
                 }
