@@ -10,9 +10,7 @@ use std::collections::HashMap;
 
 use jaywalk::settings::{FileView as FileListMode, TreeScope};
 
-const FILE_PANEL_INSET: f32 = 8.;
-// GPUI's small icon buttons center a 14 px glyph inside a 24 px target.
-const FILE_HEADER_ICON_INSET: f32 = 5.;
+use super::chrome::PANEL_INSET;
 
 /// Canvas bounds start inside the row's indentation padding. Subtract the
 /// current depth before locating ancestor icon centers in window coordinates.
@@ -454,7 +452,7 @@ impl Viewer {
                 .h(px(row_height))
                 .py_0()
                 .text_size(px(font_size))
-                .pl(px(entry.depth() as f32 * indent_width + FILE_PANEL_INSET))
+                .pl(px(entry.depth() as f32 * indent_width + PANEL_INSET))
                 .text_color(rgb(color))
                 .when(
                     reading.as_deref() == Some(entry.item().id.as_ref()),
@@ -542,25 +540,15 @@ impl Viewer {
                     self.settings.panels.files.font.size,
                     cx,
                 )
-                .pl(px(FILE_PANEL_INSET))
-                // Align the trailing glyph, while retaining its full click target.
-                .pr(px((FILE_PANEL_INSET - FILE_HEADER_ICON_INSET).max(0.)))
-                .child(
-                    div()
-                        .flex_1()
-                        .min_w_0()
-                        .truncate()
-                        .text_size(px(self.settings.panels.files.font.size * 0.85))
-                        .child(
-                            if matches!(self.comparison_state(), LoadState::Loading)
-                                && self.loading_visible(LoadingKind::Comparison)
-                            {
-                                "FILES · Loading…"
-                            } else {
-                                "FILES"
-                            },
-                        ),
-                )
+                .child(div().flex_1().min_w_0().truncate().child(
+                    if matches!(self.comparison_state(), LoadState::Loading)
+                        && self.loading_visible(LoadingKind::Comparison)
+                    {
+                        "FILES · Loading…"
+                    } else {
+                        "FILES"
+                    },
+                ))
                 .child(
                     div()
                         .h_flex()
@@ -707,7 +695,7 @@ impl Viewer {
                             .h_flex()
                             .items_center()
                             .gap_2()
-                            .pl(px(FILE_PANEL_INSET))
+                            .pl(px(PANEL_INSET))
                             .pr_3()
                             .min_h(px(self.settings.row_height(
                                 self.settings.files.list_row_height,

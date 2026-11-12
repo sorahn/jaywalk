@@ -136,43 +136,51 @@ impl Viewer {
         );
         let selection = theme.list_active;
         let hover = theme.secondary_hover;
-        let mut panel = div().v_flex().size_full().bg(surface).child(
-            self.panel_header(
-                jaywalk::panel_layout::PanelId::History,
-                self.settings.panels.history.font.size,
-                cx,
-            )
-            .child(
-                div()
-                    .flex_1()
-                    .min_w_0()
-                    .truncate()
-                    .text_size(px(self.settings.panels.history.font.size))
-                    .child(if self.supports_evolution() {
-                        "JJ HISTORY"
-                    } else {
-                        "GIT HISTORY"
-                    }),
-            )
-            .child(self.reference_controls(cx))
-            .child(self.remote_controls(cx))
-            .child(self.panel_menu(jaywalk::panel_layout::PanelId::History))
-            .child(
-                Button::new("toggle-evolution")
-                    .ghost()
-                    .small()
-                    .compact()
-                    .icon(crate::appearance::active_icon(
-                        IconName::GitCompareArrows,
-                        self.evolution.visible,
-                        cx,
-                    ))
-                    .when(!self.supports_evolution(), |button| button.hidden())
-                    .toggled(self.evolution.visible)
-                    .tooltip("Show change evolution")
-                    .on_click(cx.listener(|this, _, window, cx| this.toggle_evolution(window, cx))),
-            ),
-        );
+        let mut panel =
+            div().v_flex().size_full().bg(surface).child(
+                self.panel_header(
+                    jaywalk::panel_layout::PanelId::History,
+                    self.settings.panels.history.font.size,
+                    cx,
+                )
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .truncate()
+                        .child(if self.supports_evolution() {
+                            "JJ HISTORY"
+                        } else {
+                            "GIT HISTORY"
+                        }),
+                )
+                .child(
+                    div()
+                        .h_flex()
+                        .items_center()
+                        .gap_1()
+                        .child(self.panel_menu(jaywalk::panel_layout::PanelId::History))
+                        .child(self.reference_controls(cx))
+                        .child(self.remote_controls(cx))
+                        .child(
+                            Button::new("toggle-evolution")
+                                .ghost()
+                                .small()
+                                .compact()
+                                .icon(crate::appearance::active_icon(
+                                    IconName::GitCompareArrows,
+                                    self.evolution.visible,
+                                    cx,
+                                ))
+                                .when(!self.supports_evolution(), |button| button.hidden())
+                                .toggled(self.evolution.visible)
+                                .tooltip("Show change evolution")
+                                .on_click(cx.listener(|this, _, window, cx| {
+                                    this.toggle_evolution(window, cx)
+                                })),
+                        ),
+                ),
+            );
         let session =
             match &self.repository {
                 LoadState::Loaded(session) => session,

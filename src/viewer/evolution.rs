@@ -828,18 +828,19 @@ impl Viewer {
             .v_flex().size_full().bg(surface)
             .child(div().v_flex()
                 .child(self.panel_header(match kind { EvolutionKind::Change => jaywalk::panel_layout::PanelId::ChangeEvolution, EvolutionKind::File => jaywalk::panel_layout::PanelId::FileEvolution }, font_size, cx)
-                    .child(div().flex_1().min_w_0().truncate().text_size(px(font_size * 0.85)).child(match kind {
+                    .child(div().flex_1().min_w_0().truncate().child(match kind {
                         EvolutionKind::Change => "CHANGE EVOLUTION",
                         EvolutionKind::File => "FILE EVOLUTION",
                     }))
+                    .child(div().h_flex().items_center().gap_1()
                     .child(self.panel_menu(match kind {
                         EvolutionKind::Change => jaywalk::panel_layout::PanelId::ChangeEvolution,
                         EvolutionKind::File => jaywalk::panel_layout::PanelId::FileEvolution,
                     }))
                     .child(Button::new("close-evolution").ghost().small().compact().icon(IconName::X)
                         .tooltip("Hide evolution")
-                        .on_click(cx.listener(move |this, _, window, cx| this.toggle_evolution_panel(kind, window, cx)))))
-                .child(div().h_flex().gap_1().px_3().py_1()
+                        .on_click(cx.listener(move |this, _, window, cx| this.toggle_evolution_panel(kind, window, cx))))))
+                .child(div().h_flex().gap_1().px(px(super::chrome::PANEL_INSET)).py_1()
                     .child(Button::new("group-repeats").ghost().small().compact().label("Group")
                         .selected(state.collapse_repeats)
                         .tooltip("Group consecutive matching entries")

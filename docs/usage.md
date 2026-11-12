@@ -216,3 +216,7 @@ The native title bar identifies the repository or file comparison. A compact
 application toolbar holds review and panel actions. Back/forward arrows live at
 the leading edge of the comparison bar beside the sidebars, keeping visited-view
 navigation attached to the main viewer even when sidebars are hidden or moved.
+
+History, Files, Change evolution and File evolution share the same compact
+panel-header typography, aligned edge spacing and grouped controls. Persistent
+icon toggles use the application accent instead of a selected background.
