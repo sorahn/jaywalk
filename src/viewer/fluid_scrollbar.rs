@@ -45,6 +45,43 @@ pub(super) fn paint_shared_scrollbar(
     let color = gpui::component::Theme::global(cx)
         .foreground
         .opacity((opacity * if hovered || active { 2. } else { 1. }).min(1.));
+    // The map is only paint: it does not add hit targets, hover UI or snapping.
+    // Reuse the thumb's coordinate instead of separately normalizing each file.
+    let map_opacity = state.settings.panels.diff.change_map_opacity;
+    if map_opacity > 0. {
+        let colors = crate::appearance::diff_colors(cx);
+        let width = (clip.size.width * 0.125).clamp(px(1.), px(3.));
+        window.with_content_mask(Some(ContentMask { bounds: clip }), |window| {
+            for (block, span) in geometry.change_spans(model) {
+                let marker = track.change_marker(span, viewport, 2.);
+                let color = if block.before.is_empty() {
+                    colors.added
+                } else if block.after.is_empty() {
+                    colors.removed
+                } else {
+                    colors.modified
+                }
+                .opacity((map_opacity * if active { 1.5 } else { 1. }).min(1.));
+                for (present, fraction) in [
+                    (!block.before.is_empty(), 0.25),
+                    (!block.after.is_empty(), 0.75),
+                ] {
+                    if present {
+                        window.paint_quad(fill(
+                            Bounds::new(
+                                point(
+                                    clip.left() + clip.size.width * fraction - width / 2.,
+                                    clip.top() + px(marker.start),
+                                ),
+                                size(width, px(marker.end - marker.start)),
+                            ),
+                            color,
+                        ));
+                    }
+                }
+            }
+        });
+    }
     // This is painted before row tints and correspondence paths. The whole
     // gutter is the hit target even where a connector crosses the faint thumb.
     window.with_content_mask(Some(ContentMask { bounds: clip }), |window| {

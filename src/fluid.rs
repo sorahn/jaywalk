@@ -103,33 +103,43 @@ impl DiffGeometry {
         position
     }
 
-    pub fn change_position(&self, diff: &FileDiff, target: usize) -> f32 {
-        let mut position = 0.;
-        let mut change = 0;
-        for block in &diff.blocks {
-            let height = if block.changed {
-                (self.before[block.before.end] - self.before[block.before.start])
-                    .max(self.after[block.after.end] - self.after[block.after.start])
-            } else {
-                block
-                    .before
-                    .clone()
-                    .zip(block.after.clone())
-                    .map(|(before, after)| {
-                        (self.before[before + 1] - self.before[before])
-                            .max(self.after[after + 1] - self.after[after])
-                    })
-                    .sum()
-            };
-            if block.changed {
-                if change == target {
-                    return position + height / 2.;
-                }
-                change += 1;
-            }
-            position += height;
+    fn block_height(&self, block: &crate::diff_model::Correspondence) -> f32 {
+        if block.changed {
+            (self.before[block.before.end] - self.before[block.before.start])
+                .max(self.after[block.after.end] - self.after[block.after.start])
+        } else {
+            block
+                .before
+                .clone()
+                .zip(block.after.clone())
+                .map(|(before, after)| {
+                    (self.before[before + 1] - self.before[before])
+                        .max(self.after[after + 1] - self.after[after])
+                })
+                .sum()
         }
-        position
+    }
+
+    /// Changed spans in the shared virtual coordinate, including unequal wrapping
+    /// of unchanged lines. The iterator borrows source blocks and allocates nothing.
+    pub fn change_spans<'a>(
+        &'a self,
+        diff: &'a FileDiff,
+    ) -> impl Iterator<Item = (&'a crate::diff_model::Correspondence, std::ops::Range<f32>)> + 'a
+    {
+        let mut position = 0.;
+        diff.blocks.iter().filter_map(move |block| {
+            let start = position;
+            position += self.block_height(block);
+            block.changed.then_some((block, start..position))
+        })
+    }
+
+    pub fn change_position(&self, diff: &FileDiff, target: usize) -> f32 {
+        self.change_spans(diff).nth(target).map_or_else(
+            || self.position_for_line(diff, usize::MAX, true),
+            |(_, span)| (span.start + span.end) / 2.,
+        )
     }
 }
 
@@ -423,6 +433,32 @@ impl SharedScrollTrack {
     pub fn scrollable(&self) -> bool {
         self.limit > 0. && self.travel > 0.
     }
+    /// Track-local mark for a virtual changed span. Subtracting half a viewport
+    /// puts the thumb over the mark when that change is centered in the editors.
+    pub fn change_marker(
+        &self,
+        change: std::ops::Range<f32>,
+        viewport: f32,
+        minimum_height: f32,
+    ) -> std::ops::Range<f32> {
+        let height = self.thumb.end - self.thumb.start;
+        let track_height = self.travel + 2. * self.inset + height;
+        let center_at = |position: f32| {
+            self.inset
+                + height / 2.
+                + if self.limit > 0. {
+                    position.clamp(0., self.limit) / self.limit * self.travel
+                } else {
+                    0.
+                }
+        };
+        let start = center_at(change.start - viewport / 2.);
+        let end = center_at(change.end - viewport / 2.);
+        let half = (end - start).max(minimum_height).min(track_height) / 2.;
+        let center = ((start + end) / 2.).clamp(half, track_height - half);
+        center - half..center + half
+    }
+
     /// One viewport toward the click, in virtual comparison coordinates.
     pub fn page_at(&self, pointer: f32, position: f32, viewport: f32) -> f32 {
         let delta = if pointer < self.thumb.start {
@@ -509,5 +545,71 @@ mod shared_scroll_tests {
         let mut scroll = FluidScroll::default();
         let end = scroll.advance(track.position_at(400., 0.5), &diff, &geometry, 400.);
         assert_eq!(end, (0., 1620.));
+    }
+}
+
+#[cfg(test)]
+mod change_map_tests {
+    use super::{DiffGeometry, SharedScrollTrack};
+    use crate::diff_model::FileDiff;
+
+    #[test]
+    fn marks_use_shared_wrapped_geometry_and_the_navigation_coordinate() {
+        let diff = FileDiff::new("keep\nold a\nold b\ntail\n", "keep\nnew\ntail\n");
+        // The same unchanged source line wraps to different heights in each pane.
+        let geometry = DiffGeometry {
+            before: vec![0., 20., 50., 90., 110.],
+            after: vec![0., 60., 80., 100.],
+            before_height: 110.,
+            after_height: 100.,
+        };
+        let spans: Vec<_> = geometry.change_spans(&diff).map(|(_, span)| span).collect();
+        assert_eq!(spans, vec![60.0..130.0]);
+        assert_eq!(geometry.change_position(&diff, 0), 95.);
+        let track = SharedScrollTrack::new(geometry.scroll_extent(&diff), 40., 500., 12., 0.);
+        let marker = track.change_marker(spans[0].clone(), 40., 2.);
+        let target = track.position_at((marker.start + marker.end) / 2., 0.5);
+        assert!((target - (95. - 20.)).abs() < 0.01);
+    }
+
+    #[test]
+    fn map_targets_reach_endpoint_changes_and_stay_inside_short_tracks() {
+        for height in [1., 13., 500.] {
+            let track = SharedScrollTrack::new(4000., 800., height, 12., 0.);
+            for span in [0.0..1.0, 1800.0..1801.0, 3999.0..4000.0] {
+                let marker = track.change_marker(span, 800., 2.);
+                assert!(marker.start >= 0.);
+                assert!(marker.end <= height);
+                assert!(marker.end > marker.start);
+            }
+        }
+        let track = SharedScrollTrack::new(4000., 800., 500., 12., 0.);
+        for (span, expected) in [(0.0..1.0, 0.), (3999.0..4000.0, 3200.)] {
+            let marker = track.change_marker(span, 800., 2.);
+            assert_eq!(
+                track.position_at((marker.start + marker.end) / 2., 0.5),
+                expected
+            );
+        }
+    }
+
+    #[test]
+    fn empty_sides_and_large_appends_keep_their_shared_targets() {
+        for (before, after) in [("", "added\n".repeat(100)), ("deleted\n", String::new())] {
+            let diff = FileDiff::new(before, &after);
+            let before_lines = diff.before_offsets.len() - 1;
+            let after_lines = diff.after_offsets.len() - 1;
+            let geometry = DiffGeometry {
+                before: (0..=before_lines).map(|n| n as f32 * 20.).collect(),
+                after: (0..=after_lines).map(|n| n as f32 * 20.).collect(),
+                before_height: before_lines as f32 * 20.,
+                after_height: after_lines as f32 * 20.,
+            };
+            let spans: Vec<_> = geometry.change_spans(&diff).collect();
+            assert_eq!(spans.len(), 1);
+            assert_eq!(spans[0].0.before.is_empty(), before.is_empty());
+            assert_eq!(spans[0].0.after.is_empty(), after.is_empty());
+            assert_eq!(spans[0].1.end, geometry.scroll_extent(&diff));
+        }
     }
 }
