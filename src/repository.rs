@@ -36,22 +36,56 @@ pub(crate) fn next_capture() -> u64 {
 
 #[derive(Clone, Debug)]
 pub struct ChangedFile {
-    pub status: String,
-    pub before_path: String,
-    pub after_path: String,
+    kind: ChangeKind,
+    before_path: String,
+    after_path: String,
+}
+impl ChangedFile {
+    pub fn new(kind: ChangeKind, before_path: String, after_path: String) -> Self {
+        Self {
+            kind,
+            before_path,
+            after_path,
+        }
+    }
+    pub fn kind(&self) -> &ChangeKind {
+        &self.kind
+    }
+    /// Original unknown statuses remain available for diagnostics and display.
+    pub fn status(&self) -> &str {
+        self.kind.as_str()
+    }
+    pub fn before_path(&self) -> &str {
+        &self.before_path
+    }
+    pub fn after_path(&self) -> &str {
+        &self.after_path
+    }
 }
 
+/// A fully assembled read snapshot. Endpoints, source and catalog cannot be
+/// independently replaced after construction; clones share immutable contents.
 #[derive(Clone, Debug)]
 pub struct Comparison {
+    root: PathBuf,
+    operation: String,
+    base: String,
+    tip: String,
+    files: Arc<[ChangedFile]>,
+    catalog: Arc<FileCatalog>,
+    content: ContentSource,
+    capture: u64,
+    text_limit: crate::text_content::TextLimit,
+}
+
+/// Resolved backend metadata, consumed only while assembling a snapshot.
+/// Captures distinguish separate reads of mutable Git/external sources.
+pub(crate) struct ComparisonMetadata {
     pub root: PathBuf,
     pub operation: String,
     pub base: String,
     pub tip: String,
-    pub files: Arc<[ChangedFile]>,
-    pub catalog: Arc<FileCatalog>,
-    pub(crate) content: ContentSource,
-    pub(crate) capture: u64,
-    pub(crate) text_limit: crate::text_content::TextLimit,
+    pub capture: u64,
 }
 
 #[derive(Clone, Debug)]
@@ -116,16 +150,68 @@ pub fn parse_changed_files(output: &str) -> Result<Vec<ChangedFile>, String> {
             let fields: [String; 3] = serde_json::from_str(line)
                 .map_err(|error| format!("Invalid jj diff entry: {error}"))?;
             let [status, before_path, after_path] = fields;
-            Ok(ChangedFile {
-                status,
+            Ok(ChangedFile::new(
+                status.as_str().into(),
                 before_path,
                 after_path,
-            })
+            ))
         })
         .collect()
 }
 
 impl Comparison {
+    pub fn root(&self) -> &Path {
+        &self.root
+    }
+    pub fn operation(&self) -> &str {
+        &self.operation
+    }
+    pub fn base(&self) -> &str {
+        &self.base
+    }
+    pub fn tip(&self) -> &str {
+        &self.tip
+    }
+    pub fn files(&self) -> &[ChangedFile] {
+        &self.files
+    }
+    pub fn catalog(&self) -> &FileCatalog {
+        &self.catalog
+    }
+    pub(crate) fn content(&self) -> &ContentSource {
+        &self.content
+    }
+    pub(crate) fn text_limit(&self) -> crate::text_content::TextLimit {
+        self.text_limit
+    }
+
+    pub(crate) fn assemble(
+        metadata: ComparisonMetadata,
+        files: Vec<ChangedFile>,
+        content: ContentSource,
+        text_limit: crate::text_content::TextLimit,
+    ) -> Result<Self, String> {
+        let ComparisonMetadata {
+            root,
+            operation,
+            base,
+            tip,
+            capture,
+        } = metadata;
+        Self {
+            root,
+            operation,
+            base,
+            tip,
+            capture,
+            files: files.into(),
+            content,
+            text_limit,
+            catalog: Arc::default(),
+        }
+        .with_catalog()
+    }
+
     pub fn current_operation(directory: &Path) -> Result<String, String> {
         query(
             directory,
@@ -157,10 +243,6 @@ impl Comparison {
             .ok_or_else(|| "Selected change is unavailable".into())
     }
 
-    pub(crate) fn with_text_limit(mut self, limit: crate::text_content::TextLimit) -> Self {
-        self.text_limit = limit;
-        self
-    }
     pub fn load(directory: &Path, base: Option<&str>, tip: &str) -> Result<Self, String> {
         Self::load_with_limit(
             directory,
@@ -190,8 +272,7 @@ impl Comparison {
             &["op", "log", "--no-graph", "-n", "1", "-T", "id"],
         )?;
         let operation = operation.trim().to_owned();
-        Self::recorded_at(root, operation, base, tip)
-            .map(|comparison| comparison.with_text_limit(limit))
+        Self::recorded_at(root, operation, base, tip, limit)
     }
 
     pub(crate) fn recorded_at(
@@ -199,11 +280,12 @@ impl Comparison {
         operation: String,
         base: Option<&str>,
         tip: &str,
+        limit: crate::text_content::TextLimit,
     ) -> Result<Self, String> {
         let tip = single_revision(&root, &operation, tip)?;
         let default_base = format!("heads(::{tip} & immutable())");
         let base = single_revision(&root, &operation, base.unwrap_or(&default_base))?;
-        Self::between(root, operation, base, tip)
+        Self::between(root, operation, base, tip, limit)
     }
 
     /// Resolve a followed change without confusing absence with a query failure.
@@ -237,6 +319,7 @@ impl Comparison {
         operation: String,
         base: String,
         tip: String,
+        limit: crate::text_content::TextLimit,
     ) -> Result<Self, String> {
         let template = "\"[\" ++ json(self.status()) ++ \",\" ++ json(self.source().path()) ++ \",\" ++ json(self.target().path()) ++ \"]\\n\"";
         let output = query(
@@ -247,18 +330,18 @@ impl Comparison {
         let files = parse_changed_files(&output)
             .map_err(|error| format!("Could not read changed files: {error}"))?;
 
-        Self {
-            root,
-            operation,
-            base,
-            tip,
-            files: files.into(),
-            content: ContentSource::Recorded,
-            capture: 0,
-            text_limit: crate::text_content::TextLimit::default(),
-            catalog: Arc::default(),
-        }
-        .with_catalog()
+        Self::assemble(
+            ComparisonMetadata {
+                root,
+                operation,
+                base,
+                tip,
+                capture: 0,
+            },
+            files,
+            ContentSource::Recorded,
+            limit,
+        )
     }
 
     /// Compare a recorded revision against its first parent. Merge revisions
@@ -285,8 +368,8 @@ impl Comparison {
             operation.unwrap_or(&self.operation).to_owned(),
             base,
             revision.commit_id.clone(),
+            self.text_limit,
         )
-        .map(|comparison| comparison.with_text_limit(self.text_limit))
     }
 
     pub fn supports_evolution(&self) -> bool {
@@ -350,7 +433,7 @@ impl Comparison {
         Ok(crate::history::History::parse(&output)?.with_references(references))
     }
 
-    pub(crate) fn with_catalog(mut self) -> Result<Self, String> {
+    fn with_catalog(mut self) -> Result<Self, String> {
         // Comparisons are assembled on the background executor. Clone/selection
         // paths share the index; a bounded cache also reuses immutable snapshots.
         const MAX_CACHED_CATALOGS: usize = 16;
@@ -567,7 +650,7 @@ mod tests {
 
         assert_eq!(files[0].before_path, "old file.ts");
         assert_eq!(files[0].after_path, "new\tfile.ts");
-        assert_eq!(files[1].status, "removed");
+        assert_eq!(files[1].status(), "removed");
     }
 
     #[test]
@@ -655,17 +738,17 @@ mod tests {
         let added = comparison
             .files
             .iter()
-            .find(|file| file.status == "added")
+            .find(|file| file.status() == "added")
             .unwrap();
         let renamed = comparison
             .files
             .iter()
-            .find(|file| file.status == "renamed")
+            .find(|file| file.status() == "renamed")
             .unwrap();
         let removed = comparison
             .files
             .iter()
-            .find(|file| file.status == "removed")
+            .find(|file| file.status() == "removed")
             .unwrap();
 
         assert_eq!(

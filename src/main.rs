@@ -38,10 +38,10 @@ fn run() -> std::result::Result<(), String> {
         )?;
         println!(
             "{} changed files\nbase {}\ntip {}\noperation {}",
-            comparison.files.len(),
-            comparison.base,
-            comparison.tip,
-            comparison.operation
+            comparison.files().len(),
+            comparison.base(),
+            comparison.tip(),
+            comparison.operation()
         );
         return Ok(());
     }

@@ -1,5 +1,6 @@
 //! Operation-pinned overview data, prepared without touching the working copy.
 use crate::repository::{ChangedFile, Comparison, ContentSource, query};
+use crate::repository_file::ChangeKind;
 #[derive(Clone, Debug, serde::Deserialize)]
 pub struct CommitDetails {
     pub id: String,
@@ -93,17 +94,17 @@ impl Comparison {
     /// Use immutable endpoints and the recorded jj operation, independently of
     /// history limits and remote visibility. Parents precede descendants.
     pub fn overview_series(&self) -> Result<Option<OverviewSeries>, String> {
-        let mut commits = match &self.content {
+        let mut commits = match self.content() {
             ContentSource::External(_) | ContentSource::Evolution(_) => return Ok(None),
             ContentSource::Git(contents) => {
-                let tip = if self.tip == "working tree" {
+                let tip = if self.tip() == "working tree" {
                     contents.recorded_tip.as_str()
                 } else {
-                    &self.tip
+                    self.tip()
                 };
-                let range = format!("{}..{tip}", self.base);
+                let range = format!("{}..{tip}", self.base());
                 let output = crate::git::output(
-                    &self.root,
+                    self.root(),
                     &[
                         "log",
                         "--reverse",
@@ -136,7 +137,7 @@ impl Comparison {
                         commits.push(commit);
                     }
                 }
-                if self.tip == "working tree" && contents.working_changes {
+                if self.tip() == "working tree" && contents.working_changes {
                     commits.push(SeriesCommit {
                         details: CommitDetails {
                             id: String::new(),
@@ -151,11 +152,11 @@ impl Comparison {
                 return Ok(Some(OverviewSeries { commits }));
             }
             ContentSource::Recorded => {
-                let range = format!("{}..{}", self.base, self.tip);
+                let range = format!("{}..{}", self.base(), self.tip());
                 let template = r#""{" ++ '"id":' ++ json(commit_id) ++ ',"message":' ++ json(description) ++ ',"author":' ++ json(author.name()) ++ ',"timestamp":' ++ json(author.timestamp().local().format("%Y-%m-%d %H:%M:%S")) ++ ',"working_copy":' ++ json(current_working_copy) ++ ',"change_id":' ++ json(change_id) ++ ',"parents":[' ++ parents.map(|p| json(p.commit_id())).join(",") ++ '],"empty":' ++ json(empty) ++ "}\n""#;
                 let output = query(
-                    &self.root,
-                    &self.operation,
+                    self.root(),
+                    self.operation(),
                     &["log", "-G", "-r", &range, "-T", template],
                 )?;
                 let mut commits = Vec::new();
@@ -173,17 +174,17 @@ impl Comparison {
         Ok(Some(OverviewSeries { commits }))
     }
     pub fn commit_details(&self) -> Result<Option<CommitDetails>, String> {
-        match &self.content {
+        match self.content() {
             ContentSource::External(_) => Ok(None),
-            ContentSource::Git(_) if self.tip == "working tree" => Ok(None),
+            ContentSource::Git(_) if self.tip() == "working tree" => Ok(None),
             ContentSource::Git(_) => {
                 let output = crate::git::output(
-                    &self.root,
+                    self.root(),
                     &[
                         "show",
                         "-s",
                         "--format=%H%x00%B%x00%an%x00%aI",
-                        &self.tip,
+                        self.tip(),
                         "--",
                     ],
                 )?;
@@ -202,9 +203,9 @@ impl Comparison {
             _ => {
                 let template = r#""{" ++ '"id":' ++ json(commit_id) ++ ',"message":' ++ json(description) ++ ',"author":' ++ json(author.name()) ++ ',"timestamp":' ++ json(author.timestamp().local().format("%Y-%m-%d %H:%M:%S")) ++ ',"working_copy":' ++ json(current_working_copy) ++ "}""#;
                 let output = query(
-                    &self.root,
-                    &self.operation,
-                    &["log", "-G", "-r", &self.tip, "-T", template],
+                    self.root(),
+                    self.operation(),
+                    &["log", "-G", "-r", self.tip(), "-T", template],
                 )?;
                 serde_json::from_str(&output)
                     .map(Some)
@@ -218,26 +219,26 @@ impl Comparison {
             Err(error) => (None, Some(error)),
         };
         let mut files: Vec<_> = self
-            .files
+            .files()
             .iter()
             .map(|file| {
                 let type_notice = self
-                    .catalog
-                    .find(&file.after_path)
+                    .catalog()
+                    .find(file.after_path())
                     .and_then(|entry| entry.type_change_notice());
                 let (patch, notice) = match self
-                    .catalog
-                    .find(&file.after_path)
+                    .catalog()
+                    .find(file.after_path())
                     .map_or_else(|| self.contents(file), |entry| self.read_file(entry))
                 {
                     Ok((before, after)) => {
                         let notice = if before == after {
                             Some(type_notice.clone().unwrap_or_else(|| {
-                                match file.status.as_str() {
-                                    "renamed" => "Renamed · contents unchanged",
-                                    "copied" => "Copied · contents unchanged",
-                                    "added" => "Added empty file",
-                                    "removed" => "Deleted empty file",
+                                match file.kind() {
+                                    ChangeKind::Renamed => "Renamed · contents unchanged",
+                                    ChangeKind::Copied => "Copied · contents unchanged",
+                                    ChangeKind::Added => "Added empty file",
+                                    ChangeKind::Removed => "Deleted empty file",
                                     _ => "File metadata changed",
                                 }
                                 .to_owned()
@@ -260,7 +261,7 @@ impl Comparison {
             })
             .collect();
         files.sort_by(|a, b| {
-            crate::file_browser::compare_paths(&a.file.after_path, &b.file.after_path)
+            crate::file_browser::compare_paths(a.file.after_path(), b.file.after_path())
         });
         OverviewSnapshot {
             commit,
@@ -288,31 +289,31 @@ fn quoted_path(path: &str) -> String {
 /// Supply full source context so disclosures can reveal real revision contents.
 /// Folding is a presentation choice, not an omission from the immutable patch.
 pub fn overview_patch(file: &ChangedFile, contents: Option<(&str, &str)>) -> String {
-    let old = quoted_path(&format!("a/{}", file.before_path));
-    let new = quoted_path(&format!("b/{}", file.after_path));
+    let old = quoted_path(&format!("a/{}", file.before_path()));
+    let new = quoted_path(&format!("b/{}", file.after_path()));
     let mut patch = format!("diff --git {old} {new}\n");
-    match file.status.as_str() {
-        "added" => patch.push_str("new file mode 100644\n"),
-        "removed" => patch.push_str("deleted file mode 100644\n"),
-        "renamed" => patch.push_str(&format!(
+    match file.kind() {
+        ChangeKind::Added => patch.push_str("new file mode 100644\n"),
+        ChangeKind::Removed => patch.push_str("deleted file mode 100644\n"),
+        ChangeKind::Renamed => patch.push_str(&format!(
             "rename from {}\nrename to {}\n",
-            quoted_path(&file.before_path),
-            quoted_path(&file.after_path)
+            quoted_path(file.before_path()),
+            quoted_path(file.after_path())
         )),
-        "copied" => patch.push_str(&format!(
+        ChangeKind::Copied => patch.push_str(&format!(
             "copy from {}\ncopy to {}\n",
-            quoted_path(&file.before_path),
-            quoted_path(&file.after_path)
+            quoted_path(file.before_path()),
+            quoted_path(file.after_path())
         )),
         _ => {}
     }
     if let Some((before, after)) = contents {
-        let before_path = if file.status == "added" {
+        let before_path = if file.kind() == &ChangeKind::Added {
             "/dev/null"
         } else {
             &old
         };
-        let after_path = if file.status == "removed" {
+        let after_path = if file.kind() == &ChangeKind::Removed {
             "/dev/null"
         } else {
             &new
@@ -338,7 +339,10 @@ pub fn overview_patch(file: &ChangedFile, contents: Option<(&str, &str)>) -> Str
                     .to_string(),
             );
         }
-        if before == after && file.status != "renamed" && file.status != "copied" {
+        if before == after
+            && file.kind() != &ChangeKind::Renamed
+            && file.kind() != &ChangeKind::Copied
+        {
             patch.push_str("metadata changed\n");
         }
     } else {

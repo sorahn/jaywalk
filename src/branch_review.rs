@@ -71,19 +71,19 @@ pub struct Catalog {
 impl Catalog {
     pub fn capture(comparison: &Comparison) -> Result<Self, String> {
         let operation = if comparison.supports_evolution() {
-            Some(Comparison::current_operation(&comparison.root)?)
-        } else if matches!(comparison.content, ContentSource::Git(_)) {
+            Some(Comparison::current_operation(comparison.root())?)
+        } else if matches!(comparison.content(), ContentSource::Git(_)) {
             None
         } else {
             return Err("Branch review requires a Git or jj repository".into());
         };
         let snapshot = match &operation {
-            Some(operation) => crate::references::recorded(&comparison.root, operation)?,
-            None => crate::git::references(&comparison.root)?,
+            Some(operation) => crate::references::recorded(comparison.root(), operation)?,
+            None => crate::git::references(comparison.root())?,
         };
         let heads = match &operation {
             Some(operation) => query(
-                &comparison.root,
+                comparison.root(),
                 operation,
                 &[
                     "log",
@@ -98,13 +98,13 @@ impl Catalog {
             .map(str::to_owned)
             .collect(),
             None => vec![
-                crate::git::output(&comparison.root, &["rev-parse", "HEAD"])?
+                crate::git::output(comparison.root(), &["rev-parse", "HEAD"])?
                     .trim()
                     .to_owned(),
             ],
         };
         let mut catalog = Self {
-            root: comparison.root.clone(),
+            root: comparison.root().to_path_buf(),
             operation,
             references: snapshot.references,
             heads,
@@ -381,8 +381,9 @@ impl Catalog {
             Target::MergeResult { merge } => (self.merge_parents(merge)?[0].clone(), merge.clone()),
         };
         match &self.operation {
-            Some(operation) => Comparison::between(self.root.clone(), operation.clone(), base, tip)
-                .map(|comparison| comparison.with_text_limit(limit)),
+            Some(operation) => {
+                Comparison::between(self.root.clone(), operation.clone(), base, tip, limit)
+            }
             None => crate::git::between(self.root.clone(), base, tip, limit),
         }
     }

@@ -19,7 +19,7 @@ impl Viewer {
         if let Some(welcome) = &mut self.welcome {
             welcome.error = Some(error);
         } else {
-            self.live.message = Some(error);
+            self.live.notice = Some(super::live::LiveNotice::Diagnostic(error));
         }
         cx.notify();
     }
@@ -28,7 +28,7 @@ impl Viewer {
             .then(|| {
                 self.repository
                     .ready()
-                    .map(|session| session.home.root.clone())
+                    .map(|session| session.home.root().to_path_buf())
             })
             .flatten()
     }

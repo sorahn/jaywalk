@@ -173,10 +173,10 @@ fn external_metadata_refresh_does_not_repin_the_open_comparison() {
     assert_ne!(initial, ReferenceStamp::read(&f.0, false).unwrap());
     f.run("git", &["remote", "remove", "another"]);
     assert_eq!(initial, ReferenceStamp::read(&f.0, false).unwrap());
-    let base = git.tip.clone();
+    let base = git.tip().to_owned();
     f.run("jj", &["git", "init", "--colocate"]);
     let pinned = Comparison::load(&f.0, Some("main"), "@").unwrap();
-    let operation = pinned.operation.clone();
+    let operation = pinned.operation().to_owned();
     let stamp = ReferenceStamp::read(&f.0, true).unwrap();
     let tree = f.run("git", &["rev-parse", &format!("{base}^{{tree}}")]);
     let remote = f.run(
@@ -198,8 +198,8 @@ fn external_metadata_refresh_does_not_repin_the_open_comparison() {
     let source = current.references.operation.as_deref();
     assert_ne!(source, Some(operation.as_str()));
     let patch = pinned.for_history_revision(revision, source).unwrap();
-    assert_eq!(patch.tip, remote);
-    assert_eq!(pinned.operation, operation);
+    assert_eq!(patch.tip(), remote);
+    assert_eq!(pinned.operation(), operation);
     assert!(
         pinned
             .reference_snapshot()

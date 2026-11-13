@@ -209,7 +209,7 @@ impl Viewer {
     pub(super) fn is_retained_preview(&self) -> bool {
         self.selected_path().is_some_and(|path| {
             self.comparison()
-                .is_some_and(|comparison| comparison.catalog.find(&path).is_none())
+                .is_some_and(|comparison| comparison.catalog().find(&path).is_none())
         })
     }
 
@@ -224,15 +224,15 @@ impl Viewer {
             .comparison()
             .map(|comparison| {
                 if self.browser.mode == FileListMode::Tree && self.browser.scope == TreeScope::All {
-                    comparison.catalog.entries().cloned().collect()
+                    comparison.catalog().entries().cloned().collect()
                 } else {
                     comparison
-                        .files
+                        .files()
                         .iter()
                         .map(|file| {
                             comparison
-                                .catalog
-                                .find(&file.after_path)
+                                .catalog()
+                                .find(file.after_path())
                                 .cloned()
                                 .unwrap_or_else(|| jaywalk::repository_file::FileEntry::from(file))
                         })
@@ -242,7 +242,7 @@ impl Viewer {
             .unwrap_or_default();
         let open = self.selected_file.as_ref().map(|selected| {
             self.comparison()
-                .and_then(|comparison| comparison.catalog.find(selected.file.path()))
+                .and_then(|comparison| comparison.catalog().find(selected.file.path()))
                 .unwrap_or(&selected.file)
         });
         let (files, retained) = jaywalk::file_browser::with_entries(&entries, open);
@@ -407,7 +407,7 @@ impl Viewer {
         let viewer = cx.entity().downgrade();
         let source = self
             .comparison()
-            .map(|comparison| (comparison.identity(), comparison.root.clone()));
+            .map(|comparison| (comparison.identity(), comparison.root().to_path_buf()));
         let focus = self.focus.clone();
         let repository = self.arguments.diff.is_none();
         let icons = self.settings.files.file_icons;
@@ -655,7 +655,7 @@ impl Viewer {
                 )
             }
             LoadState::Loaded(comparison)
-                if comparison.files.is_empty()
+                if comparison.files().is_empty()
                     && !(self.browser.mode == FileListMode::Tree
                         && self.browser.scope == TreeScope::All) =>
             {

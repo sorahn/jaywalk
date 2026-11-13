@@ -1,7 +1,9 @@
 //! Change evolution follows predecessor edges, independent of commit ancestry.
 pub mod grouping;
 use crate::history::{History, Revision};
-use crate::repository::{ChangedFile, Comparison, ContentSource, FileSide, query};
+use crate::repository::{
+    ChangedFile, Comparison, ComparisonMetadata, ContentSource, FileSide, query,
+};
 use crate::repository_file::FileKind;
 use serde::Deserialize;
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -498,7 +500,7 @@ impl EvolutionContents {
 
 impl Comparison {
     pub fn evolution(&self, commit: &str, limit: usize) -> Result<Evolution, String> {
-        self.evolution_at(commit, limit, &self.operation)
+        self.evolution_at(commit, limit, self.operation())
     }
     pub fn evolution_at(
         &self,
@@ -514,7 +516,7 @@ impl Comparison {
             file_delta_array("self.inter_diff().files()")
         );
         let change_id = query(
-            &self.root,
+            self.root(),
             operation,
             &["log", "-G", "-r", commit, "-T", "change_id"],
         )?;
@@ -528,7 +530,7 @@ impl Comparison {
             serde_json::to_string(&change_id).map_err(|error| error.to_string())?
         );
         let output = query(
-            &self.root,
+            self.root(),
             operation,
             &[
                 "evolog",
@@ -547,7 +549,7 @@ impl Comparison {
                 // Commit.diff() compares against merged parent trees. Match the
                 // viewer's explicitly labelled first-parent merge review.
                 let output = query(
-                    &self.root,
+                    self.root(),
                     operation,
                     &[
                         "diff",
@@ -574,7 +576,7 @@ impl Comparison {
     /// Compare a version to its actual predecessor(s), using jj's interdiff.
     /// Multiple predecessors use jj's combined predecessor semantics.
     pub fn for_evolution(&self, version: &Version) -> Result<Self, String> {
-        self.for_evolution_at(version, &self.operation)
+        self.for_evolution_at(version, self.operation())
     }
     pub fn for_evolution_at(&self, version: &Version, operation: &str) -> Result<Self, String> {
         if version.predecessors.is_empty() {
@@ -582,7 +584,7 @@ impl Comparison {
         }
         let template = r#"self.inter_diff().files().map(|f| "{" ++ '"status":' ++ json(f.status()) ++ ',"before_path":' ++ json(f.source().path()) ++ ',"after_path":' ++ json(f.target().path()) ++ ',"before":{"kind":' ++ json(f.source().file_type()) ++ ',"object":' ++ if(f.source().normal_value(), json(f.source().normal_value().object_id()), "null") ++ ',"conflict":' ++ json(f.source().conflict()) ++ '},"after":{"kind":' ++ json(f.target().file_type()) ++ ',"object":' ++ if(f.target().normal_value(), json(f.target().normal_value().object_id()), "null") ++ ',"conflict":' ++ json(f.target().conflict()) ++ "}}\n").join("")"#;
         let output = query(
-            &self.root,
+            self.root(),
             operation,
             &[
                 "evolog",
@@ -602,13 +604,15 @@ impl Comparison {
                     .map_err(|error| format!("Invalid evolution file: {error}"))
             })
             .collect::<Result<_, _>>()?;
-        let git_dir = PathBuf::from(query(&self.root, operation, &["git", "root"])?.trim());
+        let git_dir = PathBuf::from(query(self.root(), operation, &["git", "root"])?.trim());
         let files = entries
             .iter()
-            .map(|entry| ChangedFile {
-                status: entry.status.clone(),
-                before_path: entry.before_path.clone(),
-                after_path: entry.after_path.clone(),
+            .map(|entry| {
+                ChangedFile::new(
+                    entry.status.as_str().into(),
+                    entry.before_path.clone(),
+                    entry.after_path.clone(),
+                )
             })
             .collect::<Vec<_>>();
         let before_paths = Arc::new(
@@ -621,22 +625,22 @@ impl Comparison {
             .into_iter()
             .map(|entry| (entry.after_path, (entry.before, entry.after)))
             .collect();
-        Self {
-            root: self.root.clone(),
-            operation: operation.to_owned(),
-            base: version.predecessors.join(","),
-            tip: version.commit_id.clone(),
-            files: files.into(),
-            capture: 0,
-            text_limit: self.text_limit,
-            content: ContentSource::Evolution(EvolutionContents {
+        Self::assemble(
+            ComparisonMetadata {
+                root: self.root().to_path_buf(),
+                operation: operation.to_owned(),
+                base: version.predecessors.join(","),
+                tip: version.commit_id.clone(),
+                capture: 0,
+            },
+            files,
+            ContentSource::Evolution(EvolutionContents {
                 git_dir,
                 entries: Arc::new(entries),
                 before_paths,
             }),
-            catalog: Arc::default(),
-        }
-        .with_catalog()
+            self.text_limit(),
+        )
     }
 }
 
@@ -707,9 +711,9 @@ mod tests {
         std::fs::remove_file(f.0.join("gone.txt")).unwrap();
         f.run(&["status"]);
         let comparison = Comparison::load(&f.0, Some("main"), "@").unwrap();
-        let evolution = comparison.evolution(&comparison.tip, 100).unwrap();
+        let evolution = comparison.evolution(comparison.tip(), 100).unwrap();
         let diff = comparison.for_evolution(&evolution.versions[0]).unwrap();
-        let changed = diff.catalog.find("type.txt").unwrap();
+        let changed = diff.catalog().find("type.txt").unwrap();
         assert_eq!(
             changed.type_change_notice().as_deref(),
             Some("File type changed: symlink → regular file")
@@ -718,7 +722,7 @@ mod tests {
             diff.read_file(changed).unwrap(),
             ("../target".into(), "../target".into())
         );
-        let removed = diff.catalog.find("gone.txt").unwrap();
+        let removed = diff.catalog().find("gone.txt").unwrap();
         assert_eq!(removed.content_kind(), &FileKind::Symlink);
         assert_eq!(removed.status(), Some("removed"));
         assert_eq!(
@@ -750,7 +754,7 @@ mod tests {
         let comparison =
             Comparison::load_with_limit(&f.0, Some("@-"), "@", TextLimit::from_mib(1).unwrap())
                 .unwrap();
-        let evolution = comparison.evolution(&comparison.tip, 100).unwrap();
+        let evolution = comparison.evolution(comparison.tip(), 100).unwrap();
         let diff = comparison.for_evolution(&evolution.versions[0]).unwrap();
         assert!(
             diff.read_path("large.txt", FileSide::Before)
@@ -789,7 +793,7 @@ mod tests {
         f.run(&["bookmark", "create", "upstream"]);
         f.run(&["rebase", "-r", "feature", "-d", "upstream"]);
         let rebased = Comparison::load(&f.0, Some("main"), "feature").unwrap();
-        let evolution = rebased.evolution(&rebased.tip, 100).unwrap();
+        let evolution = rebased.evolution(rebased.tip(), 100).unwrap();
         assert_eq!(evolution.event(0), Event::Rebased);
         assert!(
             evolution
@@ -802,7 +806,7 @@ mod tests {
             rebased
                 .for_evolution(&evolution.versions[0])
                 .unwrap()
-                .files
+                .files()
                 .is_empty()
         );
         f.run(&["edit", "feature"]);
@@ -812,12 +816,12 @@ mod tests {
         f.write("new.ts", "new file without newline");
         f.run(&["status"]);
         let current = Comparison::load(&f.0, Some("main"), "feature").unwrap();
-        let operation = current.operation.clone();
+        let operation = current.operation().to_owned();
         f.write("new.ts", "unsnapshotted");
-        let evolution = current.evolution(&current.tip, 100).unwrap();
+        let evolution = current.evolution(current.tip(), 100).unwrap();
         assert_eq!(evolution.event(0), Event::Edited);
         let diff = current.for_evolution(&evolution.versions[0]).unwrap();
-        let unchanged = diff.catalog.find("upstream.ts").unwrap();
+        let unchanged = diff.catalog().find("upstream.ts").unwrap();
         assert!(unchanged.kind().is_none());
         assert_eq!(
             diff.read_file(unchanged).unwrap(),
@@ -825,13 +829,13 @@ mod tests {
         );
         assert!(
             !diff
-                .files
+                .files()
                 .iter()
-                .any(|file| file.after_path == "upstream.ts")
+                .any(|file| file.after_path() == "upstream.ts")
         );
-        for file in diff.files.iter() {
+        for file in diff.files().iter() {
             let (before, after) = diff.contents(file).unwrap();
-            match file.after_path.as_str() {
+            match file.after_path() {
                 "feature.ts" => assert_eq!(
                     (before, after),
                     (code("ancestor two", 1), code("ancestor two", 2))
@@ -852,21 +856,21 @@ mod tests {
                 path => panic!("unexpected file {path}"),
             }
         }
-        assert_eq!(diff.files.len(), 5);
-        let old = current.evolution(&rebased.tip, 100).unwrap();
+        assert_eq!(diff.files().len(), 5);
+        let old = current.evolution(rebased.tip(), 100).unwrap();
         let old_index = old
             .versions
             .iter()
-            .position(|version| version.commit_id == rebased.tip)
+            .position(|version| version.commit_id == rebased.tip())
             .unwrap();
         assert_eq!(old.event(old_index), Event::Rebased);
         assert_eq!(
             Comparison::load(&f.0, Some("main"), "feature")
                 .unwrap()
-                .operation,
+                .operation(),
             operation
         );
-        let mut truncated = current.evolution(&current.tip, 1).unwrap();
+        let mut truncated = current.evolution(current.tip(), 1).unwrap();
         assert!(truncated.truncated);
         assert_eq!(truncated.versions.len(), 1);
         let selected = &old.versions[old_index];
@@ -893,11 +897,11 @@ mod tests {
         f.write("options.ts", "export const retries = 3;\n");
         f.run(&["status"]);
         let current = Comparison::load(&f.0, Some("main"), "feature").unwrap();
-        let evolution = current.evolution(&current.tip, 100).unwrap();
+        let evolution = current.evolution(current.tip(), 100).unwrap();
         let index = evolution
             .versions
             .iter()
-            .position(|version| version.commit_id == moved.tip)
+            .position(|version| version.commit_id == moved.tip())
             .unwrap();
         assert_eq!(evolution.event(index), Event::Edited);
         let version = &evolution.versions[index];
@@ -941,12 +945,12 @@ mod tests {
         );
         let patch = current.for_revision(&version.revision()).unwrap();
         let file = patch
-            .files
+            .files()
             .iter()
-            .find(|file| file.after_path == "startup/module.ts")
+            .find(|file| file.after_path() == "startup/module.ts")
             .unwrap();
-        assert_eq!(file.status, "renamed");
-        assert_eq!(file.before_path, "module.ts");
+        assert_eq!(file.status(), "renamed");
+        assert_eq!(file.before_path(), "module.ts");
         let (before, after) = patch.contents(file).unwrap();
         assert_eq!((before.as_str(), after.as_str()), (source, source));
         assert!(
@@ -960,18 +964,18 @@ mod tests {
         // no changed text inside the rename pair.
         let diff = current.for_evolution(version).unwrap();
         let added = diff
-            .files
+            .files()
             .iter()
-            .find(|file| file.after_path == "startup/module.ts")
+            .find(|file| file.after_path() == "startup/module.ts")
             .unwrap();
         assert_eq!(
             diff.contents(added).unwrap(),
             (String::new(), source.into())
         );
         let removed = diff
-            .files
+            .files()
             .iter()
-            .find(|file| file.after_path == "module.ts")
+            .find(|file| file.after_path() == "module.ts")
             .unwrap();
         assert_eq!(
             diff.contents(removed).unwrap(),
@@ -1028,7 +1032,7 @@ mod tests {
         f.write("moved.ts", &(source + "export const enabled = true;\n"));
         f.run(&["status"]);
         let comparison = Comparison::load(&f.0, Some("main"), "@").unwrap();
-        let evolution = comparison.evolution(&comparison.tip, 100).unwrap();
+        let evolution = comparison.evolution(comparison.tip(), 100).unwrap();
         let effect = evolution.versions[0].file_effect("moved.ts", ReviewMode::Patch);
         assert_eq!(effect, FileEffect::Renamed { unchanged: false });
         assert!(effect.changes_contents());
@@ -1052,7 +1056,7 @@ mod tests {
         f.run(&["bookmark", "create", "right"]);
         f.run(&["new", "left", "right", "-m", "merge"]);
         let comparison = Comparison::load(&f.0, Some("main"), "@").unwrap();
-        let evolution = comparison.evolution(&comparison.tip, 100).unwrap();
+        let evolution = comparison.evolution(comparison.tip(), 100).unwrap();
         let version = &evolution.versions[0];
         assert_eq!(version.parents.len(), 2);
         assert_eq!(
@@ -1064,8 +1068,8 @@ mod tests {
             FileEffect::Added
         );
         let patch = comparison.for_revision(&version.revision()).unwrap();
-        assert_eq!(patch.files.len(), 1);
-        assert_eq!(patch.files[0].after_path, "right.ts");
+        assert_eq!(patch.files().len(), 1);
+        assert_eq!(patch.files()[0].after_path(), "right.ts");
     }
 
     #[test]
@@ -1082,23 +1086,27 @@ mod tests {
         let left = Comparison::load(&f.0, Some("main"), "feature").unwrap();
         f.run(&[
             "--at-op",
-            &original.operation,
+            original.operation(),
             "describe",
             "-r",
-            &original.tip,
+            original.tip(),
             "-m",
             "right version",
         ]);
         f.run(&["log", "-G", "-n", "1"]);
-        let comparison = Comparison::load(&f.0, Some("main"), &left.tip).unwrap();
-        let evolution = comparison.evolution(&left.tip, 100).unwrap();
+        let comparison = Comparison::load(&f.0, Some("main"), left.tip()).unwrap();
+        let evolution = comparison.evolution(left.tip(), 100).unwrap();
         let current: Vec<_> = evolution
             .versions
             .iter()
             .filter(|version| !version.hidden && version.divergent)
             .collect();
         assert_eq!(current.len(), 2);
-        assert!(current.iter().any(|version| version.commit_id == left.tip));
+        assert!(
+            current
+                .iter()
+                .any(|version| version.commit_id == left.tip())
+        );
         assert!(
             current
                 .iter()

@@ -1,5 +1,7 @@
 //! Read-only comparisons supplied by command-line diff tools.
-use crate::repository::{ChangedFile, Comparison, ContentSource, FileSide, next_capture};
+use crate::repository::{
+    ChangedFile, Comparison, ComparisonMetadata, ContentSource, FileSide, next_capture,
+};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -187,24 +189,20 @@ impl ExternalContents {
                 }
                 (None, None) => unreachable!("name came from an input tree"),
             };
-            files.push(ChangedFile {
-                status: status.into(),
-                before_path: name.clone(),
-                after_path: name,
-            });
+            files.push(ChangedFile::new(status.into(), name.clone(), name));
         }
-        Comparison {
-            root: right.clone(),
-            operation: String::new(),
-            base: left.display().to_string(),
-            tip: right.display().to_string(),
-            files: files.into(),
-            content: ContentSource::External(Arc::new(contents)),
-            capture: next_capture(),
-            text_limit: limit,
-            catalog: Arc::default(),
-        }
-        .with_catalog()
+        Comparison::assemble(
+            ComparisonMetadata {
+                root: right.clone(),
+                operation: String::new(),
+                base: left.display().to_string(),
+                tip: right.display().to_string(),
+                capture: next_capture(),
+            },
+            files,
+            ContentSource::External(Arc::new(contents)),
+            limit,
+        )
     }
 
     pub(crate) fn paths(

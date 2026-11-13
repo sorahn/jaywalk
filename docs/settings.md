@@ -212,6 +212,7 @@ values retain the last valid settings and report a configuration error.
 | `panels.diff.shared_scrollbar_height` | `12` | Fixed shared thumb height in pixels; 1–1000, clipped to the track. Spans the fluid gutter width, with inset travel and faint grabber ridges. Applies live. |
 | `panels.diff.shared_scrollbar_opacity` | `0.12` | Shared thumb opacity; 0–1, brighter on hover/drag. Zero hides the thumb while keeping the gutter interactive. Applies live. |
 | `panels.diff.shared_scrollbar_click` | `"system"` | Track clicks: `system`, `jump`, or `page`. `page` moves one viewport toward the click; `jump` centers the thumb at the click. `system` uses the desktop preference captured at startup, falling back to `jump` if unavailable. Overrides apply live; restart to reread OS preferences. Thumb dragging always covers the full scroll range. |
+| `panels.diff.change_map_opacity` | `0.24` | Whole-comparison change marks in the Fluid gutter; 0–1, zero hides them. Left marks show before-side changes; right marks show after-side changes. Uses the adaptive diff palette, brightens slightly while dragging, and applies live. Marks share the thumb's scroll coordinate; they have no hover UI or separate click behavior. |
 | `panels.diff.gutter_width` | `48` | Fluid connector-gutter width; 8–240. |
 | `panels.diff.min_code_width` | `100` | Minimum width of each Fluid code pane; 32–2000. The initial before/after split is even. |
 

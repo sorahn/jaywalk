@@ -1,3 +1,4 @@
+use crate::repository_file::ChangeKind;
 use crate::repository_file::FileEntry;
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -6,11 +7,11 @@ use std::collections::{BTreeMap, BTreeSet};
 pub fn find_file(files: &[crate::repository::ChangedFile], path: &str) -> Option<usize> {
     files
         .iter()
-        .position(|file| file.after_path == path)
+        .position(|file| file.after_path() == path)
         .or_else(|| {
             files
                 .iter()
-                .position(|file| file.status == "renamed" && file.before_path == path)
+                .position(|file| file.kind() == &ChangeKind::Renamed && file.before_path() == path)
         })
 }
 
@@ -268,11 +269,7 @@ mod preview_tests {
     use crate::repository::ChangedFile;
     use crate::repository_file::{FileEntry, find_entry};
     fn file(status: &str, before: &str, after: &str) -> ChangedFile {
-        ChangedFile {
-            status: status.into(),
-            before_path: before.into(),
-            after_path: after.into(),
-        }
+        ChangedFile::new(status.into(), before.into(), after.into())
     }
     #[test]
     fn preview_is_temporary_and_never_becomes_a_changed_file() {
@@ -328,7 +325,7 @@ mod preview_tests {
         let (rows, retained) = with_preview(&renamed, Some(&FileEntry::from(&open)));
         assert_eq!(rows.len(), 1);
         assert_eq!(retained, None);
-        assert_eq!(find_entry(&rows, &open.after_path), Some(0));
+        assert_eq!(find_entry(&rows, open.after_path()), Some(0));
     }
 
     #[test]
@@ -356,11 +353,11 @@ mod filtered_entries_tests {
     use crate::repository_file::FileEntry;
     #[test]
     fn a_filtered_unchanged_file_is_temporary_without_becoming_a_fake_change() {
-        let changed = crate::repository::ChangedFile {
-            status: "modified".into(),
-            before_path: "src/z.rs".into(),
-            after_path: "src/z.rs".into(),
-        };
+        let changed = crate::repository::ChangedFile::new(
+            "modified".into(),
+            "src/z.rs".into(),
+            "src/z.rs".into(),
+        );
         let filtered = [FileEntry::from(&changed)];
         let open = FileEntry::unchanged("src/a.rs");
         let (rows, temporary) = with_entries(&filtered, Some(&open));

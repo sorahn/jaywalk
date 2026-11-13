@@ -253,6 +253,7 @@ pub struct DiffPanelSettings {
     pub shared_scrollbar_height: f32,
     pub shared_scrollbar_opacity: f32,
     pub shared_scrollbar_click: ScrollbarClick,
+    pub change_map_opacity: f32,
     pub min_code_width: f32,
 }
 
@@ -606,6 +607,12 @@ impl Config {
             1.,
         )?;
         bounded(
+            "panels.diff.change_map_opacity",
+            self.panels.diff.change_map_opacity,
+            0.,
+            1.,
+        )?;
+        bounded(
             "panels.diff.min_code_width",
             self.panels.diff.min_code_width,
             32.,
@@ -915,6 +922,8 @@ mod tests {
             "[panels.diff]\nshared_scrollbar_height=0",
             "[panels.diff]\nshared_scrollbar_opacity=1.1",
             "[panels.diff]\nshared_scrollbar_click='invalid'",
+            "[panels.diff]\nchange_map_opacity=-0.1",
+            "[panels.diff]\nchange_map_opacity=1.1",
             "[evolution]\nlimit=0",
             "[evolution]\nmin_height=500\ndefault_height=200",
             "[file_evolution]\nmin_height=500\ndefault_height=200",

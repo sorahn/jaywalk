@@ -258,7 +258,7 @@ impl Viewer {
                 .map(|comparison| {
                     let source = Rc::new(comparison.identity());
                     comparison
-                        .catalog
+                        .catalog()
                         .entries()
                         .map(|file| {
                             (
@@ -510,7 +510,7 @@ impl Viewer {
         let Some(comparison) = self.comparison() else {
             return;
         };
-        if comparison.files.is_empty() {
+        if comparison.files().is_empty() {
             return;
         }
         let current = self
@@ -519,9 +519,9 @@ impl Viewer {
             .unwrap_or(if delta > 0 {
                 -1
             } else {
-                comparison.files.len() as i32
+                comparison.files().len() as i32
             });
-        let next = (current + delta).clamp(0, comparison.files.len() as i32 - 1) as usize;
+        let next = (current + delta).clamp(0, comparison.files().len() as i32 - 1) as usize;
         self.select_file(next, window, cx);
     }
 }

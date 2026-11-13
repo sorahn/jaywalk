@@ -1,6 +1,9 @@
 //! Read-only Git comparisons for repositories without Jujutsu metadata.
 use crate::history::{History, HistoryQuery, Revision};
-use crate::repository::{ChangedFile, Comparison, ContentSource, FileSide, next_capture};
+use crate::repository::{
+    ChangedFile, Comparison, ComparisonMetadata, ContentSource, FileSide, next_capture,
+};
+use crate::repository_file::ChangeKind;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -162,18 +165,15 @@ pub(crate) fn between(
     let mut files = BTreeMap::new();
     while let Some(status) = fields.next() {
         let path = fields.next().ok_or("Incomplete Git diff entry")?;
-        let status = match status {
-            "A" => "added",
-            "D" => "removed",
-            _ => "modified",
+        let kind = match status {
+            "A" => ChangeKind::Added,
+            "D" => ChangeKind::Removed,
+            "M" | "T" => ChangeKind::Modified,
+            other => ChangeKind::Other(other.to_owned()),
         };
         files.insert(
             path.to_owned(),
-            ChangedFile {
-                status: status.into(),
-                before_path: path.into(),
-                after_path: path.into(),
-            },
+            ChangedFile::new(kind, path.into(), path.into()),
         );
     }
     if working {
@@ -182,17 +182,16 @@ pub(crate) fn between(
         {
             files.insert(
                 path.into(),
-                ChangedFile {
-                    // Untracked is index-relative, not base-tree-relative.
-                    status: if before_tree.contains_key(path) {
-                        "modified"
+                // Untracked is index-relative, not base-tree-relative.
+                ChangedFile::new(
+                    if before_tree.contains_key(path) {
+                        ChangeKind::Modified
                     } else {
-                        "added"
-                    }
-                    .into(),
-                    before_path: path.into(),
-                    after_path: path.into(),
-                },
+                        ChangeKind::Added
+                    },
+                    path.into(),
+                    path.into(),
+                ),
             );
         }
     }
@@ -202,13 +201,15 @@ pub(crate) fn between(
         // bytes to the base objects, never to future filesystem reads.
         let mut after = before_tree.clone();
         for file in &files {
-            if file.status == "removed" {
-                after.remove(&file.after_path);
+            if file.kind() == &ChangeKind::Removed {
+                after.remove(file.after_path());
             } else {
-                after.entry(file.after_path.clone()).or_insert(GitValue {
-                    object: String::new(),
-                    kind: FileKind::Regular,
-                });
+                after
+                    .entry(file.after_path().to_owned())
+                    .or_insert(GitValue {
+                        object: String::new(),
+                        kind: FileKind::Regular,
+                    });
             }
         }
         after
@@ -222,13 +223,13 @@ pub(crate) fn between(
     for file in &files {
         // Capture kind independently of text acquisition: a before-side read
         // may be unavailable or oversized, without hiding the after-side kind.
-        let metadata = (working && file.status != "removed").then(|| {
-            let path = root.join(&file.after_path);
+        let metadata = (working && file.kind() != &ChangeKind::Removed).then(|| {
+            let path = root.join(file.after_path());
             std::fs::symlink_metadata(&path)
                 .map_err(|error| format!("Could not inspect {}: {error}", path.display()))
         });
         if let Some(Ok(metadata)) = &metadata
-            && let Some(value) = after_tree.get_mut(&file.after_path)
+            && let Some(value) = after_tree.get_mut(file.after_path())
         {
             value.kind = if metadata.file_type().is_symlink() {
                 FileKind::Symlink
@@ -239,15 +240,20 @@ pub(crate) fn between(
             };
         }
         let pair = (|| {
-            let before = if file.status == "added" {
+            let before = if file.kind() == &ChangeKind::Added {
                 String::new()
             } else {
-                read_blob(&root, None, &format!("{base}:{}", file.before_path), limit)?
+                read_blob(
+                    &root,
+                    None,
+                    &format!("{base}:{}", file.before_path()),
+                    limit,
+                )?
             };
-            let after = if file.status == "removed" {
+            let after = if file.kind() == &ChangeKind::Removed {
                 String::new()
             } else if working {
-                let path = root.join(&file.after_path);
+                let path = root.join(file.after_path());
                 let metadata = metadata
                     .as_ref()
                     .expect("changed working-tree paths have a captured metadata result")
@@ -262,19 +268,22 @@ pub(crate) fn between(
                     limit.text(limit.file(&path)?)?
                 }
             } else {
-                read_blob(&root, None, &format!("{tip}:{}", file.after_path), limit)?
+                read_blob(&root, None, &format!("{tip}:{}", file.after_path()), limit)?
             };
             Ok((before, after))
         })();
-        contents.insert(file.after_path.clone(), pair);
+        contents.insert(file.after_path().to_owned(), pair);
     }
-    Comparison {
-        root: root.clone(),
-        operation: String::new(),
-        base,
-        tip,
-        files: files.into(),
-        content: ContentSource::Git(Arc::new(GitContents {
+    Comparison::assemble(
+        ComparisonMetadata {
+            root: root.clone(),
+            operation: String::new(),
+            base,
+            tip,
+            capture: if working { next_capture() } else { 0 },
+        },
+        files,
+        ContentSource::Git(Arc::new(GitContents {
             recorded_tip,
             working_changes,
             files: contents,
@@ -282,11 +291,8 @@ pub(crate) fn between(
             trees: [before_tree, after_tree],
             limit,
         })),
-        capture: if working { next_capture() } else { 0 },
-        text_limit: limit,
-        catalog: Arc::default(),
-    }
-    .with_catalog()
+        limit,
+    )
 }
 impl GitContents {
     pub(crate) fn paths(&self, side: FileSide) -> BTreeMap<String, FileKind> {
@@ -475,22 +481,22 @@ pub(crate) fn for_revision(
 ) -> Result<Comparison, String> {
     if revision.is_virtual_working_copy() {
         return between(
-            comparison.root.clone(),
-            resolve(&comparison.root, "HEAD")?,
+            comparison.root().to_path_buf(),
+            resolve(comparison.root(), "HEAD")?,
             WORKING_TREE.into(),
-            comparison.text_limit,
+            comparison.text_limit(),
         );
     }
     let base = match revision.parents.first() {
         Some(parent) => parent.clone(),
-        None => output(&comparison.root, &["hash-object", "-t", "tree", "--stdin"])?
+        None => output(comparison.root(), &["hash-object", "-t", "tree", "--stdin"])?
             .trim()
             .to_owned(),
     };
     between(
-        comparison.root.clone(),
+        comparison.root().to_path_buf(),
         base,
         revision.commit_id.clone(),
-        comparison.text_limit,
+        comparison.text_limit(),
     )
 }

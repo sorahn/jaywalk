@@ -76,6 +76,8 @@ shared_scrollbar_height = 12
 shared_scrollbar_opacity = 0.12
 # system, jump, or page. Unknown system preferences fall back to jump.
 shared_scrollbar_click = "system"
+# Whole-comparison change markers behind the thumb and connectors; 0 hides them.
+change_map_opacity = 0.24
 min_code_width = 100
 # The before/after panes default to an even split of the remaining width.
 

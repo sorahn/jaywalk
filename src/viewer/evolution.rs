@@ -469,9 +469,9 @@ impl Viewer {
                         }
                     }
                     Err(error) => {
-                        viewer.live.message = Some(format!(
+                        viewer.live.notice = Some(super::live::LiveNotice::Diagnostic(format!(
                             "Evolution reload failed; keeping the previous timeline: {error}"
-                        ))
+                        )))
                     }
                 }
                 cx.notify();
@@ -525,7 +525,7 @@ impl Viewer {
             .as_ref()
             .ok()
             .and_then(|history| history.references.operation.clone())
-            .unwrap_or_else(|| branch.operation.clone());
+            .unwrap_or_else(|| branch.operation().to_owned());
         let generation = self.evolution.generation;
         let limit = self.settings.evolution.limit;
         self.evolution.state = TimelineState::Loading {
