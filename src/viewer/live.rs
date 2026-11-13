@@ -197,7 +197,7 @@ impl Viewer {
             session.history.as_ref().ok().map(|history| {
                 jaywalk::references::ReferenceStamp::from_snapshot(&history.references)
             });
-        let directory = session.home.root.clone();
+        let directory = session.home.root().to_path_buf();
         let recorded = session.home.supports_evolution();
         if !recorded {
             self.start_git_live(directory, window, cx);
@@ -248,7 +248,10 @@ impl Viewer {
                             }
                             let operation_changed =
                                 stamp.operation.as_ref().is_some_and(|operation| {
-                                    viewer.live.retry.allows(operation, &session.home.operation)
+                                    viewer
+                                        .live
+                                        .retry
+                                        .allows(operation, session.home.operation())
                                 });
                             if operation_changed && !pinned {
                                 viewer.refresh_recorded(window, cx);

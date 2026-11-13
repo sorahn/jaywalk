@@ -28,7 +28,7 @@ impl Viewer {
             .then(|| {
                 self.repository
                     .ready()
-                    .map(|session| session.home.root.clone())
+                    .map(|session| session.home.root().to_path_buf())
             })
             .flatten()
     }

@@ -145,10 +145,10 @@ pub(crate) fn recorded(root: &Path, operation: &str) -> Result<ReferenceSnapshot
 }
 impl Comparison {
     pub fn reference_snapshot(&self) -> Result<ReferenceSnapshot, String> {
-        if matches!(self.content, ContentSource::Git(_)) {
-            crate::git::references(&self.root)
+        if matches!(self.content(), ContentSource::Git(_)) {
+            crate::git::references(self.root())
         } else if self.supports_evolution() {
-            recorded(&self.root, &self.operation)
+            recorded(self.root(), self.operation())
         } else {
             Ok(ReferenceSnapshot::default())
         }

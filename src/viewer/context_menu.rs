@@ -128,7 +128,7 @@ impl Viewer {
                 .arguments
                 .diff
                 .is_none()
-                .then(|| comparison.root.join(&path)),
+                .then(|| comparison.root().join(&path)),
             path,
             directory,
         })
@@ -138,7 +138,7 @@ impl Viewer {
         if let Some(selected) = &self.selected_file {
             return Some(FileTarget::new(
                 selected.source.identity(),
-                &selected.source.root,
+                selected.source.root(),
                 selected.file.path().to_owned(),
                 false,
                 self.arguments.diff.is_none(),

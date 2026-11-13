@@ -209,7 +209,7 @@ fn jj_overview_is_operation_pinned_and_never_snapshots_unsaved_work() {
     );
     let details = overview.commit.unwrap();
     assert_eq!(details.message.trim_end(), "subject\n\nFull body.");
-    assert_eq!(details.id, comparison.tip);
+    assert_eq!(details.id, comparison.tip());
     assert!(details.working_copy);
     let changed = overview
         .files

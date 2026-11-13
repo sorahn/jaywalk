@@ -50,7 +50,7 @@ fn content(comparison: &Comparison, name: &str) -> (String, String) {
     comparison
         .contents(
             comparison
-                .files
+                .files()
                 .iter()
                 .find(|file| file.after_path == name)
                 .unwrap(),
@@ -74,7 +74,7 @@ fn directory_diff_keeps_paths_empty_additions_and_deletions() {
     let comparison =
         ExternalContents::comparison(&fixture.0.join("left"), &fixture.0.join("right")).unwrap();
     assert!(!comparison.supports_evolution());
-    assert_eq!(comparison.files.len(), 3);
+    assert_eq!(comparison.files().len(), 3);
     assert_eq!(
         content(&comparison, "src/a.ts"),
         ("old\n".into(), "new\n".into())
@@ -104,7 +104,7 @@ fn file_diff_handles_different_names_unicode_and_binary_errors() {
     std::fs::write(fixture.0.join("after.txt"), [0, 1]).unwrap();
     assert!(
         comparison
-            .contents(&comparison.files[0])
+            .contents(&comparison.files()[0])
             .unwrap_err()
             .contains("Binary")
     );
@@ -137,13 +137,13 @@ fn git_worktree_and_history_are_read_only_and_use_pinned_contents() {
     let status = fixture.git(&["status", "--porcelain=v1"]);
     let comparison = Comparison::load(&fixture.0, None, "@").unwrap();
     assert!(!comparison.supports_evolution());
-    assert_eq!(comparison.files.len(), 3);
+    assert_eq!(comparison.files().len(), 3);
     assert_eq!(comparison.identity(), comparison.clone().identity());
     let next_capture = Comparison::load(&fixture.0, None, "@").unwrap();
     assert_ne!(comparison.identity(), next_capture.identity());
     // Unchanged paths use their pinned base object, not later filesystem edits.
     fixture.write("unchanged.txt", "changed after capture\n");
-    let unchanged = comparison.catalog.find("unchanged.txt").unwrap();
+    let unchanged = comparison.catalog().find("unchanged.txt").unwrap();
     assert!(unchanged.kind().is_none());
     assert_eq!(
         comparison.read_file(unchanged).unwrap(),
@@ -151,7 +151,7 @@ fn git_worktree_and_history_are_read_only_and_use_pinned_contents() {
     );
     assert!(
         comparison
-            .catalog
+            .catalog()
             .find("deleted.txt")
             .unwrap()
             .kind()
@@ -225,7 +225,7 @@ fn git_worktree_and_history_are_read_only_and_use_pinned_contents() {
         committed
             .for_revision(&clean.revisions[0])
             .unwrap()
-            .files
+            .files()
             .is_empty()
     );
     assert_eq!(committed.history(&roots).unwrap().revisions.len(), 1);
@@ -311,7 +311,7 @@ fn untracked_paths_keep_contents_from_the_selected_base() {
     fixture.git(&["rm", "--cached", "file.txt"]);
     fixture.write("file.txt", "edited\n");
     let comparison = Comparison::load(&fixture.0, None, "@").unwrap();
-    assert_eq!(comparison.files[0].status, "modified");
+    assert_eq!(comparison.files()[0].status, "modified");
     assert_eq!(
         content(&comparison, "file.txt"),
         ("original\n".into(), "edited\n".into())
@@ -340,7 +340,7 @@ fn standalone_links_compare_targets_including_dangling_and_directory_links() {
     std::os::unix::fs::symlink("target-a", &left).unwrap();
     std::os::unix::fs::symlink("target-b", &right).unwrap();
     let comparison = ExternalContents::comparison(&left, &right).unwrap();
-    assert_eq!(comparison.root.file_name().unwrap(), "right-link");
+    assert_eq!(comparison.root().file_name().unwrap(), "right-link");
     assert_eq!(
         content(&comparison, "right-link"),
         ("target-a".into(), "target-b".into())
@@ -375,9 +375,9 @@ fn external_type_changes_remain_visible_with_identical_display_text() {
     std::os::unix::fs::symlink("../target", fixture.0.join("left/file-to-link")).unwrap();
     let comparison =
         ExternalContents::comparison(&fixture.0.join("left"), &fixture.0.join("right")).unwrap();
-    assert_eq!(comparison.files.len(), 2);
+    assert_eq!(comparison.files().len(), 2);
     for path in ["link-to-file", "file-to-link"] {
-        let entry = comparison.catalog.find(path).unwrap();
+        let entry = comparison.catalog().find(path).unwrap();
         let (before, after) = comparison.read_file(entry).unwrap();
         assert_eq!(before, after);
         assert!(entry.type_change_notice().unwrap().contains("symlink"));
@@ -413,7 +413,7 @@ fn external_limit_retains_oversized_files_and_streams_equality() {
         TextLimit::from_mib(1).unwrap(),
     )
     .unwrap();
-    assert_eq!(comparison.files.len(), 3);
+    assert_eq!(comparison.files().len(), 3);
     for name in ["below", "exact"] {
         assert!(comparison.read_path(name, FileSide::After).is_ok());
     }
@@ -451,7 +451,7 @@ fn git_limits_worktree_and_recorded_blobs_and_refreshes_policy() {
             .unwrap_err()
             .contains("1048577 bytes")
     );
-    assert_eq!(work.files.len(), 1);
+    assert_eq!(work.files().len(), 1);
     f.git(&["add", "."]);
     f.git(&["commit", "-m", "large"]);
     let tip = f.git(&["rev-parse", "HEAD"]);
@@ -477,7 +477,7 @@ fn git_limits_worktree_and_recorded_blobs_and_refreshes_policy() {
         std::fs::remove_file(f.0.join("file.txt")).unwrap();
         std::os::unix::fs::symlink("../target", f.0.join("file.txt")).unwrap();
         let comparison = Comparison::load_with_limit(&f.0, Some(&tip), "@", small).unwrap();
-        let entry = comparison.catalog.find("file.txt").unwrap();
+        let entry = comparison.catalog().find("file.txt").unwrap();
         assert_eq!(
             entry.content_kind(),
             &jaywalk::repository_file::FileKind::Symlink
@@ -536,7 +536,7 @@ fn git_and_jj_catalogs_preserve_side_kinds_independently_of_text() {
                 "File type changed: regular file → symlink",
             ),
         ] {
-            let entry = comparison.catalog.find(name).unwrap();
+            let entry = comparison.catalog().find(name).unwrap();
             assert_eq!(entry.content_kind(), &kind);
             assert_eq!(entry.type_change_notice().as_deref(), Some(notice));
             assert_eq!(
@@ -544,14 +544,14 @@ fn git_and_jj_catalogs_preserve_side_kinds_independently_of_text() {
                 ("../target".into(), "../target".into())
             );
         }
-        let removed = comparison.catalog.find("deleted-link").unwrap();
+        let removed = comparison.catalog().find("deleted-link").unwrap();
         assert_eq!(removed.content_kind(), &FileKind::Symlink);
         assert!(removed.type_change_notice().is_none());
         assert_eq!(
             comparison.read_file(removed).unwrap(),
             ("../gone".into(), "".into())
         );
-        let module = comparison.catalog.find("deleted-module").unwrap();
+        let module = comparison.catalog().find("deleted-module").unwrap();
         assert_eq!(module.content_kind(), &FileKind::Submodule);
         assert!(
             comparison
@@ -560,7 +560,7 @@ fn git_and_jj_catalogs_preserve_side_kinds_independently_of_text() {
                 .contains("Submodule")
         );
         for (path, status) in [("empty-added", "added"), ("empty-deleted", "removed")] {
-            let entry = comparison.catalog.find(path).unwrap();
+            let entry = comparison.catalog().find(path).unwrap();
             assert_eq!(entry.status(), Some(status));
             assert!(entry.type_change_notice().is_none());
             assert_eq!(comparison.read_file(entry).unwrap(), ("".into(), "".into()));
@@ -616,7 +616,7 @@ fn virtual_git_node_loads_current_changes_from_a_pinned_commit_view() {
     assert!(working.is_virtual_working_copy());
     assert_eq!(history.graph.len(), history.revisions.len());
     let comparison = pinned.for_revision(working).unwrap();
-    assert_eq!(comparison.files.len(), 3);
+    assert_eq!(comparison.files().len(), 3);
     assert_eq!(
         content(&comparison, "staged.txt"),
         ("original staged\n".into(), "staged edit\n".into())
@@ -641,5 +641,5 @@ fn virtual_git_node_loads_current_changes_from_a_pinned_commit_view() {
         content(&refreshed, "staged.txt"),
         ("staged edit\n".into(), "later edit\n".into())
     );
-    assert_eq!(refreshed.files.len(), 1);
+    assert_eq!(refreshed.files().len(), 1);
 }

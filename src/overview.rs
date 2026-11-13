@@ -93,17 +93,17 @@ impl Comparison {
     /// Use immutable endpoints and the recorded jj operation, independently of
     /// history limits and remote visibility. Parents precede descendants.
     pub fn overview_series(&self) -> Result<Option<OverviewSeries>, String> {
-        let mut commits = match &self.content {
+        let mut commits = match self.content() {
             ContentSource::External(_) | ContentSource::Evolution(_) => return Ok(None),
             ContentSource::Git(contents) => {
-                let tip = if self.tip == "working tree" {
+                let tip = if self.tip() == "working tree" {
                     contents.recorded_tip.as_str()
                 } else {
-                    &self.tip
+                    self.tip()
                 };
-                let range = format!("{}..{tip}", self.base);
+                let range = format!("{}..{tip}", self.base());
                 let output = crate::git::output(
-                    &self.root,
+                    self.root(),
                     &[
                         "log",
                         "--reverse",
@@ -136,7 +136,7 @@ impl Comparison {
                         commits.push(commit);
                     }
                 }
-                if self.tip == "working tree" && contents.working_changes {
+                if self.tip() == "working tree" && contents.working_changes {
                     commits.push(SeriesCommit {
                         details: CommitDetails {
                             id: String::new(),
@@ -151,11 +151,11 @@ impl Comparison {
                 return Ok(Some(OverviewSeries { commits }));
             }
             ContentSource::Recorded => {
-                let range = format!("{}..{}", self.base, self.tip);
+                let range = format!("{}..{}", self.base(), self.tip());
                 let template = r#""{" ++ '"id":' ++ json(commit_id) ++ ',"message":' ++ json(description) ++ ',"author":' ++ json(author.name()) ++ ',"timestamp":' ++ json(author.timestamp().local().format("%Y-%m-%d %H:%M:%S")) ++ ',"working_copy":' ++ json(current_working_copy) ++ ',"change_id":' ++ json(change_id) ++ ',"parents":[' ++ parents.map(|p| json(p.commit_id())).join(",") ++ '],"empty":' ++ json(empty) ++ "}\n""#;
                 let output = query(
-                    &self.root,
-                    &self.operation,
+                    self.root(),
+                    self.operation(),
                     &["log", "-G", "-r", &range, "-T", template],
                 )?;
                 let mut commits = Vec::new();
@@ -173,17 +173,17 @@ impl Comparison {
         Ok(Some(OverviewSeries { commits }))
     }
     pub fn commit_details(&self) -> Result<Option<CommitDetails>, String> {
-        match &self.content {
+        match self.content() {
             ContentSource::External(_) => Ok(None),
-            ContentSource::Git(_) if self.tip == "working tree" => Ok(None),
+            ContentSource::Git(_) if self.tip() == "working tree" => Ok(None),
             ContentSource::Git(_) => {
                 let output = crate::git::output(
-                    &self.root,
+                    self.root(),
                     &[
                         "show",
                         "-s",
                         "--format=%H%x00%B%x00%an%x00%aI",
-                        &self.tip,
+                        self.tip(),
                         "--",
                     ],
                 )?;
@@ -202,9 +202,9 @@ impl Comparison {
             _ => {
                 let template = r#""{" ++ '"id":' ++ json(commit_id) ++ ',"message":' ++ json(description) ++ ',"author":' ++ json(author.name()) ++ ',"timestamp":' ++ json(author.timestamp().local().format("%Y-%m-%d %H:%M:%S")) ++ ',"working_copy":' ++ json(current_working_copy) ++ "}""#;
                 let output = query(
-                    &self.root,
-                    &self.operation,
-                    &["log", "-G", "-r", &self.tip, "-T", template],
+                    self.root(),
+                    self.operation(),
+                    &["log", "-G", "-r", self.tip(), "-T", template],
                 )?;
                 serde_json::from_str(&output)
                     .map(Some)
@@ -218,15 +218,15 @@ impl Comparison {
             Err(error) => (None, Some(error)),
         };
         let mut files: Vec<_> = self
-            .files
+            .files()
             .iter()
             .map(|file| {
                 let type_notice = self
-                    .catalog
+                    .catalog()
                     .find(&file.after_path)
                     .and_then(|entry| entry.type_change_notice());
                 let (patch, notice) = match self
-                    .catalog
+                    .catalog()
                     .find(&file.after_path)
                     .map_or_else(|| self.contents(file), |entry| self.read_file(entry))
                 {

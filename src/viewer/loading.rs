@@ -145,7 +145,7 @@ impl Viewer {
                 viewer.repository = match result {
                     Ok((comparison, history)) => {
                         if !viewer.recent_recorded && viewer.arguments.diff.is_none() {
-                            crate::recents::record(&comparison.root, cx);
+                            crate::recents::record(comparison.root(), cx);
                             viewer.recent_recorded = true;
                         }
                         if !comparison.supports_evolution() {
@@ -181,8 +181,8 @@ impl Viewer {
                         .then(|| {
                             viewer
                                 .comparison()
-                                .filter(|comparison| comparison.files.len() == 1)
-                                .map(|comparison| comparison.files[0].after_path.clone())
+                                .filter(|comparison| comparison.files().len() == 1)
+                                .map(|comparison| comparison.files()[0].after_path.clone())
                         })
                         .flatten()
                 });
@@ -207,7 +207,7 @@ impl Viewer {
 
     pub(super) fn select_path(&mut self, path: &str, window: &mut Window, cx: &mut Context<Self>) {
         if let Some(comparison) = self.comparison().cloned()
-            && let Some(file) = comparison.catalog.find(path).cloned()
+            && let Some(file) = comparison.catalog().find(path).cloned()
         {
             self.load_file(comparison, file, FileLoad::Select, window, cx);
         }
@@ -221,7 +221,7 @@ impl Viewer {
     ) {
         if let Some(path) = self
             .comparison()
-            .and_then(|comparison| comparison.files.get(index))
+            .and_then(|comparison| comparison.files().get(index))
             .map(|file| file.after_path.clone())
         {
             self.select_path(&path, window, cx);
@@ -231,7 +231,7 @@ impl Viewer {
     pub(super) fn follow_open_file(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if let Some(path) = self.selected_path()
             && let Some(comparison) = self.comparison().cloned()
-            && let Some(file) = comparison.catalog.find(&path).cloned()
+            && let Some(file) = comparison.catalog().find(&path).cloned()
         {
             self.load_file(comparison, file, FileLoad::Follow, window, cx);
         }
@@ -410,7 +410,7 @@ impl Viewer {
         let cached = session
             .revision_comparison
             .as_ref()
-            .filter(|comparison| comparison.tip == commit_id)
+            .filter(|comparison| comparison.tip() == commit_id)
             .cloned();
         let already_loading = matches!(&session.scope, ComparisonScope::Revision {commit_id: current, ..} if current == commit_id)
             && matches!(session.comparison, LoadState::Loading);

@@ -36,7 +36,7 @@ impl Viewer {
             ComparisonScope::Revision { commit_id, .. } => Some(commit_id.clone()),
             ComparisonScope::Evolution { anchor, .. } => Some(anchor.clone()),
             ComparisonScope::Aggregate => {
-                Some(self.repository.ready()?.review.aggregate.tip.clone())
+                Some(self.repository.ready()?.review.aggregate.tip().to_owned())
             }
         }
     }

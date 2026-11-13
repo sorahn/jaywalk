@@ -214,7 +214,7 @@ impl Viewer {
 
     fn selected_changed_index(&self) -> Option<usize> {
         let file = &self.selected_file.as_ref()?.file;
-        jaywalk::file_browser::find_file(&self.comparison()?.files, file.path())
+        jaywalk::file_browser::find_file(self.comparison()?.files(), file.path())
     }
 
     fn selected_path(&self) -> Option<String> {

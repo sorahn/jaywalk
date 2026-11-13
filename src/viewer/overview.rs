@@ -245,8 +245,8 @@ impl Viewer {
             return;
         }
         let comparison = comparison.clone();
-        let comparison_operation = comparison.operation.clone();
-        let comparison_root = comparison.root.clone();
+        let comparison_operation = comparison.operation().to_owned();
+        let comparison_root = comparison.root().to_path_buf();
         let scope = self.scope_label();
         self.overview.requested = Some(request.clone());
         self.overview.generation += 1;

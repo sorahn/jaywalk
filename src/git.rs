@@ -1,6 +1,8 @@
 //! Read-only Git comparisons for repositories without Jujutsu metadata.
 use crate::history::{History, HistoryQuery, Revision};
-use crate::repository::{ChangedFile, Comparison, ContentSource, FileSide, next_capture};
+use crate::repository::{
+    ChangedFile, Comparison, ComparisonMetadata, ContentSource, FileSide, next_capture,
+};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -268,13 +270,16 @@ pub(crate) fn between(
         })();
         contents.insert(file.after_path.clone(), pair);
     }
-    Comparison {
-        root: root.clone(),
-        operation: String::new(),
-        base,
-        tip,
-        files: files.into(),
-        content: ContentSource::Git(Arc::new(GitContents {
+    Comparison::assemble(
+        ComparisonMetadata {
+            root: root.clone(),
+            operation: String::new(),
+            base,
+            tip,
+            capture: if working { next_capture() } else { 0 },
+        },
+        files,
+        ContentSource::Git(Arc::new(GitContents {
             recorded_tip,
             working_changes,
             files: contents,
@@ -282,11 +287,8 @@ pub(crate) fn between(
             trees: [before_tree, after_tree],
             limit,
         })),
-        capture: if working { next_capture() } else { 0 },
-        text_limit: limit,
-        catalog: Arc::default(),
-    }
-    .with_catalog()
+        limit,
+    )
 }
 impl GitContents {
     pub(crate) fn paths(&self, side: FileSide) -> BTreeMap<String, FileKind> {
@@ -475,22 +477,22 @@ pub(crate) fn for_revision(
 ) -> Result<Comparison, String> {
     if revision.is_virtual_working_copy() {
         return between(
-            comparison.root.clone(),
-            resolve(&comparison.root, "HEAD")?,
+            comparison.root().to_path_buf(),
+            resolve(comparison.root(), "HEAD")?,
             WORKING_TREE.into(),
-            comparison.text_limit,
+            comparison.text_limit(),
         );
     }
     let base = match revision.parents.first() {
         Some(parent) => parent.clone(),
-        None => output(&comparison.root, &["hash-object", "-t", "tree", "--stdin"])?
+        None => output(comparison.root(), &["hash-object", "-t", "tree", "--stdin"])?
             .trim()
             .to_owned(),
     };
     between(
-        comparison.root.clone(),
+        comparison.root().to_path_buf(),
         base,
         revision.commit_id.clone(),
-        comparison.text_limit,
+        comparison.text_limit(),
     )
 }

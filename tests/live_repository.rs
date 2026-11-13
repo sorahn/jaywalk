@@ -35,7 +35,7 @@ fn follows_stable_changes_without_following_the_checkout_or_snapshotting_files()
     std::fs::write(root.join("file.ts"), "const value = 2;\n").unwrap();
     jj(&root, &["describe", "-m", "first change"]);
     let recorded = Comparison::load(&root, Some("main"), "@").unwrap();
-    let change = recorded.revision(&recorded.tip).unwrap().change_id;
+    let change = recorded.revision(recorded.tip()).unwrap().change_id;
     jj(&root, &["bookmark", "create", "feature"]);
     jj(&root, &["new", "-m", "tip"]);
     jj(&root, &["bookmark", "set", "feature"]);
@@ -45,11 +45,11 @@ fn follows_stable_changes_without_following_the_checkout_or_snapshotting_files()
     let operation = Comparison::current_operation(&root).unwrap();
     let latest = Comparison::load(&root, Some("main"), "feature").unwrap();
     let rewritten = latest.revision(&change).unwrap();
-    assert_ne!(rewritten.commit_id, recorded.tip);
+    assert_ne!(rewritten.commit_id, recorded.tip());
     assert!(rewritten.working_copy);
     assert!(!rewritten.empty);
-    assert!(!latest.revision(&latest.tip).unwrap().working_copy);
-    let original = recorded.revision(&recorded.tip).unwrap();
+    assert!(!latest.revision(latest.tip()).unwrap().working_copy);
+    let original = recorded.revision(recorded.tip()).unwrap();
     assert!(
         original.working_copy,
         "working-copy state belongs to the pinned operation"
@@ -57,7 +57,8 @@ fn follows_stable_changes_without_following_the_checkout_or_snapshotting_files()
     assert_eq!(original.description, "first change\n");
     assert_eq!(original.summary(), "first change · working copy · changes");
     assert_ne!(
-        latest.tip, rewritten.commit_id,
+        latest.tip(),
+        rewritten.commit_id,
         "feature tip must not become the edited ancestor"
     );
     let refreshed = jaywalk::live_refresh::RecordedRefresh::load(
@@ -71,18 +72,18 @@ fn follows_stable_changes_without_following_the_checkout_or_snapshotting_files()
         &Default::default(),
     )
     .unwrap();
-    assert_eq!(refreshed.branch.tip, latest.tip);
+    assert_eq!(refreshed.branch.tip(), latest.tip());
     assert_eq!(
         refreshed.revision.as_ref().unwrap().commit_id,
         rewritten.commit_id
     );
     let comparison = latest.for_revision(&rewritten).unwrap();
     assert_eq!(
-        comparison.contents(&comparison.files[0]).unwrap().1,
+        comparison.contents(&comparison.files()[0]).unwrap().1,
         "inserted\nconst value = 3;\n"
     );
     assert_eq!(
-        recorded.contents(&recorded.files[0]).unwrap().1,
+        recorded.contents(&recorded.files()[0]).unwrap().1,
         "const value = 2;\n"
     );
     std::fs::write(root.join("file.ts"), "unsnapshotted\n").unwrap();
@@ -116,7 +117,7 @@ fn workspace_following_survives_an_abandoned_working_copy_and_keeps_explicit_tar
     jj(&root, &["new"]);
     let initial =
         RecordedRefresh::load(&root, Some("main"), "@", None, &Default::default()).unwrap();
-    let old = initial.branch.revision(&initial.branch.tip).unwrap();
+    let old = initial.branch.revision(initial.branch.tip()).unwrap();
     assert!(old.working_copy);
     let selected = FollowedChange {
         change_id: old.change_id.clone(),
@@ -137,18 +138,18 @@ fn workspace_following_survives_an_abandoned_working_copy_and_keeps_explicit_tar
     )
     .unwrap();
     let followed = latest.revision.as_ref().unwrap();
-    assert_ne!(latest.branch.tip, initial.branch.tip);
-    assert_eq!(followed.commit_id, latest.branch.tip);
+    assert_ne!(latest.branch.tip(), initial.branch.tip());
+    assert_eq!(followed.commit_id, latest.branch.tip());
     assert!(followed.working_copy);
     assert_ne!(followed.change_id, old.change_id);
-    assert_eq!(latest.branch.operation, operation);
+    assert_eq!(latest.branch.operation(), operation);
     assert_eq!(
-        latest.branch.contents(&latest.branch.files[0]).unwrap().1,
+        latest.branch.contents(&latest.branch.files()[0]).unwrap().1,
         "const value = 3;\n"
     );
     let explicit =
         RecordedRefresh::load(&root, Some("main"), "feature", None, &Default::default()).unwrap();
-    assert_ne!(explicit.branch.tip, latest.branch.tip);
+    assert_ne!(explicit.branch.tip(), latest.branch.tip());
     let failure = match RecordedRefresh::load(
         &root,
         Some("main"),
@@ -187,7 +188,7 @@ fn workspace_following_survives_an_abandoned_working_copy_and_keeps_explicit_tar
     assert_eq!(
         read_only
             .branch
-            .contents(&read_only.branch.files[0])
+            .contents(&read_only.branch.files()[0])
             .unwrap()
             .1,
         "const value = 3;\n"

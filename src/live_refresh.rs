@@ -55,8 +55,7 @@ impl RecordedRefresh {
             })?;
         let read = || -> Result<Self, String> {
             let root = PathBuf::from(query(directory, &operation, &["root"])?.trim());
-            let branch =
-                Comparison::recorded_at(root, operation.clone(), base, tip)?.with_text_limit(limit);
+            let branch = Comparison::recorded_at(root, operation.clone(), base, tip, limit)?;
             let history = branch.history(history_query)?;
             let revision = match selected {
                 None => None,

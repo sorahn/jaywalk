@@ -88,7 +88,7 @@ fn branch_review_uses_the_full_tip_and_common_base_on_git_and_jj() {
             })
             .unwrap();
         let paths: Vec<_> = review
-            .files
+            .files()
             .iter()
             .map(|file| file.after_path.as_str())
             .collect();
@@ -96,19 +96,19 @@ fn branch_review_uses_the_full_tip_and_common_base_on_git_and_jj() {
         let middle = f.run("git", &["rev-parse", "middle"]);
         assert!(
             catalog
-                .contains(&review.base, &review.tip, &middle)
+                .contains(review.base(), review.tip(), &middle)
                 .unwrap()
         );
         assert!(
             !catalog
-                .contains(&review.base, &review.tip, &review.base)
+                .contains(review.base(), review.tip(), review.base())
                 .unwrap()
         );
         assert_eq!(
             catalog.candidates(&middle).unwrap(),
             [Tip::Reference(name("feature"))]
         );
-        let before = review.contents(&review.files[1]).unwrap();
+        let before = review.contents(&review.files()[1]).unwrap();
         assert_eq!(before, (String::new(), "second\n".into()));
         f.run("git", &["branch", "-f", "feature", "main"]);
         assert_eq!(
@@ -118,8 +118,8 @@ fn branch_review_uses_the_full_tip_and_common_base_on_git_and_jj() {
                     base: name("main")
                 })
                 .unwrap()
-                .tip,
-            review.tip,
+                .tip(),
+            review.tip(),
             "catalog endpoints stay fixed after refs move"
         );
     }
@@ -144,7 +144,7 @@ fn deleted_merged_branches_keep_the_original_range_separate_from_the_merge_resul
             .unwrap();
         assert_eq!(
             original
-                .files
+                .files()
                 .iter()
                 .map(|file| file.after_path.as_str())
                 .collect::<Vec<_>>(),
@@ -155,9 +155,9 @@ fn deleted_merged_branches_keep_the_original_range_separate_from_the_merge_resul
                 merge: merge.clone(),
             })
             .unwrap();
-        assert_eq!(landed.tip, merge);
-        assert_ne!(landed.base, original.base);
-        assert!(!landed.files.iter().any(|file| file.after_path == "later"));
+        assert_eq!(landed.tip(), merge);
+        assert_ne!(landed.base(), original.base());
+        assert!(!landed.files().iter().any(|file| file.after_path == "later"));
     }
 }
 #[test]
@@ -231,7 +231,7 @@ fn named_merged_branches_use_the_historical_base_after_main_advances() {
             .unwrap();
         assert_eq!(
             review
-                .files
+                .files()
                 .iter()
                 .map(|file| file.after_path.as_str())
                 .collect::<Vec<_>>(),
