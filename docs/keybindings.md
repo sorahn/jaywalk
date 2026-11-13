@@ -429,3 +429,9 @@ Full-file diffs show the current navigation position as “Change X of Y”. Fol
 single-file diffs show “Y changes”; next/previous change buttons and commands
 are inactive until Show full file is selected. Range disclosures work in both
 standard modes and expand both aligned panes together.
+
+The reference browser has a search field. Type to filter qualified local/remote
+names, use Up/Down and Enter to reveal a reference, and Escape to clear the query
+then close. These are focused widget navigation keys, like command-palette
+navigation; the command that opens the reference browser remains remappable.
+Copy and Review branch changes remain available on reference rows.

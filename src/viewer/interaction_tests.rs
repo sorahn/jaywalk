@@ -808,3 +808,104 @@ fn standard_folding_settings_apply_live_and_preserve_toolbar_overrides(cx: &mut 
         "fixture persistence stays disabled"
     );
 }
+
+#[gpui_test::test]
+fn reference_browser_bounds_work_and_supports_search_keyboard_and_reopen(cx: &mut TestAppContext) {
+    use jaywalk::{
+        history::{History, Reference, ReferenceKind},
+        references::ReferenceSnapshot,
+    };
+    let fixture = Fixture::new();
+    let (viewer, cx) = setup(&fixture, cx);
+    cx.update(|_, app| {
+        viewer.update(app, |v, cx| {
+            let super::LoadState::Loaded(session) = &mut v.repository else {
+                panic!("fixture loaded")
+            };
+            let old = session.history.as_ref().unwrap();
+            let target = old.revisions.last().unwrap().commit_id.clone();
+            let snapshot = ReferenceSnapshot {
+                references: (0..1400)
+                    .map(|i| Reference {
+                        name: format!("feature-{i:04}"),
+                        target: target.clone(),
+                        kind: ReferenceKind::Local,
+                        tracked_by: vec![],
+                        conflicted: false,
+                    })
+                    .collect(),
+                ..Default::default()
+            };
+            session.history = Ok(std::rc::Rc::new(History {
+                revisions: old.revisions.clone(),
+                graph: old.graph.clone(),
+                lane_count: old.lane_count,
+                references: std::sync::Arc::new(snapshot),
+            }));
+            v.references.open = true;
+            cx.notify();
+        })
+    });
+    super::reference_browser::RENDERED.with(|count| count.set(0));
+    draw(cx);
+    let rendered = super::reference_browser::RENDERED.with(|count| count.get());
+    assert!(
+        rendered > 0 && rendered < 150,
+        "only visible rows should render: {rendered}"
+    );
+    assert!(cx.debug_bounds("reference-browser").is_some());
+    cx.simulate_input("1399");
+    draw(cx);
+    cx.simulate_keystrokes("enter");
+    draw(cx);
+    assert_eq!(
+        cx.update(|_, app| viewer
+            .read(app)
+            .references
+            .inspected
+            .as_ref()
+            .unwrap()
+            .name
+            .clone()),
+        "feature-1399"
+    );
+    assert!(!cx.update(|_, app| viewer.read(app).references.open));
+    cx.update(|_, app| {
+        viewer.update(app, |v, cx| {
+            v.references.open = true;
+            cx.notify();
+        })
+    });
+    draw(cx);
+    cx.simulate_input("feature-139");
+    draw(cx);
+    cx.simulate_keystrokes("down");
+    cx.simulate_keystrokes("enter");
+    draw(cx);
+    assert_eq!(
+        cx.update(|_, app| viewer
+            .read(app)
+            .references
+            .inspected
+            .as_ref()
+            .unwrap()
+            .name
+            .clone()),
+        "feature-1391"
+    );
+    cx.update(|_, app| {
+        viewer.update(app, |v, cx| {
+            v.references.open = true;
+            cx.notify();
+        })
+    });
+    draw(cx);
+    cx.simulate_input("no-match");
+    draw(cx);
+    cx.simulate_keystrokes("escape");
+    draw(cx);
+    assert!(cx.update(|_, app| viewer.read(app).references.open));
+    cx.simulate_keystrokes("escape");
+    draw(cx);
+    assert!(!cx.update(|_, app| viewer.read(app).references.open));
+}

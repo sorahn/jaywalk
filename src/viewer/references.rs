@@ -315,13 +315,14 @@ impl Viewer {
                 viewer.references.open = *open;
                 cx.notify();
             }))
-            .content(move |_, _, cx| {
+            .content(move |_, window, cx| {
                 reference_content(
                     &snapshot,
                     None,
                     &visibility,
                     inspected.as_ref(),
                     viewer.clone(),
+                    window,
                     cx,
                 )
             })
@@ -330,132 +331,112 @@ impl Viewer {
 }
 
 fn reference_content(
-    snapshot: &jaywalk::references::ReferenceSnapshot,
+    snapshot: &std::sync::Arc<jaywalk::references::ReferenceSnapshot>,
     target: Option<&str>,
     visibility: &RemoteVisibility,
     inspected: Option<&jaywalk::history::Reference>,
     viewer: WeakEntity<Viewer>,
-    cx: &Context<gpui::component::popover::PopoverState>,
+    window: &mut Window,
+    cx: &mut Context<gpui::component::popover::PopoverState>,
 ) -> AnyElement {
-    let mut content = div()
-        .id("reference-details-list")
-        .v_flex()
-        .gap_1()
-        .p_2()
-        .w(px(400.))
-        .max_h(px(460.))
-        .overflow_y_scroll();
-    let mut group = None;
-    let mut count = 0;
-    for reference in snapshot
-        .references
-        .iter()
-        .filter(|r| target.is_none_or(|target| r.target == target))
-    {
-        let name = reference.remote().unwrap_or("Local");
-        if group != Some(name) {
-            group = Some(name);
-            let suffix = reference
-                .remote()
-                .filter(|remote| !visibility.includes(remote))
-                .map_or("", |_| " · hidden from graph");
-            content = content.child(
-                div()
-                    .pt_1()
-                    .text_size(px(12.))
-                    .child(format!("{name}{suffix}")),
-            );
+    let popup = cx.entity().downgrade();
+    let state = window.use_keyed_state("reference-browser-state", cx, |window, cx| {
+        super::reference_browser::ReferenceBrowser::new(viewer, popup.clone(), window, cx)
+    });
+    state.update(cx, |state, cx| {
+        state.configure(snapshot.clone(), target, visibility, inspected, popup, cx)
+    });
+    state.into_any_element()
+}
+
+pub(super) fn reference_row(
+    reference: &jaywalk::history::Reference,
+    inspected: Option<&jaywalk::history::Reference>,
+    viewer: WeakEntity<Viewer>,
+    popup: WeakEntity<gpui::component::popover::PopoverState>,
+) -> AnyElement {
+    let target = reference.target.clone();
+    let label = reference.display_name();
+    let tracking = match &reference.kind {
+        jaywalk::history::ReferenceKind::Local => "local".to_owned(),
+        jaywalk::history::ReferenceKind::Remote {
+            tracking: Some(jaywalk::history::TrackingState::Untracked),
+            ..
+        } => "untracked".into(),
+        jaywalk::history::ReferenceKind::Remote { .. } if !reference.tracked_by.is_empty() => {
+            format!("tracked by {}", reference.tracked_by.join(", "))
         }
-        count += 1;
-        let target = reference.target.clone();
-        let label = reference.display_name();
-        let tracking = match &reference.kind {
-            jaywalk::history::ReferenceKind::Local => "local".to_owned(),
-            jaywalk::history::ReferenceKind::Remote {
-                tracking: Some(jaywalk::history::TrackingState::Untracked),
-                ..
-            } => "untracked".into(),
-            jaywalk::history::ReferenceKind::Remote { .. } if !reference.tracked_by.is_empty() => {
-                format!("tracked by {}", reference.tracked_by.join(", "))
-            }
-            _ => "tracking unknown".into(),
-        };
-        let detail = format!(
-            "{label}\n{target}\n{tracking}{}",
-            if reference.conflicted {
-                " · conflicted target"
-            } else {
-                ""
-            }
-        );
-        let navigation_viewer = viewer.clone();
-        let selected = inspected == Some(reference);
-        let reference = reference.clone();
-        let popup = cx.entity().downgrade();
-        let copy = label.clone();
-        let copy_id = format!("copy:{copy}:{target}");
-        let review_name = jaywalk::branch_review::RefName::from_reference(&reference);
-        let menu_owner = viewer.clone();
-        let menu_popup = cx.entity().downgrade();
-        content = content.child(
-            div()
-                .id(SharedString::from(format!(
-                    "review-reference:{label}:{target}"
-                )))
-                .h_flex()
-                .items_center()
-                .gap_1()
-                .context_menu(move |menu, _, _| {
-                    let owner = menu_owner.clone();
-                    let reference = review_name.clone();
-                    let popup = menu_popup.clone();
-                    menu.item(
-                        PopupMenuItem::new("Review branch changes")
-                            .action(Box::new(commands::ExecuteCommand {
-                                command: jaywalk::commands::CommandId::ChooseReview,
-                            }))
-                            .on_click(move |_, window, cx| {
-                                let _ = popup.update(cx, |popup, cx| popup.dismiss(window, cx));
-                                let _ = owner.update(cx, |viewer, cx| {
-                                    viewer.review_reference(reference.clone(), window, cx)
-                                });
-                            }),
-                    )
-                })
-                .child(
-                    Button::new(SharedString::from(format!("open:{label}:{target}")))
-                        .ghost()
-                        .small()
-                        .selected(selected)
-                        .flex_1()
-                        .min_w_0()
-                        .label(label)
-                        .tooltip(detail)
-                        .on_click(move |_, window, cx| {
-                            let _ = popup.update(cx, |popup, cx| popup.dismiss(window, cx));
-                            let _ = navigation_viewer.update(cx, |viewer, cx| {
-                                viewer.references.inspected = Some(reference.clone());
-                                viewer.open_reference_target(target.clone(), true, window, cx);
-                            });
-                        }),
-                )
-                .child(
-                    Button::new(SharedString::from(copy_id))
-                        .ghost()
-                        .small()
-                        .compact()
-                        .label("Copy")
-                        .tooltip("Copy qualified reference name")
-                        .on_click(move |_, _, cx| {
-                            cx.write_to_clipboard(ClipboardItem::new_string(copy.clone()))
-                        }),
-                ),
-        );
-    }
-    if count == 0 {
-        content = content.child("No branch or bookmark references");
-    }
-    content.into_any_element()
+        _ => "tracking unknown".into(),
+    };
+    let detail = format!(
+        "{label}\n{target}\n{tracking}{}",
+        if reference.conflicted {
+            " · conflicted target"
+        } else {
+            ""
+        }
+    );
+    let navigation_viewer = viewer.clone();
+    let selected = inspected == Some(reference);
+    let reference = reference.clone();
+    let copy = label.clone();
+    let copy_id = format!("copy:{copy}:{target}");
+    let review_name = jaywalk::branch_review::RefName::from_reference(&reference);
+    let menu_owner = viewer.clone();
+    let menu_popup = popup.clone();
+    div()
+        .id(SharedString::from(format!(
+            "review-reference:{label}:{target}"
+        )))
+        .h_flex()
+        .items_center()
+        .gap_1()
+        .context_menu(move |menu, _, _| {
+            let owner = menu_owner.clone();
+            let reference = review_name.clone();
+            let popup = menu_popup.clone();
+            menu.item(
+                PopupMenuItem::new("Review branch changes")
+                    .action(Box::new(commands::ExecuteCommand {
+                        command: jaywalk::commands::CommandId::ChooseReview,
+                    }))
+                    .on_click(move |_, window, cx| {
+                        let _ = popup.update(cx, |popup, cx| popup.dismiss(window, cx));
+                        let _ = owner.update(cx, |viewer, cx| {
+                            viewer.review_reference(reference.clone(), window, cx)
+                        });
+                    }),
+            )
+        })
+        .child(
+            Button::new(SharedString::from(format!("open:{label}:{target}")))
+                .ghost()
+                .small()
+                .selected(selected)
+                .flex_1()
+                .min_w_0()
+                .label(label)
+                .tooltip(detail)
+                .on_click(move |_, window, cx| {
+                    let _ = popup.update(cx, |popup, cx| popup.dismiss(window, cx));
+                    let _ = navigation_viewer.update(cx, |viewer, cx| {
+                        viewer.references.inspected = Some(reference.clone());
+                        viewer.open_reference_target(target.clone(), true, window, cx);
+                    });
+                }),
+        )
+        .child(
+            Button::new(SharedString::from(copy_id))
+                .ghost()
+                .small()
+                .compact()
+                .label("Copy")
+                .tooltip("Copy qualified reference name")
+                .on_click(move |_, _, cx| {
+                    cx.write_to_clipboard(ClipboardItem::new_string(copy.clone()))
+                }),
+        )
+        .into_any_element()
 }
 
 pub(super) fn reference_badge(
@@ -568,13 +549,14 @@ pub(super) fn reference_badge(
                     )
                     .tooltip(summary),
             )
-            .content(move |_, _, cx| {
+            .content(move |_, window, cx| {
                 reference_content(
                     &snapshot,
                     Some(&target),
                     &visibility,
                     None,
                     viewer.clone(),
+                    window,
                     cx,
                 )
             })

@@ -42,6 +42,7 @@ mod navigation;
 mod overview;
 mod palette;
 mod panels;
+mod reference_browser;
 mod references;
 mod review;
 mod session_layout;
@@ -145,6 +146,7 @@ struct SelectedFile {
 }
 
 pub(crate) fn init(arguments: &Arguments, settings: &Settings, cx: &mut App) -> Result<(), String> {
+    reference_browser::init(cx);
     commands::init(arguments, settings, cx)
 }
 
