@@ -57,3 +57,12 @@ install-cli directory=(env("HOME") / ".local/bin") profile="debug":
 # Launch the native app; omit arguments for welcome, or pass . for this repository.
 run *args:
     cargo run --locked --bin jaywalk -- "$@"
+
+# Synthetic domain profiling; build outside the process-memory measurement.
+profile *args:
+    cargo build --locked --release --example profile
+    case "$(uname -s)" in Darwin) /usr/bin/time -l target/release/examples/profile "$@" ;; Linux) /usr/bin/time -v target/release/examples/profile "$@" ;; *) target/release/examples/profile "$@" ;; esac
+
+# Synthetic UI timings; never opens a native desktop window.
+profile-ui:
+    cargo test --locked --release --bin jaywalk viewer::performance_tests -- --ignored --nocapture --test-threads=1

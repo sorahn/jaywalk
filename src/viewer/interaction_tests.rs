@@ -25,7 +25,7 @@ impl Fixture {
         std::fs::write(fixture.0.join("file.txt"), "changed\n").unwrap();
         fixture
     }
-    fn replace(&self, before: &str, after: &str) {
+    pub(super) fn replace(&self, before: &str, after: &str) {
         std::fs::write(self.0.join("file.txt"), before).unwrap();
         self.git(&["add", "file.txt"]);
         self.git(&["commit", "--amend", "--no-edit"]);
@@ -86,7 +86,7 @@ pub(super) fn setup<'a>(
     draw(cx);
     (viewer.unwrap(), cx)
 }
-fn draw(cx: &mut VisualTestContext) {
+pub(super) fn draw(cx: &mut VisualTestContext) {
     // Resizable groups report measured sizes after layout and schedule a settling frame.
     for _ in 0..3 {
         cx.run_until_parked();

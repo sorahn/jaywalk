@@ -320,3 +320,29 @@ Startup coverage also paints geometry before releasing a repository load. Native
 startup still has a separate smoke check: the simulated platform did not expose
 a stale-frame dependency issue found in inactive native windows. Keep the owning
 viewer in the per-frame entity dependency set when adding geometry callbacks.
+
+## Performance measurements
+
+`just profile --jj` builds a release-profile synthetic domain harness, then runs
+it under the platform's process-memory/time reporter. It creates and removes its
+own temporary repositories; it never profiles or changes your checkout. Omit
+`--jj` when jj is unavailable. `--samples 5` increases repetitions and
+`--large-mib 50` increases the generated text workload (actual byte counts are
+reported). Output is JSON Lines with separate diff, syntax, Fluid scrolling,
+Git capture/refresh, overview, references, history and optional jj evolution
+measurements. Fixture generation is excluded from operation timings; total
+process time and peak memory include it. Runs are warm-cache measurements, not
+cold disk/cache benchmarks. Required Linux process reporting uses `/usr/bin/time`.
+
+`just profile-ui` measures synthetic windows on GPUI's test platform in release
+mode. It covers reference counts through 5,000, repeated open/redraw, viewer
+loading, resizing and wheel input across diff modes. A draw includes three
+settling frames; reported durations are not native GPU frame times. These
+profiling tests are ignored during normal `just check` runs and contain no
+wall-clock correctness assertions.
+
+Record the source revision, OS, hardware, profile, fixture sizes and raw output
+when comparing runs. Use fresh processes for peak-memory comparisons. Native
+profiling and selection/copy/scrolling checks need a coordinated graphical
+session; successful headless measurements do not establish native appearance or
+interaction behavior.

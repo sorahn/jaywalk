@@ -595,3 +595,6 @@ mod tests {
         }
     }
 }
+
+#[cfg(test)]
+mod performance_tests;
