@@ -7,6 +7,14 @@ pub(super) enum FileLoad {
     Reflow,
 }
 
+/// Captures the selected subject and request together until preparation completes.
+struct FileLoadRequest {
+    id: jaywalk::review_requests::FileRequest,
+    source: Comparison,
+    file: jaywalk::repository_file::FileEntry,
+    reason: FileLoad,
+}
+
 impl Viewer {
     pub(crate) fn new(
         arguments: Arguments,
@@ -277,75 +285,25 @@ impl Viewer {
         }
         self.begin_loading(LoadingKind::File, window, cx);
         self.recall_reading(file.path());
-        let generation = self.requests.file();
-        let repository_generation = self.requests.comparison();
+        let request = FileLoadRequest {
+            id: self.requests.file(),
+            source: comparison.clone(),
+            file: file.clone(),
+            reason,
+        };
         self.focus_evolution_file(Some(file.path()));
         self.rebuild_browser(cx);
         if reason == FileLoad::Select {
             self.reveal_browser_selection(cx);
         }
         self.reveal_after_layout = false;
-        let source = comparison.clone();
-        let metadata = file.clone();
         let tab_size = self.settings.editor.tab_size;
         self.requests.file_task = Some(cx.spawn_in(window, async move |this, cx| {
-            let language = file_language(file.path());
-            let path = file.path().to_owned();
             let result = cx
                 .background_spawn(async move { PreparedFile::load(&comparison, &file, tab_size) })
                 .await;
             let _ = this.update_in(cx, |viewer, window, cx| {
-                if viewer.requests.file() != generation
-                    || viewer.requests.comparison() != repository_generation
-                {
-                    return;
-                }
-                viewer.finish_loading(LoadingKind::File);
-                if preserve && let Some(snapshot) = viewer.capture_reading(cx) {
-                    viewer.live.restore = Some((path.clone(), snapshot));
-                }
-                viewer.view.present(if metadata.kind().is_none() {
-                    jaywalk::view_choice::FilePresentation::SingleFile
-                } else {
-                    jaywalk::view_choice::FilePresentation::Comparison
-                });
-                let content = match result {
-                    Err(error) => LoadState::Failed(error),
-                    Ok(prepared) => {
-                        // Keeping the mounted editors preserves their measured wrap map,
-                        // focus and selection. Identical text needs no viewport reset.
-                        if reason == FileLoad::Follow
-                            && viewer.selected_path().as_deref() == Some(&path)
-                            && viewer.code().is_some()
-                        {
-                            viewer.update_followed_file(prepared, window, cx);
-                            let selected = viewer
-                                .selected_file
-                                .as_mut()
-                                .expect("the followed file still owns its editors");
-                            selected.file = metadata;
-                            selected.source = source;
-                            viewer.rebuild_browser(cx);
-                            cx.notify();
-                            return;
-                        }
-                        viewer.reveal_after_layout = reason == FileLoad::Select
-                            && viewer.live.restore.is_none()
-                            && viewer.live.pending_position.is_none()
-                            && prepared.model.blocks.iter().any(|block| block.changed);
-                        viewer.restore_prepared_reading(&path, &prepared.before, &prepared.after);
-                        LoadState::Loaded(viewer.mount_file_editors(prepared, language, window, cx))
-                    }
-                };
-                viewer.active_change = None;
-                viewer.navigation_target = None;
-                viewer.selected_file = Some(SelectedFile {
-                    file: metadata,
-                    source,
-                    content,
-                });
-                viewer.rebuild_browser(cx);
-                cx.notify();
+                viewer.complete_file_load(request, result, window, cx);
             });
         }));
         cx.notify();
@@ -491,6 +449,72 @@ impl Viewer {
     pub(super) fn refresh(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.refresh_live(window, cx);
     }
+    fn complete_file_load(
+        &mut self,
+        request: FileLoadRequest,
+        result: Result<PreparedFile, String>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.requests.file() != request.id {
+            return;
+        }
+        let FileLoadRequest {
+            source,
+            file: metadata,
+            reason,
+            ..
+        } = request;
+        let path = metadata.path().to_owned();
+        let language = file_language(metadata.path());
+        let preserve = reason != FileLoad::Select;
+        self.finish_loading(LoadingKind::File);
+        if preserve && let Some(snapshot) = self.capture_reading(cx) {
+            self.live.restore = Some((path.clone(), snapshot));
+        }
+        self.view.present(if metadata.kind().is_none() {
+            jaywalk::view_choice::FilePresentation::SingleFile
+        } else {
+            jaywalk::view_choice::FilePresentation::Comparison
+        });
+        let content = match result {
+            Err(error) => LoadState::Failed(error),
+            Ok(prepared) => {
+                // Keeping the mounted editors preserves their measured wrap map,
+                // focus and selection. Identical text needs no viewport reset.
+                if reason == FileLoad::Follow
+                    && self.selected_path().as_deref() == Some(&path)
+                    && self.code().is_some()
+                {
+                    self.update_followed_file(prepared, window, cx);
+                    let selected = self
+                        .selected_file
+                        .as_mut()
+                        .expect("the followed file still owns its editors");
+                    selected.file = metadata;
+                    selected.source = source;
+                    self.rebuild_browser(cx);
+                    cx.notify();
+                    return;
+                }
+                self.reveal_after_layout = reason == FileLoad::Select
+                    && self.live.restore.is_none()
+                    && self.live.pending_position.is_none()
+                    && prepared.model.blocks.iter().any(|block| block.changed);
+                self.restore_prepared_reading(&path, &prepared.before, &prepared.after);
+                LoadState::Loaded(self.mount_file_editors(prepared, language, window, cx))
+            }
+        };
+        self.active_change = None;
+        self.navigation_target = None;
+        self.selected_file = Some(SelectedFile {
+            file: metadata,
+            source,
+            content,
+        });
+        self.rebuild_browser(cx);
+        cx.notify();
+    }
 }
 
 #[cfg(test)]
@@ -568,5 +592,111 @@ mod tests {
                 assert_eq!(spans.last().unwrap().0.end, range.end);
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod completion_tests {
+    use super::{FileLoad, FileLoadRequest, LoadingKind, PreparedFile, SessionLayout, Viewer};
+    use crate::viewer::interaction_tests::{Fixture, setup};
+    use gpui_test::TestAppContext;
+
+    #[gpui_test::test]
+    fn late_file_success_and_failure_leave_the_new_selection_and_loading_intact(
+        cx: &mut TestAppContext,
+    ) {
+        let fixture = Fixture::new();
+        std::fs::write(fixture.0.join("second.txt"), "second file\n").unwrap();
+        let (viewer, cx) = setup(&fixture, cx);
+        let source = cx.update(|_, app| viewer.read(app).comparison().unwrap().clone());
+        let first = source.catalog().find("file.txt").unwrap().clone();
+        let second = source.catalog().find("second.txt").unwrap().clone();
+        for failure in [false, true] {
+            let first_result = if failure {
+                Err("late file failure".into())
+            } else {
+                PreparedFile::load(&source, &first, 4)
+            };
+            let second_result = PreparedFile::load(&source, &second, 4);
+            cx.update(|window, app| {
+                viewer.update(app, |viewer, cx| {
+                    viewer.settings.ui.loading_delay_ms = 0;
+                    viewer.load_file(source.clone(), first.clone(), FileLoad::Select, window, cx);
+                    let old = FileLoadRequest {
+                        id: viewer.requests.file(),
+                        source: source.clone(),
+                        file: first.clone(),
+                        reason: FileLoad::Select,
+                    };
+                    viewer.load_file(source.clone(), second.clone(), FileLoad::Select, window, cx);
+                    let current = FileLoadRequest {
+                        id: viewer.requests.file(),
+                        source: source.clone(),
+                        file: second.clone(),
+                        reason: FileLoad::Select,
+                    };
+                    // Own the completion order here; beginning and applying use the production paths.
+                    viewer.requests.file_task = None;
+                    viewer.complete_file_load(old, first_result, window, cx);
+                    assert_eq!(viewer.selected_path().as_deref(), Some("second.txt"));
+                    assert!(viewer.code().is_none());
+                    assert!(viewer.loading_visible(LoadingKind::File));
+                    viewer.complete_file_load(current, second_result, window, cx);
+                    assert!(!viewer.loading_visible(LoadingKind::File));
+                    assert_eq!(
+                        viewer.code().unwrap().after.read(cx).value().as_ref(),
+                        "second file\n"
+                    );
+                })
+            });
+        }
+    }
+
+    #[gpui_test::test]
+    fn file_completion_from_replaced_repository_cannot_overwrite_its_successor(
+        cx: &mut TestAppContext,
+    ) {
+        let first = Fixture::new();
+        let second = Fixture::new();
+        std::fs::write(second.0.join("file.txt"), "replacement contents\n").unwrap();
+        let (viewer, cx) = setup(&first, cx);
+        let old = cx.update(|_, app| {
+            let viewer = viewer.read(app);
+            let selected = viewer.selected_file.as_ref().unwrap();
+            FileLoadRequest {
+                id: viewer.requests.file(),
+                source: selected.source.clone(),
+                file: selected.file.clone(),
+                reason: FileLoad::Select,
+            }
+        });
+        let result = PreparedFile::load(&old.source, &old.file, 4);
+        cx.update(|window, app| {
+            viewer.update(app, |viewer, cx| {
+                let mut args = viewer.arguments.clone();
+                args.directory = Some(second.0.clone());
+                let settings = viewer.settings.clone();
+                let layout = SessionLayout::load(&args, &settings);
+                *viewer = Viewer::new(args, settings, layout, window, cx);
+            })
+        });
+        cx.run_until_parked();
+        cx.update(|window, app| {
+            viewer.update(app, |viewer, cx| {
+                assert_eq!(
+                    viewer.code().unwrap().after.read(cx).value().as_ref(),
+                    "replacement contents\n"
+                );
+                viewer.complete_file_load(old, result, window, cx);
+                assert_eq!(
+                    viewer.selected_file.as_ref().unwrap().source.root(),
+                    second.0.canonicalize().unwrap()
+                );
+                assert_eq!(
+                    viewer.code().unwrap().after.read(cx).value().as_ref(),
+                    "replacement contents\n"
+                );
+            })
+        });
     }
 }

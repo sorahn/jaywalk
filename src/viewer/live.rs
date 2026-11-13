@@ -1058,4 +1058,52 @@ mod lifecycle_tests {
             })
         });
     }
+
+    #[gpui_test::test]
+    fn changed_history_query_restarts_refresh_without_publishing_the_old_error(
+        cx: &mut TestAppContext,
+    ) {
+        let fixture = Fixture::new();
+        let (viewer, cx) = setup(&fixture, cx);
+        cx.update(|window, app| {
+            viewer.update(app, |viewer, cx| {
+                let request = viewer.begin_live_refresh(window, cx);
+                viewer.history_query = viewer.history_query.clone().with_limit(1).unwrap();
+                viewer.complete_refresh_git(
+                    request,
+                    None,
+                    Err("obsolete query failed".into()),
+                    window,
+                    cx,
+                );
+                assert!(
+                    viewer.live.active.is_some(),
+                    "the new query has its own refresh"
+                );
+                assert!(!matches!(
+                    viewer.live.notice,
+                    Some(LiveNotice::RefreshPaused(_))
+                ));
+            })
+        });
+        cx.run_until_parked();
+        cx.update(|_, app| {
+            let viewer = viewer.read(app);
+            assert_eq!(viewer.history_query.limit(), 1);
+            assert_eq!(
+                viewer
+                    .repository
+                    .ready()
+                    .unwrap()
+                    .history
+                    .as_ref()
+                    .unwrap()
+                    .revisions
+                    .len(),
+                1
+            );
+            assert!(viewer.live.active.is_none());
+            assert!(viewer.live.notice.is_none());
+        });
+    }
 }
