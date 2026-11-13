@@ -163,6 +163,27 @@ fn run(args: Args) -> Result<(), String> {
         measure(&format!("syntax/rust/{rows}-lines"), args.samples, || {
             Ok(PreparedInputHighlighter::new("rust", &after))
         })?;
+        let full_patch = || {
+            similar::TextDiff::from_lines(&before, &after)
+                .unified_diff()
+                .context_radius(before.lines().count().max(after.lines().count()))
+                .header("a/source", "b/source")
+                .to_string()
+        };
+        measure(
+            &format!("standard/full-patch/{rows}-lines"),
+            args.samples,
+            || Ok(full_patch()),
+        )?;
+        let patch = full_patch();
+        measure(
+            &format!("standard/parse/{rows}-lines"),
+            args.samples,
+            || {
+                gpui_kit::component::diff::DiffFile::parse(&patch)
+                    .map_err(|error| error.to_string())
+            },
+        )?;
         let diff = FileDiff::new(&before, &after);
         let geometry = DiffGeometry {
             before: (0..diff.before_offsets.len())
@@ -196,7 +217,14 @@ fn run(args: Args) -> Result<(), String> {
     measure(
         &format!("git/capture/{bytes}-byte-limit"),
         args.samples,
-        || Comparison::load(&large.0, Some("HEAD"), "@"),
+        || {
+            Comparison::load_with_limit(
+                &large.0,
+                Some("HEAD"),
+                "@",
+                jaywalk::text_content::TextLimit::from_mib(args.large_mib as u64)?,
+            )
+        },
     )?;
     for files in [1, 64] {
         let f = Fixture::new("files")?;

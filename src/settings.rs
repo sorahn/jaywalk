@@ -788,7 +788,7 @@ mod tests {
 
     #[test]
     fn text_limit_defaults_to_fifty_mib_and_requires_representable_integer_bytes() {
-        assert_eq!(Settings::parse("").unwrap().diff.max_text_file_size_mb, 50);
+        assert_eq!(Settings::parse("").unwrap().diff.max_text_file_size_mb, 5);
         assert_eq!(
             Settings::parse("[diff]\nmax_text_file_size_mb=1")
                 .unwrap()

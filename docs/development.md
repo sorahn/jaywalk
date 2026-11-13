@@ -329,7 +329,7 @@ own temporary repositories; it never profiles or changes your checkout. Omit
 `--jj` when jj is unavailable. `--samples 5` increases repetitions and
 `--large-mib 50` increases the generated text workload and exercises capture at
 the default size limit (actual byte counts are reported). `--wide-history` adds
-700 distinct branch tips with a 1,000-row history limit. Output is JSON Lines with separate diff, syntax, Fluid scrolling,
+700 distinct branch tips with a 1,000-row history limit. Output is JSON Lines with separate diff, syntax, full-patch preparation/parsing, Fluid scrolling,
 Git capture/refresh, overview, references, history and optional jj evolution
 measurements. Resident-memory snapshots are taken outside operation timers,
 before the samples and after their returned values are dropped. Retained allocator
