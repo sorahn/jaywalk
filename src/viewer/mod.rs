@@ -427,7 +427,7 @@ impl Viewer {
                 {
                     let path = state.files().first().map(|file| file.path().clone());
                     if let Some(path) = path {
-                        state.scroll_to_line(
+                        state.restore_viewport_position(
                             gpui::component::diff::DiffLinePosition::new(
                                 path,
                                 gpui::component::diff::DiffSide::Modified,

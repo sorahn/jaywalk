@@ -347,7 +347,9 @@ impl Viewer {
                         && let Some(Ok(Some(state))) =
                             viewer.code().map(|code| code.standard.clone())
                     {
-                        state.update(cx, |state, cx| state.scroll_to_line(position, cx));
+                        state.update(cx, |state, cx| {
+                            state.restore_viewport_position(position, cx)
+                        });
                     }
                     if let Some(horizontal) = viewer.config.pending_horizontal.take()
                         && let Some(Ok(Some(state))) =

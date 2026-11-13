@@ -331,7 +331,7 @@ impl Viewer {
             right
         };
         state.update(cx, |state, cx| {
-            state.scroll_to_line(
+            state.restore_viewport_position(
                 gpui::component::diff::DiffLinePosition::new(path, side, line + 1),
                 cx,
             )

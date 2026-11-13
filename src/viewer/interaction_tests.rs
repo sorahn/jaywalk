@@ -1029,3 +1029,87 @@ fn external_diff_caption_fits_without_filling_the_header(cx: &mut TestAppContext
         }
     }
 }
+
+fn check_folded_external_context(first_change: usize, cx: &mut TestAppContext) {
+    use jaywalk::settings::DiffView;
+    let fixture = Fixture::new();
+    let before = (1..=90)
+        .map(|line| format!("unchanged {line}\n"))
+        .collect::<String>();
+    let after = before.replace(
+        &format!("unchanged {first_change}\n"),
+        &format!("changed {first_change}\n"),
+    );
+    let left = fixture.0.join("before.txt");
+    let right = fixture.0.join("after.txt");
+    std::fs::write(&left, before).unwrap();
+    std::fs::write(&right, after).unwrap();
+    let args = Arguments::parse_from([
+        "jaywalk",
+        "--diff",
+        left.to_str().unwrap(),
+        right.to_str().unwrap(),
+        "--file",
+        "after.txt",
+    ]);
+    let (viewer, cx) = setup_arguments(&fixture, args, cx);
+    for mode in [DiffView::SideBySide, DiffView::Inline] {
+        cx.update(|_, app| {
+            viewer.update(app, |viewer, cx| {
+                viewer.collapse_unchanged = true;
+                viewer.apply_standard_context(cx);
+                viewer.set_view_mode(mode, cx);
+            })
+        });
+        draw(cx);
+        assert!(
+            cx.debug_bounds("diff-expand-0-0").is_some(),
+            "{mode:?} expanded unchanged lines before change {first_change}"
+        );
+        cx.update(|_, app| {
+            viewer.update(app, |viewer, cx| viewer.set_view_mode(DiffView::Fluid, cx))
+        });
+        draw(cx);
+    }
+    // An explicit source-line reveal still opens hidden context.
+    cx.update(|_, app| {
+        viewer.update(app, |viewer, cx| {
+            viewer.set_view_mode(DiffView::SideBySide, cx);
+            let state = viewer
+                .code()
+                .unwrap()
+                .standard
+                .as_ref()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .clone();
+            state.update(cx, |state, cx| {
+                let path = state.files()[0].path().clone();
+                state.scroll_to_line(
+                    gpui_kit::component::diff::DiffLinePosition::new(
+                        path,
+                        gpui_kit::component::diff::DiffSide::Modified,
+                        1,
+                    ),
+                    cx,
+                );
+            });
+        })
+    });
+    draw(cx);
+    assert!(
+        cx.debug_bounds("diff-expand-0-0").is_none(),
+        "explicit reveal should expand the leading fold"
+    );
+}
+
+#[gpui_test::test]
+fn external_line_29_change_keeps_leading_context_folded(cx: &mut TestAppContext) {
+    check_folded_external_context(29, cx);
+}
+
+#[gpui_test::test]
+fn external_line_36_change_keeps_leading_context_folded(cx: &mut TestAppContext) {
+    check_folded_external_context(36, cx);
+}
