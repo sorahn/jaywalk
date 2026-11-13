@@ -11,9 +11,9 @@ individual commit, or the evolution of a jj change without leaving the viewer.
 - Read a complete changeset as a collapsed overview, then open a file for a closer look.
 - Adjust panels, fonts, wrapping, and keyboard shortcuts through live TOML settings.
 
-Jaywalk is in early development. macOS builds use a local app bundle; Fedora
-Linux builds can be installed as a local RPM, including a desktop launcher and
-the `jw` command. There is no published installer or notarized macOS release yet.
+Jaywalk is in early development. macOS builds use a local app bundle; Fedora and
+openSUSE Linux builds can be installed as a local RPM, including a desktop launcher
+and the `jw` command. There is no published installer or notarized macOS release yet.
 See the [development guide](docs/development.md) for building and installing.
 
 ## Open a comparison
