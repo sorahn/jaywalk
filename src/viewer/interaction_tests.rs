@@ -909,3 +909,52 @@ fn reference_browser_bounds_work_and_supports_search_keyboard_and_reopen(cx: &mu
     draw(cx);
     assert!(!cx.update(|_, app| viewer.read(app).references.open));
 }
+
+#[gpui_test::test]
+fn history_scrollbar_drags_without_changing_the_comparison(cx: &mut TestAppContext) {
+    let fixture = Fixture::new();
+    for index in 0..70 {
+        fixture.git(&[
+            "commit",
+            "--allow-empty",
+            "-m",
+            &format!("revision {index}"),
+        ]);
+    }
+    let (viewer, cx) = setup(&fixture, cx);
+    cx.update(|_, app| {
+        gpui_kit::component::Theme::set_scrollbar_mode(
+            gpui_kit::component::scroll::ScrollbarMode::Always,
+            app,
+        );
+    });
+    draw(cx);
+    let (bounds, before, selected) = cx.update(|_, app| {
+        let viewer = viewer.read(app);
+        let scroll = viewer.history_scroll.0.borrow();
+        (
+            scroll.base_handle.bounds(),
+            scroll.base_handle.offset(),
+            viewer.comparison().unwrap().identity(),
+        )
+    });
+    let grab = point(bounds.right() - px(7.), bounds.top() + px(12.));
+    let end = point(grab.x, bounds.bottom() - px(30.));
+    cx.simulate_mouse_move(grab, None, Default::default());
+    draw(cx);
+    cx.simulate_mouse_down(grab, MouseButton::Left, Default::default());
+    draw(cx);
+    cx.simulate_mouse_move(end, Some(MouseButton::Left), Default::default());
+    draw(cx);
+    cx.simulate_mouse_up(end, MouseButton::Left, Default::default());
+    draw(cx);
+    cx.update(|_, app| {
+        let viewer = viewer.read(app);
+        let after = viewer.history_scroll.0.borrow().base_handle.offset();
+        assert!(
+            after.y < before.y - px(300.),
+            "history did not scroll: {before:?} -> {after:?}"
+        );
+        assert_eq!(viewer.comparison().unwrap().identity(), selected);
+    });
+}

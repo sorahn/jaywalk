@@ -74,3 +74,7 @@ Headless host regressions live in `tests/overview_scroll.rs`.
 and projection count so standard diff footers can report the same position as
 Fluid. Row rebuilds clear that selection. Range disclosure buttons expose debug
 selectors for simulated-window folding regressions in both standard modes.
+
+The diff body's vertical scrollbar uses its positioned overlay bounds rather
+than the list's bounds. Unwrapped lines can widen the list beyond the visible
+panel; the scrollbar must stay at the visible panel edge.

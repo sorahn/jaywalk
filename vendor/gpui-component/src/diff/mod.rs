@@ -754,10 +754,17 @@ fn render_diff(
             )
         })
         .when(has_rows, |this| {
-            this.child(Scrollbar::vertical(&scrollbar))
-                .when(!soft_wrap && mode != DiffMode::Split, |this| {
-                    this.child(Scrollbar::horizontal(&horizontal))
-                })
+            // The list can be wider than the panel when lines do not wrap.
+            // Keep its vertical scrollbar on the visible body edge.
+            this.child(
+                div()
+                    .absolute()
+                    .inset_0()
+                    .child(Scrollbar::vertical(&scrollbar).viewport_from_layout()),
+            )
+            .when(!soft_wrap && mode != DiffMode::Split, |this| {
+                this.child(Scrollbar::horizontal(&horizontal))
+            })
         })
         // A line-number drag may finish anywhere, including outside the body.
         .on_mouse_up(
