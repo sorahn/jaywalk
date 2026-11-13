@@ -760,6 +760,7 @@ impl Viewer {
         let presentation = self.evolution_header_presentation();
         let mut bar =
             div()
+                .debug_selector(|| "comparison-header".into())
                 .h_flex()
                 .items_stretch()
                 .h(px(self
@@ -775,9 +776,11 @@ impl Viewer {
                 .bg(gpui::component::Theme::global(cx).sidebar)
                 .child(self.render_navigation_buttons(cx))
                 .child(
+                    // Stretch the dropdown wrapper across the slot; a row sizes
+                    // it to its contents and clips the label beside the caret.
                     div()
-                        .h_flex()
-                        .items_center()
+                        .v_flex()
+                        .justify_center()
                         .h_full()
                         .px_2()
                         .flex_1()

@@ -59,11 +59,19 @@ pub(super) fn setup<'a>(
     fixture: &Fixture,
     cx: &'a mut TestAppContext,
 ) -> (Entity<Viewer>, &'a mut VisualTestContext) {
+    let args =
+        Arguments::parse_from(["jaywalk", fixture.0.to_str().unwrap(), "--file", "file.txt"]);
+    setup_arguments(fixture, args, cx)
+}
+
+fn setup_arguments<'a>(
+    fixture: &Fixture,
+    mut args: Arguments,
+    cx: &'a mut TestAppContext,
+) -> (Entity<Viewer>, &'a mut VisualTestContext) {
     let config = fixture.0.join("settings.toml");
     let contents = "[live]\nenabled=false\n[layout]\nremember_per_repository=false\n[layout.placement]\nhistory_side='left'\nfiles_side='left'\n";
     std::fs::write(&config, contents).unwrap();
-    let mut args =
-        Arguments::parse_from(["jaywalk", fixture.0.to_str().unwrap(), "--file", "file.txt"]);
     args.config = Some(config);
     args.normalize().unwrap();
     let settings = Settings::parse(contents).unwrap();
@@ -957,4 +965,43 @@ fn history_scrollbar_drags_without_changing_the_comparison(cx: &mut TestAppConte
         );
         assert_eq!(viewer.comparison().unwrap().identity(), selected);
     });
+}
+
+#[gpui_test::test]
+fn external_diff_caption_uses_the_available_header_width(cx: &mut TestAppContext) {
+    let fixture = Fixture::new();
+    let left = fixture.0.join("before.txt");
+    let right = fixture.0.join("after.txt");
+    std::fs::write(&left, "before\n").unwrap();
+    std::fs::write(&right, "after\n").unwrap();
+    let args = Arguments::parse_from([
+        "jaywalk",
+        "--diff",
+        left.to_str().unwrap(),
+        right.to_str().unwrap(),
+    ]);
+    let (viewer, cx) = setup_arguments(&fixture, args, cx);
+    assert_eq!(
+        cx.update(|_, app| viewer.read(app).scope_label()),
+        "External diff"
+    );
+    for file_selected in [false, true] {
+        if file_selected {
+            cx.update(|window, app| {
+                viewer.update(app, |viewer, cx| {
+                    viewer.select_path("after.txt", window, cx)
+                });
+            });
+        }
+        for width in [1500., 800., 1500.] {
+            cx.simulate_resize(size(px(width), px(800.)));
+            draw(cx);
+            let header = cx.debug_bounds("comparison-header").unwrap();
+            let label = cx.debug_bounds("review-source-label").unwrap();
+            assert!(
+                label.size.width > header.size.width * 0.5,
+                "label {label:?} wastes header {header:?}"
+            );
+        }
+    }
 }

@@ -40,7 +40,14 @@ impl Viewer {
             .justify_start()
             .text_xs()
             .icon(IconName::ChevronDown)
-            .child(div().flex_1().min_w_0().truncate().child(caption))
+            .child(
+                div()
+                    .debug_selector(|| "review-source-label".into())
+                    .flex_1()
+                    .min_w_0()
+                    .truncate()
+                    .child(caption),
+            )
             .tooltip("Choose comparison: all changes, current work, branch or base")
             .disabled(self.repository.ready().is_none())
             .dropdown_menu(move |menu, _, _| {
