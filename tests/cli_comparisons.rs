@@ -643,3 +643,47 @@ fn virtual_git_node_loads_current_changes_from_a_pinned_commit_view() {
     );
     assert_eq!(refreshed.files().len(), 1);
 }
+
+#[test]
+fn git_blob_stream_recovers_after_rejected_files_and_preserves_pinned_data() {
+    use jaywalk::{repository::FileSide, text_content::TextLimit};
+    let f = Fixture::new();
+    f.git(&["init", "-b", "main"]);
+    f.write("a-large.txt", &"x".repeat(1_048_577));
+    std::fs::write(f.0.join("b-binary.txt"), [0xff, 0xfe]).unwrap();
+    f.write("c-valid.txt", "before λ\n");
+    f.write("d-empty.txt", "");
+    f.git(&["add", "."]);
+    f.git(&["commit", "-m", "baseline"]);
+    let base = f.git(&["rev-parse", "HEAD"]);
+    f.write("a-large.txt", "small now\n");
+    f.write("b-binary.txt", "text now\n");
+    f.write("c-valid.txt", "after λ\n");
+    f.write("d-empty.txt", "added\n");
+    f.git(&["add", "."]);
+    f.git(&["commit", "-m", "changed"]);
+    let comparison =
+        Comparison::load_with_limit(&f.0, Some(&base), "HEAD", TextLimit::from_mib(1).unwrap())
+            .unwrap();
+    assert!(
+        comparison
+            .read_path("a-large.txt", FileSide::Before)
+            .unwrap_err()
+            .contains("text limit")
+    );
+    assert!(
+        comparison
+            .read_path("b-binary.txt", FileSide::Before)
+            .is_err()
+    );
+    assert_eq!(
+        content(&comparison, "c-valid.txt"),
+        ("before λ\n".into(), "after λ\n".into())
+    );
+    assert_eq!(
+        content(&comparison, "d-empty.txt"),
+        ("".into(), "added\n".into())
+    );
+    f.write("c-valid.txt", "later edit\n");
+    assert_eq!(content(&comparison, "c-valid.txt").1, "after λ\n");
+}
