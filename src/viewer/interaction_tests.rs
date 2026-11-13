@@ -524,7 +524,10 @@ fn choosing_a_branch_keeps_the_loaded_overview_caption_visible(cx: &mut TestAppC
         ..Default::default()
     });
     draw(cx);
-    assert!(cx.debug_bounds("comparison-caption").unwrap().size.width > px(100.));
+    assert!(
+        cx.debug_bounds("comparison-caption").unwrap().size.width > caption.size.width,
+        "collapsed subject should grow the caption"
+    );
     cx.simulate_resize(size(px(800.), px(800.)));
     draw(cx);
     assert!(cx.debug_bounds("comparison-caption").unwrap().size.width > px(40.));
@@ -968,7 +971,7 @@ fn history_scrollbar_drags_without_changing_the_comparison(cx: &mut TestAppConte
 }
 
 #[gpui_test::test]
-fn external_diff_caption_uses_the_available_header_width(cx: &mut TestAppContext) {
+fn external_diff_caption_fits_without_filling_the_header(cx: &mut TestAppContext) {
     let fixture = Fixture::new();
     let left = fixture.0.join("before.txt");
     let right = fixture.0.join("after.txt");
@@ -998,10 +1001,31 @@ fn external_diff_caption_uses_the_available_header_width(cx: &mut TestAppContext
             draw(cx);
             let header = cx.debug_bounds("comparison-header").unwrap();
             let label = cx.debug_bounds("review-source-label").unwrap();
+            let button = cx.debug_bounds("review-source-button").unwrap();
+            let measured = cx.update(|window, app| {
+                let text: gpui_test::SharedString = "External diff".into();
+                let run = gpui_test::TextRun {
+                    len: text.len(),
+                    font: gpui_test::Font {
+                        family: gpui_kit::component::Theme::global(app).font_family.clone(),
+                        ..Default::default()
+                    },
+                    ..Default::default()
+                };
+                window
+                    .text_system()
+                    .shape_line(text, px(14.), &[run], None)
+                    .width
+            });
             assert!(
-                label.size.width > header.size.width * 0.5,
-                "label {label:?} wastes header {header:?}"
+                label.size.width >= measured,
+                "caption clipped: {label:?}, text {measured:?}, button {button:?}"
             );
+            assert!(
+                button.size.width < px(220.),
+                "hover target too wide: {button:?}"
+            );
+            assert!(button.right() < header.right() - px(100.));
         }
     }
 }

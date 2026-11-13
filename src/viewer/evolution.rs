@@ -776,10 +776,11 @@ impl Viewer {
                 .bg(gpui::component::Theme::global(cx).sidebar)
                 .child(self.render_navigation_buttons(cx))
                 .child(
-                    // Stretch the dropdown wrapper across the slot; a row sizes
-                    // it to its contents and clips the label beside the caret.
+                    // Let the selector use its intrinsic width, capped by the
+                    // slot, so its hover target follows the visible caption.
                     div()
                         .v_flex()
+                        .items_start()
                         .justify_center()
                         .h_full()
                         .px_2()
