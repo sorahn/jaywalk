@@ -189,11 +189,7 @@ impl ExternalContents {
                 }
                 (None, None) => unreachable!("name came from an input tree"),
             };
-            files.push(ChangedFile {
-                status: status.into(),
-                before_path: name.clone(),
-                after_path: name,
-            });
+            files.push(ChangedFile::new(status.into(), name.clone(), name));
         }
         Comparison::assemble(
             ComparisonMetadata {

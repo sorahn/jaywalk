@@ -607,10 +607,12 @@ impl Comparison {
         let git_dir = PathBuf::from(query(self.root(), operation, &["git", "root"])?.trim());
         let files = entries
             .iter()
-            .map(|entry| ChangedFile {
-                status: entry.status.clone(),
-                before_path: entry.before_path.clone(),
-                after_path: entry.after_path.clone(),
+            .map(|entry| {
+                ChangedFile::new(
+                    entry.status.as_str().into(),
+                    entry.before_path.clone(),
+                    entry.after_path.clone(),
+                )
             })
             .collect::<Vec<_>>();
         let before_paths = Arc::new(
@@ -829,11 +831,11 @@ mod tests {
             !diff
                 .files()
                 .iter()
-                .any(|file| file.after_path == "upstream.ts")
+                .any(|file| file.after_path() == "upstream.ts")
         );
         for file in diff.files().iter() {
             let (before, after) = diff.contents(file).unwrap();
-            match file.after_path.as_str() {
+            match file.after_path() {
                 "feature.ts" => assert_eq!(
                     (before, after),
                     (code("ancestor two", 1), code("ancestor two", 2))
@@ -945,10 +947,10 @@ mod tests {
         let file = patch
             .files()
             .iter()
-            .find(|file| file.after_path == "startup/module.ts")
+            .find(|file| file.after_path() == "startup/module.ts")
             .unwrap();
-        assert_eq!(file.status, "renamed");
-        assert_eq!(file.before_path, "module.ts");
+        assert_eq!(file.status(), "renamed");
+        assert_eq!(file.before_path(), "module.ts");
         let (before, after) = patch.contents(file).unwrap();
         assert_eq!((before.as_str(), after.as_str()), (source, source));
         assert!(
@@ -964,7 +966,7 @@ mod tests {
         let added = diff
             .files()
             .iter()
-            .find(|file| file.after_path == "startup/module.ts")
+            .find(|file| file.after_path() == "startup/module.ts")
             .unwrap();
         assert_eq!(
             diff.contents(added).unwrap(),
@@ -973,7 +975,7 @@ mod tests {
         let removed = diff
             .files()
             .iter()
-            .find(|file| file.after_path == "module.ts")
+            .find(|file| file.after_path() == "module.ts")
             .unwrap();
         assert_eq!(
             diff.contents(removed).unwrap(),
@@ -1067,7 +1069,7 @@ mod tests {
         );
         let patch = comparison.for_revision(&version.revision()).unwrap();
         assert_eq!(patch.files().len(), 1);
-        assert_eq!(patch.files()[0].after_path, "right.ts");
+        assert_eq!(patch.files()[0].after_path(), "right.ts");
     }
 
     #[test]

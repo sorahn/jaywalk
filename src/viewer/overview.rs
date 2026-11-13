@@ -48,28 +48,29 @@ impl PreparedOverview {
         let mut documents = Vec::with_capacity(snapshot.files.len());
         let mut files = BTreeMap::new();
         for file in snapshot.files {
-            let mut parsed = DiffFile::parse(&file.patch)
-                .map_err(|error| format!("Could not prepare {}: {error}", file.file.after_path))?;
+            let mut parsed = DiffFile::parse(&file.patch).map_err(|error| {
+                format!("Could not prepare {}: {error}", file.file.after_path())
+            })?;
             if parsed.len() != 1 {
                 return Err(format!(
                     "Expected one overview entry for {}",
-                    file.file.after_path
+                    file.file.after_path()
                 ));
             }
             let document = parsed.remove(0);
-            if document.path().as_ref() != file.file.after_path {
+            if document.path().as_ref() != file.file.after_path() {
                 return Err(format!(
                     "Overview path did not match {}",
-                    file.file.after_path
+                    file.file.after_path()
                 ));
             }
             documents.push(
                 document
-                    .with_language(file_language(&file.file.after_path))
+                    .with_language(file_language(file.file.after_path()))
                     .with_tab_size(tab_size),
             );
             files.insert(
-                file.file.after_path.clone(),
+                file.file.after_path().to_owned(),
                 FileSummary {
                     file: file.file,
                     notice: file.notice,
@@ -530,10 +531,10 @@ impl Viewer {
                     files
                         .get(document.path().as_ref())
                         .map(|file| {
-                            if file.file.status == "renamed" || file.file.status == "copied" {
-                                format!("{} from {}", file.file.status, file.file.before_path)
+                            if file.file.status() == "renamed" || file.file.status() == "copied" {
+                                format!("{} from {}", file.file.status(), file.file.before_path())
                             } else {
-                                file.file.status.clone()
+                                file.file.status().to_owned()
                             }
                         })
                         .unwrap_or_default(),

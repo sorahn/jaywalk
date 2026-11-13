@@ -232,7 +232,7 @@ impl Viewer {
                         .map(|file| {
                             comparison
                                 .catalog()
-                                .find(&file.after_path)
+                                .find(file.after_path())
                                 .cloned()
                                 .unwrap_or_else(|| jaywalk::repository_file::FileEntry::from(file))
                         })

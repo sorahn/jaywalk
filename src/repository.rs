@@ -36,14 +36,36 @@ pub(crate) fn next_capture() -> u64 {
 
 #[derive(Clone, Debug)]
 pub struct ChangedFile {
-    pub status: String,
-    pub before_path: String,
-    pub after_path: String,
+    kind: ChangeKind,
+    before_path: String,
+    after_path: String,
+}
+impl ChangedFile {
+    pub fn new(kind: ChangeKind, before_path: String, after_path: String) -> Self {
+        Self {
+            kind,
+            before_path,
+            after_path,
+        }
+    }
+    pub fn kind(&self) -> &ChangeKind {
+        &self.kind
+    }
+    /// Original unknown statuses remain available for diagnostics and display.
+    pub fn status(&self) -> &str {
+        self.kind.as_str()
+    }
+    pub fn before_path(&self) -> &str {
+        &self.before_path
+    }
+    pub fn after_path(&self) -> &str {
+        &self.after_path
+    }
 }
 
-#[derive(Clone, Debug)]
 /// A fully assembled read snapshot. Endpoints, source and catalog cannot be
 /// independently replaced after construction; clones share immutable contents.
+#[derive(Clone, Debug)]
 pub struct Comparison {
     root: PathBuf,
     operation: String,
@@ -128,11 +150,11 @@ pub fn parse_changed_files(output: &str) -> Result<Vec<ChangedFile>, String> {
             let fields: [String; 3] = serde_json::from_str(line)
                 .map_err(|error| format!("Invalid jj diff entry: {error}"))?;
             let [status, before_path, after_path] = fields;
-            Ok(ChangedFile {
-                status,
+            Ok(ChangedFile::new(
+                status.as_str().into(),
                 before_path,
                 after_path,
-            })
+            ))
         })
         .collect()
 }
@@ -628,7 +650,7 @@ mod tests {
 
         assert_eq!(files[0].before_path, "old file.ts");
         assert_eq!(files[0].after_path, "new\tfile.ts");
-        assert_eq!(files[1].status, "removed");
+        assert_eq!(files[1].status(), "removed");
     }
 
     #[test]
@@ -716,17 +738,17 @@ mod tests {
         let added = comparison
             .files
             .iter()
-            .find(|file| file.status == "added")
+            .find(|file| file.status() == "added")
             .unwrap();
         let renamed = comparison
             .files
             .iter()
-            .find(|file| file.status == "renamed")
+            .find(|file| file.status() == "renamed")
             .unwrap();
         let removed = comparison
             .files
             .iter()
-            .find(|file| file.status == "removed")
+            .find(|file| file.status() == "removed")
             .unwrap();
 
         assert_eq!(

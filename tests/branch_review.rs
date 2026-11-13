@@ -90,7 +90,7 @@ fn branch_review_uses_the_full_tip_and_common_base_on_git_and_jj() {
         let paths: Vec<_> = review
             .files()
             .iter()
-            .map(|file| file.after_path.as_str())
+            .map(|file| file.after_path())
             .collect();
         assert_eq!(paths, ["one.rs", "two.rs"]);
         let middle = f.run("git", &["rev-parse", "middle"]);
@@ -146,7 +146,7 @@ fn deleted_merged_branches_keep_the_original_range_separate_from_the_merge_resul
             original
                 .files()
                 .iter()
-                .map(|file| file.after_path.as_str())
+                .map(|file| file.after_path())
                 .collect::<Vec<_>>(),
             ["one.rs", "two.rs"]
         );
@@ -157,7 +157,12 @@ fn deleted_merged_branches_keep_the_original_range_separate_from_the_merge_resul
             .unwrap();
         assert_eq!(landed.tip(), merge);
         assert_ne!(landed.base(), original.base());
-        assert!(!landed.files().iter().any(|file| file.after_path == "later"));
+        assert!(
+            !landed
+                .files()
+                .iter()
+                .any(|file| file.after_path() == "later")
+        );
     }
 }
 #[test]
@@ -233,7 +238,7 @@ fn named_merged_branches_use_the_historical_base_after_main_advances() {
             review
                 .files()
                 .iter()
-                .map(|file| file.after_path.as_str())
+                .map(|file| file.after_path())
                 .collect::<Vec<_>>(),
             ["one.rs", "two.rs"]
         );

@@ -483,7 +483,7 @@ mod tests {
         assert_eq!(refresh.home.tip(), tip);
         assert!(refresh.revision.unwrap().is_virtual_working_copy());
         assert_eq!(refresh.comparison.files().len(), 1);
-        assert_eq!(refresh.comparison.files()[0].after_path, "new.txt");
+        assert_eq!(refresh.comparison.files()[0].after_path(), "new.txt");
         assert_eq!(refresh.comparison.base(), tip);
     }
     #[cfg(any(target_os = "macos", target_os = "linux"))]

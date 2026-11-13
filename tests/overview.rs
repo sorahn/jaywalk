@@ -4,18 +4,14 @@ use jaywalk::repository::{ChangedFile, Comparison};
 use std::{path::PathBuf, process::Command};
 
 fn file(status: &str, before: &str, after: &str) -> ChangedFile {
-    ChangedFile {
-        status: status.into(),
-        before_path: before.into(),
-        after_path: after.into(),
-    }
+    ChangedFile::new(status.into(), before.into(), after.into())
 }
 fn parse(file: &ChangedFile, contents: Option<(&str, &str)>) -> DiffFile {
     let patch = overview_patch(file, contents);
     let mut documents = DiffFile::parse(&patch).unwrap_or_else(|error| panic!("{error}: {patch}"));
     assert_eq!(documents.len(), 1, "{patch}");
     let document = documents.remove(0);
-    assert_eq!(document.path().as_ref(), file.after_path, "{patch}");
+    assert_eq!(document.path().as_ref(), file.after_path(), "{patch}");
     document
 }
 #[test]
@@ -164,16 +160,16 @@ fn git_overview_has_full_message_and_keeps_nontext_entries() {
     let rename = overview
         .files
         .iter()
-        .find(|entry| entry.file.after_path == "renamed.txt")
+        .find(|entry| entry.file.after_path() == "renamed.txt")
         .unwrap();
     // Ordinary Git currently represents renames as independent additions/deletions.
-    assert_eq!(rename.file.status, "added");
+    assert_eq!(rename.file.status(), "added");
     assert!(rename.patch.contains("+unchanged content\n"));
     assert!(!rename.patch.contains("later working"));
     let binary = overview
         .files
         .iter()
-        .find(|entry| entry.file.after_path == "binary.dat")
+        .find(|entry| entry.file.after_path() == "binary.dat")
         .unwrap();
     assert!(
         binary
@@ -214,14 +210,14 @@ fn jj_overview_is_operation_pinned_and_never_snapshots_unsaved_work() {
     let changed = overview
         .files
         .iter()
-        .find(|entry| entry.file.after_path == "file.rs")
+        .find(|entry| entry.file.after_path() == "file.rs")
         .unwrap();
     assert!(changed.patch.contains("+new\n"));
     assert!(!changed.patch.contains("unsnapshotted"));
     let renamed = overview
         .files
         .iter()
-        .find(|entry| entry.file.after_path == "after.txt")
+        .find(|entry| entry.file.after_path() == "after.txt")
         .unwrap();
     assert_eq!(
         renamed.notice.as_deref(),

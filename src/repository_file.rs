@@ -34,6 +34,18 @@ impl From<&str> for ChangeKind {
         }
     }
 }
+impl From<String> for ChangeKind {
+    fn from(value: String) -> Self {
+        match value.as_str() {
+            "added" => Self::Added,
+            "removed" => Self::Removed,
+            "renamed" => Self::Renamed,
+            "copied" => Self::Copied,
+            "modified" => Self::Modified,
+            _ => Self::Other(value),
+        }
+    }
+}
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct FileChange {
     kind: ChangeKind,
@@ -90,22 +102,24 @@ impl FileEntry {
         self.kind().map(ChangeKind::as_str)
     }
     pub fn changed(&self) -> Option<ChangedFile> {
-        self.change.as_ref().map(|change| ChangedFile {
-            status: change.kind.as_str().into(),
-            before_path: change.before_path.clone(),
-            after_path: self.path.clone(),
+        self.change.as_ref().map(|change| {
+            ChangedFile::new(
+                change.kind.clone(),
+                change.before_path.clone(),
+                self.path.clone(),
+            )
         })
     }
 }
 impl From<&ChangedFile> for FileEntry {
     fn from(file: &ChangedFile) -> Self {
         Self {
-            path: file.after_path.clone(),
+            path: file.after_path().to_owned(),
             content_kind: FileKind::Regular,
             type_change: None,
             change: Some(FileChange {
-                kind: file.status.as_str().into(),
-                before_path: file.before_path.clone(),
+                kind: file.kind().clone(),
+                before_path: file.before_path().to_owned(),
             }),
         }
     }
@@ -129,19 +143,16 @@ mod tests {
         let plain = FileEntry::unchanged("src/lib.rs");
         assert!(plain.kind().is_none());
         assert!(plain.changed().is_none());
-        let copy = ChangedFile {
-            status: "copied".into(),
-            before_path: plain.path().into(),
-            after_path: "copy.rs".into(),
-        };
+        let copy = ChangedFile::new("copied".into(), plain.path().into(), "copy.rs".into());
         let mut entries = vec![FileEntry::from(&copy)];
         assert_eq!(find_entry(&entries, plain.path()), None);
         entries.push(plain);
         assert_eq!(find_entry(&entries, "src/lib.rs"), Some(1));
-        entries[0] = FileEntry::from(&ChangedFile {
-            status: "renamed".into(),
-            ..copy
-        });
+        entries[0] = FileEntry::from(&ChangedFile::new(
+            ChangeKind::Renamed,
+            copy.before_path().to_owned(),
+            copy.after_path().to_owned(),
+        ));
         assert_eq!(find_entry(&entries, "copy.rs"), Some(0));
         entries.pop();
         assert_eq!(find_entry(&entries, "src/lib.rs"), Some(0));
@@ -191,9 +202,9 @@ impl FileCatalog {
             .collect();
         let mut renames = std::collections::BTreeMap::new();
         for file in changes {
-            let before_kind = before.get(&file.before_path);
+            let before_kind = before.get(file.before_path());
             let after_kind = entries
-                .get(&file.after_path)
+                .get(file.after_path())
                 .map(|entry| &entry.content_kind);
             // Presence comes from source trees, not whether displayed text is empty.
             let kind = after_kind
@@ -206,9 +217,9 @@ impl FileCatalog {
                 .map(|(before, after)| (before.clone(), after.clone()));
             let mut entry = FileEntry::from(file).with_content_kind(kind);
             entry.type_change = type_change;
-            entries.insert(file.after_path.clone(), entry);
-            if file.status == "renamed" {
-                renames.insert(file.before_path.clone(), file.after_path.clone());
+            entries.insert(file.after_path().to_owned(), entry);
+            if file.kind() == &ChangeKind::Renamed {
+                renames.insert(file.before_path().to_owned(), file.after_path().to_owned());
             }
         }
         Self { entries, renames }
@@ -244,16 +255,8 @@ mod catalog_tests {
         .map(|(path, kind)| (path.into(), kind))
         .collect();
         let changes = [
-            ChangedFile {
-                status: "copied".into(),
-                before_path: "source".into(),
-                after_path: "copy".into(),
-            },
-            ChangedFile {
-                status: "renamed".into(),
-                before_path: "old".into(),
-                after_path: "renamed".into(),
-            },
+            ChangedFile::new("copied".into(), "source".into(), "copy".into()),
+            ChangedFile::new("renamed".into(), "old".into(), "renamed".into()),
         ];
         let catalog = FileCatalog::new(before, after, &changes);
         assert!(catalog.find("source").unwrap().kind().is_none());
@@ -295,21 +298,9 @@ mod catalog_tests {
             })
             .collect();
         let changes = [
-            ChangedFile {
-                status: "renamed".into(),
-                before_path: "old.rs".into(),
-                after_path: "renamed.rs".into(),
-            },
-            ChangedFile {
-                status: "removed".into(),
-                before_path: "gone.rs".into(),
-                after_path: "gone.rs".into(),
-            },
-            ChangedFile {
-                status: "copied".into(),
-                before_path: "original.rs".into(),
-                after_path: "copy.rs".into(),
-            },
+            ChangedFile::new("renamed".into(), "old.rs".into(), "renamed.rs".into()),
+            ChangedFile::new("removed".into(), "gone.rs".into(), "gone.rs".into()),
+            ChangedFile::new("copied".into(), "original.rs".into(), "copy.rs".into()),
         ];
         let catalog = FileCatalog::new(Default::default(), paths, &changes);
         assert_eq!(catalog.entries().len(), 6);
@@ -323,5 +314,27 @@ mod catalog_tests {
             catalog.find("link").unwrap().content_kind(),
             &FileKind::Symlink
         );
+    }
+}
+
+#[cfg(test)]
+mod unknown_kind_tests {
+    use super::{ChangeKind, FileEntry};
+    use crate::repository::parse_changed_files;
+
+    #[test]
+    fn unknown_adapter_status_survives_catalog_conversion_and_selection() {
+        // Defensive forward compatibility for a future jj status value.
+        let files =
+            parse_changed_files("[\"future-status\",\"old λ.txt\",\"new λ.txt\"]\n").unwrap();
+        let selected = FileEntry::from(&files[0]);
+        assert_eq!(
+            selected.kind(),
+            Some(&ChangeKind::Other("future-status".into()))
+        );
+        let changed = selected.changed().unwrap();
+        assert_eq!(changed.status(), "future-status");
+        assert_eq!(changed.before_path(), "old λ.txt");
+        assert_eq!(changed.after_path(), "new λ.txt");
     }
 }

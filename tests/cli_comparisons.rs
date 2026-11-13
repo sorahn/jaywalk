@@ -52,7 +52,7 @@ fn content(comparison: &Comparison, name: &str) -> (String, String) {
             comparison
                 .files()
                 .iter()
-                .find(|file| file.after_path == name)
+                .find(|file| file.after_path() == name)
                 .unwrap(),
         )
         .unwrap()
@@ -311,7 +311,7 @@ fn untracked_paths_keep_contents_from_the_selected_base() {
     fixture.git(&["rm", "--cached", "file.txt"]);
     fixture.write("file.txt", "edited\n");
     let comparison = Comparison::load(&fixture.0, None, "@").unwrap();
-    assert_eq!(comparison.files()[0].status, "modified");
+    assert_eq!(comparison.files()[0].status(), "modified");
     assert_eq!(
         content(&comparison, "file.txt"),
         ("original\n".into(), "edited\n".into())
@@ -425,7 +425,7 @@ fn external_limit_retains_oversized_files_and_streams_equality() {
         overview
             .files
             .iter()
-            .find(|file| file.file.after_path == "above")
+            .find(|file| file.file.after_path() == "above")
             .unwrap()
             .notice
             .as_deref()
@@ -570,7 +570,7 @@ fn git_and_jj_catalogs_preserve_side_kinds_independently_of_text() {
             overview
                 .files
                 .iter()
-                .find(|file| file.file.after_path == "to-file")
+                .find(|file| file.file.after_path() == "to-file")
                 .unwrap()
                 .notice
                 .as_deref()

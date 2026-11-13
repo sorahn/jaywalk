@@ -182,7 +182,7 @@ impl Viewer {
                             viewer
                                 .comparison()
                                 .filter(|comparison| comparison.files().len() == 1)
-                                .map(|comparison| comparison.files()[0].after_path.clone())
+                                .map(|comparison| comparison.files()[0].after_path().to_owned())
                         })
                         .flatten()
                 });
@@ -222,7 +222,7 @@ impl Viewer {
         if let Some(path) = self
             .comparison()
             .and_then(|comparison| comparison.files().get(index))
-            .map(|file| file.after_path.clone())
+            .map(|file| file.after_path().to_owned())
         {
             self.select_path(&path, window, cx);
         }
