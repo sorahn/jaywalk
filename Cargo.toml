@@ -5,6 +5,9 @@ edition = "2024"
 license = "GPL-3.0-only"
 default-run = "jaywalk"
 
+[features]
+profiling = ["gpui-kit/profiler"]
+
 [dependencies]
 async-channel = "2.5"
 clap = { version = "4", features = ["derive"] }

@@ -25,7 +25,7 @@ impl Fixture {
         std::fs::write(fixture.0.join("file.txt"), "changed\n").unwrap();
         fixture
     }
-    fn replace(&self, before: &str, after: &str) {
+    pub(super) fn replace(&self, before: &str, after: &str) {
         std::fs::write(self.0.join("file.txt"), before).unwrap();
         self.git(&["add", "file.txt"]);
         self.git(&["commit", "--amend", "--no-edit"]);
@@ -59,11 +59,19 @@ pub(super) fn setup<'a>(
     fixture: &Fixture,
     cx: &'a mut TestAppContext,
 ) -> (Entity<Viewer>, &'a mut VisualTestContext) {
+    let args =
+        Arguments::parse_from(["jaywalk", fixture.0.to_str().unwrap(), "--file", "file.txt"]);
+    setup_arguments(fixture, args, cx)
+}
+
+fn setup_arguments<'a>(
+    fixture: &Fixture,
+    mut args: Arguments,
+    cx: &'a mut TestAppContext,
+) -> (Entity<Viewer>, &'a mut VisualTestContext) {
     let config = fixture.0.join("settings.toml");
     let contents = "[live]\nenabled=false\n[layout]\nremember_per_repository=false\n[layout.placement]\nhistory_side='left'\nfiles_side='left'\n";
     std::fs::write(&config, contents).unwrap();
-    let mut args =
-        Arguments::parse_from(["jaywalk", fixture.0.to_str().unwrap(), "--file", "file.txt"]);
     args.config = Some(config);
     args.normalize().unwrap();
     let settings = Settings::parse(contents).unwrap();
@@ -86,7 +94,7 @@ pub(super) fn setup<'a>(
     draw(cx);
     (viewer.unwrap(), cx)
 }
-fn draw(cx: &mut VisualTestContext) {
+pub(super) fn draw(cx: &mut VisualTestContext) {
     // Resizable groups report measured sizes after layout and schedule a settling frame.
     for _ in 0..3 {
         cx.run_until_parked();
@@ -516,7 +524,10 @@ fn choosing_a_branch_keeps_the_loaded_overview_caption_visible(cx: &mut TestAppC
         ..Default::default()
     });
     draw(cx);
-    assert!(cx.debug_bounds("comparison-caption").unwrap().size.width > px(100.));
+    assert!(
+        cx.debug_bounds("comparison-caption").unwrap().size.width > caption.size.width,
+        "collapsed subject should grow the caption"
+    );
     cx.simulate_resize(size(px(800.), px(800.)));
     draw(cx);
     assert!(cx.debug_bounds("comparison-caption").unwrap().size.width > px(40.));
@@ -807,4 +818,298 @@ fn standard_folding_settings_apply_live_and_preserve_toolbar_overrides(cx: &mut 
         None,
         "fixture persistence stays disabled"
     );
+}
+
+#[gpui_test::test]
+fn reference_browser_bounds_work_and_supports_search_keyboard_and_reopen(cx: &mut TestAppContext) {
+    use jaywalk::{
+        history::{History, Reference, ReferenceKind},
+        references::ReferenceSnapshot,
+    };
+    let fixture = Fixture::new();
+    let (viewer, cx) = setup(&fixture, cx);
+    cx.update(|_, app| {
+        viewer.update(app, |v, cx| {
+            let super::LoadState::Loaded(session) = &mut v.repository else {
+                panic!("fixture loaded")
+            };
+            let old = session.history.as_ref().unwrap();
+            let target = old.revisions.last().unwrap().commit_id.clone();
+            let snapshot = ReferenceSnapshot {
+                references: (0..1400)
+                    .map(|i| Reference {
+                        name: format!("feature-{i:04}"),
+                        target: target.clone(),
+                        kind: ReferenceKind::Local,
+                        tracked_by: vec![],
+                        conflicted: false,
+                    })
+                    .collect(),
+                ..Default::default()
+            };
+            session.history = Ok(std::rc::Rc::new(History {
+                revisions: old.revisions.clone(),
+                graph: old.graph.clone(),
+                lane_count: old.lane_count,
+                references: std::sync::Arc::new(snapshot),
+            }));
+            v.references.open = true;
+            cx.notify();
+        })
+    });
+    super::reference_browser::RENDERED.with(|count| count.set(0));
+    draw(cx);
+    let rendered = super::reference_browser::RENDERED.with(|count| count.get());
+    assert!(
+        rendered > 0 && rendered < 150,
+        "only visible rows should render: {rendered}"
+    );
+    assert!(cx.debug_bounds("reference-browser").is_some());
+    cx.simulate_input("1399");
+    draw(cx);
+    cx.simulate_keystrokes("enter");
+    draw(cx);
+    assert_eq!(
+        cx.update(|_, app| viewer
+            .read(app)
+            .references
+            .inspected
+            .as_ref()
+            .unwrap()
+            .name
+            .clone()),
+        "feature-1399"
+    );
+    assert!(!cx.update(|_, app| viewer.read(app).references.open));
+    cx.update(|_, app| {
+        viewer.update(app, |v, cx| {
+            v.references.open = true;
+            cx.notify();
+        })
+    });
+    draw(cx);
+    cx.simulate_input("feature-139");
+    draw(cx);
+    cx.simulate_keystrokes("down");
+    cx.simulate_keystrokes("enter");
+    draw(cx);
+    assert_eq!(
+        cx.update(|_, app| viewer
+            .read(app)
+            .references
+            .inspected
+            .as_ref()
+            .unwrap()
+            .name
+            .clone()),
+        "feature-1391"
+    );
+    cx.update(|_, app| {
+        viewer.update(app, |v, cx| {
+            v.references.open = true;
+            cx.notify();
+        })
+    });
+    draw(cx);
+    cx.simulate_input("no-match");
+    draw(cx);
+    cx.simulate_keystrokes("escape");
+    draw(cx);
+    assert!(cx.update(|_, app| viewer.read(app).references.open));
+    cx.simulate_keystrokes("escape");
+    draw(cx);
+    assert!(!cx.update(|_, app| viewer.read(app).references.open));
+}
+
+#[gpui_test::test]
+fn history_scrollbar_drags_without_changing_the_comparison(cx: &mut TestAppContext) {
+    let fixture = Fixture::new();
+    for index in 0..70 {
+        fixture.git(&[
+            "commit",
+            "--allow-empty",
+            "-m",
+            &format!("revision {index}"),
+        ]);
+    }
+    let (viewer, cx) = setup(&fixture, cx);
+    cx.update(|_, app| {
+        gpui_kit::component::Theme::set_scrollbar_mode(
+            gpui_kit::component::scroll::ScrollbarMode::Always,
+            app,
+        );
+    });
+    draw(cx);
+    let (bounds, before, selected) = cx.update(|_, app| {
+        let viewer = viewer.read(app);
+        let scroll = viewer.history_scroll.0.borrow();
+        (
+            scroll.base_handle.bounds(),
+            scroll.base_handle.offset(),
+            viewer.comparison().unwrap().identity(),
+        )
+    });
+    let grab = point(bounds.right() - px(7.), bounds.top() + px(12.));
+    let end = point(grab.x, bounds.bottom() - px(30.));
+    cx.simulate_mouse_move(grab, None, Default::default());
+    draw(cx);
+    cx.simulate_mouse_down(grab, MouseButton::Left, Default::default());
+    draw(cx);
+    cx.simulate_mouse_move(end, Some(MouseButton::Left), Default::default());
+    draw(cx);
+    cx.simulate_mouse_up(end, MouseButton::Left, Default::default());
+    draw(cx);
+    cx.update(|_, app| {
+        let viewer = viewer.read(app);
+        let after = viewer.history_scroll.0.borrow().base_handle.offset();
+        assert!(
+            after.y < before.y - px(300.),
+            "history did not scroll: {before:?} -> {after:?}"
+        );
+        assert_eq!(viewer.comparison().unwrap().identity(), selected);
+    });
+}
+
+#[gpui_test::test]
+fn external_diff_caption_fits_without_filling_the_header(cx: &mut TestAppContext) {
+    let fixture = Fixture::new();
+    let left = fixture.0.join("before.txt");
+    let right = fixture.0.join("after.txt");
+    std::fs::write(&left, "before\n").unwrap();
+    std::fs::write(&right, "after\n").unwrap();
+    let args = Arguments::parse_from([
+        "jaywalk",
+        "--diff",
+        left.to_str().unwrap(),
+        right.to_str().unwrap(),
+    ]);
+    let (viewer, cx) = setup_arguments(&fixture, args, cx);
+    assert_eq!(
+        cx.update(|_, app| viewer.read(app).scope_label()),
+        "External diff"
+    );
+    for file_selected in [false, true] {
+        if file_selected {
+            cx.update(|window, app| {
+                viewer.update(app, |viewer, cx| {
+                    viewer.select_path("after.txt", window, cx)
+                });
+            });
+        }
+        for width in [1500., 800., 1500.] {
+            cx.simulate_resize(size(px(width), px(800.)));
+            draw(cx);
+            let header = cx.debug_bounds("comparison-header").unwrap();
+            let label = cx.debug_bounds("review-source-label").unwrap();
+            let button = cx.debug_bounds("review-source-button").unwrap();
+            let measured = cx.update(|window, app| {
+                let text: gpui_test::SharedString = "External diff".into();
+                let run = gpui_test::TextRun {
+                    len: text.len(),
+                    font: gpui_test::Font {
+                        family: gpui_kit::component::Theme::global(app).font_family.clone(),
+                        ..Default::default()
+                    },
+                    ..Default::default()
+                };
+                window
+                    .text_system()
+                    .shape_line(text, px(14.), &[run], None)
+                    .width
+            });
+            assert!(
+                label.size.width >= measured,
+                "caption clipped: {label:?}, text {measured:?}, button {button:?}"
+            );
+            assert!(
+                button.size.width < px(220.),
+                "hover target too wide: {button:?}"
+            );
+            assert!(button.right() < header.right() - px(100.));
+        }
+    }
+}
+
+fn check_folded_external_context(first_change: usize, cx: &mut TestAppContext) {
+    use jaywalk::settings::DiffView;
+    let fixture = Fixture::new();
+    let before = (1..=90)
+        .map(|line| format!("unchanged {line}\n"))
+        .collect::<String>();
+    let after = before.replace(
+        &format!("unchanged {first_change}\n"),
+        &format!("changed {first_change}\n"),
+    );
+    let left = fixture.0.join("before.txt");
+    let right = fixture.0.join("after.txt");
+    std::fs::write(&left, before).unwrap();
+    std::fs::write(&right, after).unwrap();
+    let args = Arguments::parse_from([
+        "jaywalk",
+        "--diff",
+        left.to_str().unwrap(),
+        right.to_str().unwrap(),
+        "--file",
+        "after.txt",
+    ]);
+    let (viewer, cx) = setup_arguments(&fixture, args, cx);
+    for mode in [DiffView::SideBySide, DiffView::Inline] {
+        cx.update(|_, app| {
+            viewer.update(app, |viewer, cx| {
+                viewer.collapse_unchanged = true;
+                viewer.apply_standard_context(cx);
+                viewer.set_view_mode(mode, cx);
+            })
+        });
+        draw(cx);
+        assert!(
+            cx.debug_bounds("diff-expand-0-0").is_some(),
+            "{mode:?} expanded unchanged lines before change {first_change}"
+        );
+        cx.update(|_, app| {
+            viewer.update(app, |viewer, cx| viewer.set_view_mode(DiffView::Fluid, cx))
+        });
+        draw(cx);
+    }
+    // An explicit source-line reveal still opens hidden context.
+    cx.update(|_, app| {
+        viewer.update(app, |viewer, cx| {
+            viewer.set_view_mode(DiffView::SideBySide, cx);
+            let state = viewer
+                .code()
+                .unwrap()
+                .standard
+                .as_ref()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .clone();
+            state.update(cx, |state, cx| {
+                let path = state.files()[0].path().clone();
+                state.scroll_to_line(
+                    gpui_kit::component::diff::DiffLinePosition::new(
+                        path,
+                        gpui_kit::component::diff::DiffSide::Modified,
+                        1,
+                    ),
+                    cx,
+                );
+            });
+        })
+    });
+    draw(cx);
+    assert!(
+        cx.debug_bounds("diff-expand-0-0").is_none(),
+        "explicit reveal should expand the leading fold"
+    );
+}
+
+#[gpui_test::test]
+fn external_line_29_change_keeps_leading_context_folded(cx: &mut TestAppContext) {
+    check_folded_external_context(29, cx);
+}
+
+#[gpui_test::test]
+fn external_line_36_change_keeps_leading_context_folded(cx: &mut TestAppContext) {
+    check_folded_external_context(36, cx);
 }

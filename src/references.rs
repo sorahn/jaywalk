@@ -21,12 +21,17 @@ impl ReferenceSnapshot {
         hash.finish()
     }
     pub(crate) fn normalize(&mut self) {
-        self.references.sort_by_key(|reference| {
+        self.references.sort_by(|left, right| {
             (
-                reference.remote().unwrap_or("").to_owned(),
-                reference.name.clone(),
-                reference.target.clone(),
+                left.remote().unwrap_or(""),
+                left.name.as_str(),
+                left.target.as_str(),
             )
+                .cmp(&(
+                    right.remote().unwrap_or(""),
+                    right.name.as_str(),
+                    right.target.as_str(),
+                ))
         });
         self.references.dedup();
         self.remotes.sort();

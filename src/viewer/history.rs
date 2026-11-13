@@ -368,7 +368,9 @@ impl Viewer {
         })
         .size_full()
         .track_scroll(&self.history_scroll);
-        panel = panel.child(div().flex_1().min_h_0().child(rows));
+        panel = panel.child(div().relative().flex_1().min_h_0().child(rows).child(
+            gpui::component::scroll::Scrollbar::vertical(&self.history_scroll),
+        ));
         panel.into_any_element()
     }
 }

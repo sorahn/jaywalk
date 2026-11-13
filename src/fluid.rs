@@ -46,35 +46,47 @@ pub struct DiffGeometry {
 }
 
 impl DiffGeometry {
-    fn segments(&self, diff: &FileDiff) -> Vec<(f32, f32)> {
-        let mut result = Vec::new();
-        for block in &diff.blocks {
-            if block.changed {
-                result.push((
-                    self.before[block.before.end] - self.before[block.before.start],
-                    self.after[block.after.end] - self.after[block.after.start],
-                ));
-            } else {
-                // Corresponding unchanged lines can wrap to different heights.
-                for (before, after) in block.before.clone().zip(block.after.clone()) {
-                    result.push((
-                        self.before[before + 1] - self.before[before],
-                        self.after[after + 1] - self.after[after],
-                    ));
-                }
-            }
-        }
-        // A final newline creates a visible empty editor row without adding a
-        // diff line. Include it only in scrolling, never in connector geometry.
-        result.push((
-            (self.before_height - self.before.last().copied().unwrap_or(0.)).max(0.),
-            (self.after_height - self.after.last().copied().unwrap_or(0.)).max(0.),
-        ));
-        result
+    fn segments<'a>(&'a self, diff: &'a FileDiff) -> impl Iterator<Item = (f32, f32)> + 'a {
+        diff.blocks
+            .iter()
+            .flat_map(move |block| {
+                let changed = block.changed.then(|| {
+                    (
+                        self.before[block.before.end] - self.before[block.before.start],
+                        self.after[block.after.end] - self.after[block.after.start],
+                    )
+                });
+                // Changed blocks form one segment; unchanged lines can wrap to
+                // different heights. Stream them without a full-document scratch Vec.
+                let before = if block.changed {
+                    0..0
+                } else {
+                    block.before.clone()
+                };
+                let after = if block.changed {
+                    0..0
+                } else {
+                    block.after.clone()
+                };
+                changed
+                    .into_iter()
+                    .chain(before.zip(after).map(move |(before, after)| {
+                        (
+                            self.before[before + 1] - self.before[before],
+                            self.after[after + 1] - self.after[after],
+                        )
+                    }))
+            })
+            .chain(std::iter::once((
+                (self.before_height - self.before.last().copied().unwrap_or(0.)).max(0.),
+                (self.after_height - self.after.last().copied().unwrap_or(0.)).max(0.),
+            )))
     }
 
     pub fn scroll_extent(&self, diff: &FileDiff) -> f32 {
-        self.segments(diff).iter().map(|(a, b)| a.max(*b)).sum()
+        self.segments(diff)
+            .map(|(before, after)| before.max(after))
+            .sum()
     }
 
     /// Virtual coordinate at a source line, used when restoring a reading anchor.
@@ -151,18 +163,14 @@ impl FluidScroll {
         geometry: &DiffGeometry,
         viewport: f32,
     ) -> (f32, f32) {
-        let segments = geometry.segments(diff);
-        let extent: f32 = segments
-            .iter()
-            .map(|(before, after)| before.max(*after))
-            .sum();
+        let extent = geometry.scroll_extent(diff);
         let limit = (extent - viewport).max(0.0);
         self.position = (self.position + delta).clamp(0.0, limit);
         let anchor = self.position + viewport / 2.0;
         let mut traversed = 0.0;
         let mut before_y = 0.0;
         let mut after_y = 0.0;
-        for (before_height, after_height) in segments {
+        for (before_height, after_height) in geometry.segments(diff) {
             let virtual_height = before_height.max(after_height);
             if anchor <= traversed + virtual_height && virtual_height > 0.0 {
                 let fraction = ((anchor - traversed) / virtual_height).clamp(0.0, 1.0);

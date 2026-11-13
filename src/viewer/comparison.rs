@@ -32,15 +32,29 @@ impl Viewer {
         );
         let focus = self.focus.clone();
         Button::new("review-source")
+            .debug_selector(|| "review-source-button".into())
             .ghost()
             .small()
             .compact()
-            .w_full()
+            .max_w_full()
             .min_w_0()
             .justify_start()
             .text_xs()
-            .icon(IconName::ChevronDown)
-            .child(div().flex_1().min_w_0().truncate().child(caption))
+            .child(
+                div()
+                    .h_flex()
+                    .items_center()
+                    .gap_1()
+                    .min_w_0()
+                    .child(Icon::new(IconName::ChevronDown).small().flex_shrink_0())
+                    .child(
+                        div()
+                            .debug_selector(|| "review-source-label".into())
+                            .min_w_0()
+                            .truncate()
+                            .child(caption),
+                    ),
+            )
             .tooltip("Choose comparison: all changes, current work, branch or base")
             .disabled(self.repository.ready().is_none())
             .dropdown_menu(move |menu, _, _| {
@@ -333,7 +347,9 @@ impl Viewer {
                         && let Some(Ok(Some(state))) =
                             viewer.code().map(|code| code.standard.clone())
                     {
-                        state.update(cx, |state, cx| state.scroll_to_line(position, cx));
+                        state.update(cx, |state, cx| {
+                            state.restore_viewport_position(position, cx)
+                        });
                     }
                     if let Some(horizontal) = viewer.config.pending_horizontal.take()
                         && let Some(Ok(Some(state))) =

@@ -184,6 +184,7 @@ impl Viewer {
                 ComparisonCaption {
                     state: loaded.state.clone(),
                     label,
+                    preamble_scrolled: false,
                     subject: loaded.series.as_ref().map_or_else(
                         || message_parts(loaded.commit.as_ref()).0.to_owned(),
                         |series| series.caption(),
@@ -639,6 +640,7 @@ struct ComparisonCaption {
     state: Entity<DiffState>,
     label: String,
     subject: String,
+    preamble_scrolled: bool,
     content: Option<AnyElement>,
 }
 impl Element for ComparisonCaption {
@@ -657,13 +659,15 @@ impl Element for ComparisonCaption {
         window: &mut Window,
         cx: &mut App,
     ) -> (LayoutId, ()) {
-        // Supply real text to intrinsic layout. A percentage-width leaf with
-        // no content collapses to zero inside the comparison button's flex row.
-        let mut content = div()
-            .min_w_0()
-            .truncate()
-            .child(self.label.clone())
-            .into_any_element();
+        // Measure the caption that fits the current scroll state, so the
+        // selector grows only when the collapsed message is actually shown.
+        self.preamble_scrolled = self.state.read(cx).preamble_scrolled();
+        let caption = if self.preamble_scrolled {
+            format!("{} · {}", self.label, self.subject)
+        } else {
+            self.label.clone()
+        };
+        let mut content = div().min_w_0().truncate().child(caption).into_any_element();
         let layout = content.request_layout(window, cx);
         self.content = Some(content);
         (layout, ())
@@ -678,7 +682,13 @@ impl Element for ComparisonCaption {
         window: &mut Window,
         cx: &mut App,
     ) {
-        let caption = if self.state.read(cx).preamble_scrolled() {
+        let scrolled = self.state.read(cx).preamble_scrolled();
+        if scrolled != self.preamble_scrolled {
+            // The body publishes this frame's geometry after header layout.
+            // Paint its caption now and remeasure its intrinsic width next frame.
+            window.request_animation_frame();
+        }
+        let caption = if scrolled {
             format!("{} · {}", self.label, self.subject)
         } else {
             self.label.clone()

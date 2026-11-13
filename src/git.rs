@@ -4,7 +4,8 @@ use crate::repository::{
     ChangedFile, Comparison, ComparisonMetadata, ContentSource, FileSide, next_capture,
 };
 use crate::repository_file::ChangeKind;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
+mod blob_batch;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -220,6 +221,7 @@ pub(crate) fn between(
     // Capture a coherent comparison now; selecting a file must not mix later edits
     // into an already displayed worktree comparison.
     let mut contents = BTreeMap::new();
+    let mut blobs = blob_batch::BlobBatch::new(&root, limit);
     for file in &files {
         // Capture kind independently of text acquisition: a before-side read
         // may be unavailable or oversized, without hiding the after-side kind.
@@ -243,12 +245,10 @@ pub(crate) fn between(
             let before = if file.kind() == &ChangeKind::Added {
                 String::new()
             } else {
-                read_blob(
-                    &root,
-                    None,
-                    &format!("{base}:{}", file.before_path()),
-                    limit,
-                )?
+                let value = before_tree
+                    .get(file.before_path())
+                    .ok_or("File is absent from captured base tree")?;
+                blobs.read(&value.object)?
             };
             let after = if file.kind() == &ChangeKind::Removed {
                 String::new()
@@ -268,7 +268,10 @@ pub(crate) fn between(
                     limit.text(limit.file(&path)?)?
                 }
             } else {
-                read_blob(&root, None, &format!("{tip}:{}", file.after_path()), limit)?
+                let value = after_tree
+                    .get(file.after_path())
+                    .ok_or("File is absent from captured tip tree")?;
+                blobs.read(&value.object)?
             };
             Ok((before, after))
         })();
@@ -351,6 +354,15 @@ pub(crate) fn references(root: &Path) -> Result<crate::references::ReferenceSnap
         ..Default::default()
     };
     snapshot.local_heads.push(resolve(root, "HEAD")?);
+    let mut remote_names: BTreeSet<String> = snapshot.remotes.iter().cloned().collect();
+    let mut upstreams: BTreeMap<&str, Vec<String>> = BTreeMap::new();
+    for entry in &entries {
+        if let Some(name) = entry[0].strip_prefix("refs/heads/")
+            && !entry[3].is_empty()
+        {
+            upstreams.entry(entry[3]).or_default().push(name.to_owned());
+        }
+    }
     for entry in &entries {
         if !entry[6].is_empty() {
             continue;
@@ -370,10 +382,12 @@ pub(crate) fn references(root: &Path) -> Result<crate::references::ReferenceSnap
             snapshot.local_heads.push(target.into());
             (name.to_owned(), ReferenceKind::Local, Vec::new())
         } else if let Some(path) = entry[0].strip_prefix("refs/remotes/") {
-            let remote = snapshot
-                .remotes
+            let remote = remote_names
                 .iter()
-                .filter(|remote| path.starts_with(&format!("{remote}/")))
+                .filter(|remote| {
+                    path.strip_prefix(remote.as_str())
+                        .is_some_and(|suffix| suffix.starts_with('/'))
+                })
                 .max_by_key(|remote| remote.len())
                 .cloned()
                 .or_else(|| path.split_once('/').map(|(remote, _)| remote.into()))
@@ -382,12 +396,8 @@ pub(crate) fn references(root: &Path) -> Result<crate::references::ReferenceSnap
                 .strip_prefix(&format!("{remote}/"))
                 .ok_or("Invalid remote reference prefix")?
                 .to_owned();
-            let tracked_by: Vec<String> = entries
-                .iter()
-                .filter(|local| local[0].starts_with("refs/heads/") && local[3] == entry[0])
-                .map(|local| local[0]["refs/heads/".len()..].to_owned())
-                .collect();
-            snapshot.remotes.push(remote.clone());
+            let tracked_by = upstreams.get(entry[0]).cloned().unwrap_or_default();
+            remote_names.insert(remote.clone());
             (
                 name,
                 ReferenceKind::Remote {
@@ -411,6 +421,7 @@ pub(crate) fn references(root: &Path) -> Result<crate::references::ReferenceSnap
             conflicted: false,
         });
     }
+    snapshot.remotes = remote_names.into_iter().collect();
     snapshot.normalize();
     Ok(snapshot)
 }

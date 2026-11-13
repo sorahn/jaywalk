@@ -57,3 +57,11 @@ install-cli directory=(env("HOME") / ".local/bin") profile="debug":
 # Launch the native app; omit arguments for welcome, or pass . for this repository.
 run *args:
     cargo run --locked --bin jaywalk -- "$@"
+
+# Synthetic domain profiling; build outside the process-memory measurement.
+profile *args:
+    scripts/profile.sh "$@"
+
+# Synthetic UI timings; never opens a native desktop window.
+profile-ui:
+    profile_host=$(rustc -vV | sed -n 's/^host: //p'); test -n "$profile_host"; cargo test --locked --release --target "$profile_host" --target-dir target --bin jaywalk viewer::performance_tests -- --ignored --nocapture --test-threads=1

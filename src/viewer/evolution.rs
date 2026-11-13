@@ -760,6 +760,7 @@ impl Viewer {
         let presentation = self.evolution_header_presentation();
         let mut bar =
             div()
+                .debug_selector(|| "comparison-header".into())
                 .h_flex()
                 .items_stretch()
                 .h(px(self
@@ -775,9 +776,12 @@ impl Viewer {
                 .bg(gpui::component::Theme::global(cx).sidebar)
                 .child(self.render_navigation_buttons(cx))
                 .child(
+                    // Let the selector use its intrinsic width, capped by the
+                    // slot, so its hover target follows the visible caption.
                     div()
-                        .h_flex()
-                        .items_center()
+                        .v_flex()
+                        .items_start()
+                        .justify_center()
                         .h_full()
                         .px_2()
                         .flex_1()

@@ -42,6 +42,7 @@ mod navigation;
 mod overview;
 mod palette;
 mod panels;
+mod reference_browser;
 mod references;
 mod review;
 mod session_layout;
@@ -145,6 +146,7 @@ struct SelectedFile {
 }
 
 pub(crate) fn init(arguments: &Arguments, settings: &Settings, cx: &mut App) -> Result<(), String> {
+    reference_browser::init(cx);
     commands::init(arguments, settings, cx)
 }
 
@@ -425,7 +427,7 @@ impl Viewer {
                 {
                     let path = state.files().first().map(|file| file.path().clone());
                     if let Some(path) = path {
-                        state.scroll_to_line(
+                        state.restore_viewport_position(
                             gpui::component::diff::DiffLinePosition::new(
                                 path,
                                 gpui::component::diff::DiffSide::Modified,
@@ -595,3 +597,6 @@ mod tests {
         }
     }
 }
+
+#[cfg(test)]
+mod performance_tests;

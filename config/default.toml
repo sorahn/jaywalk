@@ -120,7 +120,7 @@ list_word_wrap = false
 
 [diff]
 # MiB per side; bounded reads prevent allocation beyond this limit.
-max_text_file_size_mb = 50
+max_text_file_size_mb = 5
 # "inline", "side_by_side", or "fluid"
 default_view = "fluid"
 # Standard inline/side-by-side views; Fluid always shows full files.

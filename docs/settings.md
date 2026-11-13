@@ -287,13 +287,29 @@ origin = true
 | `diff.collapse_unchanged` | `false` | Fold unchanged ranges in single-file inline and side-by-side views. Applies live; the footer icon beside Word wrap or remappable toggle overrides it, remembered per repository when layout persistence is enabled. Fluid always shows full files. |
 | `diff.context_lines` | `3` | Context on each side of an edit in folded standard views; integer 0–100. Applies live. Independent of overview context. |
 | `diff.expansion_lines` | `20` | Lines revealed by each partial range disclosure in standard views; integer 1–1000. Applies live. |
-| `diff.max_text_file_size_mb` | `50` | Maximum text bytes per before/after side in MiB (1,048,576 bytes). A positive integer whose byte count plus one fits the platform address space. Applies on the next comparison load or refresh. |
+| `diff.max_text_file_size_mb` | `5` | Maximum text bytes per before/after side in MiB (1,048,576 bytes). A positive integer whose byte count plus one fits the platform address space. Applies on the next comparison load or refresh. |
 
 Oversized files stay in the file browser and overview with a byte-size notice.
 Reads are bounded before decoding, diffing, and syntax highlighting; external
 file discovery compares bytes in small chunks. This is a per-side text limit,
 not an overall memory budget: an overview can retain many files, and parsed
 text/diffs require additional memory. Image-preview limits are separate future work.
+
+The default text-file limit is **5 MiB per before/after side**. Files above it
+remain listed with a size-limit notice. To inspect larger text files, raise
+`diff.max_text_file_size_mb` in your config and reload or refresh the comparison:
+
+```toml
+[diff]
+max_text_file_size_mb = 20
+```
+
+Raising the limit can substantially increase memory use and loading time.
+The limit bounds source bytes per side, not total application memory: a diff
+can retain both sides, syntax trees, layout data and other representations, and
+an overview can hold multiple files. A source file near 50 MiB may require
+several GiB of memory. Explicit user overrides are preserved; the default change
+applies when this setting is omitted.
 
 ### `diff.colors`
 

@@ -222,3 +222,63 @@ fn external_metadata_refresh_does_not_repin_the_open_comparison() {
         "reads must not import or snapshot"
     );
 }
+
+#[test]
+fn git_reference_indexes_preserve_slash_remotes_aliases_and_tracking() {
+    let f = Fixture::new();
+    let target = f.run("git", &["rev-parse", "HEAD"]);
+    for remote in ["team", "team/origin"] {
+        f.run("git", &["config", &format!("remote.{remote}.url"), "."]);
+        f.run(
+            "git",
+            &[
+                "config",
+                &format!("remote.{remote}.fetch"),
+                &format!("+refs/heads/*:refs/remotes/{remote}/*"),
+            ],
+        );
+    }
+    f.run(
+        "git",
+        &["update-ref", "refs/remotes/team/origin/main", &target],
+    );
+    for local in ["feature/one", "feature/two"] {
+        f.run(
+            "git",
+            &["update-ref", &format!("refs/heads/{local}"), &target],
+        );
+        f.run(
+            "git",
+            &["config", &format!("branch.{local}.remote"), "team/origin"],
+        );
+        f.run(
+            "git",
+            &[
+                "config",
+                &format!("branch.{local}.merge"),
+                "refs/heads/main",
+            ],
+        );
+    }
+    let comparison = Comparison::load(&f.0, Some("HEAD"), "HEAD").unwrap();
+    let refs = comparison.reference_snapshot().unwrap();
+    let remote = refs
+        .references
+        .iter()
+        .find(|reference| reference.remote() == Some("team/origin"))
+        .unwrap();
+    assert_eq!(remote.name, "main");
+    assert_eq!(remote.tracked_by, ["feature/one", "feature/two"]);
+    assert_eq!(refs.remotes, ["team", "team/origin"]);
+    let history = comparison.history(&HistoryQuery::default()).unwrap();
+    assert_eq!(
+        history
+            .revisions
+            .iter()
+            .find(|revision| revision.commit_id == target)
+            .unwrap()
+            .references
+            .len(),
+        4
+    );
+}

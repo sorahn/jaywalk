@@ -3,12 +3,19 @@ use super::*;
 pub(super) fn line_positions(state: &EditorState, boundary_count: usize) -> Vec<f32> {
     let map = state.display_map();
     let height = f32::from(state.line_height().unwrap_or(px(20.)));
+    let buffer_lines = map.buffer_line_count();
+    let display_rows = map.display_row_count();
+    // The common unwrapped/unfolded case is an identity map. Use the
+    // resolved map's counts, not desired settings: wrapping updates at layout.
+    let identity = map.wrap_row_count() == buffer_lines && map.folded_ranges().is_empty();
     (0..boundary_count)
         .map(|line| {
-            let row = if line < map.buffer_line_count() {
-                map.buffer_line_to_display_row(line)
+            let row = if line >= buffer_lines {
+                display_rows
+            } else if identity {
+                line
             } else {
-                map.display_row_count()
+                map.buffer_line_to_display_row(line)
             };
             row as f32 * height
         })

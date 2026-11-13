@@ -859,6 +859,17 @@ impl DiffState {
         }
     }
 
+    /// Restores a source-line reading anchor without expanding hidden context.
+    /// A hidden line anchors to its fold disclosure instead of opening it.
+    pub fn restore_viewport_position(
+        &mut self,
+        position: DiffLinePosition,
+        cx: &mut Context<Self>,
+    ) {
+        self.reveal_line(&position);
+        cx.notify();
+    }
+
     /// Scrolls to the header of the file at `path`, a [`DiffFile::path`].
     pub fn scroll_to_file(&mut self, path: &str, cx: &mut Context<Self>) {
         let Some(item_ix) = self

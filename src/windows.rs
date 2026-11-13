@@ -263,6 +263,8 @@ pub(crate) fn open_with_disposition(
             viewer
         })
         .map_err(|error| format!("Could not open the viewer window: {error}"))?;
+        #[cfg(feature = "profiling")]
+        crate::frame_profile::start(window, cx);
         cx.global_mut::<Windows>().0.insert(
             window.window_id(),
             Record {

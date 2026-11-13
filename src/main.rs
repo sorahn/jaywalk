@@ -7,6 +7,8 @@ use jaywalk::settings_reload::SettingsSource;
 mod about;
 mod appearance;
 mod cli;
+#[cfg(feature = "profiling")]
+mod frame_profile;
 mod instance;
 mod interface_state;
 mod recents;

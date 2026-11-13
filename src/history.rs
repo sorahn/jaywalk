@@ -285,12 +285,20 @@ impl History {
         mut self,
         references: crate::references::ReferenceSnapshot,
     ) -> Self {
+        let mut targets: std::collections::HashMap<&str, Vec<&Reference>> =
+            std::collections::HashMap::new();
+        for reference in &references.references {
+            targets
+                .entry(&reference.target)
+                .or_default()
+                .push(reference);
+        }
         for revision in &mut self.revisions {
-            revision.references = references
-                .references
-                .iter()
-                .filter(|reference| reference.target == revision.commit_id)
-                .cloned()
+            revision.references = targets
+                .get(revision.commit_id.as_str())
+                .into_iter()
+                .flatten()
+                .map(|reference| (*reference).clone())
                 .collect();
         }
         self.references = std::sync::Arc::new(references);
