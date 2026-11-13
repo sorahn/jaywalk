@@ -60,9 +60,8 @@ run *args:
 
 # Synthetic domain profiling; build outside the process-memory measurement.
 profile *args:
-    cargo build --locked --release --example profile
-    case "$(uname -s)" in Darwin) /usr/bin/time -l target/release/examples/profile "$@" ;; Linux) /usr/bin/time -v target/release/examples/profile "$@" ;; *) target/release/examples/profile "$@" ;; esac
+    scripts/profile.sh "$@"
 
 # Synthetic UI timings; never opens a native desktop window.
 profile-ui:
-    cargo test --locked --release --bin jaywalk viewer::performance_tests -- --ignored --nocapture --test-threads=1
+    profile_host=$(rustc -vV | sed -n 's/^host: //p'); test -n "$profile_host"; cargo test --locked --release --target "$profile_host" --target-dir target --bin jaywalk viewer::performance_tests -- --ignored --nocapture --test-threads=1

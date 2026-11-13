@@ -323,7 +323,8 @@ viewer in the per-frame entity dependency set when adding geometry callbacks.
 
 ## Performance measurements
 
-`just profile --jj` builds a release-profile synthetic domain harness, then runs
+`just profile --jj` builds a release-profile synthetic domain harness for the
+native Rust host in an explicit target directory, then runs
 it under the platform's process-memory/time reporter. It creates and removes its
 own temporary repositories; it never profiles or changes your checkout. Omit
 `--jj` when jj is unavailable. `--samples 5` increases repetitions and
