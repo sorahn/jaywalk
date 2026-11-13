@@ -1,5 +1,5 @@
 # Local binary packaging: scripts/package-rpm.sh builds the locked Rust source
-# and supplies Source0. This is not a Fedora distribution/source RPM recipe.
+# and supplies Source0. This is not a distribution/source RPM recipe.
 %global debug_package %{nil}
 Name:           jaywalk
 Version:        %{app_version}
@@ -10,10 +10,15 @@ URL:            https://github.com/sorahn/jaywalk
 Source0:        jaywalk-%{version}-linux-%{_arch}.tar.gz
 Requires:       git
 Requires:       xdg-utils
-Requires:       vulkan-loader
 Requires:       fontconfig
 # GPUI's system Wayland backend uses dlopen, so ELF auto-requires cannot find it.
+%if 0%{?suse_version}
+Requires:       libvulkan1
+Requires:       libwayland-client0%{?_isa}
+%else
+Requires:       vulkan-loader
 Requires:       libwayland-client%{?_isa}
+%endif
 
 %description
 Jaywalk is a native Rust/GPUI viewer for Git and Jujutsu comparisons.

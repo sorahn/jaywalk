@@ -66,7 +66,7 @@ GUI diagnostics, run the built executable with `--foreground`:
 `--version` also remain terminal commands. GUI commands open native windows;
 do not use them as unattended checks that might interrupt someone's desktop.
 
-## Build and install on Fedora Linux
+## Build and install on Fedora or openSUSE Linux
 
 Run in a graphical Wayland or X11 session with a working Vulkan driver. Rust,
 Cargo, a C/C++ toolchain, Clang, CMake and the platform development libraries
@@ -80,6 +80,17 @@ sudo dnf install cargo rust gcc gcc-c++ clang cmake pkgconf-pkg-config \
   rpm-build desktop-file-utils
 ```
 
+On openSUSE Tumbleweed, install the prerequisites with:
+
+```sh
+sudo zypper install rust cargo gcc gcc-c++ clang cmake pkgconf-pkg-config \
+  fontconfig-devel wayland-devel libxkbcommon-devel libxkbcommon-x11-devel \
+  libX11-devel libxcb-devel libopenssl-devel libzstd-devel vulkan-devel \
+  rpm-build desktop-file-utils
+```
+
+`just` is optional; the packaging script can be run directly.
+
 Build and package the locked source, then install the exact RPM path printed
 by rpmbuild:
 
@@ -87,11 +98,15 @@ by rpmbuild:
 just package-rpm
 # Or run scripts/package-rpm.sh directly.
 sudo dnf install ./target/rpm/RPMS/x86_64/jaywalk-VERSION-RELEASE.x86_64.rpm
+# On openSUSE:
+sudo zypper install ./target/rpm/RPMS/x86_64/jaywalk-VERSION-RELEASE.x86_64.rpm
 ```
 
 The script creates a local binary RPM for the build host's architecture and
-libraries. It is not a Fedora distribution/source RPM recipe or a portable
-cross-distribution bundle. Generated archives, staging files and RPMs stay under
+libraries. RPM's native distribution macros select the Fedora or openSUSE
+Vulkan and Wayland runtime package names. Build on the distribution where the
+package will be installed. It is not a distribution/source RPM recipe or a
+portable cross-distribution bundle. Generated archives, staging files and RPMs stay under
 `target/rpm/`. The Rust build is pinned to the compiler's native host target and
 `target/rpm/cargo/`, regardless of `CARGO_TARGET_DIR` or a configured cross target.
 RPMs, macOS bundles, and CLI installation share `scripts/build-native.sh` for
@@ -108,7 +123,8 @@ or `target/` files are needed to run the installed app. Git, xdg-utils and the
 Vulkan loader and runtime-loaded Wayland client library are required; jj 0.47+ is optional for Jujutsu repositories.
 
 Rebuild and install a newer RPM to update. Quit and relaunch an existing Jaywalk
-process to use the new build. Remove with `sudo dnf remove jaywalk`; user settings
+process to use the new build. Remove with `sudo dnf remove jaywalk` on Fedora or
+`sudo zypper remove jaywalk` on openSUSE; user settings
 and recent-repository data under `~/.config/jaywalk/` are retained. These private
 runtime files are separate from the package and should not be committed.
 
