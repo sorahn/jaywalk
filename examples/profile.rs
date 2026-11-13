@@ -81,11 +81,37 @@ impl Drop for Fixture {
     }
 }
 
+fn resident_kib() -> Option<u64> {
+    #[cfg(target_os = "linux")]
+    {
+        std::fs::read_to_string("/proc/self/status")
+            .ok()?
+            .lines()
+            .find_map(|line| {
+                line.strip_prefix("VmRSS:")
+                    .and_then(|value| value.split_whitespace().next()?.parse().ok())
+            })
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let output = Command::new("/bin/ps")
+            .args(["-o", "rss=", "-p", &std::process::id().to_string()])
+            .output()
+            .ok()?;
+        String::from_utf8(output.stdout).ok()?.trim().parse().ok()
+    }
+    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
+    {
+        None
+    }
+}
+
 fn measure<T>(
     name: &str,
     samples: usize,
     mut operation: impl FnMut() -> Result<T, String>,
 ) -> Result<(), String> {
+    let resident_before = resident_kib();
     let mut times = Vec::with_capacity(samples);
     for _ in 0..samples {
         let started = Instant::now();
@@ -93,7 +119,10 @@ fn measure<T>(
         times.push(started.elapsed().as_secs_f64() * 1000.);
         black_box(value); // Drop outside the operation timer.
     }
-    println!("{}", serde_json::json!({"metric":name,"samples_ms":times}));
+    println!(
+        "{}",
+        serde_json::json!({"metric":name,"samples_ms":times,"rss_before_kib":resident_before,"rss_after_kib":resident_kib()})
+    );
     Ok(())
 }
 
@@ -112,7 +141,16 @@ fn run(args: Args) -> Result<(), String> {
         serde_json::json!({"profile":"synthetic-domain","version":jaywalk::version::DISPLAY,"os":std::env::consts::OS,"arch":std::env::consts::ARCH,"optimized":!cfg!(debug_assertions),"samples":args.samples,"large_mib":args.large_mib})
     );
     for rows in [200, 20_000, args.large_mib as usize * 1024 * 1024 / 58] {
-        let before = text(rows);
+        let mut before = text(rows);
+        let maximum = args.large_mib as usize * 1024 * 1024;
+        if before.len() > maximum {
+            let mut boundary = maximum;
+            while !before.is_char_boundary(boundary) {
+                boundary -= 1;
+            }
+            before.truncate(boundary);
+        }
+        let rows = before.lines().count();
         let after = before.replace("process(100)", "updated(100)");
         measure(
             &format!("diff/{rows}-lines/{}-bytes", before.len()),
@@ -147,6 +185,16 @@ fn run(args: Args) -> Result<(), String> {
             },
         )?;
     }
+    let large = Fixture::new("large-capture")?;
+    let bytes = args.large_mib as usize * 1024 * 1024;
+    large.write("large.txt", &"x".repeat(bytes - 1))?;
+    large.commit("large baseline")?;
+    large.write("large.txt", &"y".repeat(bytes - 1))?;
+    measure(
+        &format!("git/capture/{bytes}-byte-limit"),
+        args.samples,
+        || Comparison::load(&large.0, Some("HEAD"), "@"),
+    )?;
     for files in [1, 64] {
         let f = Fixture::new("files")?;
         for index in 0..files {

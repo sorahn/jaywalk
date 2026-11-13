@@ -112,6 +112,21 @@ fn profile_viewer_modes(cx: &mut TestAppContext) {
             record(&format!("viewer/{mode:?}/resize-{width}"), start.elapsed());
         }
         let start = Instant::now();
+        cx.update(|_, app| {
+            let code = viewer.read(app).code().unwrap();
+            for _ in 0..100 {
+                std::hint::black_box(super::comparison_geometry(
+                    code.before.read(app),
+                    code.after.read(app),
+                    &code.model,
+                ));
+            }
+        });
+        record(
+            &format!("viewer/{mode:?}/100-geometry-builds"),
+            start.elapsed(),
+        );
+        let start = Instant::now();
         for _ in 0..10 {
             let position = cx.update(|_, app| {
                 viewer
@@ -131,5 +146,13 @@ fn profile_viewer_modes(cx: &mut TestAppContext) {
             draw(cx);
         }
         record(&format!("viewer/{mode:?}/10-wheel-events"), start.elapsed());
+        cx.update(|window, app| viewer.update(app, |v, cx| v.toggle_wrap(window, cx)));
+        draw(cx);
+        let start = Instant::now();
+        cx.simulate_resize(size(px(850.), px(800.)));
+        draw(cx);
+        record(&format!("viewer/{mode:?}/wrapped-resize"), start.elapsed());
+        cx.update(|window, app| viewer.update(app, |v, cx| v.toggle_wrap(window, cx)));
+        draw(cx);
     }
 }
