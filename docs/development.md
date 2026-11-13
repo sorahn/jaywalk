@@ -327,10 +327,13 @@ viewer in the per-frame entity dependency set when adding geometry callbacks.
 it under the platform's process-memory/time reporter. It creates and removes its
 own temporary repositories; it never profiles or changes your checkout. Omit
 `--jj` when jj is unavailable. `--samples 5` increases repetitions and
-`--large-mib 50` increases the generated text workload (actual byte counts are
-reported). Output is JSON Lines with separate diff, syntax, Fluid scrolling,
+`--large-mib 50` increases the generated text workload and exercises capture at
+the default size limit (actual byte counts are reported). `--wide-history` adds
+700 distinct branch tips with a 1,000-row history limit. Output is JSON Lines with separate diff, syntax, Fluid scrolling,
 Git capture/refresh, overview, references, history and optional jj evolution
-measurements. Fixture generation is excluded from operation timings; total
+measurements. Resident-memory snapshots are taken outside operation timers,
+before the samples and after their returned values are dropped. Retained allocator
+pages are not proof of a leak. Fixture generation is excluded from operation timings; total
 process time and peak memory include it. Runs are warm-cache measurements, not
 cold disk/cache benchmarks. Required Linux process reporting uses `/usr/bin/time`.
 
@@ -346,3 +349,14 @@ when comparing runs. Use fresh processes for peak-memory comparisons. Native
 profiling and selection/copy/scrolling checks need a coordinated graphical
 session; successful headless measurements do not establish native appearance or
 interaction behavior.
+
+For native frame measurements, build with `cargo build --release --features
+profiling --bin jaywalk`, then launch an isolated instance with
+`JAYWALK_PROFILE_FRAMES=1` and `--foreground`. Set `XDG_CONFIG_HOME` to a temporary
+directory to isolate settings, recent repositories and instance routing. Once per
+second, changed frame counters are emitted to stderr as JSON: cumulative CPU draw
+percentiles, dirty-to-present latency and presentation intervals. Sampling does
+not request redraws and stops when the window closes. These diagnostics require
+both the opt-in build feature and environment variable; normal builds are
+unaffected. CPU draw time is not GPU execution time, and presentation intervals
+should not be interpreted as a constant FPS during idle periods.

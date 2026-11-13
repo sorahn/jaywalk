@@ -18,6 +18,9 @@ struct Args {
     /// Include a disposable jj operation/rewrite history fixture.
     #[arg(long)]
     jj: bool,
+    /// Include 700 distinct branch tips sharing one parent, beyond the default history limit.
+    #[arg(long)]
+    wide_history: bool,
 }
 
 struct Fixture(PathBuf);
@@ -138,7 +141,7 @@ fn run(args: Args) -> Result<(), String> {
     }
     println!(
         "{}",
-        serde_json::json!({"profile":"synthetic-domain","version":jaywalk::version::DISPLAY,"os":std::env::consts::OS,"arch":std::env::consts::ARCH,"optimized":!cfg!(debug_assertions),"samples":args.samples,"large_mib":args.large_mib})
+        serde_json::json!({"profile":"synthetic-domain","version":jaywalk::version::DISPLAY,"revision":jaywalk::version::REVISION,"os":std::env::consts::OS,"arch":std::env::consts::ARCH,"optimized":!cfg!(debug_assertions),"samples":args.samples,"large_mib":args.large_mib})
     );
     for rows in [200, 20_000, args.large_mib as usize * 1024 * 1024 / 58] {
         let mut before = text(rows);
@@ -293,6 +296,38 @@ fn run(args: Args) -> Result<(), String> {
             args.samples,
             || comparison.history(&HistoryQuery::default()),
         )?;
+    }
+    if args.wide_history {
+        let f = Fixture::new("wide-history")?;
+        f.write("file.rs", "fn root() {}\n")?;
+        f.commit("root")?;
+        let root = f.run("git", &["rev-parse", "HEAD"])?;
+        let mut stream = String::new();
+        for index in 0..700 {
+            let message = format!("branch {index}\n");
+            let contents = format!("fn branch_{index}() {{}}\n");
+            stream.push_str(&format!("commit refs/heads/feature-{index:04}\ncommitter Profile <profile@example.invalid> {} +0000\ndata {}\n{}from {root}\nM 100644 inline file.rs\ndata {}\n{}\n",1_700_000_000+index,message.len(),message,contents.len(),contents));
+        }
+        let mut child = f
+            .command("git")
+            .args(["fast-import", "--quiet"])
+            .stdin(std::process::Stdio::piped())
+            .spawn()
+            .map_err(|e| e.to_string())?;
+        child
+            .stdin
+            .take()
+            .ok_or("fast-import stdin missing")?
+            .write_all(stream.as_bytes())
+            .map_err(|e| e.to_string())?;
+        if !child.wait().map_err(|e| e.to_string())?.success() {
+            return Err("wide history import failed".into());
+        }
+        let comparison = Comparison::load(&f.0, Some("HEAD"), "HEAD")?;
+        let query = HistoryQuery::default().with_limit(1000)?;
+        measure("git/history/700-distinct-branch-tips", args.samples, || {
+            comparison.history(&query)
+        })?;
     }
     if args.jj {
         let f = Fixture::new("jj")?;
