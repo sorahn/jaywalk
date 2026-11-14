@@ -36,7 +36,10 @@ impl Viewer {
             ComparisonScope::Revision { commit_id, .. } => Some(commit_id.clone()),
             ComparisonScope::Evolution { anchor, .. } => Some(anchor.clone()),
             ComparisonScope::Aggregate => {
-                Some(self.repository.ready()?.review.aggregate.tip().to_owned())
+                let tip = self.repository.ready()?.review.aggregate.tip();
+                (tip == "working tree"
+                    || (tip.len() >= 8 && tip.bytes().all(|b| b.is_ascii_hexdigit())))
+                .then(|| tip.to_owned())
             }
         }
     }

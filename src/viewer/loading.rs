@@ -95,7 +95,7 @@ impl Viewer {
         })
         .detach();
         viewer.apply_saved_layout();
-        if viewer.arguments.diff.is_some() {
+        if viewer.arguments.diff.is_some() && viewer.arguments.difftool.is_none() {
             viewer.layout.saved.history_hidden = true;
             viewer.evolution.visible = false;
             viewer.file_evolution.visible = false;
@@ -137,7 +137,7 @@ impl Viewer {
                     let comparison = arguments.comparison_with_limit(
                         jaywalk::text_content::TextLimit::from_mib(max_text_mb)?,
                     )?;
-                    let history = if arguments.diff.is_some() {
+                    let history = if arguments.diff.is_some() && arguments.difftool.is_none() {
                         jaywalk::history::History::parse("")
                     } else {
                         comparison.history(&history_query)
@@ -164,7 +164,22 @@ impl Viewer {
                         LoadState::Loaded(RepositorySession {
                             home: branch.clone(),
                             review: review_context::ReviewContext {
-                                source: review_context::ReviewSource::Home(viewer.home_source),
+                                source: if (viewer.arguments.diff.is_none()
+                                    || (viewer.arguments.difftool.is_some()
+                                        && valid_pair_endpoints(&branch)))
+                                    && (viewer.arguments.difftool.is_some()
+                                        || viewer.arguments.base.is_some()
+                                        || viewer.arguments.tip != "@")
+                                {
+                                    review_context::ReviewSource::Target(
+                                        jaywalk::branch_review::Target::Pair {
+                                            left: branch.base().into(),
+                                            right: branch.tip().into(),
+                                        },
+                                    )
+                                } else {
+                                    review_context::ReviewSource::Home(viewer.home_source)
+                                },
                                 aggregate: branch.clone(),
                             },
                             history: history.map(Rc::new),
@@ -699,4 +714,10 @@ mod completion_tests {
             })
         });
     }
+}
+
+fn valid_pair_endpoints(comparison: &Comparison) -> bool {
+    [comparison.base(), comparison.tip()].iter().all(|id| {
+        **id == *"working tree" || (id.len() >= 40 && id.bytes().all(|b| b.is_ascii_hexdigit()))
+    })
 }

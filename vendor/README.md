@@ -41,7 +41,11 @@ when host-provided message disclosures change, retaining the list's scroll ancho
 The default diff file header folds from its filename/status/statistics area as
 well as its caret. Header prefix/suffix controls and file annotations remain
 outside that click target, so actions such as opening a file do not also fold it.
-Both natural and sticky headers use the same rendering path.
+Both natural and sticky headers use the same rendering path. Pinned headers
+reserve the natural top separator's height as padding: the comparison bar owns
+the viewport separator, while the file header keeps one bottom border. This
+avoids doubled separators on the second and subsequent files without changing
+pinning/push-off geometry.
 
 The diff state exposes a virtualized viewport offset and restoration method for
 retained overview views in the host's Back/Forward history.

@@ -435,3 +435,18 @@ names, use Up/Down and Enter to reveal a reference, and Escape to clear the quer
 then close. These are focused widget navigation keys, like command-palette
 navigation; the command that opens the reference browser remains remappable.
 Copy and Review branch changes remain available on reference rows.
+
+## Comparing history endpoints
+
+Normal click inspects a revision. Cmd-click (macOS) or Ctrl-click (Linux) compares
+the inspected revision with the clicked revision. From an aggregate, its right
+endpoint is the anchor. Clicking that same endpoint leaves the view unchanged.
+Pair ordering follows `comparison.pair_order`; explicit CLI direction is retained.
+
+The following commands are unbound by default and can be mapped in a keybinding
+profile: `compare_revision` (also in a history row's context menu),
+`swap_comparison`, `reveal_comparison_left`, `reveal_comparison_right`, and
+`diff_from_branch_point` (choose a base for the selected revision). L/R controls
+in the comparison header reveal endpoints without changing the inspected file.
+All changes restores the pair after inspecting a commit; Current work returns
+to the workspace. Back/Forward restores the pair and captured contents.

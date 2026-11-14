@@ -19,6 +19,9 @@ pub(crate) struct Arguments {
     /// Compare two files or directory trees, without requiring a repository.
     #[arg(long, num_args = 2, value_names = ["LEFT", "RIGHT"])]
     pub(crate) diff: Option<Vec<PathBuf>>,
+    #[arg(skip)]
+    #[serde(default)]
+    pub(crate) difftool: Option<jaywalk::difftool::Capture>,
     /// Wait until the launched window closes (required for temporary diff inputs).
     #[arg(long)]
     pub(crate) wait: bool,
@@ -52,9 +55,15 @@ impl Arguments {
         limit: jaywalk::text_content::TextLimit,
     ) -> std::result::Result<Comparison, String> {
         match &self.diff {
-            Some(paths) => jaywalk::external::ExternalContents::comparison_with_limit(
-                &paths[0], &paths[1], limit,
-            ),
+            Some(paths) => {
+                let comparison = jaywalk::external::ExternalContents::comparison_with_limit(
+                    &paths[0], &paths[1], limit,
+                )?;
+                match &self.difftool {
+                    Some(capture) => capture.bind(comparison),
+                    None => Ok(comparison),
+                }
+            }
             None => Comparison::load_with_limit(
                 self.directory(),
                 self.base.as_deref(),
@@ -130,6 +139,7 @@ impl Arguments {
         arguments.directory = Some(directory);
         arguments.welcome = false;
         arguments.diff = None;
+        arguments.difftool = None;
         arguments.base = None;
         arguments.tip = "@".into();
         arguments.file = None;

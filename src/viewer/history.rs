@@ -111,9 +111,18 @@ fn history_row(
                 .max_w(rems(36.))
                 .build(window, cx)
         })
-        .on_click(move |_, window, cx| {
+        .on_click(move |event, window, cx| {
+            let compare = if cfg!(target_os = "macos") {
+                event.modifiers().platform
+            } else {
+                event.modifiers().control
+            };
             let _ = viewer.update(cx, |viewer, cx| {
-                viewer.select_revision(&commit_id, window, cx)
+                if compare {
+                    viewer.compare_revision(&commit_id, window, cx);
+                } else {
+                    viewer.select_revision(&commit_id, window, cx);
+                }
             });
         })
         .context_menu(move |menu, _, cx| {
@@ -239,6 +248,7 @@ impl Viewer {
                 .foreground
                 .opacity(self.settings.history.stripe_opacity),
         );
+        let accent = theme.primary;
         let selection = theme.list_active;
         let hover = theme.secondary_hover;
         let mut panel = super::chrome::Panel::new(
@@ -322,6 +332,13 @@ impl Viewer {
         let labels = self.references.labels;
         let badge_width = self.settings.history.reference_badge_width;
         let visibility = self.references.visibility.clone();
+        let endpoints = match &session.review.source {
+            review_context::ReviewSource::Target(jaywalk::branch_review::Target::Pair {
+                left,
+                right,
+            }) => Some((left.clone(), right.clone())),
+            _ => None,
+        };
         let rows = uniform_list("history-rows", count, move |visible, _, cx| {
             let width = GRAPH_MARGIN * 2.
                 + (history.visible_lane_count(visible.clone()) - 1) as f32 * spacing;
@@ -349,19 +366,36 @@ impl Viewer {
                             selection,
                             hover,
                         },
-                        if labels {
-                            super::references::reference_badge(
-                                &history,
-                                index,
-                                &visibility,
-                                viewer.clone(),
-                                badge_width,
-                                font_size,
-                                cx,
-                            )
-                        } else {
-                            None
-                        },
+                        Some(
+                            div()
+                                .h_flex()
+                                .items_center()
+                                .gap_1()
+                                .children(endpoints.as_ref().and_then(|(left, right)| {
+                                    let id = &history.revisions[index].commit_id;
+                                    let marker = match (id == left, id == right) {
+                                        (true, true) => "L/R",
+                                        (true, false) => "L",
+                                        (false, true) => "R",
+                                        _ => return None,
+                                    };
+                                    Some(div().text_xs().text_color(accent).px_1().child(marker))
+                                }))
+                                .children(if labels {
+                                    super::references::reference_badge(
+                                        &history,
+                                        index,
+                                        &visibility,
+                                        viewer.clone(),
+                                        badge_width,
+                                        font_size,
+                                        cx,
+                                    )
+                                } else {
+                                    None
+                                })
+                                .into_any_element(),
+                        ),
                     )
                 })
                 .collect()

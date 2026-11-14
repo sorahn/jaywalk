@@ -244,3 +244,65 @@ fn named_merged_branches_use_the_historical_base_after_main_advances() {
         );
     }
 }
+
+#[test]
+fn exact_pairs_and_directional_series_are_pinned_on_git_and_jj() {
+    use jaywalk::settings::PairOrder;
+    for jj in [false, true] {
+        let f = Fixture::new();
+        let first = f.run("git", &["rev-parse", "middle"]);
+        let tip = f.run("git", &["rev-parse", "feature"]);
+        let other = f.run("git", &["rev-parse", "main"]);
+        let catalog = f.catalog(jj);
+        let target = catalog.pair(&tip, &first, PairOrder::Ancestry).unwrap();
+        assert_eq!(
+            target,
+            Target::Pair {
+                left: first.clone(),
+                right: tip.clone()
+            }
+        );
+        let reverse = catalog
+            .resolve(&catalog.pair(&tip, &first, PairOrder::Selection).unwrap())
+            .unwrap();
+        assert_eq!(reverse.files().len(), 1);
+        assert_eq!(reverse.files()[0].status(), "removed");
+        assert!(
+            reverse.overview_series().unwrap().unwrap().commits[0]
+                .details
+                .message
+                .starts_with("Left only ·")
+        );
+        let divergent = catalog
+            .resolve(&catalog.pair(&other, &tip, PairOrder::Ancestry).unwrap())
+            .unwrap();
+        let series = divergent.overview_series().unwrap().unwrap();
+        assert!(
+            series
+                .commits
+                .iter()
+                .any(|c| c.details.message.starts_with("Left only ·"))
+        );
+        assert!(
+            series
+                .commits
+                .iter()
+                .any(|c| c.details.message.starts_with("Right only ·"))
+        );
+        let index = std::fs::read(f.0.join(".git/index")).unwrap();
+        f.write("unsaved.txt", "not in selected snapshots\n");
+        let again = catalog.resolve(&target).unwrap();
+        assert_eq!((again.base(), again.tip()), (first.as_str(), tip.as_str()));
+        assert!(
+            !again
+                .files()
+                .iter()
+                .any(|file| file.after_path() == "unsaved.txt")
+        );
+        assert_eq!(std::fs::read(f.0.join(".git/index")).unwrap(), index);
+        assert_eq!(
+            std::fs::read_to_string(f.0.join("unsaved.txt")).unwrap(),
+            "not in selected snapshots\n"
+        );
+    }
+}

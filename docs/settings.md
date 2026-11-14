@@ -483,3 +483,13 @@ locales are not configurable through undocumented keys.
 
 When adding or changing a setting, update this reference together with
 `config/default.toml`, the typed schema/validation and live-application behavior.
+
+## Comparison selection
+
+`comparison.pair_order` defaults to `"ancestry"`: newly selected related revisions
+are ordered ancestor → descendant; unrelated revisions retain selection order.
+`"selection"` always keeps first selected → second selected. Set it in the user
+configuration or an explicit `--config` file. It applies live to the next manually
+created pair. It does
+not reorder open comparisons, Back/Forward snapshots, explicit CLI endpoints or
+branch-review presets. Swap reverses only the current captured comparison.

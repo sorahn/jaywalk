@@ -38,3 +38,5 @@ pub mod recent;
 pub mod review_requests;
 
 pub mod text_content;
+
+pub mod difftool;

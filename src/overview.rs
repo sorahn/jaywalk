@@ -95,61 +95,22 @@ impl Comparison {
     /// history limits and remote visibility. Parents precede descendants.
     pub fn overview_series(&self) -> Result<Option<OverviewSeries>, String> {
         let mut commits = match self.content() {
-            ContentSource::External(_) | ContentSource::Evolution(_) => return Ok(None),
-            ContentSource::Git(contents) => {
-                let tip = if self.tip() == "working tree" {
-                    contents.recorded_tip.as_str()
-                } else {
-                    self.tip()
+            ContentSource::Evolution(_) => return Ok(None),
+            ContentSource::External(contents)
+                if self.has_git_context()
+                    && [self.base(), self.tip()].iter().all(|id| {
+                        *id == "working tree"
+                            || (id.len() >= 40 && id.bytes().all(|b| b.is_ascii_hexdigit()))
+                    }) =>
+            {
+                let Some(head) = contents.recorded_working.as_deref() else {
+                    return Ok(None);
                 };
-                let range = format!("{}..{tip}", self.base());
-                let output = crate::git::output(
-                    self.root(),
-                    &[
-                        "log",
-                        "--reverse",
-                        "--topo-order",
-                        "-z",
-                        "--format=%H%x00%P%x00%B%x00%an%x00%aI",
-                        &range,
-                        "--",
-                    ],
-                )?;
-                let fields: Vec<_> = output.split_terminator('\0').collect();
-                if !fields.len().is_multiple_of(5) {
-                    return Err("Incomplete Git series metadata".into());
-                }
-                let mut commits = Vec::with_capacity(fields.len() / 5);
-                for fields in fields.as_chunks::<5>().0 {
-                    let entry = SeriesEntry {
-                        details: CommitDetails {
-                            id: fields[0].into(),
-                            message: fields[2].trim_end().into(),
-                            author: fields[3].into(),
-                            timestamp: fields[4].into(),
-                            working_copy: false,
-                        },
-                        change_id: fields[0].into(),
-                        parents: fields[1].split_whitespace().map(str::to_owned).collect(),
-                        empty: false,
-                    };
-                    if let Some(commit) = entry.into_commit() {
-                        commits.push(commit);
-                    }
-                }
-                if self.tip() == "working tree" && contents.working_changes {
-                    commits.push(SeriesCommit {
-                        details: CommitDetails {
-                            id: String::new(),
-                            message: "Working copy changes".into(),
-                            author: String::new(),
-                            timestamp: String::new(),
-                            working_copy: true,
-                        },
-                        revision: None,
-                    });
-                }
-                return Ok(Some(OverviewSeries { commits }));
+                return git_series(self, head, true);
+            }
+            ContentSource::External(_) => return Ok(None),
+            ContentSource::Git(contents) => {
+                return git_series(self, &contents.recorded_tip, contents.working_changes);
             }
             ContentSource::Recorded => {
                 let range = format!("{}..{}", self.base(), self.tip());
@@ -166,6 +127,30 @@ impl Comparison {
                     if let Some(commit) = entry.into_commit() {
                         commits.push(commit);
                     }
+                }
+                let reverse_range = format!("{}..{}", self.tip(), self.base());
+                let removed = query(
+                    self.root(),
+                    self.operation(),
+                    &["log", "-G", "-r", &reverse_range, "-T", template],
+                )?;
+                let mut left = Vec::new();
+                for line in removed.lines() {
+                    let entry: SeriesEntry = serde_json::from_str(line)
+                        .map_err(|e| format!("Invalid jj series metadata: {e}"))?;
+                    if let Some(mut commit) = entry.into_commit() {
+                        commit.details.message = format!("Left only · {}", commit.details.message);
+                        left.push(commit);
+                    }
+                }
+                if !left.is_empty() {
+                    for commit in &mut commits {
+                        commit.details.message = format!("Right only · {}", commit.details.message);
+                    }
+                    left.reverse();
+                    commits.reverse();
+                    left.extend(commits);
+                    return Ok(Some(OverviewSeries { commits: left }));
                 }
                 commits
             }
@@ -349,4 +334,100 @@ pub fn overview_patch(file: &ChangedFile, contents: Option<(&str, &str)>) -> Str
         patch.push_str("text preview unavailable\n");
     }
     patch
+}
+
+/// Symmetric ancestry keeps divergent and reversed pairs honest. Presentation
+/// labels do not modify revision metadata used by inspection and copy actions.
+fn git_series(
+    comparison: &Comparison,
+    recorded_working: &str,
+    working_changes: bool,
+) -> Result<Option<OverviewSeries>, String> {
+    let left = if comparison.base() == "working tree" {
+        recorded_working
+    } else {
+        comparison.base()
+    };
+    let right = if comparison.tip() == "working tree" {
+        recorded_working
+    } else {
+        comparison.tip()
+    };
+    let range = format!("{left}...{right}");
+    let output = crate::git::output(
+        comparison.root(),
+        &[
+            "log",
+            "--left-right",
+            "--reverse",
+            "--topo-order",
+            "-z",
+            "--format=%m%x00%H%x00%P%x00%B%x00%an%x00%aI",
+            &range,
+            "--",
+        ],
+    )?;
+    let fields: Vec<_> = output.split_terminator('\0').collect();
+    if !fields.len().is_multiple_of(6) {
+        return Err("Incomplete Git series metadata".into());
+    }
+    let mut left_commits = Vec::new();
+    let mut right_commits = Vec::new();
+    for entry in fields.as_chunks::<6>().0 {
+        let parsed = SeriesEntry {
+            details: CommitDetails {
+                id: entry[1].into(),
+                message: entry[3].trim_end().into(),
+                author: entry[4].into(),
+                timestamp: entry[5].into(),
+                working_copy: false,
+            },
+            change_id: entry[1].into(),
+            parents: entry[2].split_whitespace().map(str::to_owned).collect(),
+            empty: false,
+        };
+        if let Some(commit) = parsed.into_commit() {
+            if entry[0] == "<" {
+                left_commits.push(commit);
+            } else {
+                right_commits.push(commit);
+            }
+        }
+    }
+    if !left_commits.is_empty() {
+        for commit in &mut left_commits {
+            commit.details.message = format!("Left only · {}", commit.details.message);
+        }
+        for commit in &mut right_commits {
+            commit.details.message = format!("Right only · {}", commit.details.message);
+        }
+    }
+    left_commits.extend(right_commits);
+    if working_changes
+        && (comparison.base() == "working tree" || comparison.tip() == "working tree")
+    {
+        let commit = SeriesCommit {
+            details: CommitDetails {
+                id: String::new(),
+                message: if comparison.base() == "working tree" {
+                    "Working copy changes · left endpoint"
+                } else {
+                    "Working copy changes"
+                }
+                .into(),
+                author: String::new(),
+                timestamp: String::new(),
+                working_copy: true,
+            },
+            revision: None,
+        };
+        if comparison.base() == "working tree" {
+            left_commits.insert(0, commit);
+        } else {
+            left_commits.push(commit);
+        }
+    }
+    Ok(Some(OverviewSeries {
+        commits: left_commits,
+    }))
 }

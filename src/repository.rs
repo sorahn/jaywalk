@@ -160,6 +160,55 @@ pub fn parse_changed_files(output: &str) -> Result<Vec<ChangedFile>, String> {
 }
 
 impl Comparison {
+    /// Reverse an immutable capture without reading a later working copy.
+    pub fn swapped(&self) -> Result<Self, String> {
+        let content = match &self.content {
+            ContentSource::Recorded => {
+                return Self::between(
+                    self.root.clone(),
+                    self.operation.clone(),
+                    self.tip.clone(),
+                    self.base.clone(),
+                    self.text_limit,
+                );
+            }
+            ContentSource::Git(contents) => ContentSource::Git(Arc::new(contents.swapped())),
+            ContentSource::External(contents) => {
+                ContentSource::External(Arc::new(contents.swapped()))
+            }
+            ContentSource::Evolution(_) => {
+                return Err("Swap is unavailable for patch interdiffs".into());
+            }
+        };
+        let files = self
+            .files
+            .iter()
+            .map(|file| {
+                ChangedFile::new(
+                    match file.kind() {
+                        ChangeKind::Added => ChangeKind::Removed,
+                        ChangeKind::Removed => ChangeKind::Added,
+                        ChangeKind::Copied => ChangeKind::Modified,
+                        kind => kind.clone(),
+                    },
+                    file.after_path().into(),
+                    file.before_path().into(),
+                )
+            })
+            .collect();
+        Self::assemble(
+            ComparisonMetadata {
+                root: self.root.clone(),
+                operation: self.operation.clone(),
+                base: self.tip.clone(),
+                tip: self.base.clone(),
+                capture: self.capture,
+            },
+            files,
+            content,
+            self.text_limit,
+        )
+    }
     pub fn root(&self) -> &Path {
         &self.root
     }
@@ -355,7 +404,7 @@ impl Comparison {
         revision: &crate::history::Revision,
         operation: Option<&str>,
     ) -> Result<Self, String> {
-        if matches!(self.content, ContentSource::Git(_)) {
+        if self.has_git_context() {
             return crate::git::for_revision(self, revision);
         }
         let base = revision
@@ -372,6 +421,44 @@ impl Comparison {
         )
     }
 
+    pub fn is_external(&self) -> bool {
+        matches!(self.content, ContentSource::External(_))
+    }
+    pub fn has_git_context(&self) -> bool {
+        matches!(&self.content, ContentSource::Git(_))
+            || matches!(&self.content,ContentSource::External(c) if c.git_context)
+    }
+    pub(crate) fn bind_external(
+        &self,
+        root: PathBuf,
+        endpoints: Option<(String, String)>,
+        working_head: Option<String>,
+        files: Vec<ChangedFile>,
+    ) -> Result<Self, String> {
+        let ContentSource::External(source) = &self.content else {
+            return Err("Only supplied inputs can be bound to tool context".into());
+        };
+        let mut contents = source.as_ref().clone();
+        contents.git_context = true;
+        contents.recorded_working = working_head;
+        let (base, tip) = endpoints.unwrap_or_else(|| (self.base.clone(), self.tip.clone()));
+        Self::assemble(
+            ComparisonMetadata {
+                root,
+                operation: String::new(),
+                base,
+                tip,
+                capture: self.capture,
+            },
+            if files.is_empty() {
+                self.files.to_vec()
+            } else {
+                files
+            },
+            ContentSource::External(Arc::new(contents)),
+            self.text_limit,
+        )
+    }
     pub fn supports_evolution(&self) -> bool {
         matches!(
             self.content,
@@ -383,7 +470,7 @@ impl Comparison {
         &self,
         history: &crate::history::HistoryQuery,
     ) -> Result<crate::history::History, String> {
-        if matches!(self.content, ContentSource::Git(_)) {
+        if self.has_git_context() {
             return crate::git::history(&self.root, history);
         }
         let references = self.reference_snapshot()?;

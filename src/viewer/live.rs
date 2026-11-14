@@ -628,6 +628,11 @@ impl Viewer {
         if let Some(session) = self.repository.ready()
             && let review_context::ReviewSource::Target(target) = &session.review.source
         {
+            if matches!(target, jaywalk::branch_review::Target::Pair { .. }) {
+                self.navigation.pinned = true;
+                self.reload_history(None, window, cx);
+                return;
+            }
             if matches!(session.scope, ComparisonScope::Aggregate) {
                 self.open_review_target(target.clone(), window, cx);
             } else {

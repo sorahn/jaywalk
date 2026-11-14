@@ -1,6 +1,6 @@
 //! Reference snapshots are read-only; remote configuration contains names only.
 use crate::history::{Reference, ReferenceKind, TrackingState};
-use crate::repository::{Comparison, ContentSource, query};
+use crate::repository::{Comparison, query};
 use std::{
     collections::BTreeSet,
     hash::{Hash, Hasher},
@@ -150,7 +150,7 @@ pub(crate) fn recorded(root: &Path, operation: &str) -> Result<ReferenceSnapshot
 }
 impl Comparison {
     pub fn reference_snapshot(&self) -> Result<ReferenceSnapshot, String> {
-        if matches!(self.content(), ContentSource::Git(_)) {
+        if self.has_git_context() {
             crate::git::references(self.root())
         } else if self.supports_evolution() {
             recorded(self.root(), self.operation())

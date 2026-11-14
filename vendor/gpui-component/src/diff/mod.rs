@@ -1324,7 +1324,7 @@ fn render_file_header(
     window: &mut Window,
     cx: &mut App,
 ) -> AnyElement {
-    let header = render_file_header_content(file, code, true, window, cx);
+    let header = render_file_header_content(file, code, FileHeaderPlacement::InFlow, window, cx);
     if file == 0
         && let Some(render) = &code.preamble
     {
@@ -1350,10 +1350,16 @@ fn render_file_header(
     header
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum FileHeaderPlacement {
+    InFlow,
+    Sticky,
+}
+
 fn render_file_header_content(
     file: usize,
     code: &CodePresentation,
-    annotations: bool,
+    placement: FileHeaderPlacement,
     window: &mut Window,
     cx: &mut App,
 ) -> AnyElement {
@@ -1366,6 +1372,7 @@ fn render_file_header_content(
     let foreground = cx.theme().muted_foreground;
     let border = cx.theme().border;
     let collapsed = code.state.read(cx).is_file_collapsed(document.path());
+    let top_separator = placement == FileHeaderPlacement::InFlow;
     let content = if let Some(render) = &code.header.content {
         render(document, window, cx)
     } else {
@@ -1439,7 +1446,13 @@ fn render_file_header_content(
     let header = v_flex()
         .id("file-header")
         .w_full()
-        .when(file > 0, |this| this.border_t_1())
+        .when(file > 0, |this| match top_separator {
+            true => this.border_t_1(),
+            // The comparison bar already owns the viewport's top separator.
+            // Reserve its in-flow border space so pinning does not change the
+            // header's height or expose the natural header's bottom edge.
+            false => this.pt(px(1.)),
+        })
         .border_b_1()
         .border_color(border)
         .child(
@@ -1473,7 +1486,7 @@ fn render_file_header_content(
                 )
                 .child(div().flex_1().min_w_0().child(content)),
         )
-        .when(annotations, |header| {
+        .when(placement == FileHeaderPlacement::InFlow, |header| {
             header.children(file_annotations(file, code, window, cx))
         });
     if let Some(build) = &code.header.context_menu {

@@ -190,7 +190,7 @@ This integration is for viewing diffs; Jaywalk does not edit patches or resolve 
 git config --global difftool.jaywalk.cmd 'jw --wait diff "$LOCAL" "$REMOTE"'
 git config --global difftool.jaywalk.trustExitCode true
 git difftool --no-prompt --tool=jaywalk
-# Compare a whole tree in one window:
+# Deliver changed paths together in one directory callback:
 git difftool --no-prompt --dir-diff --no-symlinks --tool=jaywalk
 ```
 
@@ -282,3 +282,43 @@ At narrow viewer widths, the footer groups wrapping/view controls under a diff
 display-options menu and uses a compact change counter. The full counter remains
 available on hover. Counts stay on one line; drawer footer sections follow drawn
 widths when the window constrains the sidebars.
+
+## Selecting comparison endpoints
+
+Click a history row to inspect that revision. Cmd-click another row on macOS,
+Ctrl-click on Linux, to compare it with the inspected revision. From an overview,
+the right endpoint is the anchor. Related points default to ancestor → descendant;
+set `comparison.pair_order = "selection"` to retain click order instead.
+
+The header shows the ordered pair. **Swap** reverses the captured comparison;
+**L** and **R** reveal endpoints in history, including points outside the current
+loaded graph. Inspecting a commit retains the aggregate pair: **All changes**
+returns to it, **Current work** resets to workspace changes, and Back/Forward
+restores captured views. Explicit `--base` / `--tip` CLI launches retain their
+specified direction and initialize the same endpoint markers. **Diff from branch
+point…** in a revision's context menu uses the existing branch/base picker;
+this is distinct from an exact snapshot-to-snapshot comparison.
+
+Standard Git difftool callbacks now copy their inputs before acknowledging them.
+On macOS and Linux, Jaywalk attempts a bounded same-user parent-process lookup
+to recover the effective Git request and invocation identity (including the Linux boot identity for persisted captures). Files from that
+invocation accumulate in one window, even with single-window mode disabled.
+Each callback returns after acknowledgement so Git can deliver the next file;
+`--wait` waits for window closure only on the final callback. The progress caption
+also makes partial delivery visible if Git is cancelled before the final file.
+Temporary captures use the private runtime directory; a window holds a lease
+until it closes. Captures left by application termination are reclaimed by later
+difftool launches after one day, provided the producer has exited and no window
+holds a lease. Owned copies use disk space proportional to the supplied inputs.
+No personal alias or tracing configuration is required.
+
+When resolved snapshots match every supplied path's contents, the header says
+**matched snapshots** and shows L/R markers. This is a match for the supplied
+subset, not proof that a mutable branch name could not have moved. The supplied
+contents remain authoritative, including path-filtered comparisons. Unsupported
+request syntax, index endpoints, binary/oversized content, moved refs and
+unavailable process metadata retain the external diff without guessed commit
+markers. Index comparisons do not create a fictitious history row. If process
+identity is unavailable, inputs are owned independently rather than grouped by
+repository or time. Detached wrappers must call Jaywalk before Git removes its
+temporary inputs. Viewing never checks out revisions, edits the index or fetches.

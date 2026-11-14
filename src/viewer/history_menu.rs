@@ -22,7 +22,11 @@ impl RevisionTarget {
         }
     }
     fn allows(&self, command: CommandId) -> bool {
-        !self.virtual_working_copy || command == CommandId::InspectRevision
+        !self.virtual_working_copy
+            || matches!(
+                command,
+                CommandId::InspectRevision | CommandId::CompareRevision
+            )
     }
     pub(super) fn copy_text(&self, command: CommandId) -> Option<&str> {
         if !self.allows(command) {
@@ -64,6 +68,8 @@ pub(super) fn revision_menu(
 ) -> PopupMenu {
     for command in [
         CommandId::InspectRevision,
+        CommandId::CompareRevision,
+        CommandId::DiffFromBranchPoint,
         CommandId::BranchChanges,
         CommandId::MergedBranch,
         CommandId::MergeResult,
@@ -179,6 +185,18 @@ impl Viewer {
         cx: &mut Context<Self>,
     ) {
         if !target.allows(command) {
+            return;
+        }
+        if command == CommandId::CompareRevision {
+            self.compare_revision(&target.commit, window, cx);
+            return;
+        }
+        if command == CommandId::DiffFromBranchPoint {
+            self.choose_review(
+                Some(jaywalk::branch_review::Tip::Commit(target.commit.clone())),
+                window,
+                cx,
+            );
             return;
         }
         if matches!(

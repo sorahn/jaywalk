@@ -31,13 +31,13 @@ impl Drop for Process {
     }
 }
 
-pub(super) struct BlobBatch {
+pub(crate) struct BlobBatch {
     root: PathBuf,
     limit: TextLimit,
     process: Option<Process>,
 }
 impl BlobBatch {
-    pub(super) fn new(root: &Path, limit: TextLimit) -> Self {
+    pub(crate) fn new(root: &Path, limit: TextLimit) -> Self {
         Self {
             root: root.to_owned(),
             limit,
@@ -73,7 +73,7 @@ impl BlobBatch {
         }
         Ok(self.process.as_mut().expect("object reader was started"))
     }
-    pub(super) fn read(&mut self, object: &str) -> Result<String, String> {
+    pub(crate) fn read(&mut self, object: &str) -> Result<String, String> {
         // Only captured object IDs enter this protocol, never a path or user expression.
         if !matches!(object.len(), 40 | 64) || !object.bytes().all(|b| b.is_ascii_hexdigit()) {
             return Err("Invalid captured Git object ID".into());

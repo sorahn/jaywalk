@@ -1,6 +1,6 @@
 //! Resolve sticky placement after the list's prepaint, using this frame's row
 //! bounds. Build and prepaint the actual header so its controls remain usable.
-use super::{CodePresentation, render_file_header_content};
+use super::{CodePresentation, FileHeaderPlacement, render_file_header_content};
 use crate::ActiveTheme as _;
 use gpui::{
     AnyElement, App, AvailableSpace, Bounds, ContentMask, Element, ElementId, GlobalElementId,
@@ -98,7 +98,7 @@ impl Element for StickyHeader {
                 cx.stop_propagation();
             })
             .child(render_file_header_content(
-                file, &self.code, false, window, cx,
+                file, &self.code, FileHeaderPlacement::Sticky, window, cx,
             ))
             .into_any_element();
         let measured = header.layout_as_root(
