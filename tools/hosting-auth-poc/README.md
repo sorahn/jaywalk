@@ -15,7 +15,40 @@ and needs the D-Bus development library at build time (e.g. `dbus-devel` on
 Fedora, `libdbus-1-dev` on Debian) and an unlocked desktop Secret Service at
 runtime. There is no plaintext or mock-store fallback.
 
-## GitHub development registration
+## Browser-assisted GitHub development registration
+
+```sh
+tools/hosting-auth-poc/target/debug/jaywalk-hosting-auth-poc github-register
+```
+
+This opens a temporary loopback setup page. Click **Continue to GitHub**, then
+confirm the app name in GitHub. The manifest preselects a private development
+app with Metadata and Pull requests read-only and webhooks disabled. GitHub
+returns a temporary registration code to the probe. It exchanges that code
+and saves the app ID, slug and client ID in the OS credential store. Generated
+private keys, client secrets and webhook secrets are not retained or printed.
+
+The probe then opens the app's GitHub settings. Enable **Device Flow** and save;
+GitHub does not document that switch as a manifest parameter. Next:
+
+```sh
+tools/hosting-auth-poc/target/debug/jaywalk-hosting-auth-poc github-install
+tools/hosting-auth-poc/target/debug/jaywalk-hosting-auth-poc github-connect
+```
+
+Choose one test repository during installation, then complete device sign-in.
+`github-connect` uses the saved client ID when its argument is omitted. You can
+reopen settings with `github-setup`. `github-forget-registration` removes only
+the local registration record; delete an unwanted development app in GitHub
+Developer settings separately. Disconnecting the account leaves this
+registration record available for reconnection.
+
+Registration uses a random loopback port and a 15-minute callback timeout,
+independent of the Bitbucket fixed callback port. An existing saved registration
+is never silently replaced. This is development bootstrap, not a step ordinary
+Jaywalk users will need when connecting to a published Jaywalk GitHub App.
+
+## Manual GitHub development registration
 
 Create a **GitHub App** in your account's Developer settings:
 
@@ -121,9 +154,12 @@ prove live authorization, refresh or provider callback policy. This is a
 blocking terminal experiment, not a GPUI implementation. Cancellation is
 checked between requests; in-flight HTTPS can take up to the 20-second request
 timeout. No automatic retry, pagination, account manager, hosted broker,
-provider abstraction or production callback registration is implemented.
+provider abstraction or production callback registration is implemented. Browser-assisted
+development registration is a separate GitHub App manifest experiment.
 
 Protocol references:
+
+- https://docs.github.com/en/apps/sharing-github-apps/registering-a-github-app-from-a-manifest
 
 - https://docs.github.com/en/apps/creating-github-apps/authenticating-with-a-github-app/generating-a-user-access-token-for-a-github-app
 - https://docs.github.com/en/apps/creating-github-apps/authenticating-with-a-github-app/refreshing-user-access-tokens

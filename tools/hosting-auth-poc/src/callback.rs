@@ -16,11 +16,44 @@ impl Listener {
             .map_err(|_| "Cannot configure loopback listener")?;
         Ok(Self(socket))
     }
+    pub(crate) fn bind_registration() -> Result<Self> {
+        let socket = TcpListener::bind("127.0.0.1:0")
+            .map_err(|_| "Cannot bind registration callback listener")?;
+        socket
+            .set_nonblocking(true)
+            .map_err(|_| "Cannot configure registration listener")?;
+        Ok(Self(socket))
+    }
+    pub(crate) fn origin(&self) -> Result<String> {
+        let address = self
+            .0
+            .local_addr()
+            .map_err(|_| "Cannot read listener address")?;
+        Ok(format!("http://{address}"))
+    }
+    pub(crate) fn receive_with_page(
+        self,
+        state: &str,
+        timeout: Duration,
+        cancelled: &AtomicBool,
+        page: Option<(&str, &str)>,
+    ) -> Result<String> {
+        self.serve(state, timeout, cancelled, page)
+    }
     pub(crate) fn receive(
         self,
         state: &str,
         timeout: Duration,
         cancelled: &AtomicBool,
+    ) -> Result<String> {
+        self.serve(state, timeout, cancelled, None)
+    }
+    fn serve(
+        self,
+        state: &str,
+        timeout: Duration,
+        cancelled: &AtomicBool,
+        page: Option<(&str, &str)>,
     ) -> Result<String> {
         let deadline = Instant::now() + timeout;
         loop {
@@ -67,21 +100,23 @@ impl Listener {
             if Instant::now() >= deadline {
                 return Err("Browser callback timed out".into());
             }
+            if let Some((path, html)) = page
+                && request_target(&bytes) == Ok(path)
+            {
+                let _ = socket.write_all(&response("200 OK", "text/html; charset=utf-8", html));
+                continue;
+            }
             let result = parse(&bytes, state);
+            if result == Err(CallbackError::Invalid) {
+                eprintln!("Ignored browser request: {}", diagnostic(&bytes, state));
+            }
             let (status, body) = if result.is_ok() {
                 ("200 OK", "Authorization received. Return to the terminal.")
             } else {
-                (
-                    "400 Bad Request",
-                    "Callback rejected. Return to the terminal or try again.",
-                )
+                ("400 Bad Request", diagnostic(&bytes, state))
             };
-            let response = format!(
-                "HTTP/1.1 {status}\r\nContent-Type: text/plain\r\nCache-Control: no-store\r\nReferrer-Policy: no-referrer\r\nConnection: close\r\nContent-Length: {}\r\n\r\n{body}",
-                body.len()
-            );
             // The browser may close first; callback validity does not depend on its response.
-            let _ = socket.write_all(response.as_bytes());
+            let _ = socket.write_all(&response(status, "text/plain", body));
             match result {
                 Ok(code) => return Ok(code), // consumes listener: successful callback cannot replay
                 Err(CallbackError::Denied) => return Err("Authorization denied by user".into()),
@@ -96,21 +131,64 @@ enum CallbackError {
     Invalid,
     Denied,
 }
-fn parse(bytes: &[u8], expected_state: &str) -> std::result::Result<String, CallbackError> {
+fn response(status: &str, content_type: &str, body: &str) -> Vec<u8> {
+    format!("HTTP/1.1 {status}\r\nContent-Type: {content_type}\r\nCache-Control: no-store\r\nReferrer-Policy: no-referrer\r\nContent-Security-Policy: default-src 'none'; style-src 'unsafe-inline'; form-action https://github.com; frame-ancestors 'none'; base-uri 'none'\r\nX-Content-Type-Options: nosniff\r\nConnection: close\r\nContent-Length: {}\r\n\r\n{body}", body.len()).into_bytes()
+}
+fn request_target(bytes: &[u8]) -> std::result::Result<&str, CallbackError> {
     if bytes.len() >= 8192 || !bytes.windows(4).any(|w| w == b"\r\n\r\n") {
         return Err(CallbackError::Invalid);
     }
-    let request = std::str::from_utf8(bytes).map_err(|_| CallbackError::Invalid)?;
-    let mut parts = request
-        .lines()
-        .next()
-        .ok_or(CallbackError::Invalid)?
-        .split_whitespace();
+    let end = bytes
+        .windows(2)
+        .position(|pair| pair == b"\r\n")
+        .ok_or(CallbackError::Invalid)?;
+    let request_line = std::str::from_utf8(&bytes[..end]).map_err(|_| CallbackError::Invalid)?;
+    let mut parts = request_line.split_whitespace();
     let (Some("GET"), Some(target), Some("HTTP/1.1" | "HTTP/1.0"), None) =
         (parts.next(), parts.next(), parts.next(), parts.next())
     else {
         return Err(CallbackError::Invalid);
     };
+    Ok(target)
+}
+fn diagnostic<'a>(bytes: &[u8], expected_state: &'a str) -> &'a str {
+    let Ok(target) = request_target(bytes) else {
+        return "Incomplete, oversized or unsupported HTTP request. Reload the page.";
+    };
+    if target.starts_with("/register/") {
+        return "This setup link does not match the running probe. Use the newly opened setup page.";
+    }
+    if !target.starts_with("/callback?") {
+        return "This is not the registration callback. Return to the setup page.";
+    }
+    let Ok(url) = reqwest::Url::parse(&format!("http://127.0.0.1{target}")) else {
+        return "Malformed callback URL.";
+    };
+    let parameters: Vec<_> = url.query_pairs().collect();
+    for (index, (key, _)) in parameters.iter().enumerate() {
+        if parameters[..index]
+            .iter()
+            .any(|(previous, _)| previous == key)
+        {
+            return "Callback contains duplicate parameters.";
+        }
+    }
+    if !parameters.iter().any(|(key, _)| key == "state") {
+        return "GitHub did not return the required state parameter. Keep this tab open and return to the terminal.";
+    }
+    if !parameters
+        .iter()
+        .any(|(key, value)| key == "state" && value == expected_state)
+    {
+        return "Callback state does not match this registration attempt. Keep this tab open and return to the terminal.";
+    }
+    if parameters.iter().any(|(key, _)| key == "error") {
+        return "GitHub declined registration or authorization. Return to the terminal.";
+    }
+    "Callback is missing a valid registration code. Keep this tab open and return to the terminal."
+}
+fn parse(bytes: &[u8], expected_state: &str) -> std::result::Result<String, CallbackError> {
+    let target = request_target(bytes)?;
     if !target.starts_with("/callback?") || target.contains('#') {
         return Err(CallbackError::Invalid);
     }
@@ -257,6 +335,52 @@ mod tests {
                 .unwrap_err()
                 .contains("cancelled")
         );
+    }
+    #[test]
+    fn headers_do_not_control_request_line_parsing_or_leak_into_diagnostics() {
+        let bytes =
+            b"GET /callback?state=expected&code=synthetic HTTP/1.1\r\nCookie: legacy=\xff\r\n\r\n";
+        assert_eq!(parse(bytes, "expected"), Ok("synthetic".into()));
+        for target in [
+            "/callback?code=SENSITIVE",
+            "/callback?state=SENSITIVE&code=SENSITIVE",
+            "/register/SENSITIVE",
+        ] {
+            let message = diagnostic(&request(target), "expected");
+            assert!(!message.contains("SENSITIVE"));
+        }
+        assert!(diagnostic(&request("/callback?code=x"), "expected").contains("state parameter"));
+    }
+    #[test]
+    fn registration_page_and_callback_share_one_bounded_listener() {
+        let listener = Listener::bind_registration().unwrap();
+        let origin = listener.origin().unwrap();
+        let address = origin.strip_prefix("http://").unwrap().to_owned();
+        let thread = std::thread::spawn(move || {
+            listener.receive_with_page(
+                "expected",
+                Duration::from_secs(3),
+                &AtomicBool::new(false),
+                Some(("/register/nonce", "<p>Setup</p>")),
+            )
+        });
+        let mut client = std::net::TcpStream::connect(&address).unwrap();
+        client.write_all(&request("/register/nonce")).unwrap();
+        let mut response = String::new();
+        client.read_to_string(&mut response).unwrap();
+        assert!(response.starts_with("HTTP/1.1 200"));
+        assert!(response.contains("Content-Type: text/html"));
+        assert!(response.contains("Cache-Control: no-store"));
+        assert!(response.contains("form-action https://github.com"));
+        assert!(response.ends_with("<p>Setup</p>"));
+        let mut client = std::net::TcpStream::connect(&address).unwrap();
+        client
+            .write_all(&request("/callback?state=expected&code=synthetic"))
+            .unwrap();
+        let mut response = String::new();
+        client.read_to_string(&mut response).unwrap();
+        assert_eq!(thread.join().unwrap().unwrap(), "synthetic");
+        assert!(std::net::TcpStream::connect(address).is_err());
     }
     #[test]
     fn native_socket_accepts_only_one_successful_callback() {

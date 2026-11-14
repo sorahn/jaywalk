@@ -1,6 +1,7 @@
 //! Disposable protocol/credential-store probe, not the app's provider contract.
 mod callback;
 mod protocol;
+mod registration;
 
 use clap::{Parser, Subcommand, ValueEnum};
 use keyring::Entry;
@@ -31,7 +32,15 @@ struct Args {
 #[derive(Subcommand)]
 enum Action {
     /// GitHub App device flow; requires a registered client ID with device flow enabled.
-    GithubConnect { client_id: String },
+    GithubConnect { client_id: Option<String> },
+    /// Open browser-assisted development GitHub App registration and save its client ID.
+    GithubRegister,
+    /// Open the saved development app's settings to enable Device Flow.
+    GithubSetup,
+    /// Open installation for the saved development app; select test repositories yourself.
+    GithubInstall,
+    /// Forget the saved development registration locally (does not delete the GitHub App).
+    GithubForgetRegistration,
     /// Development consumer only. Prompts locally for its secret; not a shipping design.
     BitbucketConnect { client_id: String },
     /// Load from the OS store in a fresh process and verify the account via the API.
@@ -116,7 +125,15 @@ fn run() -> Result<()> {
         .build()
         .map_err(|_| "Cannot initialize HTTPS client")?;
     match args.command {
+        Action::GithubRegister => registration::register(&client, &cancelled)?,
+        Action::GithubSetup => registration::open_settings()?,
+        Action::GithubInstall => registration::open_installation()?,
+        Action::GithubForgetRegistration => registration::forget()?,
         Action::GithubConnect { client_id } => {
+            let client_id = match client_id {
+                Some(id) => id,
+                None => registration::client_id()?,
+            };
             ensure_disconnected(Provider::Github)?;
             let session = github_connect(&client, &client_id, &cancelled)?;
             check_cancelled(&cancelled)?;
