@@ -24,6 +24,8 @@ tools/hosting-auth-poc/target/debug/jaywalk-hosting-auth-poc github-register
 This opens a temporary loopback setup page. Click **Continue to GitHub**, then
 confirm the app name in GitHub. The manifest preselects a private development
 app with Metadata and Pull requests read-only and webhooks disabled. GitHub
+validates the disabled hook URL too, so it uses the project homepage as an
+inactive placeholder; no webhook service or deliveries are enabled. GitHub
 returns a temporary registration code to the probe. It exchanges that code
 and saves the app ID, slug and client ID in the OS credential store. Generated
 private keys, client secrets and webhook secrets are not retained or printed.

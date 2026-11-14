@@ -71,7 +71,7 @@ pub(crate) fn register(client: &Client, cancelled: &AtomicBool) -> Result<()> {
     let state = random_string();
     let page_path = format!("/register/{}", random_string());
     let name = format!("Jaywalk Dev {}", &random_string()[..10]);
-    let manifest = manifest(&name, &format!("{origin}/callback"), &origin);
+    let manifest = manifest(&name, &format!("{origin}/callback"));
     let html = page(&manifest, &state)?;
     println!(
         "Opening GitHub development registration. Confirm the app name and read-only permissions in your browser."
@@ -101,14 +101,16 @@ pub(crate) fn register(client: &Client, cancelled: &AtomicBool) -> Result<()> {
     open_browser(&registration.settings_url())
 }
 
-fn manifest(name: &str, redirect_url: &str, origin: &str) -> Value {
+fn manifest(name: &str, redirect_url: &str) -> Value {
     json!({
         "name": name,
         "url": HOMEPAGE,
         "description": "Local Jaywalk read-only hosting authentication experiment",
         "redirect_url": redirect_url,
         "public": false,
-        "hook_attributes": {"url": format!("{origin}/unused-webhook"), "active": false},
+        // GitHub validates public reachability even for an inactive hook. This
+        // existing project URL is a placeholder only; no events or delivery enabled.
+        "hook_attributes": {"url": HOMEPAGE, "active": false},
         "default_permissions": {"metadata": "read", "pull_requests": "read"},
         "default_events": [],
         "request_oauth_on_install": false
@@ -181,13 +183,11 @@ mod tests {
     use super::*;
     #[test]
     fn manifest_is_private_read_only_and_has_no_active_hooks() {
-        let manifest = manifest(
-            "test",
-            "http://127.0.0.1:1234/callback",
-            "http://127.0.0.1:1234",
-        );
+        let manifest = manifest("test", "http://127.0.0.1:1234/callback");
         assert_eq!(manifest["public"], false);
         assert_eq!(manifest["hook_attributes"]["active"], false);
+        assert_eq!(manifest["hook_attributes"]["url"], HOMEPAGE);
+        assert_eq!(manifest["redirect_url"], "http://127.0.0.1:1234/callback");
         assert_eq!(manifest["default_events"], json!([]));
         assert_eq!(
             manifest["default_permissions"],
@@ -197,11 +197,7 @@ mod tests {
     }
     #[test]
     fn form_escapes_manifest_instead_of_interpreting_html() {
-        let manifest = manifest(
-            "\"><script>bad</script>",
-            "http://127.0.0.1:1234/callback",
-            "http://127.0.0.1:1234",
-        );
+        let manifest = manifest("\"><script>bad</script>", "http://127.0.0.1:1234/callback");
         let html = page(&manifest, "state").unwrap();
         assert!(!html.contains("<script>"));
         assert!(html.contains("&lt;script&gt;"));

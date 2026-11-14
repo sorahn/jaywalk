@@ -71,6 +71,11 @@ impl Listener {
                 }
                 Err(_) => return Err("Cannot accept browser callback".into()),
             };
+            // Accepted sockets inherit O_NONBLOCK on macOS/BSD. A browser may
+            // connect before sending bytes; timeout-based reads require blocking mode.
+            socket
+                .set_nonblocking(false)
+                .map_err(|_| "Cannot configure accepted callback connection")?;
             socket
                 .set_read_timeout(Some(Duration::from_millis(500)))
                 .map_err(|_| "Cannot set callback read timeout")?;
@@ -350,6 +355,36 @@ mod tests {
             assert!(!message.contains("SENSITIVE"));
         }
         assert!(diagnostic(&request("/callback?code=x"), "expected").contains("state parameter"));
+    }
+    #[test]
+    fn browser_can_connect_before_sending_its_request() {
+        let listener = Listener::bind_registration().unwrap();
+        let origin = listener.origin().unwrap();
+        let address = origin.strip_prefix("http://").unwrap().to_owned();
+        let thread = std::thread::spawn(move || {
+            listener.receive_with_page(
+                "expected",
+                Duration::from_secs(3),
+                &AtomicBool::new(false),
+                Some(("/register/nonce", "<p>Setup</p>")),
+            )
+        });
+        for target in ["/register/nonce", "/callback?state=expected&code=synthetic"] {
+            let mut client = std::net::TcpStream::connect(&address).unwrap();
+            client
+                .set_read_timeout(Some(Duration::from_secs(2)))
+                .unwrap();
+            // Browsers may preconnect; accept must not treat a not-yet-sent request as invalid.
+            std::thread::sleep(Duration::from_millis(150));
+            client.write_all(&request(target)).unwrap();
+            let mut response = String::new();
+            client.read_to_string(&mut response).unwrap();
+            assert!(
+                response.starts_with("HTTP/1.1 200"),
+                "delayed request must be accepted: {response}"
+            );
+        }
+        assert_eq!(thread.join().unwrap().unwrap(), "synthetic");
     }
     #[test]
     fn registration_page_and_callback_share_one_bounded_listener() {
