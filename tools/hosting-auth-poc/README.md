@@ -45,10 +45,29 @@ the local registration record; delete an unwanted development app in GitHub
 Developer settings separately. Disconnecting the account leaves this
 registration record available for reconnection.
 
-Registration uses a random loopback port and a 15-minute callback timeout,
+Registration uses a random loopback port and a one-hour callback timeout,
 independent of the Bitbucket fixed callback port. An existing saved registration
 is never silently replaced. This is development bootstrap, not a step ordinary
 Jaywalk users will need when connecting to a published Jaywalk GitHub App.
+
+If GitHub creates the app but the local listener has already stopped, keep the
+browser's callback tab open. Do not create another app. Within GitHub's manifest
+code lifetime, run:
+
+```sh
+tools/hosting-auth-poc/target/debug/jaywalk-hosting-auth-poc github-recover-registration
+```
+
+Paste your own browser return URL at the hidden prompt. The recovery command
+also accepts that URL on stdin for local automation; never put it in command
+arguments, logs or chat. This is explicit developer recovery: the stopped
+listener's original state is unavailable, so it does not claim to revalidate
+that state. It validates the loopback URL structure, exchanges only with
+GitHub's fixed API origin, checks read-only permissions and saves the returned
+identifiers. Normal automatic callbacks still require the original state.
+GitHub decides whether the one-time code remains valid. Recovery does not
+create a second app. If the code has expired, find the existing app in GitHub
+Developer settings and use its client ID with `github-connect`.
 
 ## Manual GitHub development registration
 

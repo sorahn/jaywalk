@@ -35,6 +35,8 @@ enum Action {
     GithubConnect { client_id: Option<String> },
     /// Open browser-assisted development GitHub App registration and save its client ID.
     GithubRegister,
+    /// Recover an explicitly supplied browser callback after the local listener timed out.
+    GithubRecoverRegistration,
     /// Open the saved development app's settings to enable Device Flow.
     GithubSetup,
     /// Open installation for the saved development app; select test repositories yourself.
@@ -126,6 +128,7 @@ fn run() -> Result<()> {
         .map_err(|_| "Cannot initialize HTTPS client")?;
     match args.command {
         Action::GithubRegister => registration::register(&client, &cancelled)?,
+        Action::GithubRecoverRegistration => registration::recover(&client)?,
         Action::GithubSetup => registration::open_settings()?,
         Action::GithubInstall => registration::open_installation()?,
         Action::GithubForgetRegistration => registration::forget()?,

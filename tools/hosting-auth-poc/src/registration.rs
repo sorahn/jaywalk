@@ -79,12 +79,78 @@ pub(crate) fn register(client: &Client, cancelled: &AtomicBool) -> Result<()> {
     open_browser(&format!("{origin}{page_path}"))?;
     let code = listener.receive_with_page(
         &state,
-        Duration::from_secs(900),
+        Duration::from_secs(3600),
         cancelled,
         Some((&page_path, &html)),
     )?;
     check_cancelled(cancelled)?;
-    let url = conversion_url(&code)?;
+    complete(client, &code)
+}
+
+pub(crate) fn recover(client: &Client) -> Result<()> {
+    // This is a deliberate developer recovery operation, not an automatic callback.
+    // The old listener's state is gone; the developer explicitly supplies their own
+    // browser return URL via hidden terminal input or a pipe, never argv or logs.
+    match entry(ACCOUNT)?.get_password() {
+        Err(keyring::Error::NoEntry) => (),
+        Ok(_) => return Err("Registration is already saved; use github-setup".into()),
+        Err(_) => {
+            return Err("Cannot access OS credential store; unlock it before recovery".into());
+        }
+    }
+    use std::io::{IsTerminal, Read};
+    let input = if std::io::stdin().is_terminal() {
+        rpassword::prompt_password("Paste your own GitHub return URL (hidden): ")
+            .map_err(|_| "Cannot read recovery URL")?
+    } else {
+        let mut input = String::new();
+        std::io::stdin()
+            .take(8193)
+            .read_to_string(&mut input)
+            .map_err(|_| "Cannot read recovery URL from stdin")?;
+        input
+    };
+    let code = recovery_code(input.trim())?;
+    complete(client, &code)
+}
+
+fn recovery_code(input: &str) -> Result<String> {
+    if input.len() > 8192 {
+        return Err("Recovery URL exceeds size limit".into());
+    }
+    let url = reqwest::Url::parse(input).map_err(|_| "Invalid recovery URL")?;
+    if url.scheme() != "http"
+        || url.host_str() != Some("127.0.0.1")
+        || url.port().is_none()
+        || url.path() != "/callback"
+        || !url.username().is_empty()
+        || url.password().is_some()
+        || url.fragment().is_some()
+    {
+        return Err("Recovery expects your own loopback registration callback URL".into());
+    }
+    let pairs: Vec<_> = url.query_pairs().collect();
+    if pairs.len() != 2
+        || pairs
+            .iter()
+            .filter(|(key, value)| key == "state" && !value.is_empty())
+            .count()
+            != 1
+    {
+        return Err("Recovery URL must have exactly one code and one state".into());
+    }
+    let codes: Vec<_> = pairs
+        .iter()
+        .filter(|(key, value)| key == "code" && !value.is_empty() && value.len() <= 2048)
+        .collect();
+    if codes.len() != 1 {
+        return Err("Recovery URL missing a unique code".into());
+    }
+    Ok(codes[0].1.to_string())
+}
+
+fn complete(client: &Client, code: &str) -> Result<()> {
+    let url = conversion_url(code)?;
     // No token/private key required: the temporary manifest code authorizes this conversion.
     let response = json(client.post(url))?;
     // Keep only identifiers needed by device flow. Generated private key, client secret,
@@ -222,6 +288,23 @@ mod tests {
             .remove("contents");
         value["slug"] = json!("evil/../../somewhere");
         assert!(Registration::parse(&value).is_err());
+    }
+    #[test]
+    fn manual_recovery_accepts_only_explicit_loopback_callbacks_without_duplicates() {
+        assert_eq!(
+            recovery_code("http://127.0.0.1:1234/callback?code=synthetic&state=approved").unwrap(),
+            "synthetic"
+        );
+        for url in [
+            "https://evil.example/callback?code=x&state=y",
+            "http://user@127.0.0.1:1234/callback?code=x&state=y",
+            "http://127.0.0.1:1234/wrong?code=x&state=y",
+            "http://127.0.0.1:1234/callback?code=x&code=y",
+            "http://127.0.0.1:1234/callback?code=x&state=y&state=z",
+            "http://127.0.0.1:1234/callback?code=x&state=y#fragment",
+        ] {
+            assert!(recovery_code(url).is_err());
+        }
     }
     #[test]
     fn opaque_code_cannot_change_conversion_origin_or_path() {
