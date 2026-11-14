@@ -3561,6 +3561,7 @@ dependencies = [
  "core-foundation-sys",
  "gpui-kit",
  "gpui-pre",
+ "libc",
  "notify",
  "serde",
  "serde_json",

@@ -25,7 +25,7 @@ impl Viewer {
 
     pub(super) fn render_review_source(&self, caption: AnyElement) -> AnyElement {
         use jaywalk::commands::CommandId;
-        let repository = self.arguments.diff.is_none();
+        let repository = self.arguments.diff.is_none() || self.arguments.difftool.is_some();
         let aggregate = matches!(
             self.repository.ready().map(|session| &session.scope),
             Some(ComparisonScope::Aggregate)

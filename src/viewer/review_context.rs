@@ -92,10 +92,11 @@ impl Viewer {
             return;
         };
         if commit.is_none()
-            && matches!(
-                session.review.source,
-                ReviewSource::Target(Target::Pair { .. })
-            )
+            && (session.review.aggregate.is_external()
+                || matches!(
+                    session.review.source,
+                    ReviewSource::Target(Target::Pair { .. })
+                ))
         {
             self.restore_review_aggregate(window, cx);
             return;
@@ -159,7 +160,7 @@ impl Viewer {
         let Some(session) = self.repository.ready() else {
             return;
         };
-        if self.arguments.diff.is_some() {
+        if self.arguments.diff.is_some() && self.arguments.difftool.is_none() {
             return;
         }
         let home = session.home.as_ref().clone();
@@ -206,8 +207,11 @@ impl Viewer {
                         Intent::Base(tip, automatic) => base_decision(&catalog, tip, automatic),
                         Intent::Target(target) => Decision::Target(target),
                         Intent::Infer(commit) => {
-                            if matches!(context_source, ReviewSource::Target(Target::Pair { .. }))
-                                || catalog.contains(&context_base, &context_tip, &commit)?
+                            if !matches!(context_source, ReviewSource::Target(Target::Pair { .. }))
+                                && [&context_base, &context_tip].iter().all(|id| {
+                                    id.len() >= 8 && id.bytes().all(|b| b.is_ascii_hexdigit())
+                                })
+                                && catalog.contains(&context_base, &context_tip, &commit)?
                             {
                                 match context_source {
                                     ReviewSource::Home(home) => Decision::Restore(home),
@@ -359,7 +363,10 @@ impl Viewer {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.arguments.diff.is_some() && home == HomeSource::Workspace {
+        if self.arguments.diff.is_some()
+            && self.arguments.difftool.is_none()
+            && home == HomeSource::Workspace
+        {
             return;
         }
         let arguments = arguments_for_home(&self.arguments, home);
@@ -471,6 +478,7 @@ fn arguments_for_home(original: &Arguments, home: HomeSource) -> Arguments {
         arguments.base = None;
         arguments.tip = "@".into();
         arguments.diff = None;
+        arguments.difftool = None;
     }
     arguments
 }

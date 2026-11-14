@@ -404,7 +404,7 @@ impl Comparison {
         revision: &crate::history::Revision,
         operation: Option<&str>,
     ) -> Result<Self, String> {
-        if matches!(self.content, ContentSource::Git(_)) {
+        if self.has_git_context() {
             return crate::git::for_revision(self, revision);
         }
         let base = revision
@@ -421,6 +421,44 @@ impl Comparison {
         )
     }
 
+    pub fn is_external(&self) -> bool {
+        matches!(self.content, ContentSource::External(_))
+    }
+    pub fn has_git_context(&self) -> bool {
+        matches!(&self.content, ContentSource::Git(_))
+            || matches!(&self.content,ContentSource::External(c) if c.git_context)
+    }
+    pub(crate) fn bind_external(
+        &self,
+        root: PathBuf,
+        endpoints: Option<(String, String)>,
+        working_head: Option<String>,
+        files: Vec<ChangedFile>,
+    ) -> Result<Self, String> {
+        let ContentSource::External(source) = &self.content else {
+            return Err("Only supplied inputs can be bound to tool context".into());
+        };
+        let mut contents = source.as_ref().clone();
+        contents.git_context = true;
+        contents.recorded_working = working_head;
+        let (base, tip) = endpoints.unwrap_or_else(|| (self.base.clone(), self.tip.clone()));
+        Self::assemble(
+            ComparisonMetadata {
+                root,
+                operation: String::new(),
+                base,
+                tip,
+                capture: self.capture,
+            },
+            if files.is_empty() {
+                self.files.to_vec()
+            } else {
+                files
+            },
+            ContentSource::External(Arc::new(contents)),
+            self.text_limit,
+        )
+    }
     pub fn supports_evolution(&self) -> bool {
         matches!(
             self.content,
@@ -432,7 +470,7 @@ impl Comparison {
         &self,
         history: &crate::history::HistoryQuery,
     ) -> Result<crate::history::History, String> {
-        if matches!(self.content, ContentSource::Git(_)) {
+        if self.has_git_context() {
             return crate::git::history(&self.root, history);
         }
         let references = self.reference_snapshot()?;

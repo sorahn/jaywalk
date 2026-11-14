@@ -2,7 +2,7 @@
 //! or fetch; a jj catalog is pinned to one operation and Git refs to captured IDs.
 use crate::{
     history::Reference,
-    repository::{Comparison, ContentSource, query},
+    repository::{Comparison, query},
 };
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -76,7 +76,7 @@ impl Catalog {
     pub fn capture(comparison: &Comparison) -> Result<Self, String> {
         let operation = if comparison.supports_evolution() {
             Some(Comparison::current_operation(comparison.root())?)
-        } else if matches!(comparison.content(), ContentSource::Git(_)) {
+        } else if comparison.has_git_context() {
             None
         } else {
             return Err("Branch review requires a Git or jj repository".into());

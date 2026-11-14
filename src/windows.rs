@@ -73,6 +73,7 @@ impl Key {
     }
 }
 struct Record {
+    _inputs: Option<jaywalk::difftool::OwnedInputs>,
     key: Key,
     window: AnyWindowHandle,
     viewer: Entity<Viewer>,
@@ -177,17 +178,23 @@ pub(crate) fn open_with_disposition(
     let settings = (*state.read(cx).current).clone();
     let key = Key::new(&arguments);
     let active = cx.active_window().map(|window| window.window_id());
+    let batch_key = arguments.difftool.as_ref().map(|capture| capture.key());
     let existing = cx
         .global::<Windows>()
         .0
         .values()
         .filter_map(|record| {
-            let priority = reuse_priority(
-                disposition,
-                settings.application.single_window_mode,
-                origin.is_some_and(|origin| origin.entity_id() == record.viewer.entity_id()),
-                active == Some(record.window.window_id()),
-            )?;
+            let same_batch = batch_key.is_some() && record.key == key;
+            let priority = if same_batch {
+                Some(0)
+            } else {
+                reuse_priority(
+                    disposition,
+                    settings.application.single_window_mode,
+                    origin.is_some_and(|origin| origin.entity_id() == record.viewer.entity_id()),
+                    active == Some(record.window.window_id()),
+                )
+            }?;
             Some((
                 priority,
                 std::cmp::Reverse(record.last_used),
@@ -198,6 +205,11 @@ pub(crate) fn open_with_disposition(
         })
         .min_by_key(|(priority, opened, ..)| (*priority, *opened))
         .map(|(_, _, window, viewer, different)| (window, viewer, different));
+    let inputs = arguments
+        .difftool
+        .as_ref()
+        .map(|c| c.own(&crate::instance::directory()?))
+        .transpose()?;
     let id = if let Some((window, viewer, different_subject)) = existing {
         let root = window
             .update(cx, |_, window, cx| {
@@ -208,6 +220,10 @@ pub(crate) fn open_with_disposition(
                     window.set_window_title(&window_title(&arguments));
                     viewer.update(cx, |viewer, cx| {
                         *viewer = Viewer::new(arguments.clone(), settings, layout, window, cx)
+                    });
+                } else if arguments.difftool.is_some() {
+                    viewer.update(cx, |viewer, cx| {
+                        viewer.update_difftool(arguments.clone(), window, cx)
                     });
                 } else if let Some(path) = &arguments.file {
                     viewer.update(cx, |viewer, cx| viewer.reveal_file(path, window, cx));
@@ -226,6 +242,7 @@ pub(crate) fn open_with_disposition(
         if different_subject {
             release_waiters(&mut record.waiting);
         }
+        record._inputs = inputs;
         record.key = key;
         record.last_used = std::time::Instant::now();
         window.window_id()
@@ -268,6 +285,7 @@ pub(crate) fn open_with_disposition(
         cx.global_mut::<Windows>().0.insert(
             window.window_id(),
             Record {
+                _inputs: inputs,
                 key,
                 window,
                 viewer,
@@ -482,6 +500,9 @@ mod tests {
 fn window_title(arguments: &Arguments) -> String {
     if arguments.welcome {
         return "Welcome — Jaywalk".into();
+    }
+    if let Some(capture) = &arguments.difftool {
+        return format!("{} · Git difftool — Jaywalk", capture.repository.display());
     }
     match &arguments.diff {
         Some(paths) => format!("{} ↔ {} — Jaywalk", paths[0].display(), paths[1].display()),

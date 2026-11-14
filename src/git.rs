@@ -5,7 +5,7 @@ use crate::repository::{
 };
 use crate::repository_file::ChangeKind;
 use std::collections::{BTreeMap, BTreeSet};
-mod blob_batch;
+pub(crate) mod blob_batch;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -26,9 +26,10 @@ type TextPair = Result<(String, String), String>;
 pub(crate) struct GitContents {
     pub(crate) recorded_tip: String,
     pub(crate) working_changes: bool,
-    files: BTreeMap<String, TextPair>,
+    files: Arc<BTreeMap<String, TextPair>>,
+    reversed: bool,
     root: PathBuf,
-    trees: [BTreeMap<String, GitValue>; 2],
+    trees: [Arc<BTreeMap<String, GitValue>>; 2],
     limit: crate::text_content::TextLimit,
 }
 
@@ -295,9 +296,10 @@ pub(crate) fn between(
         ContentSource::Git(Arc::new(GitContents {
             recorded_tip,
             working_changes,
-            files: contents,
+            files: Arc::new(contents),
+            reversed: false,
             root,
-            trees: [before_tree, after_tree],
+            trees: [Arc::new(before_tree), Arc::new(after_tree)],
             limit,
         })),
         limit,
@@ -307,9 +309,7 @@ impl GitContents {
     pub(crate) fn swapped(&self) -> Self {
         let mut result = self.clone();
         result.trees.swap(0, 1);
-        for (left, right) in result.files.values_mut().flatten() {
-            std::mem::swap(left, right);
-        }
+        result.reversed = !result.reversed;
         result
     }
 
@@ -325,9 +325,10 @@ impl GitContents {
     pub(crate) fn read_path(&self, path: &str, side: FileSide) -> Result<String, String> {
         if let Some(pair) = self.files.get(path) {
             let pair = pair.as_ref().map_err(Clone::clone)?;
-            return Ok(match side {
-                FileSide::Before => pair.0.clone(),
-                FileSide::After => pair.1.clone(),
+            return Ok(if (side == FileSide::Before) != self.reversed {
+                pair.0.clone()
+            } else {
+                pair.1.clone()
             });
         }
         let tree = &self.trees[match side {

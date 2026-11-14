@@ -263,17 +263,58 @@ impl Viewer {
     }
 
     fn scope_label(&self) -> String {
-        if self.arguments.diff.is_some() {
-            return "External diff".into();
+        if self
+            .repository
+            .ready()
+            .is_some_and(|s| s.review.aggregate.is_external())
+            && matches!(
+                self.repository.ready().map(|s| &s.scope),
+                Some(ComparisonScope::Aggregate)
+            )
+        {
+            return self
+                .arguments
+                .difftool
+                .as_ref()
+                .map(|c| {
+                    let source = &self
+                        .repository
+                        .ready()
+                        .expect("external session is ready")
+                        .review
+                        .source;
+                    if let review_context::ReviewSource::Target(
+                        jaywalk::branch_review::Target::Pair { left, right },
+                    ) = source
+                    {
+                        format!(
+                            "{} · matched snapshots · {}",
+                            c.progress_label(),
+                            self.pair_caption(left, right)
+                        )
+                    } else {
+                        c.label()
+                    }
+                })
+                .unwrap_or_else(|| "External diff".into());
         }
         match self.repository.ready().map(|session| &session.scope) {
-            Some(ComparisonScope::Aggregate) => self
-                .repository
-                .ready()
-                .expect("loaded scope has a session")
-                .review
-                .source
-                .label(),
+            Some(ComparisonScope::Aggregate) => {
+                let source = &self
+                    .repository
+                    .ready()
+                    .expect("loaded scope has a session")
+                    .review
+                    .source;
+                if let review_context::ReviewSource::Target(
+                    jaywalk::branch_review::Target::Pair { left, right },
+                ) = source
+                {
+                    self.pair_caption(left, right)
+                } else {
+                    source.label()
+                }
+            }
             Some(ComparisonScope::Revision {
                 working_copy: true, ..
             }) if !self.supports_evolution() => {

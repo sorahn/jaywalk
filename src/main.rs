@@ -33,6 +33,17 @@ fn run() -> std::result::Result<(), String> {
         println!("{}", jaywalk::version::PACKAGE);
         return Ok(());
     }
+    arguments.normalize()?;
+    if let Some(inputs) = &arguments.diff
+        && let Some(capture) =
+            jaywalk::difftool::Capture::try_capture(inputs, &instance::directory()?)?
+    {
+        arguments.diff = Some(capture.paths(&instance::directory()?).to_vec());
+        // Only the final callback may wait for the viewer; earlier callbacks
+        // must return so Git can deliver the remaining files.
+        arguments.wait = arguments.wait && capture.grouped && capture.received == capture.total;
+        arguments.difftool = Some(capture);
+    }
     if arguments.inspect {
         let settings = SettingsSource::resolve(arguments.config.as_deref())?.read()?;
         let comparison = arguments.comparison_with_limit(
@@ -47,7 +58,6 @@ fn run() -> std::result::Result<(), String> {
         );
         return Ok(());
     }
-    arguments.normalize()?;
     let settings = SettingsSource::resolve(arguments.config.as_deref())?.read()?;
     let directory = instance::directory()?;
     if !arguments.instance_server {

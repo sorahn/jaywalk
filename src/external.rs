@@ -8,6 +8,8 @@ use std::sync::Arc;
 
 #[derive(Clone, Debug)]
 pub struct ExternalContents {
+    pub(crate) git_context: bool,
+    pub(crate) recorded_working: Option<String>,
     left: BTreeMap<String, PathBuf>,
     right: BTreeMap<String, PathBuf>,
     limit: crate::text_content::TextLimit,
@@ -130,6 +132,8 @@ fn equal_entries(
 impl ExternalContents {
     pub(crate) fn swapped(&self) -> Self {
         Self {
+            git_context: self.git_context,
+            recorded_working: self.recorded_working.clone(),
             left: self.right.clone(),
             right: self.left.clone(),
             limit: self.limit,
@@ -153,6 +157,8 @@ impl ExternalContents {
             .map_err(|error| error.to_string())?
             .file_type();
         let mut contents = Self {
+            git_context: false,
+            recorded_working: None,
             left: BTreeMap::new(),
             right: BTreeMap::new(),
             limit,

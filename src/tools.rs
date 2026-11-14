@@ -2,7 +2,19 @@
 use std::process::Command;
 
 pub(crate) fn command(program: &str) -> Result<Command, String> {
-    let command = Command::new(program);
+    let mut command = Command::new(program);
+    for name in [
+        "GIT_DIR",
+        "GIT_WORK_TREE",
+        "GIT_COMMON_DIR",
+        "GIT_INDEX_FILE",
+        "GIT_PREFIX",
+        "GIT_OBJECT_DIRECTORY",
+        "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+    ] {
+        command.env_remove(name);
+    }
+
     #[cfg(target_os = "macos")]
     {
         let mut command = command;
