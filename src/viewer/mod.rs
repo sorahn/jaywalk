@@ -22,6 +22,7 @@ mod context_menu;
 mod editor_presentation;
 mod evolution;
 mod history_menu;
+mod pairs;
 mod review_context;
 #[cfg(test)]
 use editor_presentation::standard_patch;

@@ -128,6 +128,14 @@ fn equal_entries(
 }
 
 impl ExternalContents {
+    pub(crate) fn swapped(&self) -> Self {
+        Self {
+            left: self.right.clone(),
+            right: self.left.clone(),
+            limit: self.limit,
+        }
+    }
+
     pub fn comparison(left: &Path, right: &Path) -> Result<Comparison, String> {
         Self::comparison_with_limit(left, right, crate::text_content::TextLimit::default())
     }

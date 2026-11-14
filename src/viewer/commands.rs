@@ -160,6 +160,15 @@ impl Viewer {
             return;
         }
         match command {
+            CommandId::RevealComparisonLeft | CommandId::RevealComparisonRight => {
+                self.reveal_pair_endpoint(command == CommandId::RevealComparisonRight, window, cx)
+            }
+            CommandId::SwapComparison => self.swap_comparison(window, cx),
+            CommandId::CompareRevision | CommandId::DiffFromBranchPoint => {
+                if let Some(target) = self.current_revision_target() {
+                    self.execute_revision_action(command, &target, window, cx);
+                }
+            }
             CommandId::CollapseOverview
             | CommandId::ExpandOverview
             | CommandId::OverviewContext

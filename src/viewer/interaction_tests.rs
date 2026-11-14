@@ -1113,3 +1113,123 @@ fn external_line_29_change_keeps_leading_context_folded(cx: &mut TestAppContext)
 fn external_line_36_change_keeps_leading_context_folded(cx: &mut TestAppContext) {
     check_folded_external_context(36, cx);
 }
+
+#[gpui_test::test]
+fn pair_gesture_swap_and_all_changes_retain_captured_working_contents(cx: &mut TestAppContext) {
+    let fixture = Fixture::new();
+    let (viewer, cx) = setup(&fixture, cx);
+    let head = cx.update(|_, app| {
+        viewer
+            .read(app)
+            .repository
+            .ready()
+            .unwrap()
+            .home
+            .base()
+            .to_owned()
+    });
+    let row = cx.debug_bounds("history-row-1").unwrap();
+    let modifiers = gpui_test::Modifiers {
+        platform: cfg!(target_os = "macos"),
+        control: !cfg!(target_os = "macos"),
+        ..Default::default()
+    };
+    cx.simulate_click(row.center(), modifiers);
+    draw(cx);
+    cx.update(|_, app| {
+        let session = viewer.read(app).repository.ready().unwrap();
+        assert!(matches!(
+            session.review.source,
+            super::review_context::ReviewSource::Target(
+                jaywalk::branch_review::Target::Pair { .. }
+            )
+        ));
+        assert_eq!(session.review.aggregate.base(), head);
+        assert_eq!(session.review.aggregate.tip(), "working tree");
+    });
+    std::fs::write(fixture.0.join("file.txt"), "later edit\n").unwrap();
+    cx.update(|window, app| viewer.update(app, |v, cx| v.swap_comparison(window, cx)));
+    draw(cx);
+    cx.update(|_, app| {
+        let session = viewer.read(app).repository.ready().unwrap();
+        assert_eq!(session.review.aggregate.base(), "working tree");
+        let file = &session.review.aggregate.files()[0];
+        assert_eq!(
+            session.review.aggregate.contents(file).unwrap(),
+            ("changed\n".into(), "original\n".into())
+        );
+    });
+    cx.update(|window, app| viewer.update(app, |v, cx| v.select_revision(&head, window, cx)));
+    draw(cx);
+    cx.update(|window, app| viewer.update(app, |v, cx| v.all_review_changes(None, window, cx)));
+    draw(cx);
+    cx.update(|_, app| {
+        let session = viewer.read(app).repository.ready().unwrap();
+        assert_eq!(session.comparison.ready().unwrap().base(), "working tree");
+        assert_eq!(
+            session
+                .comparison
+                .ready()
+                .unwrap()
+                .contents(&session.review.aggregate.files()[0])
+                .unwrap()
+                .0,
+            "changed\n"
+        );
+    });
+}
+
+#[test]
+fn snapshot_pairs_order_by_ancestry_or_selection_and_keep_divergent_direction() {
+    use jaywalk::{
+        branch_review::{Catalog, Target},
+        repository::Comparison,
+        settings::PairOrder,
+    };
+    let fixture = Fixture::new();
+    let base = Comparison::load(&fixture.0, None, "@")
+        .unwrap()
+        .base()
+        .to_owned();
+    fixture.git(&["add", "file.txt"]);
+    fixture.git(&["commit", "-m", "second"]);
+    let home = Comparison::load(&fixture.0, None, "@").unwrap();
+    let tip = home.base().to_owned();
+    let catalog = Catalog::capture(&home).unwrap();
+    let ancestry = catalog.pair(&tip, &base, PairOrder::Ancestry).unwrap();
+    assert_eq!(
+        ancestry,
+        Target::Pair {
+            left: base.clone(),
+            right: tip.clone()
+        }
+    );
+    let selected = catalog.pair(&tip, &base, PairOrder::Selection).unwrap();
+    let reverse = catalog.resolve(&selected).unwrap();
+    assert_eq!(
+        reverse.contents(&reverse.files()[0]).unwrap(),
+        ("changed\n".into(), "original\n".into())
+    );
+    let equal = catalog
+        .resolve(&Target::Pair {
+            left: tip.clone(),
+            right: tip,
+        })
+        .unwrap();
+    assert!(equal.files().is_empty());
+    fixture.git(&["checkout", "-b", "other", &base]);
+    std::fs::write(fixture.0.join("other.txt"), "other\n").unwrap();
+    fixture.git(&["add", "other.txt"]);
+    fixture.git(&["commit", "-m", "divergent"]);
+    let other = Comparison::load(&fixture.0, None, "@").unwrap();
+    let catalog = Catalog::capture(&other).unwrap();
+    let first = home.base();
+    let second = other.base();
+    assert_eq!(
+        catalog.pair(first, second, PairOrder::Ancestry).unwrap(),
+        Target::Pair {
+            left: first.into(),
+            right: second.into()
+        }
+    );
+}

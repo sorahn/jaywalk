@@ -135,6 +135,12 @@ pub(crate) fn between(
     tip: String,
     limit: crate::text_content::TextLimit,
 ) -> Result<Comparison, String> {
+    if base == WORKING_TREE {
+        if tip == WORKING_TREE {
+            return Err("Choose two distinct working/recorded endpoints".into());
+        }
+        return between(root, tip, base, limit)?.swapped();
+    }
     let working = tip == WORKING_TREE;
     let recorded_tip = if working {
         resolve(&root, "HEAD")?
@@ -298,6 +304,15 @@ pub(crate) fn between(
     )
 }
 impl GitContents {
+    pub(crate) fn swapped(&self) -> Self {
+        let mut result = self.clone();
+        result.trees.swap(0, 1);
+        for (left, right) in result.files.values_mut().flatten() {
+            std::mem::swap(left, right);
+        }
+        result
+    }
+
     pub(crate) fn paths(&self, side: FileSide) -> BTreeMap<String, FileKind> {
         self.trees[match side {
             FileSide::Before => 0,

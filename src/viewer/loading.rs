@@ -164,7 +164,19 @@ impl Viewer {
                         LoadState::Loaded(RepositorySession {
                             home: branch.clone(),
                             review: review_context::ReviewContext {
-                                source: review_context::ReviewSource::Home(viewer.home_source),
+                                source: if viewer.arguments.diff.is_none()
+                                    && (viewer.arguments.base.is_some()
+                                        || viewer.arguments.tip != "@")
+                                {
+                                    review_context::ReviewSource::Target(
+                                        jaywalk::branch_review::Target::Pair {
+                                            left: branch.base().into(),
+                                            right: branch.tip().into(),
+                                        },
+                                    )
+                                } else {
+                                    review_context::ReviewSource::Home(viewer.home_source)
+                                },
                                 aggregate: branch.clone(),
                             },
                             history: history.map(Rc::new),

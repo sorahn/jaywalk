@@ -160,6 +160,55 @@ pub fn parse_changed_files(output: &str) -> Result<Vec<ChangedFile>, String> {
 }
 
 impl Comparison {
+    /// Reverse an immutable capture without reading a later working copy.
+    pub fn swapped(&self) -> Result<Self, String> {
+        let content = match &self.content {
+            ContentSource::Recorded => {
+                return Self::between(
+                    self.root.clone(),
+                    self.operation.clone(),
+                    self.tip.clone(),
+                    self.base.clone(),
+                    self.text_limit,
+                );
+            }
+            ContentSource::Git(contents) => ContentSource::Git(Arc::new(contents.swapped())),
+            ContentSource::External(contents) => {
+                ContentSource::External(Arc::new(contents.swapped()))
+            }
+            ContentSource::Evolution(_) => {
+                return Err("Swap is unavailable for patch interdiffs".into());
+            }
+        };
+        let files = self
+            .files
+            .iter()
+            .map(|file| {
+                ChangedFile::new(
+                    match file.kind() {
+                        ChangeKind::Added => ChangeKind::Removed,
+                        ChangeKind::Removed => ChangeKind::Added,
+                        ChangeKind::Copied => ChangeKind::Modified,
+                        kind => kind.clone(),
+                    },
+                    file.after_path().into(),
+                    file.before_path().into(),
+                )
+            })
+            .collect();
+        Self::assemble(
+            ComparisonMetadata {
+                root: self.root.clone(),
+                operation: self.operation.clone(),
+                base: self.tip.clone(),
+                tip: self.base.clone(),
+                capture: self.capture,
+            },
+            files,
+            content,
+            self.text_limit,
+        )
+    }
     pub fn root(&self) -> &Path {
         &self.root
     }

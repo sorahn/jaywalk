@@ -85,6 +85,34 @@ impl Viewer {
             .flex_shrink_0()
             .border_l_1()
             .border_color(gpui::component::Theme::global(cx).border);
+        if matches!(
+            self.repository.ready().map(|s| &s.review.source),
+            Some(review_context::ReviewSource::Target(
+                jaywalk::branch_review::Target::Pair { .. }
+            ))
+        ) {
+            for (id, label, command) in [
+                ("pair-left", "L", CommandId::RevealComparisonLeft),
+                ("pair-right", "R", CommandId::RevealComparisonRight),
+                ("pair-swap", "Swap", CommandId::SwapComparison),
+            ] {
+                actions = actions.child(
+                    Button::new(id)
+                        .ghost()
+                        .small()
+                        .compact()
+                        .label(label)
+                        .tooltip_with_action(
+                            command.label(),
+                            &commands::ExecuteCommand { command },
+                            None,
+                        )
+                        .on_click(cx.listener(move |this, _, window, cx| {
+                            this.execute_command(command, window, cx)
+                        })),
+                );
+            }
+        }
         if self.layout.saved.files_hidden {
             actions = actions.child(self.render_find_file_button(cx));
         }

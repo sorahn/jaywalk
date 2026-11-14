@@ -12,6 +12,10 @@ quit_on_last_window = true
 single_window_mode = false
 
 # In-memory visited views per window; reducing the limit trims old entries live.
+[comparison]
+# Order newly selected pairs; explicit CLI requests keep their direction.
+pair_order = "ancestry"
+
 [navigation]
 history_limit = 100
 

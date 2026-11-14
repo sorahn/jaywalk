@@ -91,6 +91,15 @@ impl Viewer {
         let Some(session) = self.repository.ready() else {
             return;
         };
+        if commit.is_none()
+            && matches!(
+                session.review.source,
+                ReviewSource::Target(Target::Pair { .. })
+            )
+        {
+            self.restore_review_aggregate(window, cx);
+            return;
+        }
         let selected = commit.or_else(|| match &session.scope {
             ComparisonScope::Revision {
                 commit_id,
@@ -197,7 +206,9 @@ impl Viewer {
                         Intent::Base(tip, automatic) => base_decision(&catalog, tip, automatic),
                         Intent::Target(target) => Decision::Target(target),
                         Intent::Infer(commit) => {
-                            if catalog.contains(&context_base, &context_tip, &commit)? {
+                            if matches!(context_source, ReviewSource::Target(Target::Pair { .. }))
+                                || catalog.contains(&context_base, &context_tip, &commit)?
+                            {
                                 match context_source {
                                     ReviewSource::Home(home) => Decision::Restore(home),
                                     ReviewSource::Target(target) => Decision::Target(target),
@@ -388,7 +399,7 @@ impl Viewer {
             });
         }));
     }
-    fn install_review(
+    pub(super) fn install_review(
         &mut self,
         comparison: Comparison,
         source: ReviewSource,
@@ -403,7 +414,9 @@ impl Viewer {
         self.resume_live_refresh();
         self.navigation.pinned = matches!(
             source,
-            ReviewSource::Target(Target::MergedBranch { .. } | Target::MergeResult { .. })
+            ReviewSource::Target(
+                Target::MergedBranch { .. } | Target::MergeResult { .. } | Target::Pair { .. }
+            )
         );
         let comparison = Rc::new(comparison);
         if let LoadState::Loaded(session) = &mut self.repository {

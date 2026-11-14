@@ -46,10 +46,14 @@ pub enum Target {
     Branch { tip: Tip, base: RefName },
     MergedBranch { merge: String },
     MergeResult { merge: String },
+    Pair { left: String, right: String },
 }
 impl Target {
     pub fn label(&self) -> String {
         match self {
+            Self::Pair { left, right } => {
+                format!("{} → {}", endpoint_label(left), endpoint_label(right))
+            }
             Self::Branch { tip, base } => format!("{} · based on {}", tip.label(), base.display()),
             Self::MergedBranch { merge } => {
                 format!("Merged branch · {}", &merge[..merge.len().min(8)])
@@ -204,6 +208,35 @@ impl Catalog {
             Some(1) => Ok(false),
             _ => Err(String::from_utf8_lossy(&output.stderr).trim().into()),
         }
+    }
+    /// Resolve ordering against backend ancestry, never graph row positions.
+    pub fn pair(
+        &self,
+        first: &str,
+        second: &str,
+        order: crate::settings::PairOrder,
+    ) -> Result<Target, String> {
+        let ancestor = |a: &str, b: &str| -> Result<bool, String> {
+            if a == "working tree" {
+                return Ok(false);
+            }
+            if b == "working tree" {
+                let head = crate::git::output(&self.root, &["rev-parse", "HEAD"])?;
+                self.is_ancestor(a, head.trim())
+            } else {
+                self.is_ancestor(a, b)
+            }
+        };
+        let reverse = order == crate::settings::PairOrder::Ancestry && ancestor(second, first)?;
+        let (left, right) = if reverse {
+            (second, first)
+        } else {
+            (first, second)
+        };
+        Ok(Target::Pair {
+            left: left.into(),
+            right: right.into(),
+        })
     }
     pub fn contains(&self, base: &str, tip: &str, commit: &str) -> Result<bool, String> {
         Ok(self.is_ancestor(commit, tip)? && !self.is_ancestor(commit, base)?)
@@ -362,6 +395,14 @@ impl Catalog {
         limit: crate::text_content::TextLimit,
     ) -> Result<Comparison, String> {
         let (base, tip) = match target {
+            Target::Pair { left, right } => {
+                for endpoint in [left, right] {
+                    if endpoint != "working tree" {
+                        validate_id(endpoint)?;
+                    }
+                }
+                (left.clone(), right.clone())
+            }
             Target::Branch { tip, base } => {
                 let tip = self.tip(tip)?;
                 let receiving_tip = &self.reference(base)?.target;
@@ -389,6 +430,13 @@ impl Catalog {
     }
     pub fn root(&self) -> &std::path::Path {
         &self.root
+    }
+}
+pub fn endpoint_label(id: &str) -> &str {
+    if id == "working tree" {
+        "Working copy"
+    } else {
+        &id[..id.len().min(8)]
     }
 }
 fn validate_id(id: &str) -> Result<(), String> {
