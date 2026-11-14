@@ -118,3 +118,132 @@ fn wide_overview_keeps_its_scrollbar_at_the_visible_edge(cx: &mut TestAppContext
         "scrollbar did not advance: {start:?} -> {finish:?}"
     );
 }
+
+struct StickyHost {
+    state: gpui::Entity<DiffState>,
+}
+impl gpui::Render for StickyHost {
+    fn render(
+        &mut self,
+        _: &mut gpui::Window,
+        _: &mut gpui::Context<Self>,
+    ) -> impl gpui::IntoElement {
+        use gpui::{ParentElement, Styled};
+        gpui::div()
+            .w(px(400.))
+            .h(px(240.))
+            .flex()
+            .flex_col()
+            .child(
+                gpui::div()
+                    .h(px(24.))
+                    .flex_shrink_0()
+                    .border_b_1()
+                    .border_color(gpui::rgb(0x303030)),
+            )
+            .child(
+                gpui_kit::component::diff::Diff::new(&self.state)
+                    .border_0()
+                    .sticky_headers(true)
+                    .size_full(),
+            )
+    }
+}
+
+#[gpui::test]
+fn sticky_headers_keep_one_bottom_border_without_repeating_the_comparison_separator(
+    cx: &mut TestAppContext,
+) {
+    cx.update(gpui_kit::init);
+    let mut documents = Vec::new();
+    for name in ["first.txt", "second.txt", "third.txt"] {
+        let before = (0..40).map(|i| format!("line {i}\n")).collect::<String>();
+        let after = before.replace("line 15\n", "changed 15\n");
+        let patch = similar::TextDiff::from_lines(&before, &after)
+            .unified_diff()
+            .context_radius(40)
+            .header(&format!("a/{name}"), &format!("b/{name}"))
+            .to_string();
+        documents.extend(DiffFile::parse(&patch).unwrap());
+    }
+    let state = cx.new(|cx| DiffState::new(documents, cx).with_context_lines(None));
+    let (_, cx) = cx.add_window_view({
+        let state = state.clone();
+        move |_, _| StickyHost { state }
+    });
+    fn draw(cx: &mut gpui::VisualTestContext) {
+        for _ in 0..3 {
+            cx.run_until_parked();
+            cx.update(|w, a| w.draw(a).clear(a));
+        }
+    }
+    draw(cx);
+    let painted_header = |cx: &mut gpui::VisualTestContext| {
+        cx.update(|window, _| {
+            let scale = window.scale_factor();
+            // Transparent borders may be split into four masked quads. Count
+            // only the primitive whose full-width bottom stroke is visible.
+            let headers = window
+                .painted_quads()
+                .into_iter()
+                .filter(|q| {
+                    q.border_widths.bottom.as_f32() > 0.
+                        && q.bounds.size.width.as_f32() / scale > 390.
+                        && (q.bounds.top().as_f32() / scale - 24.).abs() < 0.1
+                        && q.content_mask.bounds.size.width.as_f32() / scale > 390.
+                        && q.content_mask.bounds.bottom().as_f32()
+                            >= q.bounds.bottom().as_f32() - 0.1
+                })
+                .collect::<Vec<_>>();
+            assert_eq!(
+                headers.len(),
+                1,
+                "expected one visible header bottom stroke: {headers:?}"
+            );
+            (headers.into_iter().next().unwrap(), scale)
+        })
+    };
+    for name in [
+        "first.txt",
+        "second.txt",
+        "third.txt",
+        "second.txt",
+        "first.txt",
+        "third.txt",
+    ] {
+        state.update(cx, |state, cx| state.scroll_to_file(name, cx));
+        draw(cx);
+        let natural = painted_header(cx).0;
+        let header_offset = cx.update(|_, app| state.read(app).viewport_offset());
+        for offset in [None, Some(0.25), Some(1.)] {
+            state.update(cx, |state, cx| match offset {
+                None => {
+                    state.scroll_to_line(DiffLinePosition::new(name, DiffSide::Modified, 15), cx)
+                }
+                Some(offset) => state.restore_viewport_offset(
+                    ListOffset {
+                        item_ix: header_offset.item_ix,
+                        offset_in_item: px(offset),
+                    },
+                    cx,
+                ),
+            });
+            draw(cx);
+            let (header, scale) = painted_header(cx);
+            assert_eq!(
+                header.border_widths.top.as_f32(),
+                0.,
+                "{name}: duplicate viewport separator"
+            );
+            assert_eq!(
+                header.border_widths.bottom.as_f32() / scale,
+                1.,
+                "{name}: bottom stroke must stay one logical pixel"
+            );
+            assert_eq!(
+                header.bounds.size.height, natural.bounds.size.height,
+                "{name}: pinning changed header height"
+            );
+        }
+    }
+}
