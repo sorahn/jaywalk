@@ -106,7 +106,7 @@ fn required(value: &Value, key: &str) -> Result<String> {
         .map(str::to_owned)
         .ok_or_else(|| format!("Provider response missing {key}"))
 }
-fn oauth_error(value: &Value) -> String {
+pub(crate) fn oauth_error(value: &Value) -> String {
     // Do not reflect arbitrary provider error/error_description strings or credentials.
     match value.get("error").and_then(Value::as_str) {
         Some("access_denied") => "Authorization denied by user",

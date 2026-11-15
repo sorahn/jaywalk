@@ -220,13 +220,23 @@ fn run() -> Result<()> {
                 ),
             };
             let response = json(client.get(url).bearer_auth(&session.tokens.access_token))?;
-            for pointer in [left, right] {
-                let hash = response
-                    .pointer(pointer)
-                    .and_then(Value::as_str)
-                    .ok_or("Review response is missing a published commit identity")?;
-                if hash.len() != 40 || !hash.bytes().all(|c| c.is_ascii_hexdigit()) {
-                    return Err("Review response has an unsupported commit identity".into());
+            match provider {
+                Provider::Github => {
+                    for pointer in [left, right] {
+                        require_full_commit(response.pointer(pointer).and_then(Value::as_str))?;
+                    }
+                }
+                Provider::Bitbucket => {
+                    for side in ["source", "destination"] {
+                        let (url, prefix) = bitbucket_commit_lookup(&response, side)?;
+                        let commit = json(
+                            client
+                                .get(url)
+                                .bearer_auth(&session.tokens.access_token)
+                                .query(&[("fields", "hash")]),
+                        )?;
+                        validate_resolved_commit(&prefix, &commit)?;
+                    }
                 }
             }
             println!(
@@ -234,6 +244,48 @@ fn run() -> Result<()> {
             );
         }
         Action::Store { action } => store_check(action)?,
+    }
+    Ok(())
+}
+
+fn require_full_commit(value: Option<&str>) -> Result<&str> {
+    let hash = value.ok_or("Review response is missing a published commit identity")?;
+    if hash.len() != 40 || !hash.bytes().all(|c| c.is_ascii_hexdigit()) {
+        return Err("Review response has an unsupported commit identity".into());
+    }
+    Ok(hash)
+}
+
+fn bitbucket_commit_lookup(review: &Value, side: &str) -> Result<(String, String)> {
+    let endpoint = review.get(side).ok_or("Review endpoint is unavailable")?;
+    let prefix = endpoint
+        .pointer("/commit/hash")
+        .and_then(Value::as_str)
+        .ok_or("Review endpoint is missing its commit identity")?;
+    if !(12..=40).contains(&prefix.len()) || !prefix.bytes().all(|c| c.is_ascii_hexdigit()) {
+        return Err("Review endpoint has an unsupported abbreviated commit identity".into());
+    }
+    let repo = endpoint
+        .pointer("/repository/full_name")
+        .and_then(Value::as_str)
+        .ok_or("Cannot resolve commit without the endpoint's repository identity")?;
+    let parts: Vec<_> = repo.split('/').collect();
+    if parts.len() != 2 || !parts.iter().all(|part| valid_component(part)) {
+        return Err("Review endpoint has an invalid repository identity".into());
+    }
+    Ok((
+        format!("https://api.bitbucket.org/2.0/repositories/{repo}/commit/{prefix}"),
+        prefix.to_owned(),
+    ))
+}
+
+fn validate_resolved_commit(prefix: &str, commit: &Value) -> Result<()> {
+    let full = require_full_commit(commit.get("hash").and_then(Value::as_str))?;
+    if !full
+        .to_ascii_lowercase()
+        .starts_with(&prefix.to_ascii_lowercase())
+    {
+        return Err("Resolved commit does not match the published review endpoint".into());
     }
     Ok(())
 }
@@ -301,7 +353,7 @@ fn bitbucket_connect(client: &Client, client_id: &str, cancelled: &AtomicBool) -
     ]);
     println!("Waiting for browser authorization (Ctrl+C cancels).");
     open_browser(url.as_str())?;
-    let code = listener.receive(&state, Duration::from_secs(180), cancelled)?;
+    let code = listener.receive(&state, Duration::from_secs(3600), cancelled)?;
     let response = json(
         client
             .post(BITBUCKET_TOKEN)
@@ -327,16 +379,6 @@ fn json(request: RequestBuilder) -> Result<Value> {
             |_| "HTTPS request failed (transport details suppressed to protect credentials)",
         )?;
     let status = response.status();
-    if !status.is_success() {
-        return Err(match status.as_u16() {
-            401 => "Authentication rejected; reconnect or refresh",
-            403 => "Access forbidden; check app installation, permissions, SSO or rate limits",
-            404 => "Resource unavailable; check identity and access",
-            429 => "Provider rate limit reached; retry later",
-            _ => "Provider request failed; response body suppressed",
-        }
-        .into());
-    }
     let mut bytes = Vec::new();
     response
         .by_ref()
@@ -346,7 +388,29 @@ fn json(request: RequestBuilder) -> Result<Value> {
     if bytes.len() > 65_536 {
         return Err("Provider response exceeded probe size limit".into());
     }
-    serde_json::from_slice(&bytes).map_err(|_| "Provider returned invalid JSON".into())
+    decode_response(status.as_u16(), &bytes)
+}
+
+fn decode_response(status: u16, bytes: &[u8]) -> Result<Value> {
+    if !(200..300).contains(&status) {
+        // OAuth endpoints often return useful protocol errors with HTTP 400/401.
+        // Only expose the existing static whitelist, never arbitrary response text.
+        if matches!(status, 400 | 401)
+            && let Ok(value) = serde_json::from_slice::<Value>(bytes)
+            && value.get("error").and_then(Value::as_str).is_some()
+        {
+            return Err(format!("{} (HTTP {status})", protocol::oauth_error(&value)));
+        }
+        let message = match status {
+            401 => "Authentication rejected; reconnect or refresh",
+            403 => "Access forbidden; check app installation, permissions, SSO or rate limits",
+            404 => "Resource unavailable; check identity and access",
+            429 => "Provider rate limit reached; retry later",
+            _ => "Provider request failed; response body suppressed",
+        };
+        return Err(format!("{message} (HTTP {status})"));
+    }
+    serde_json::from_slice(bytes).map_err(|_| "Provider returned invalid JSON".into())
 }
 
 fn identity(client: &Client, provider: Provider, session: &Session) -> Result<()> {
@@ -475,6 +539,73 @@ fn pause(seconds: u64, deadline: Instant, cancelled: &AtomicBool) -> Result<()> 
 mod tests {
     use super::*;
 
+    #[test]
+    fn bitbucket_fork_endpoints_resolve_in_their_own_repositories() {
+        let review = serde_json::json!({
+            "source":{"repository":{"full_name":"fork/project"},"commit":{"hash":"123456789abc"}},
+            "destination":{"repository":{"full_name":"upstream/project"},"commit":{"hash":"abcdef123456"}}
+        });
+        let (source, _) = bitbucket_commit_lookup(&review, "source").unwrap();
+        let (target, _) = bitbucket_commit_lookup(&review, "destination").unwrap();
+        assert!(source.contains("/repositories/fork/project/commit/123456789abc"));
+        assert!(target.contains("/repositories/upstream/project/commit/abcdef123456"));
+        let mut invalid = review;
+        invalid["source"]["repository"]["full_name"] = serde_json::json!("other/../../escape");
+        assert!(bitbucket_commit_lookup(&invalid, "source").is_err());
+        invalid["source"]["repository"] = Value::Null;
+        assert!(bitbucket_commit_lookup(&invalid, "source").is_err());
+    }
+
+    #[test]
+    fn abbreviated_hash_is_not_accepted_as_a_full_published_identity() {
+        let prefix = "123456789abc";
+        assert!(require_full_commit(Some(prefix)).is_err());
+        let full = format!("{prefix}{}", "0".repeat(28));
+        assert!(validate_resolved_commit(prefix, &serde_json::json!({"hash":full})).is_ok());
+        assert!(
+            validate_resolved_commit(prefix, &serde_json::json!({"hash":"f".repeat(40)})).is_err()
+        );
+        assert!(validate_resolved_commit(prefix, &serde_json::json!({"hash":prefix})).is_err());
+    }
+
+    #[test]
+    fn non_success_oauth_responses_keep_safe_protocol_errors() {
+        let error = decode_response(
+            400,
+            br#"{"error":"device_flow_disabled","error_description":"SENSITIVE"}"#,
+        )
+        .unwrap_err();
+        assert!(error.contains("Enable device flow"));
+        assert!(error.contains("HTTP 400"));
+        assert!(!error.contains("SENSITIVE"));
+        let error = decode_response(
+            401,
+            br#"{"error":"invalid_client","error_description":"SENSITIVE"}"#,
+        )
+        .unwrap_err();
+        assert!(error.contains("client registration"));
+        assert!(!error.contains("SENSITIVE"));
+    }
+
+    #[test]
+    fn provider_failures_do_not_reflect_arbitrary_json_or_html() {
+        for (status, body) in [
+            (
+                400,
+                br#"{"error":"SENSITIVE","error_description":"SENSITIVE"}"#.as_slice(),
+            ),
+            (403, b"<html>SENSITIVE</html>".as_slice()),
+            (429, br#"{"access_token":"SENSITIVE"}"#.as_slice()),
+        ] {
+            let error = decode_response(status, body).unwrap_err();
+            assert!(error.contains(&format!("HTTP {status}")));
+            assert!(!error.contains("SENSITIVE"));
+        }
+        assert_eq!(
+            decode_response(200, br#"{"ok":true}"#).unwrap(),
+            serde_json::json!({"ok":true})
+        );
+    }
     #[test]
     fn cancellation_and_deadline_prevent_polling() {
         assert!(

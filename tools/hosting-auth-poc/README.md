@@ -94,7 +94,17 @@ permissions come from registration, not OAuth repository scopes.
 
 ## Bitbucket Cloud development registration
 
-Create an OAuth consumer in a development workspace's settings, with callback:
+Choose the workspace that should own the development client, then open its
+workspace settings and select **OAuth clients** (older UI/documentation calls
+these OAuth consumers). The current UI uses:
+
+```text
+https://bitbucket.org/WORKSPACE/workspace/settings/oauth-clients
+```
+
+Create a client named `Jaywalk Dev`. On the Authorization tab enable
+**Authorization code** and **Refresh token**; leave **Client credentials** off.
+Use this callback/redirect URL:
 
 ```text
 http://127.0.0.1:43761/callback
@@ -110,7 +120,7 @@ tools/hosting-auth-poc/target/debug/jaywalk-hosting-auth-poc bitbucket-connect C
 The tool prompts for the secret without echo, opens the browser and listens
 only on IPv4 loopback. It validates a fresh random state, rejects duplicate
 parameters and consumes the listener after one valid callback. Ctrl+C cancels;
-the browser callback expires after three minutes.
+the browser callback expires after one hour.
 
 **This uses your own development consumer's secret. It proves only that
 consumer's documented code/refresh protocol. It does not prove that a shared
@@ -131,9 +141,13 @@ tools/hosting-auth-poc/target/debug/jaywalk-hosting-auth-poc status PROVIDER
 
 Status loads credentials from the OS store and makes an authenticated identity
 request. Probe-review reads one PR and verifies that published source and target
-commit IDs exist; it neither prints private PR content nor establishes the
+commit IDs exist. Bitbucket PR metadata may contain abbreviated hashes; the
+probe resolves each through its own source/destination repository's commit API
+and validates a full 40-character hash matching the prefix, including when the
+source is a fork. It neither prints private PR content nor establishes the
 provider's diff/merge-base semantics. Refresh explicitly rotates and stores the
-returned pair. The probe suppresses response bodies and never prints tokens.
+returned pair. The probe suppresses response bodies and never prints tokens. Non-success HTTP
+responses retain the status code and whitelisted OAuth error messages only.
 
 Also test browser denial, Ctrl+C, timeout, unavailable/locked credential store,
 and revoked authorization (revoke through provider settings, then run status).
