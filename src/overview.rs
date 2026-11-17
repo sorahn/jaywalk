@@ -207,7 +207,7 @@ impl Comparison {
             .files()
             .iter()
             .map(|file| {
-                let type_notice = self
+                let metadata_notice = self
                     .catalog()
                     .find(file.after_path())
                     .and_then(|entry| entry.metadata_change_notice());
@@ -218,7 +218,7 @@ impl Comparison {
                 {
                     Ok((before, after)) => {
                         let notice = if before == after {
-                            Some(type_notice.clone().unwrap_or_else(|| {
+                            Some(metadata_notice.clone().unwrap_or_else(|| {
                                 match file.kind() {
                                     ChangeKind::Renamed => "Renamed · contents unchanged",
                                     ChangeKind::Copied => "Copied · contents unchanged",
@@ -229,7 +229,7 @@ impl Comparison {
                                 .to_owned()
                             }))
                         } else {
-                            type_notice
+                            metadata_notice
                         };
                         (overview_patch(file, Some((&before, &after))), notice)
                     }

@@ -2,6 +2,8 @@
 use crate::repository::{
     ChangedFile, Comparison, ComparisonMetadata, ContentSource, FileSide, next_capture,
 };
+mod capture;
+use capture::{Builder, Capture, Entry as ExternalEntry, Source};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -13,42 +15,13 @@ pub struct ExternalContents {
     left: BTreeMap<String, ExternalEntry>,
     right: BTreeMap<String, ExternalEntry>,
     limit: crate::text_content::TextLimit,
-}
-
-#[derive(Clone, Debug)]
-struct ExternalEntry {
-    path: PathBuf,
-    kind: crate::repository_file::FileKind,
-    executable: bool,
-}
-impl ExternalEntry {
-    fn new(path: PathBuf) -> Result<Self, String> {
-        let metadata = std::fs::symlink_metadata(&path)
-            .map_err(|error| format!("Could not inspect {}: {error}", path.display()))?;
-        let kind = if metadata.is_symlink() {
-            crate::repository_file::FileKind::Symlink
-        } else {
-            crate::repository_file::FileKind::Regular
-        };
-        #[cfg(unix)]
-        let executable = {
-            use std::os::unix::fs::PermissionsExt;
-            metadata.is_file() && metadata.permissions().mode() & 0o100 != 0
-        };
-        #[cfg(not(unix))]
-        let executable = false;
-        Ok(Self {
-            path,
-            kind,
-            executable,
-        })
-    }
+    capture: Arc<Capture>,
 }
 
 fn collect(
     root: &Path,
     directory: &Path,
-    files: &mut BTreeMap<String, ExternalEntry>,
+    files: &mut BTreeMap<String, Source>,
 ) -> Result<(), String> {
     for entry in std::fs::read_dir(directory)
         .map_err(|error| format!("Could not list {}: {error}", directory.display()))?
@@ -68,7 +41,7 @@ fn collect(
             let key = relative
                 .to_str()
                 .ok_or_else(|| format!("Non-UTF-8 file name: {}", path.display()))?;
-            files.insert(key.to_owned(), ExternalEntry::new(path)?);
+            files.insert(key.to_owned(), Source::new(path)?);
         } else {
             return Err(format!("Unsupported file type: {}", path.display()));
         }
@@ -93,62 +66,6 @@ pub fn normalize_input(path: &Path) -> Result<PathBuf, String> {
     Ok(normalized)
 }
 
-fn bytes(path: &Path, limit: crate::text_content::TextLimit) -> Result<Vec<u8>, String> {
-    let metadata = std::fs::symlink_metadata(path)
-        .map_err(|error| format!("Could not inspect {}: {error}", path.display()))?;
-    if metadata.file_type().is_symlink() {
-        // Compare link targets rather than following links out of a supplied tree.
-        let target = std::fs::read_link(path)
-            .map_err(|error| format!("Could not read link {}: {error}", path.display()))?;
-        return target
-            .to_str()
-            .map(|text| text.as_bytes().to_vec())
-            .ok_or_else(|| format!("Non-UTF-8 link target: {}", path.display()));
-    }
-    limit.file(path)
-}
-
-fn equal_entries(
-    before: &ExternalEntry,
-    after: &ExternalEntry,
-    limit: crate::text_content::TextLimit,
-) -> Result<bool, String> {
-    use std::io::BufRead;
-    let kind = &before.kind;
-    if kind != &after.kind || before.executable != after.executable {
-        return Ok(false);
-    }
-    if kind == &crate::repository_file::FileKind::Symlink {
-        return Ok(bytes(&before.path, limit)? == bytes(&after.path, limit)?);
-    }
-    let open = |path: &Path| {
-        std::fs::File::open(path)
-            .map_err(|error| format!("Could not open {}: {error}", path.display()))
-    };
-    let left = open(&before.path)?;
-    let right = open(&after.path)?;
-    if left.metadata().map_err(|error| error.to_string())?.len()
-        != right.metadata().map_err(|error| error.to_string())?.len()
-    {
-        return Ok(false);
-    }
-    let mut left = std::io::BufReader::new(left);
-    let mut right = std::io::BufReader::new(right);
-    loop {
-        let a = left.fill_buf().map_err(|error| error.to_string())?;
-        let b = right.fill_buf().map_err(|error| error.to_string())?;
-        if a.is_empty() || b.is_empty() {
-            return Ok(a.is_empty() && b.is_empty());
-        }
-        let count = a.len().min(b.len());
-        if a[..count] != b[..count] {
-            return Ok(false);
-        }
-        left.consume(count);
-        right.consume(count);
-    }
-}
-
 impl ExternalContents {
     pub(crate) fn swapped(&self) -> Self {
         Self {
@@ -157,6 +74,7 @@ impl ExternalContents {
             left: self.right.clone(),
             right: self.left.clone(),
             limit: self.limit,
+            capture: self.capture.clone(),
         }
     }
 
@@ -176,16 +94,12 @@ impl ExternalContents {
         let right_kind = std::fs::symlink_metadata(&right)
             .map_err(|error| error.to_string())?
             .file_type();
-        let mut contents = Self {
-            git_context: false,
-            recorded_working: None,
-            left: BTreeMap::new(),
-            right: BTreeMap::new(),
-            limit,
-        };
+        let mut builder = Builder::new(limit)?;
+        let mut before = BTreeMap::new();
+        let mut after = BTreeMap::new();
         if left_kind.is_dir() && right_kind.is_dir() {
-            collect(&left, &left, &mut contents.left)?;
-            collect(&right, &right, &mut contents.right)?;
+            collect(&left, &left, &mut before)?;
+            collect(&right, &right, &mut after)?;
         } else if (left_kind.is_file() || left_kind.is_symlink() || left == Path::new("/dev/null"))
             && (right_kind.is_file() || right_kind.is_symlink() || right == Path::new("/dev/null"))
         {
@@ -201,39 +115,66 @@ impl ExternalContents {
                 .to_owned();
             // The null device denotes an absent entry, not an empty file.
             if left != Path::new("/dev/null") {
-                contents
-                    .left
-                    .insert(name.clone(), ExternalEntry::new(left.clone())?);
+                before.insert(name.clone(), Source::new(left.clone())?);
             }
             if right != Path::new("/dev/null") {
-                contents
-                    .right
-                    .insert(name, ExternalEntry::new(right.clone())?);
+                after.insert(name, Source::new(right.clone())?);
             }
         } else {
             return Err("Diff inputs must both be files or both be directories.".into());
         }
-        let names: BTreeSet<_> = contents
-            .left
+        let before_sources = before;
+        let after_sources = after;
+        let names: BTreeSet<_> = before_sources
             .keys()
-            .chain(contents.right.keys())
+            .chain(after_sources.keys())
             .cloned()
             .collect();
+        let mut captured_left = BTreeMap::new();
+        let mut captured_right = BTreeMap::new();
         let mut files = Vec::new();
         for name in names {
-            let status = match (contents.left.get(&name), contents.right.get(&name)) {
-                (None, Some(_)) => "added",
-                (Some(_), None) => "removed",
+            let left = before_sources.get(&name);
+            let right = after_sources.get(&name);
+            let left = left.map(|source| builder.entry(source)).transpose()?;
+            let right = right.map(|source| builder.entry(source)).transpose()?;
+            let status = match (&left, &right) {
+                (None, Some(_)) => Some("added"),
+                (Some(_), None) => Some("removed"),
                 (Some(before), Some(after)) => {
-                    if equal_entries(before, after, limit)? {
-                        continue;
-                    }
-                    "modified"
+                    let equal = match before.equal(after) {
+                        Some(equal) => equal,
+                        None => before_sources
+                            .get(&name)
+                            .expect("captured before entry has a source")
+                            .equal_oversized(
+                                after_sources
+                                    .get(&name)
+                                    .expect("captured after entry has a source"),
+                            )?,
+                    };
+                    (!equal).then_some("modified")
                 }
                 (None, None) => unreachable!("name came from an input tree"),
             };
-            files.push(ChangedFile::new(status.into(), name.clone(), name));
+            if let Some(status) = status {
+                files.push(ChangedFile::new(status.into(), name.clone(), name.clone()));
+            }
+            if let Some(entry) = left {
+                captured_left.insert(name.clone(), entry);
+            }
+            if let Some(entry) = right {
+                captured_right.insert(name, entry);
+            }
         }
+        let contents = Self {
+            git_context: false,
+            recorded_working: None,
+            left: captured_left,
+            right: captured_right,
+            limit,
+            capture: Arc::new(builder.finish()),
+        };
         Comparison::assemble(
             ComparisonMetadata {
                 root: right.clone(),
@@ -276,7 +217,7 @@ impl ExternalContents {
                 let Some(path) = paths.get(name) else {
                     return Ok(String::new());
                 };
-                self.limit.text(bytes(&path.path, self.limit)?)
+                self.capture.read(path, self.limit)
             };
         read(
             match side {
