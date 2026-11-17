@@ -20,6 +20,10 @@ toml_edit = "0.25"
 similar = "2.7"
 gpui-kit = { version = "=0.10.0", features = ["tree-sitter-languages"] }
 notify = "8.2.2"
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls"] }
+rand = "0.8"
+base64 = "0.22"
+sha2 = "0.10"
 
 [profile.dev]
 debug = 0
@@ -34,3 +38,7 @@ gpui-test = { package = "gpui-pre", version = "=0.3.12", default-features = fals
 [target.'cfg(target_os = "macos")'.dependencies]
 core-foundation = "=0.10.1"
 core-foundation-sys = "=0.8.7"
+keyring = { version = "=3.6.3", features = ["apple-native"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+keyring = { version = "=3.6.3", features = ["sync-secret-service", "crypto-rust"] }

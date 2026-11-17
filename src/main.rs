@@ -100,6 +100,7 @@ fn run() -> std::result::Result<(), String> {
         windows::init(cx);
         interface_state::init(cx);
         settings_service::init(cx);
+        jaywalk::accounts::application::init(cx);
         recents::init(recent_store, cx);
         windows::apply_application_settings(&settings.application, cx);
         if let Err(error) = viewer::init(&arguments, &settings, cx) {
