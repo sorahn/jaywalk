@@ -2,6 +2,7 @@
 //! Parse an externally supplied patch into [`DiffFile`]s, retain one
 //! [`DiffState`] for all of them in the owner, and build [`Diff`] during rendering.
 mod conflict;
+mod decoration;
 mod document;
 mod parser;
 #[cfg(test)]
@@ -13,8 +14,9 @@ mod sticky;
 mod sticky_geometry;
 
 pub use conflict::{DiffConflict, DiffConflictResolution};
+pub use decoration::{DiffDecoration, DiffGutterMarker};
 pub use document::{DiffFile, DiffFileStatus, DiffLinePosition, DiffLineRange, DiffSide};
-pub use parser::DiffParseError;
+pub use parser::{DiffParseError, DiffParseOptions};
 pub use presentation::DiffInlineUnit;
 pub use state::{DiffEvent, DiffState};
 
@@ -41,6 +43,7 @@ use crate::{
 };
 use actions::*;
 use conflict::ConflictPart;
+use decoration::{Decorations, GutterMarkers};
 use presentation::FilePresentation;
 use selection::{CodeText, SelectionLayer};
 use state::{DisplayRow, FoldExpansion, LayoutKey, SelectedLines};
@@ -76,8 +79,24 @@ pub(crate) fn init(cx: &mut App) {
         KeyBinding::new("end", Last, Some("Diff")),
         KeyBinding::new("shift-up", ExtendUp, Some("Diff")),
         KeyBinding::new("shift-down", ExtendDown, Some("Diff")),
-        KeyBinding::new("secondary-c", Copy, Some("Diff")),
-        KeyBinding::new("secondary-a", SelectAll, Some("Diff")),
+        KeyBinding::new(
+            if cx.platform_info().is_mac() {
+                "cmd-c"
+            } else {
+                "ctrl-c"
+            },
+            Copy,
+            Some("Diff"),
+        ),
+        KeyBinding::new(
+            if cx.platform_info().is_mac() {
+                "cmd-a"
+            } else {
+                "ctrl-a"
+            },
+            SelectAll,
+            Some("Diff"),
+        ),
     ]);
 }
 
@@ -179,6 +198,7 @@ type HeaderMenu =
     Rc<dyn Fn(&DiffFile, PopupMenu, &mut Window, &mut Context<PopupMenu>) -> PopupMenu>;
 type FileRenderer = Rc<dyn Fn(&DiffFile, &mut Window, &mut App) -> AnyElement>;
 type AnnotationRenderer = Rc<dyn Fn(&DiffAnnotation, &mut Window, &mut App) -> AnyElement>;
+type MarkerRenderer = Rc<dyn Fn(&DiffGutterMarker, &mut Window, &mut App) -> AnyElement>;
 type RangeHandler = Rc<dyn Fn(&DiffLineRange, &mut Window, &mut App)>;
 type ClickHandler = Rc<dyn Fn(&DiffLinePosition, &ClickEvent, &mut Window, &mut App)>;
 type HoverHandler = Rc<dyn Fn(Option<&DiffLinePosition>, &mut Window, &mut App)>;
@@ -253,9 +273,13 @@ pub struct Diff {
     change_background: bool,
     soft_wrap: bool,
     soft_wrap_sides: Option<[bool; 2]>,
+    split_ratio: f32,
     header: HeaderSlots,
     annotations: Rc<Annotations>,
     annotation_content: Option<AnnotationRenderer>,
+    decorations: Rc<Decorations>,
+    gutter_markers: Rc<GutterMarkers>,
+    gutter_marker_content: Option<MarkerRenderer>,
     on_add_annotation: Option<RangeHandler>,
     on_line_click: Option<ClickHandler>,
     on_line_hover: Option<HoverHandler>,
@@ -288,9 +312,13 @@ impl Diff {
             colors: None,
             soft_wrap: false,
             soft_wrap_sides: None,
+            split_ratio: 0.5,
             header: HeaderSlots::default(),
             annotations: Rc::default(),
             annotation_content: None,
+            decorations: Rc::default(),
+            gutter_markers: Rc::default(),
+            gutter_marker_content: None,
             on_add_annotation: None,
             on_line_click: None,
             on_line_hover: None,
@@ -381,6 +409,18 @@ impl Diff {
         self.soft_wrap = value;
         self
     }
+    /// Gives the original column this share of the width in split mode,
+    /// clamped to 0.1..=0.9. Default is 0.5. Without soft wrap, each column
+    /// keeps its share and clips its long lines, and the code of both columns
+    /// scrolls horizontally together.
+    pub fn split_ratio(mut self, ratio: f32) -> Self {
+        self.split_ratio = if ratio.is_finite() {
+            ratio.clamp(0.1, 0.9)
+        } else {
+            0.5
+        };
+        self
+    }
     /// Supplies annotations with stable identities and targets.
     ///
     /// Rows re-measure when annotations are added, removed or replaced, and
@@ -411,6 +451,36 @@ impl Diff {
     {
         self.annotation_content = Some(Rc::new(move |annotation, window, cx| {
             render(annotation, window, cx).into_any_element()
+        }));
+        self
+    }
+    /// Supplies line backgrounds that mark source ranges, such as diagnostics or
+    /// references, without changing the selection.
+    pub fn decorations(mut self, decorations: impl IntoIterator<Item = DiffDecoration>) -> Self {
+        self.decorations = Rc::new(Decorations::new(decorations));
+        self
+    }
+    /// Supplies markers for the marker lane, shown once both markers and
+    /// [`Self::render_gutter_marker`] are set.
+    ///
+    /// The lane holds one marker per line; when several target the same line,
+    /// the first supplied is shown.
+    pub fn gutter_markers(mut self, markers: impl IntoIterator<Item = DiffGutterMarker>) -> Self {
+        self.gutter_markers = Rc::new(GutterMarkers::new(markers));
+        self
+    }
+    /// Renders each gutter marker within a lane one row high and wide.
+    ///
+    /// Return a focusable control such as a small ghost button labeled with
+    /// [`DiffGutterMarker::label`], so the marker works with the pointer and
+    /// keyboard. Presses inside the lane do not start a selection.
+    pub fn render_gutter_marker<F, E>(mut self, render: F) -> Self
+    where
+        F: Fn(&DiffGutterMarker, &mut Window, &mut App) -> E + 'static,
+        E: IntoElement,
+    {
+        self.gutter_marker_content = Some(Rc::new(move |marker, window, cx| {
+            render(marker, window, cx).into_any_element()
         }));
         self
     }
@@ -585,6 +655,8 @@ fn render_diff(
     };
     let soft_wrap = side_wrap.iter().any(|wrap| *wrap);
     let horizontal_enabled = side_wrap.iter().any(|wrap| !*wrap);
+    let marker_lane = !props.gutter_markers.is_empty() && props.gutter_marker_content.is_some();
+    let lane_width = if marker_lane { row_height } else { px(0.) };
     let layout = LayoutKey::new(
         rem,
         font_size,
@@ -592,8 +664,10 @@ fn render_diff(
         props.font_features.clone(),
         mode,
         props.line_number,
+        marker_lane,
         soft_wrap,
         side_wrap,
+        props.split_ratio,
     );
     if state.update_layout(layout, row_height) {
         // Wrapped rows take the viewport width instead of their longest line.
@@ -606,6 +680,7 @@ fn render_diff(
                 &font_family,
                 &props.font_features,
                 gutter_width,
+                lane_width,
                 mode,
                 None,
                 window,
@@ -620,6 +695,7 @@ fn render_diff(
                     &font_family,
                     &props.font_features,
                     gutter_width,
+                    lane_width,
                     mode,
                     Some(side),
                     window,
@@ -640,17 +716,17 @@ fn render_diff(
         state.set_content_width(width);
     }
     state.sync_annotations(&props.annotations.items);
-    // Keep split pane boundaries fixed. Long source text is translated inside
-    // each cell rather than translating the entire two-column canvas.
-    let content_width = if mode == DiffMode::Split {
-        state.viewport().width
+    // Keep split boundaries fixed and translate source text within each cell.
+    let viewport_width = state.viewport().width;
+    let (content_width, column_width, modified_width) = if mode == DiffMode::Split {
+        (
+            viewport_width,
+            viewport_width * props.split_ratio,
+            viewport_width * (1. - props.split_ratio),
+        )
     } else {
-        state.content_width().max(state.viewport().width)
-    };
-    let column_width = if mode == DiffMode::Split {
-        content_width / 2.
-    } else {
-        content_width
+        let width = state.content_width().max(viewport_width);
+        (width, width, width)
     };
     let code = Rc::new(CodePresentation {
         files: state.files().to_vec(),
@@ -664,6 +740,7 @@ fn render_diff(
         } else {
             state.linked_horizontal_offset
         },
+        modified_width,
         font_size,
         row_height,
         gutter_width,
@@ -686,6 +763,10 @@ fn render_diff(
         header: props.header,
         annotations: props.annotations.clone(),
         annotation_content: props.annotation_content,
+        decorations: props.decorations,
+        gutter_markers: props.gutter_markers,
+        gutter_marker_content: props.gutter_marker_content.filter(|_| marker_lane),
+        lane_width,
         on_add_annotation: props.on_add_annotation,
         on_line_click: props.on_line_click,
         on_line_hover: props.on_line_hover,
@@ -878,7 +959,7 @@ fn render_diff(
                                 px(0.)
                             } else {
                                 let painted = state.geometry().borrow().painted_width();
-                                code_width(painted, gutter_width, rem, mode)
+                                code_width(painted, gutter_width, lane_width, rem, mode)
                             };
                             if state.record_paint(bounds.size, painted) || rehinted {
                                 cx.notify();
@@ -942,9 +1023,12 @@ struct CodePresentation {
     presentations: Vec<Option<Arc<FilePresentation>>>,
     mode: DiffMode,
     content_width: Pixels,
+    /// The original column in split mode; the whole width in unified mode.
     column_width: Pixels,
     horizontal_offset: Pixels,
     split_source_widths: [Pixels; 2],
+    /// The modified column in split mode.
+    modified_width: Pixels,
     font_size: Pixels,
     font_family: SharedString,
     row_height: Pixels,
@@ -966,6 +1050,11 @@ struct CodePresentation {
     header: HeaderSlots,
     annotations: Rc<Annotations>,
     annotation_content: Option<AnnotationRenderer>,
+    decorations: Rc<Decorations>,
+    gutter_markers: Rc<GutterMarkers>,
+    /// Set only while the marker lane is shown.
+    gutter_marker_content: Option<MarkerRenderer>,
+    lane_width: Pixels,
     on_add_annotation: Option<RangeHandler>,
     on_line_click: Option<ClickHandler>,
     on_line_hover: Option<HoverHandler>,
@@ -994,22 +1083,30 @@ impl CodePresentation {
 }
 
 /// Total row width for code of `width` in the current mode.
-fn code_width(width: Pixels, gutter_width: Pixels, rem: Pixels, mode: DiffMode) -> Pixels {
+fn code_width(
+    width: Pixels,
+    gutter_width: Pixels,
+    lane_width: Pixels,
+    rem: Pixels,
+    mode: DiffMode,
+) -> Pixels {
     if mode == DiffMode::Split {
-        (width + gutter_width + rem * 2.) * 2.
+        (width + gutter_width + lane_width + rem * 2.) * 2.
     } else {
-        width + gutter_width * 2. + rem * 2.
+        width + gutter_width * 2. + lane_width + rem * 2.
     }
 }
 
 /// Estimates content width from the lines widest in display cells, then
 /// shapes those candidates with the code font for resolved geometry.
+#[allow(clippy::too_many_arguments)]
 fn measure_code_width(
     files: &[DiffFile],
     font_size: Pixels,
     family: &SharedString,
     features: &gpui::FontFeatures,
     gutter_width: Pixels,
+    lane_width: Pixels,
     mode: DiffMode,
     side_filter: Option<DiffSide>,
     window: &mut Window,
@@ -1065,7 +1162,7 @@ fn measure_code_width(
                 .width
         })
         .fold(px(0.), Pixels::max);
-    code_width(width, gutter_width, window.rem_size(), mode)
+    code_width(width, gutter_width, lane_width, window.rem_size(), mode)
 }
 
 fn render_row(
@@ -1638,7 +1735,11 @@ fn render_cell(
     cx: &mut App,
 ) -> AnyElement {
     let cell = v_flex()
-        .w(code.column_width)
+        .w(if side == DiffSide::Original {
+            code.column_width
+        } else {
+            code.modified_width
+        })
         .overflow_hidden()
         .min_w_0()
         .flex_shrink_0()
@@ -1667,6 +1768,7 @@ fn render_cell(
         changed,
         code.clone(),
         [Some((side, Some(ix))), None],
+        window,
         cx,
     ))
     .children(line_extras(
@@ -1716,8 +1818,10 @@ fn render_unified_cell(
     v_flex()
         .w(if single_column {
             code.content_width
-        } else {
+        } else if side == DiffSide::Original {
             code.column_width
+        } else {
+            code.modified_width
         })
         .id((
             if side == DiffSide::Original {
@@ -1734,6 +1838,7 @@ fn render_unified_cell(
             changed,
             code.clone(),
             gutters,
+            window,
             cx,
         ))
         .children(extras)
@@ -1847,6 +1952,7 @@ fn add_annotation_button(
     )
 }
 
+#[allow(clippy::too_many_arguments)]
 fn code_line(
     file: usize,
     side: DiffSide,
@@ -1854,6 +1960,7 @@ fn code_line(
     changed: bool,
     code: Rc<CodePresentation>,
     gutters: [Option<(DiffSide, Option<usize>)>; 2],
+    window: &mut Window,
     cx: &mut App,
 ) -> AnyElement {
     let soft_wrap = if code.mode == DiffMode::Split {
@@ -1960,8 +2067,46 @@ fn code_line(
         code.hover_highlight,
         DiffHoverHighlight::Line | DiffHoverHighlight::Both
     );
-    let add_button =
-        add_annotation_button(file, side, ix, gutters_width + code.rem / 2., &code, cx);
+    let add_button = add_annotation_button(
+        file,
+        side,
+        ix,
+        gutters_width + code.lane_width + code.rem / 2.,
+        &code,
+        cx,
+    );
+    // Unified rows of unchanged lines carry both sides; either may be targeted.
+    let positions: Vec<_> = gutters
+        .iter()
+        .flatten()
+        .filter_map(|(side, ix)| ix.map(|ix| code.position(file, *side, ix)))
+        .collect();
+    let decoration = positions
+        .iter()
+        .find_map(|position| code.decorations.at(position))
+        .filter(|_| !selected)
+        .map(|decoration| {
+            decoration
+                .background()
+                .unwrap_or_else(|| cx.theme().warning.opacity(0.2))
+        });
+    let marker_lane = code.gutter_marker_content.clone().map(|render| {
+        let marker = positions
+            .iter()
+            .find_map(|position| code.gutter_markers.at(position));
+        div()
+            .id("marker-lane")
+            .flex_shrink_0()
+            .size(code.row_height)
+            .flex()
+            .items_center()
+            .justify_center()
+            // Keep presses on a marker from starting a text or line selection.
+            .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+            .when_some(marker, |this, marker| {
+                this.child(render(marker, window, cx))
+            })
+    });
     h_flex()
         .id("line-row")
         .group("diff-line")
@@ -1991,6 +2136,10 @@ fn code_line(
             }
             .opacity(0.12))
         })
+        // An overlay, so the change background shows through a translucent fill.
+        .when_some(decoration, |this, background| {
+            this.child(div().absolute().inset_0().bg(background))
+        })
         .when(selected, |this| this.bg(cx.theme().selection))
         .when(hover_line && !selected, |this| {
             this.hover(|this| this.bg(cx.theme().list_hover))
@@ -2009,6 +2158,7 @@ fn code_line(
                     .map(|(side, ix)| render_gutter(file, side, ix, &code, cx)),
             )
         })
+        .children(marker_lane)
         .child(indicator)
         .child(
             div()
@@ -2055,8 +2205,13 @@ fn code_line(
                 .child(
                     text.when(code.mode == DiffMode::Split && !soft_wrap, |this| {
                         let side_index = usize::from(side == DiffSide::Modified);
-                        let limit =
-                            (code.split_source_widths[side_index] - code.column_width).max(px(0.));
+                        let limit = (code.split_source_widths[side_index]
+                            - if side == DiffSide::Original {
+                                code.column_width
+                            } else {
+                                code.modified_width
+                            })
+                        .max(px(0.));
                         this.relative().left(-code.horizontal_offset.min(limit))
                     }),
                 ),
@@ -2164,6 +2319,8 @@ fn has_line_ending_change(
 
 #[cfg(test)]
 mod copy_tests;
+#[cfg(test)]
+mod decoration_tests;
 #[cfg(test)]
 mod header_tests;
 #[cfg(test)]

@@ -5,7 +5,7 @@ Read the [coding standards](../CONTRIBUTING.md) before making changes.
 
 ## Prerequisites
 
-- Rust and Cargo.
+- Rust and Cargo (validated with Rust 1.100.0).
 - [just](https://just.systems/) for the task recipes (`brew install just` on macOS).
   It is a separate developer tool; Cargo does not install it for this project.
 - Full Xcode on macOS, including the tools used to compile the Icon Composer asset.
@@ -201,7 +201,7 @@ checks deliberately rather than stealing focus during unrelated work.
 
 ## Dependencies and local patches
 
-GPUI Kit is pinned to 0.8.0 in `Cargo.toml`. Keep the lockfile when building;
+GPUI Kit is pinned to 0.10.0 in `Cargo.toml`. Keep the lockfile when building;
 framework upgrades need separate compatibility checks against stable Rust and
 our vendored component patch. [vendor/README.md](../vendor/README.md) records
 patch provenance, changes, and licenses. The existing component supplies text,

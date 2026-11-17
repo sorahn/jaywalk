@@ -150,7 +150,7 @@ impl Viewer {
                             .child(parent),
                     )
                     .on_click(cx.listener(move |viewer, event: &ClickEvent, _, cx| {
-                        let disposition = if event.modifiers().secondary() {
+                        let disposition = if event.modifiers().secondary(cx) {
                             crate::windows::OpenDisposition::NewWindow
                         } else {
                             crate::windows::OpenDisposition::Configured

@@ -40,7 +40,7 @@ pub(super) fn comparison_geometry(
     }
 }
 
-pub(super) fn horizontal_wheel(event: &ScrollWheelEvent, line_height: Pixels) -> Option<f32> {
+pub(super) fn horizontal_wheel(event: &ScrollEvent, line_height: Pixels) -> Option<f32> {
     let delta = event.delta.pixel_delta(line_height);
     if event.modifiers.shift {
         // macOS may already have moved Shift+wheel input to the X axis.

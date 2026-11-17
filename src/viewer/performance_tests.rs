@@ -138,7 +138,7 @@ fn profile_viewer_modes(cx: &mut TestAppContext) {
                     .input_bounds()
                     .center()
             });
-            cx.simulate_event(gpui_test::ScrollWheelEvent {
+            cx.simulate_event(gpui_test::ScrollEvent {
                 position,
                 delta: gpui_test::ScrollDelta::Pixels(point(px(0.), px(-120.))),
                 ..Default::default()

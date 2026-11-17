@@ -269,7 +269,7 @@ impl Viewer {
                     }
                 });
                 let viewer = viewer.clone();
-                window.on_mouse_event(move |event: &ScrollWheelEvent, phase, _, cx| {
+                window.on_mouse_event(move |event: &ScrollEvent, phase, _, cx| {
                     if phase != DispatchPhase::Capture
                         || !(before_bounds.contains(&event.position)
                             || after_bounds.contains(&event.position)

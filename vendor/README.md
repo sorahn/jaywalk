@@ -1,6 +1,6 @@
 # native component source
 
-`gpui-component` is the published 0.8.0 crate, retained with its Apache-2.0
+`gpui-component` is the published 0.10.0 crate, retained with its Apache-2.0
 license. Cargo registry metadata and the upstream lockfile are omitted.
 
 The viewer needs fixed split columns with coordinated horizontal scrolling;
@@ -87,3 +87,12 @@ panel; the scrollbar must stay at the visible panel edge.
 to existing rows without expanding hidden context. Explicit `scroll_to_line`
 continues to reveal its target. The host uses restoration for mode switches,
 reflow, and refresh so folded standard diffs stay folded.
+
+The 0.10.0 refresh preserves these host extensions on the published crate
+(upstream revision `f697c3133d55c64fa8a5b67926147fb3dadd276d`,
+`crates/component` in `longbridge/gpui-kit`). GPUI Kit,
+Base and Component must move together; the headless test alias must match
+Kit's exact `gpui-pre` version (0.3.12). The Base dependency includes the
+fractional scroll-delta fix: unclamped input is consumed in full rather than
+turning floating-point subtraction residue into a false overscroll.
+`tests/trackpad_scroll.rs` guards that behavior through the public wrapper.

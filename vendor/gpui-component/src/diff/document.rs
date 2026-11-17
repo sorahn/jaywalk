@@ -3,6 +3,7 @@ use std::{ops::Range, sync::Arc};
 use gpui::SharedString;
 
 use super::conflict::DiffConflict;
+use super::parser::{DiffParseError, DiffParseOptions};
 use smallvec::{SmallVec, smallvec};
 use unicode_segmentation::UnicodeSegmentation as _;
 
@@ -259,8 +260,10 @@ pub(crate) struct Hunk {
     original: Range<usize>,
     modified: Range<usize>,
     label: SharedString,
-    /// The one-based original lines the header declares.
+    /// The one-based original lines the hunk supplies.
     original_lines: Range<usize>,
+    /// Whether the hunk ended before its declared line counts.
+    truncated: bool,
 }
 
 impl Hunk {
@@ -270,6 +273,7 @@ impl Hunk {
         modified: Range<usize>,
         label: SharedString,
         original_lines: Range<usize>,
+        truncated: bool,
     ) -> Self {
         Self {
             pairs,
@@ -277,6 +281,7 @@ impl Hunk {
             modified,
             label,
             original_lines,
+            truncated,
         }
     }
     /// Original lines between the previous hunk, or the file start, and this
@@ -298,12 +303,14 @@ impl Hunk {
     pub(crate) fn label(&self) -> &SharedString {
         &self.label
     }
+    pub(crate) fn is_truncated(&self) -> bool {
+        self.truncated
+    }
 }
 
 /// One side of a file: its path, unless the side is missing such as
 /// `/dev/null`, and the source fragments the patch supplies.
-#[derive(Default)]
-#[derive(Clone)]
+#[derive(Default, Clone)]
 pub(crate) struct FileSide {
     path: Option<SharedString>,
     source: SharedString,
@@ -399,7 +406,12 @@ impl DiffFile {
         for side in [&mut inner.original, &mut inner.modified] {
             for line in &mut side.lines {
                 let counterpart = line.counterpart;
-                *line = source_line_with_tab_size(&side.source, line.source.clone(), line.line_number, tab_size.max(1));
+                *line = source_line_with_tab_size(
+                    &side.source,
+                    line.source.clone(),
+                    line.line_number,
+                    tab_size.max(1),
+                );
                 line.counterpart = counterpart;
             }
         }
@@ -409,8 +421,15 @@ impl DiffFile {
     /// Parses every file in a unified or Git diff, in patch order, without
     /// computing differences. Syntax emphasis is prepared later by
     /// [`super::DiffState`] on a background thread.
-    pub fn parse(patch: &str) -> Result<Vec<Self>, super::parser::DiffParseError> {
-        super::parser::parse(patch)
+    pub fn parse(patch: &str) -> Result<Vec<Self>, DiffParseError> {
+        super::parser::parse(patch, DiffParseOptions::default())
+    }
+
+    /// Parses like [`DiffFile::parse`], applying the relaxations `options`
+    /// enables. Malformed headers, invalid paths and unordered hunks are still
+    /// errors.
+    pub fn parse_with(patch: &str, options: DiffParseOptions) -> Result<Vec<Self>, DiffParseError> {
+        super::parser::parse(patch, options)
     }
 
     /// Assembles a parsed file, pairing counterpart lines and deriving its
@@ -510,6 +529,11 @@ impl DiffFile {
     /// Whether the patch reports binary contents rather than textual hunks.
     pub fn is_binary(&self) -> bool {
         self.inner.binary
+    }
+    /// Whether a hunk ended before its declared line counts, which only
+    /// [`DiffParseOptions::truncated_hunks`] accepts.
+    pub fn is_truncated(&self) -> bool {
+        self.inner.hunks.iter().any(Hunk::is_truncated)
     }
     pub fn additions(&self) -> usize {
         self.inner.additions
@@ -676,7 +700,12 @@ fn source_line(source: &str, range: Range<usize>, line_number: usize) -> SourceL
     source_line_with_tab_size(source, range, line_number, 4)
 }
 
-fn source_line_with_tab_size(source: &str, range: Range<usize>, line_number: usize, tab_size: usize) -> SourceLine {
+fn source_line_with_tab_size(
+    source: &str,
+    range: Range<usize>,
+    line_number: usize,
+    tab_size: usize,
+) -> SourceLine {
     let raw = &source[range.clone()];
     let content = match raw.strip_suffix('\n') {
         Some(content) => content.strip_suffix('\r').unwrap_or(content),
@@ -997,7 +1026,11 @@ mod tests {
             assert_eq!(narrow.source(), original.lines(side)[0].source());
             assert_eq!(narrow.counterpart(), original.lines(side)[0].counterpart());
         }
-        assert!(original.lines(DiffSide::Original)[0].display().starts_with("    é"));
+        assert!(
+            original.lines(DiffSide::Original)[0]
+                .display()
+                .starts_with("    é")
+        );
     }
 
     #[test]
