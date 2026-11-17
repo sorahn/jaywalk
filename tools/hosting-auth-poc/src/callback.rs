@@ -16,6 +16,14 @@ impl Listener {
             .map_err(|_| "Cannot configure loopback listener")?;
         Ok(Self(socket))
     }
+    pub(crate) fn bind_github() -> Result<Self> {
+        let socket = TcpListener::bind("127.0.0.1:43762")
+            .map_err(|_| "Cannot bind GitHub callback port 43762; close other probe instances")?;
+        socket
+            .set_nonblocking(true)
+            .map_err(|_| "Cannot configure GitHub callback listener")?;
+        Ok(Self(socket))
+    }
     pub(crate) fn bind_registration() -> Result<Self> {
         let socket = TcpListener::bind("127.0.0.1:0")
             .map_err(|_| "Cannot bind registration callback listener")?;

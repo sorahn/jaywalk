@@ -27,20 +27,21 @@ app with Metadata and Pull requests read-only and webhooks disabled. GitHub
 validates the disabled hook URL too, so it uses the project homepage as an
 inactive placeholder; no webhook service or deliveries are enabled. GitHub
 returns a temporary registration code to the probe. It exchanges that code
-and saves the app ID, slug and client ID in the OS credential store. Generated
-private keys, client secrets and webhook secrets are not retained or printed.
+and saves the app ID, slug, client ID and browser client secret in the OS
+credential store. Generated private keys and webhook secrets are not retained;
+no secrets are printed. The manifest preconfigures the browser authorization
+callback separately from the temporary app-registration callback.
 
-The probe then opens the app's GitHub settings. Enable **Device Flow** and save;
-GitHub does not document that switch as a manifest parameter. Next:
+Browser sign-in is the default. No Device Flow checkbox is required. Next:
 
 ```sh
 tools/hosting-auth-poc/target/debug/jaywalk-hosting-auth-poc github-install
 tools/hosting-auth-poc/target/debug/jaywalk-hosting-auth-poc github-connect
 ```
 
-Choose one test repository during installation, then complete device sign-in.
-`github-connect` uses the saved client ID when its argument is omitted. You can
-reopen settings with `github-setup`. `github-forget-registration` removes only
+Choose one test repository during installation, then authorize in the browser.
+`github-connect` uses the saved development client credentials when its client
+ID argument is omitted. You can reopen publisher settings with `github-setup`. `github-forget-registration` removes only
 the local registration record; delete an unwanted development app in GitHub
 Developer settings separately. Disconnecting the account leaves this
 registration record available for reconnection.
@@ -67,21 +68,27 @@ GitHub's fixed API origin, checks read-only permissions and saves the returned
 identifiers. Normal automatic callbacks still require the original state.
 GitHub decides whether the one-time code remains valid. Recovery does not
 create a second app. If the code has expired, find the existing app in GitHub
-Developer settings and use its client ID with `github-connect`.
+Developer settings and use its client ID with `github-connect` and enter its client secret at the hidden
+prompt. The app's Redirect URI must include `http://127.0.0.1:43762/callback`.
 
 ## Manual GitHub development registration
 
 Create a **GitHub App** in your account's Developer settings:
 
 - Give it a distinct development name and your project's homepage URL.
-- Enable **Device Flow**. Keep expiring user access tokens enabled.
+- Add `http://127.0.0.1:43762/callback` as a **Redirect URI** under
+  **General → Identifying and authorizing users**, and save. GitHub's API docs
+  call this a Callback URL. Client-secret controls are under **Credentials**.
+  Keep expiring user access tokens enabled. Device Flow is optional.
 - Disable webhooks; no webhook server or private key is needed for this probe.
 - Grant repository **Metadata: read-only** and **Pull requests: read-only**.
   Later file/check experiments may need Contents, Checks and Commit statuses
   read-only; do not add those until testing those endpoints.
 - Limit installation to your account and selected test repositories. Install
   it on a disposable repository containing a pull request.
-- Copy its **client ID**, not the numeric app ID. No client secret is needed.
+- Copy its **client ID**, not the numeric app ID. Enter its client secret only
+  at the probe's hidden local prompt. It is stored in the OS credential store
+  after successful browser authorization, never in config, arguments or logs.
 
 ```sh
 tools/hosting-auth-poc/target/debug/jaywalk-hosting-auth-poc github-connect CLIENT_ID
@@ -91,6 +98,34 @@ The tool opens GitHub in the default browser and displays a short device code.
 Enter it yourself and confirm the named development app. It requests
 `offline_access` to exercise expiring access and refresh tokens. GitHub App
 permissions come from registration, not OAuth repository scopes.
+
+## Browser and device sign-in experiments
+
+`github-connect` opens GitHub directly using authorization code + PKCE (S256),
+fresh state and a loopback-only callback. There is no device code to copy.
+The callback listener, timeout, cancellation and duplicate/replay checks are
+shared with the existing protocol experiment. GitHub App permissions remain
+read-only; `offline_access` requests rotating credentials without broadening
+repository permissions.
+
+The previous device path is available with `github-connect --flow device`.
+Only that path requires Device Flow enabled in publisher settings and can
+refresh without a client secret. Browser authorization and refresh use the
+developer registration's client secret, as GitHub documents. This tests the
+developer's own credentials; it does not decide how a public Jaywalk build
+would provision its app credentials.
+
+For a registration created by the earlier device-only probe, run `github-setup`,
+add the callback above and save, then generate a client secret if necessary.
+Enter it in the local hidden prompt. There is no need to delete or register the
+app again, change permissions, or turn Device Flow off. This is a one-time
+publisher setup, not ordinary user onboarding.
+
+Use `github-connect --reauthorize` to test browser sign-in while retaining an
+existing connection until the replacement passes authorization and identity
+validation. A cancelled or rejected attempt leaves the prior saved session
+alone. `refresh github` uses the authentication method recorded in that
+session, so existing device sessions remain secret-free.
 
 ## Bitbucket Cloud development registration
 
@@ -161,8 +196,9 @@ tools/hosting-auth-poc/target/debug/jaywalk-hosting-auth-poc disconnect PROVIDER
 Disconnect forgets the local probe entry; **it does not revoke authorization
 at the provider**. Revoke in provider settings when finished. Credentials are
 stored under service `jaywalk.hosting-auth-poc.v1`, accounts `github` and
-`bitbucket`. The Bitbucket entry includes the development consumer secret for
-refresh. No credentials are written to repository files, config, arguments or
+`bitbucket`. Browser-authorized GitHub sessions and the Bitbucket entry include their
+development client secret for refresh. The development registration entry can
+also retain GitHub's client secret; it is never passed through chat or logs. No credentials are written to repository files, config, arguments or
 fixtures. Run on your local desktop, without terminal/session recording of
 hidden input; do not paste secrets into chat.
 
@@ -200,3 +236,28 @@ Protocol references:
 - https://docs.github.com/en/apps/creating-github-apps/authenticating-with-a-github-app/refreshing-user-access-tokens
 - https://developer.atlassian.com/cloud/bitbucket/rest/intro/
 - https://docs.rs/keyring/3.6.3/keyring/
+
+
+## Live GitHub browser result
+
+Verified on macOS on 2026-11-17 in both an existing-registration test and a
+fresh-registration test:
+
+- For the existing development app, the publisher added its Redirect URI and
+  entered a newly generated client secret locally. Browser authorization,
+  fresh-process recovery, PR metadata access and refresh succeeded.
+- The publisher then deleted that development app remotely. Only the probe's
+  local GitHub session and development registration were cleared for the clean
+  test; the Bitbucket connection was retained.
+- A fresh manifest-created app preconfigured the authorization redirect and
+  returned client credentials directly to the local probe. The secret was saved
+  in the OS store, with no copying or developer-setting edits.
+- The user installed the new app and completed browser authorization without
+  configuring Device Flow or entering a device code or client secret.
+- Fresh-process status, PR metadata/commit-identity checks, token-pair rotation
+  and another fresh-process status all succeeded for this new app.
+
+App registration is a publisher setup step. Ordinary users authorize/install
+an already configured app. The terminal probe does not claim a native GPUI
+Connect UI or establish public-build credential provisioning. Its developer
+client-secret test is not secret-free browser OAuth.

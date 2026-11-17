@@ -1,5 +1,6 @@
 //! Disposable protocol/credential-store probe, not the app's provider contract.
 mod callback;
+mod github_browser;
 mod protocol;
 mod registration;
 
@@ -31,13 +32,20 @@ struct Args {
 
 #[derive(Subcommand)]
 enum Action {
-    /// GitHub App device flow; requires a registered client ID with device flow enabled.
-    GithubConnect { client_id: Option<String> },
+    /// Browser sign-in by default; --flow device is the optional device-code experiment.
+    GithubConnect {
+        client_id: Option<String>,
+        #[arg(long, value_enum, default_value = "browser")]
+        flow: GithubFlow,
+        /// Replace the existing session only after new authorization and identity checks succeed.
+        #[arg(long)]
+        reauthorize: bool,
+    },
     /// Open browser-assisted development GitHub App registration and save its client ID.
     GithubRegister,
     /// Recover an explicitly supplied browser callback after the local listener timed out.
     GithubRecoverRegistration,
-    /// Open the saved development app's settings to enable Device Flow.
+    /// Open one-time development registration settings (callback URL or optional device flow).
     GithubSetup,
     /// Open installation for the saved development app; select test repositories yourself.
     GithubInstall,
@@ -60,6 +68,12 @@ enum Action {
     },
     /// Write/read a random synthetic credential; use read/delete in separate processes.
     Store { action: StoreAction },
+}
+
+#[derive(Clone, Copy, ValueEnum)]
+enum GithubFlow {
+    Browser,
+    Device,
 }
 
 #[derive(Clone, Copy, Serialize, Deserialize, ValueEnum)]
@@ -102,7 +116,7 @@ impl Provider {
 struct Session {
     client_id: String,
     tokens: Tokens,
-    // A developer's own Bitbucket consumer secret, never a distributed app secret.
+    // Developer registration secrets for browser flows; never printed or shipped.
     developer_secret: Option<String>,
 }
 
@@ -132,17 +146,29 @@ fn run() -> Result<()> {
         Action::GithubSetup => registration::open_settings()?,
         Action::GithubInstall => registration::open_installation()?,
         Action::GithubForgetRegistration => registration::forget()?,
-        Action::GithubConnect { client_id } => {
+        Action::GithubConnect {
+            client_id,
+            flow,
+            reauthorize,
+        } => {
             let client_id = match client_id {
                 Some(id) => id,
                 None => registration::client_id()?,
             };
-            ensure_disconnected(Provider::Github)?;
-            let session = github_connect(&client, &client_id, &cancelled)?;
+            if !reauthorize {
+                ensure_disconnected(Provider::Github)?;
+            }
+            let session = match flow {
+                GithubFlow::Browser => github_browser::connect(&client, &client_id, &cancelled)?,
+                GithubFlow::Device => github_device_connect(&client, &client_id, &cancelled)?,
+            };
             check_cancelled(&cancelled)?;
             identity(&client, Provider::Github, &session)?;
             check_cancelled(&cancelled)?;
             save(Provider::Github, &session)?;
+            if let Some(secret) = &session.developer_secret {
+                registration::remember_browser_secret(&client_id, secret)?;
+            }
             println!(
                 "Connected; credentials saved in the OS store. Run status in a fresh process."
             );
@@ -170,11 +196,8 @@ fn run() -> Result<()> {
                 .refresh_token
                 .as_deref()
                 .ok_or("No refresh token; reconnect with expiring tokens enabled")?;
-            let mut request = client.post(provider.token_url()).form(&[
-                ("client_id", session.client_id.as_str()),
-                ("grant_type", "refresh_token"),
-                ("refresh_token", refresh),
-            ]);
+            let parameters = refresh_parameters(provider, &session, refresh);
+            let mut request = client.post(provider.token_url()).form(&parameters);
             if let Provider::Bitbucket = provider {
                 request =
                     request.basic_auth(&session.client_id, session.developer_secret.as_deref());
@@ -299,7 +322,30 @@ fn valid_component(value: &str) -> bool {
             .all(|c| c.is_ascii_alphanumeric() || b"-_.".contains(&c))
 }
 
-fn github_connect(client: &Client, client_id: &str, cancelled: &AtomicBool) -> Result<Session> {
+fn refresh_parameters<'a>(
+    provider: Provider,
+    session: &'a Session,
+    refresh: &'a str,
+) -> Vec<(&'static str, &'a str)> {
+    let mut parameters = vec![
+        ("client_id", session.client_id.as_str()),
+        ("grant_type", "refresh_token"),
+        ("refresh_token", refresh),
+    ];
+    // Bitbucket authenticates its client with HTTP Basic instead.
+    if let Provider::Github = provider
+        && let Some(secret) = &session.developer_secret
+    {
+        parameters.push(("client_secret", secret));
+    }
+    parameters
+}
+
+fn github_device_connect(
+    client: &Client,
+    client_id: &str,
+    cancelled: &AtomicBool,
+) -> Result<Session> {
     let response = json(
         client
             .post("https://github.com/login/device/code")
@@ -538,6 +584,28 @@ fn pause(seconds: u64, deadline: Instant, cancelled: &AtomicBool) -> Result<()> 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn refresh_preserves_device_flow_and_uses_browser_client_authentication_once() {
+        let mut session = Session {
+            client_id: "synthetic".into(),
+            tokens: Tokens::parse(&serde_json::json!({"access_token":"access","token_type":"bearer","refresh_token":"refresh"})).unwrap(),
+            developer_secret: None,
+        };
+        let device = refresh_parameters(Provider::Github, &session, "refresh");
+        assert!(!device.iter().any(|(name, _)| *name == "client_secret"));
+        session.developer_secret = Some("synthetic-secret".into());
+        let browser = refresh_parameters(Provider::Github, &session, "refresh");
+        assert_eq!(
+            browser
+                .iter()
+                .filter(|(name, _)| *name == "client_secret")
+                .count(),
+            1
+        );
+        let bitbucket = refresh_parameters(Provider::Bitbucket, &session, "refresh");
+        assert!(!bitbucket.iter().any(|(name, _)| *name == "client_secret"));
+    }
 
     #[test]
     fn bitbucket_fork_endpoints_resolve_in_their_own_repositories() {
