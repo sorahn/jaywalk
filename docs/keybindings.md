@@ -162,6 +162,14 @@ layout/reset/remote-management command merely to fill the table.
 
 | Setting | Default | Command |
 | --- | --- | --- |
+| `keybindings.accounts` | `[]` | Accounts… |
+| `keybindings.connect_account` | `[]` | Connect account… |
+| `keybindings.reconnect_account` | `[]` | Reconnect account… |
+| `keybindings.disconnect_account` | `[]` | Disconnect account… (asks for confirmation) |
+| `keybindings.choose_hosting_workspace` | `[]` | Bitbucket: Choose workspace… |
+| `keybindings.check_account` | `[]` | Check account connection… |
+| `keybindings.cancel_account_sign_in` | `[]` | Cancel account sign-in |
+| `keybindings.import_hosting_setup` | `[]` | Developer: Import hosting setup… |
 | `keybindings.about` | `[]` | About Jaywalk |
 | `keybindings.open_repository` | `["secondary-o"]` | Open repository… |
 | `keybindings.open_recent` | `["ctrl-r"]` | Open recent repository |

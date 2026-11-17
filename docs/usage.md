@@ -322,3 +322,27 @@ markers. Index comparisons do not create a fictitious history row. If process
 identity is unavailable, inputs are owned independently rather than grouped by
 repository or time. Detached wrappers must call Jaywalk before Git removes its
 temporary inputs. Viewing never checks out revisions, edits the index or fetches.
+
+## Hosting accounts (development preview)
+
+Open **Accounts…** from the command palette, including on the welcome screen.
+Connect GitHub or Bitbucket in your browser; Jaywalk shows a waiting indicator
+and an **Open browser again** action. No token or client secret is entered into
+the app. **Cancel**, Escape or closing the Accounts window cancels its pending
+sign-in. Once saving has begun, cancellation shows a finishing state instead.
+Other repository windows share the same account state.
+
+**Reconnect account…** replaces a grant only after verifying the same provider
+account. **Check account connection…** verifies saved access. **Disconnect
+account…** asks before removing the local connection; it does not revoke access
+on GitHub or Bitbucket. Choose **Bitbucket: Choose workspace…**, then an account,
+to load the workspaces that account can access. The selection persists through
+restart and token refresh; it is not fixed to the workspace owning the OAuth app.
+
+This preview requires a development app registration. **Developer: Import hosting
+setup…** explicitly copies registrations saved by the local authentication probe
+into Jaywalk's OS credential store. It does not import account tokens, and does
+not register a new provider app. After importing, return to **Accounts** to connect.
+Public-release credential provisioning is still undecided. Credentials are never
+saved in Jaywalk's settings or repository files. On macOS, use the signed app
+bundle for stable Keychain access across rebuilds; see the development guide.

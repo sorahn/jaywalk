@@ -12,6 +12,14 @@ pub(crate) fn init(arguments: &Arguments, settings: &Settings, cx: &mut App) -> 
     install_bindings(settings, cx)?;
     let arguments = arguments.clone();
     cx.on_action(move |action: &ExecuteCommand, cx| match action.command {
+        CommandId::Accounts
+        | CommandId::ConnectAccount
+        | CommandId::ReconnectAccount
+        | CommandId::DisconnectAccount
+        | CommandId::ChooseHostingWorkspace
+        | CommandId::ImportHostingSetup
+        | CommandId::CheckAccount
+        | CommandId::CancelAccountSignIn => crate::account_ui::open(action.command, cx),
         CommandId::About => cx.defer(|cx| {
             // A menu action may run inside the active window's update. Reusing
             // that window must wait until it is back in the app's window table.
@@ -114,7 +122,15 @@ fn configured_bindings(settings: &Settings, cx: &App) -> Vec<KeyBinding> {
     for (command, bindings) in &settings.keybindings {
         let context = match command {
             CommandId::OpenInNewWindow => Some("JaywalkRecent"),
-            CommandId::About
+            CommandId::Accounts
+            | CommandId::ConnectAccount
+            | CommandId::ReconnectAccount
+            | CommandId::DisconnectAccount
+            | CommandId::ChooseHostingWorkspace
+            | CommandId::ImportHostingSetup
+            | CommandId::CheckAccount
+            | CommandId::CancelAccountSignIn
+            | CommandId::About
             | CommandId::OpenRepository
             | CommandId::OpenRecent
             | CommandId::ComparePaths
@@ -176,6 +192,14 @@ impl Viewer {
             CommandId::RevealComparisonLeft | CommandId::RevealComparisonRight => {
                 self.reveal_pair_endpoint(command == CommandId::RevealComparisonRight, window, cx)
             }
+            CommandId::Accounts
+            | CommandId::ConnectAccount
+            | CommandId::ReconnectAccount
+            | CommandId::DisconnectAccount
+            | CommandId::ChooseHostingWorkspace
+            | CommandId::ImportHostingSetup
+            | CommandId::CheckAccount
+            | CommandId::CancelAccountSignIn => crate::account_ui::open(command, cx),
             CommandId::SwapComparison => self.swap_comparison(window, cx),
             CommandId::CompareRevision | CommandId::DiffFromBranchPoint => {
                 if let Some(target) = self.current_revision_target() {

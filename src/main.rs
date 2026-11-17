@@ -5,6 +5,7 @@ use gpui::*;
 use jaywalk::settings_reload::SettingsSource;
 
 mod about;
+mod account_ui;
 mod appearance;
 mod cli;
 #[cfg(feature = "profiling")]
@@ -96,6 +97,7 @@ fn run() -> std::result::Result<(), String> {
     });
     application.run(move |cx| {
         gpui::init(cx);
+        account_ui::init(cx);
         platform::install_scrollbar_preference(scrollbar_preference, cx);
         windows::init(cx);
         interface_state::init(cx);
