@@ -210,7 +210,7 @@ impl Comparison {
                 let type_notice = self
                     .catalog()
                     .find(file.after_path())
-                    .and_then(|entry| entry.type_change_notice());
+                    .and_then(|entry| entry.metadata_change_notice());
                 let (patch, notice) = match self
                     .catalog()
                     .find(file.after_path())

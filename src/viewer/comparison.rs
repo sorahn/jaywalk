@@ -197,7 +197,7 @@ impl Viewer {
             _ => None,
         };
         let detail = file
-            .type_change_notice()
+            .metadata_change_notice()
             .or_else(|| match file.content_kind() {
                 jaywalk::repository_file::FileKind::Regular => detail,
                 jaywalk::repository_file::FileKind::Symlink => {

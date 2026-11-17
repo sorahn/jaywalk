@@ -10,15 +10,45 @@ use std::sync::Arc;
 pub struct ExternalContents {
     pub(crate) git_context: bool,
     pub(crate) recorded_working: Option<String>,
-    left: BTreeMap<String, PathBuf>,
-    right: BTreeMap<String, PathBuf>,
+    left: BTreeMap<String, ExternalEntry>,
+    right: BTreeMap<String, ExternalEntry>,
     limit: crate::text_content::TextLimit,
+}
+
+#[derive(Clone, Debug)]
+struct ExternalEntry {
+    path: PathBuf,
+    kind: crate::repository_file::FileKind,
+    executable: bool,
+}
+impl ExternalEntry {
+    fn new(path: PathBuf) -> Result<Self, String> {
+        let metadata = std::fs::symlink_metadata(&path)
+            .map_err(|error| format!("Could not inspect {}: {error}", path.display()))?;
+        let kind = if metadata.is_symlink() {
+            crate::repository_file::FileKind::Symlink
+        } else {
+            crate::repository_file::FileKind::Regular
+        };
+        #[cfg(unix)]
+        let executable = {
+            use std::os::unix::fs::PermissionsExt;
+            metadata.is_file() && metadata.permissions().mode() & 0o100 != 0
+        };
+        #[cfg(not(unix))]
+        let executable = false;
+        Ok(Self {
+            path,
+            kind,
+            executable,
+        })
+    }
 }
 
 fn collect(
     root: &Path,
     directory: &Path,
-    files: &mut BTreeMap<String, PathBuf>,
+    files: &mut BTreeMap<String, ExternalEntry>,
 ) -> Result<(), String> {
     for entry in std::fs::read_dir(directory)
         .map_err(|error| format!("Could not list {}: {error}", directory.display()))?
@@ -38,7 +68,7 @@ fn collect(
             let key = relative
                 .to_str()
                 .ok_or_else(|| format!("Non-UTF-8 file name: {}", path.display()))?;
-            files.insert(key.to_owned(), path);
+            files.insert(key.to_owned(), ExternalEntry::new(path)?);
         } else {
             return Err(format!("Unsupported file type: {}", path.display()));
         }
@@ -63,16 +93,6 @@ pub fn normalize_input(path: &Path) -> Result<PathBuf, String> {
     Ok(normalized)
 }
 
-fn entry_kind(path: &Path) -> Result<crate::repository_file::FileKind, String> {
-    let metadata = std::fs::symlink_metadata(path)
-        .map_err(|error| format!("Could not inspect {}: {error}", path.display()))?;
-    Ok(if metadata.is_symlink() {
-        crate::repository_file::FileKind::Symlink
-    } else {
-        crate::repository_file::FileKind::Regular
-    })
-}
-
 fn bytes(path: &Path, limit: crate::text_content::TextLimit) -> Result<Vec<u8>, String> {
     let metadata = std::fs::symlink_metadata(path)
         .map_err(|error| format!("Could not inspect {}: {error}", path.display()))?;
@@ -89,24 +109,24 @@ fn bytes(path: &Path, limit: crate::text_content::TextLimit) -> Result<Vec<u8>, 
 }
 
 fn equal_entries(
-    before: &Path,
-    after: &Path,
+    before: &ExternalEntry,
+    after: &ExternalEntry,
     limit: crate::text_content::TextLimit,
 ) -> Result<bool, String> {
     use std::io::BufRead;
-    let kind = entry_kind(before)?;
-    if kind != entry_kind(after)? {
+    let kind = &before.kind;
+    if kind != &after.kind || before.executable != after.executable {
         return Ok(false);
     }
-    if kind == crate::repository_file::FileKind::Symlink {
-        return Ok(bytes(before, limit)? == bytes(after, limit)?);
+    if kind == &crate::repository_file::FileKind::Symlink {
+        return Ok(bytes(&before.path, limit)? == bytes(&after.path, limit)?);
     }
     let open = |path: &Path| {
         std::fs::File::open(path)
             .map_err(|error| format!("Could not open {}: {error}", path.display()))
     };
-    let left = open(before)?;
-    let right = open(after)?;
+    let left = open(&before.path)?;
+    let right = open(&after.path)?;
     if left.metadata().map_err(|error| error.to_string())?.len()
         != right.metadata().map_err(|error| error.to_string())?.len()
     {
@@ -181,10 +201,14 @@ impl ExternalContents {
                 .to_owned();
             // The null device denotes an absent entry, not an empty file.
             if left != Path::new("/dev/null") {
-                contents.left.insert(name.clone(), left.clone());
+                contents
+                    .left
+                    .insert(name.clone(), ExternalEntry::new(left.clone())?);
             }
             if right != Path::new("/dev/null") {
-                contents.right.insert(name, right.clone());
+                contents
+                    .right
+                    .insert(name, ExternalEntry::new(right.clone())?);
             }
         } else {
             return Err("Diff inputs must both be files or both be directories.".into());
@@ -233,27 +257,27 @@ impl ExternalContents {
             FileSide::After => &self.right,
         }
         .iter()
-        .map(|(path, source)| {
-            let metadata = std::fs::symlink_metadata(source)
-                .map_err(|error| format!("Could not inspect {}: {error}", source.display()))?;
-            Ok((
-                path.clone(),
-                if metadata.is_symlink() {
-                    crate::repository_file::FileKind::Symlink
-                } else {
-                    crate::repository_file::FileKind::Regular
-                },
-            ))
-        })
+        .map(|(path, source)| Ok((path.clone(), source.kind.clone())))
         .collect()
     }
+    pub(crate) fn executable_changes(&self) -> impl Iterator<Item = (&str, bool, bool)> {
+        self.left.iter().filter_map(|(path, before)| {
+            let after = self.right.get(path)?;
+            (before.kind == crate::repository_file::FileKind::Regular
+                && after.kind == crate::repository_file::FileKind::Regular
+                && before.executable != after.executable)
+                .then_some((path.as_str(), before.executable, after.executable))
+        })
+    }
+
     pub(crate) fn read_path(&self, path: &str, side: FileSide) -> Result<String, String> {
-        let read = |paths: &BTreeMap<String, PathBuf>, name: &str| -> Result<String, String> {
-            let Some(path) = paths.get(name) else {
-                return Ok(String::new());
+        let read =
+            |paths: &BTreeMap<String, ExternalEntry>, name: &str| -> Result<String, String> {
+                let Some(path) = paths.get(name) else {
+                    return Ok(String::new());
+                };
+                self.limit.text(bytes(&path.path, self.limit)?)
             };
-            self.limit.text(bytes(path, self.limit)?)
-        };
         read(
             match side {
                 FileSide::Before => &self.left,

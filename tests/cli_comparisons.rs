@@ -708,3 +708,51 @@ fn git_blob_stream_recovers_after_rejected_files_and_preserves_pinned_data() {
     f.write("c-valid.txt", "later edit\n");
     assert_eq!(content(&comparison, "c-valid.txt").1, "after λ\n");
 }
+
+#[cfg(unix)]
+#[test]
+fn external_executable_changes_are_visible_without_a_text_change() {
+    use std::os::unix::fs::PermissionsExt;
+    let fixture = Fixture::new();
+    for (side, mode) in [("left", 0o644), ("right", 0o755)] {
+        fixture.write(&format!("{side}/script.sh"), "#!/bin/sh\nexit 0\n");
+        std::fs::set_permissions(
+            fixture.0.join(side).join("script.sh"),
+            std::fs::Permissions::from_mode(mode),
+        )
+        .unwrap();
+    }
+    let comparison =
+        ExternalContents::comparison(&fixture.0.join("left"), &fixture.0.join("right")).unwrap();
+    assert_eq!(comparison.files().len(), 1);
+    assert_eq!(comparison.files()[0].status(), "modified");
+    let file = comparison.catalog().find("script.sh").unwrap();
+    assert_eq!(
+        file.metadata_change_notice().as_deref(),
+        Some("File mode changed: 100644 → 100755")
+    );
+    let (before, after) = comparison.read_file(file).unwrap();
+    assert_eq!(before, after);
+    assert_eq!(
+        comparison.overview().files[0].notice,
+        file.metadata_change_notice()
+    );
+    let swapped = comparison.swapped().unwrap();
+    assert_eq!(
+        swapped
+            .catalog()
+            .find("script.sh")
+            .unwrap()
+            .metadata_change_notice()
+            .as_deref(),
+        Some("File mode changed: 100755 → 100644")
+    );
+    std::fs::set_permissions(
+        fixture.0.join("right/script.sh"),
+        std::fs::Permissions::from_mode(0o600),
+    )
+    .unwrap();
+    let same_mode =
+        ExternalContents::comparison(&fixture.0.join("left"), &fixture.0.join("right")).unwrap();
+    assert!(same_mode.files().is_empty());
+}

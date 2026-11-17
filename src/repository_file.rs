@@ -56,6 +56,7 @@ pub struct FileEntry {
     path: String,
     content_kind: FileKind,
     type_change: Option<(FileKind, FileKind)>,
+    executable_change: Option<(bool, bool)>,
     change: Option<FileChange>,
 }
 impl FileEntry {
@@ -64,6 +65,7 @@ impl FileEntry {
             path: path.into(),
             content_kind: FileKind::Regular,
             type_change: None,
+            executable_change: None,
             change: None,
         }
     }
@@ -84,6 +86,15 @@ impl FileEntry {
         };
         self.type_change.as_ref().map(|(before, after)| {
             format!("File type changed: {} → {}", label(before), label(after))
+        })
+    }
+
+    pub fn metadata_change_notice(&self) -> Option<String> {
+        self.type_change_notice().or_else(|| {
+            self.executable_change.map(|(before, after)| {
+                let mode = |executable| if executable { "100755" } else { "100644" };
+                format!("File mode changed: {} → {}", mode(before), mode(after))
+            })
         })
     }
 
@@ -117,6 +128,7 @@ impl From<&ChangedFile> for FileEntry {
             path: file.after_path().to_owned(),
             content_kind: FileKind::Regular,
             type_change: None,
+            executable_change: None,
             change: Some(FileChange {
                 kind: file.kind().clone(),
                 before_path: file.before_path().to_owned(),
@@ -223,6 +235,17 @@ impl FileCatalog {
             }
         }
         Self { entries, renames }
+    }
+    pub(crate) fn with_executable_changes<'a>(
+        mut self,
+        changes: impl Iterator<Item = (&'a str, bool, bool)>,
+    ) -> Self {
+        for (path, before, after) in changes {
+            if let Some(entry) = self.entries.get_mut(path) {
+                entry.executable_change = Some((before, after));
+            }
+        }
+        self
     }
     pub fn entries(&self) -> impl ExactSizeIterator<Item = &FileEntry> {
         self.entries.values()
