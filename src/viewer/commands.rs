@@ -67,7 +67,7 @@ pub(super) fn validate_bindings(settings: &Settings, cx: &App) -> Result<(), Str
         .try_global::<InstalledKeymap>()
         .map_or(&[][..], |state| state.defaults.as_slice());
     let defaults = collect_defaults(previous, cx.key_bindings().borrow().bindings().cloned());
-    jaywalk::keymap::remap(&defaults, &settings.keymap).map(|_| ())
+    jaywalk::keymap::remap(&defaults, &settings.keymap, cx).map(|_| ())
 }
 
 pub(crate) fn install_bindings(settings: &Settings, cx: &mut App) -> Result<(), String> {
@@ -77,10 +77,10 @@ pub(crate) fn install_bindings(settings: &Settings, cx: &mut App) -> Result<(), 
     let defaults = collect_defaults(previous, cx.key_bindings().borrow().bindings().cloned());
     // Prepare everything before mutating the active map. Failed overrides must
     // leave both bindings and the previous settings intact.
-    let toolkit = jaywalk::keymap::remap(&defaults, &settings.keymap)?;
+    let toolkit = jaywalk::keymap::remap(&defaults, &settings.keymap, cx)?;
     cx.clear_key_bindings();
     cx.bind_keys(toolkit);
-    cx.bind_keys(configured_bindings(settings));
+    cx.bind_keys(configured_bindings(settings, cx));
     let version = cx.key_bindings().borrow().version();
     cx.set_global(InstalledKeymap {
         defaults,
@@ -109,7 +109,7 @@ pub(super) fn refresh_bindings(cx: &mut App) -> Result<(), String> {
     Ok(())
 }
 
-fn configured_bindings(settings: &Settings) -> Vec<KeyBinding> {
+fn configured_bindings(settings: &Settings, cx: &App) -> Vec<KeyBinding> {
     let mut result = Vec::new();
     for (command, bindings) in &settings.keybindings {
         let context = match command {
@@ -130,23 +130,36 @@ fn configured_bindings(settings: &Settings) -> Vec<KeyBinding> {
         // palette hints show it as the primary shortcut.
         for binding in bindings.iter().rev() {
             // Settings::validate has parsed every keystroke, and the context is static.
-            result.push(KeyBinding::new(
-                binding,
-                ExecuteCommand { command: *command },
-                context,
-            ));
+            result.push(command_binding(binding, *command, context, cx));
             if matches!(command, CommandId::NextChange | CommandId::PreviousChange) {
                 for context in ["JaywalkDiff > ReadonlyEditor > Input", "JaywalkDiff > Diff"] {
-                    result.push(KeyBinding::new(
-                        binding,
-                        ExecuteCommand { command: *command },
-                        Some(context),
-                    ));
+                    result.push(command_binding(binding, *command, Some(context), cx));
                 }
             }
         }
     }
     result
+}
+
+fn command_binding(
+    binding: &str,
+    command: CommandId,
+    context: Option<&str>,
+    cx: &App,
+) -> KeyBinding {
+    KeyBinding::load(
+        binding,
+        Box::new(ExecuteCommand { command }),
+        context.map(|context| {
+            gpui::KeyBindingContextPredicate::parse(context)
+                .expect("command contexts are static valid predicates")
+                .into()
+        }),
+        false,
+        None,
+        cx,
+    )
+    .expect("settings validation has parsed every configured shortcut")
 }
 
 impl Viewer {
@@ -414,45 +427,58 @@ mod tests {
     use jaywalk::commands::CommandId;
     use jaywalk::settings::Settings;
 
-    #[test]
-    fn recent_shortcut_is_available_in_the_repository_free_welcome_context() {
-        assert!(CommandId::OpenRecent.available_without_repository());
-        let map = Keymap::new(configured_bindings(&Settings::default()));
-        // Welcome uses the same root context, without any repository panels.
-        let contexts = [KeyContext::parse("Jaywalk").unwrap()];
-        let bindings = map.bindings_for_input(&[Keystroke::parse("ctrl-r").unwrap()], &contexts);
-        assert!(bindings.0.iter().any(|binding| {
-            binding
-                .action()
-                .as_any()
-                .downcast_ref::<ExecuteCommand>()
-                .is_some_and(|action| action.command == CommandId::OpenRecent)
-        }));
+    #[gpui_test::test]
+    fn recent_shortcut_is_available_in_the_repository_free_welcome_context(
+        test_cx: &mut gpui_test::TestAppContext,
+    ) {
+        test_cx.update(|cx| {
+            assert!(CommandId::OpenRecent.available_without_repository());
+            let map = Keymap::new(configured_bindings(&Settings::default(), cx));
+            // Welcome uses the same root context, without any repository panels.
+            let contexts = [KeyContext::parse("Jaywalk").unwrap()];
+            let bindings = map.bindings_for_input(
+                &[Keystroke::parse_with_os("ctrl-r", jaywalk::keymap::native_os()).unwrap()],
+                &contexts,
+            );
+            assert!(bindings.0.iter().any(|binding| {
+                binding
+                    .action()
+                    .as_any()
+                    .downcast_ref::<ExecuteCommand>()
+                    .is_some_and(|action| action.command == CommandId::OpenRecent)
+            }));
+        });
     }
 
-    #[test]
-    fn new_window_shortcut_is_remappable_and_scoped_to_recents() {
-        for (config, shortcut) in [
-            ("", "secondary-enter"),
-            (
-                "[keybindings]\nopen_in_new_window=['alt-enter']",
-                "alt-enter",
-            ),
-        ] {
-            let settings = Settings::default()
-                .with_keybindings(jaywalk::keybinding_profiles::Profile::parse(config).unwrap())
-                .unwrap();
-            let map = Keymap::new(configured_bindings(&settings));
-            let matches = |key: &str, recent: bool| {
-                let mut contexts = vec![KeyContext::parse("Jaywalk").unwrap()];
-                if recent {
-                    contexts.push(KeyContext::parse("JaywalkRecent").unwrap());
-                }
-                contexts.extend([
-                    KeyContext::parse("Command").unwrap(),
-                    KeyContext::parse("Input").unwrap(),
-                ]);
-                map.bindings_for_input(&[Keystroke::parse(key).unwrap()], &contexts)
+    #[gpui_test::test]
+    fn new_window_shortcut_is_remappable_and_scoped_to_recents(
+        test_cx: &mut gpui_test::TestAppContext,
+    ) {
+        test_cx.update(|cx| {
+            for (config, shortcut) in [
+                ("", "secondary-enter"),
+                (
+                    "[keybindings]\nopen_in_new_window=['alt-enter']",
+                    "alt-enter",
+                ),
+            ] {
+                let settings = Settings::default()
+                    .with_keybindings(jaywalk::keybinding_profiles::Profile::parse(config).unwrap())
+                    .unwrap();
+                let map = Keymap::new(configured_bindings(&settings, cx));
+                let matches = |key: &str, recent: bool| {
+                    let mut contexts = vec![KeyContext::parse("Jaywalk").unwrap()];
+                    if recent {
+                        contexts.push(KeyContext::parse("JaywalkRecent").unwrap());
+                    }
+                    contexts.extend([
+                        KeyContext::parse("Command").unwrap(),
+                        KeyContext::parse("Input").unwrap(),
+                    ]);
+                    map.bindings_for_input(
+                        &[Keystroke::parse_with_os(key, jaywalk::keymap::native_os()).unwrap()],
+                        &contexts,
+                    )
                     .0
                     .iter()
                     .any(|binding| {
@@ -462,153 +488,231 @@ mod tests {
                             .downcast_ref::<ExecuteCommand>()
                             .is_some_and(|action| action.command == CommandId::OpenInNewWindow)
                     })
-            };
-            assert!(matches(shortcut, true));
-            assert!(!matches(shortcut, false));
-            if !config.is_empty() {
-                assert!(!matches("secondary-enter", true));
+                };
+                assert!(matches(shortcut, true));
+                assert!(!matches(shortcut, false));
+                if !config.is_empty() {
+                    assert!(!matches("secondary-enter", true));
+                }
             }
-        }
+        });
     }
 
-    #[test]
-    fn macos_shifted_bracket_events_navigate_history() {
-        let map = Keymap::new(configured_bindings(&Settings::parse("").unwrap()));
-        let contexts = [KeyContext::parse("Jaywalk").unwrap()];
-        // GPUI's macOS adapter emits shifted punctuation with Shift consumed.
-        for (event, expected) in [
-            ("secondary-}", CommandId::NextRevision),
-            ("secondary-{", CommandId::PreviousRevision),
-        ] {
-            let bindings = map
-                .bindings_for_input(&[Keystroke::parse(event).unwrap()], &contexts)
-                .0;
-            assert_eq!(
-                bindings[0]
+    #[gpui_test::test]
+    fn macos_shifted_bracket_events_navigate_history(test_cx: &mut gpui_test::TestAppContext) {
+        test_cx.update(|cx| {
+            let map = Keymap::new(configured_bindings(&Settings::parse("").unwrap(), cx));
+            let contexts = [KeyContext::parse("Jaywalk").unwrap()];
+            // GPUI's macOS adapter emits shifted punctuation with Shift consumed.
+            for (event, expected) in [
+                ("secondary-}", CommandId::NextRevision),
+                ("secondary-{", CommandId::PreviousRevision),
+            ] {
+                let bindings = map
+                    .bindings_for_input(
+                        &[Keystroke::parse_with_os(event, jaywalk::keymap::native_os()).unwrap()],
+                        &contexts,
+                    )
+                    .0;
+                assert_eq!(
+                    bindings[0]
+                        .action()
+                        .as_any()
+                        .downcast_ref::<ExecuteCommand>()
+                        .unwrap()
+                        .command,
+                    expected
+                );
+            }
+        });
+    }
+
+    #[gpui_test::test]
+    fn pristine_defaults_survive_remapping_removal_and_late_widget_registration(
+        test_cx: &mut gpui_test::TestAppContext,
+    ) {
+        test_cx.update(|cx| {
+            use gpui::base::input::{Copy, SelectAll};
+            let defaults = vec![KeyBinding::new(
+                if cfg!(target_os = "macos") {
+                    "cmd-c"
+                } else {
+                    "ctrl-c"
+                },
+                Copy,
+                Some("Input"),
+            )];
+            let rule = jaywalk::keymap::Override {
+                action: "input::Copy".into(),
+                keys: vec!["secondary-insert".into()],
+                context: None,
+                from: None,
+            };
+            let mut current = jaywalk::keymap::remap(&defaults, &[rule], cx).unwrap();
+            current.push(KeyBinding::new(
+                if cfg!(target_os = "macos") {
+                    "cmd-a"
+                } else {
+                    "ctrl-a"
+                },
+                SelectAll,
+                Some("Input"),
+            ));
+            let collected = super::collect_defaults(&defaults, current.into_iter());
+            assert_eq!(collected.len(), 2);
+            let restored = Keymap::new(jaywalk::keymap::remap(&collected, &[], cx).unwrap());
+            let context = [KeyContext::parse("Input").unwrap()];
+            assert!(
+                !restored
+                    .bindings_for_input(
+                        &[
+                            Keystroke::parse_with_os("secondary-c", jaywalk::keymap::native_os())
+                                .unwrap()
+                        ],
+                        &context
+                    )
+                    .0
+                    .is_empty()
+            );
+            assert!(
+                !restored
+                    .bindings_for_input(
+                        &[
+                            Keystroke::parse_with_os("secondary-a", jaywalk::keymap::native_os())
+                                .unwrap()
+                        ],
+                        &context
+                    )
+                    .0
+                    .is_empty()
+            );
+            assert!(
+                restored
+                    .bindings_for_input(
+                        &[Keystroke::parse_with_os(
+                            "secondary-insert",
+                            jaywalk::keymap::native_os()
+                        )
+                        .unwrap()],
+                        &context
+                    )
+                    .0
+                    .is_empty()
+            );
+        });
+    }
+
+    #[gpui_test::test]
+    fn change_keys_override_readonly_source_but_keep_editable_input_navigation(
+        test_cx: &mut gpui_test::TestAppContext,
+    ) {
+        test_cx.update(|cx| {
+            let settings = Settings::parse("").unwrap();
+            let mut map = Keymap::new(vec![KeyBinding::new(
+                if cfg!(target_os = "macos") {
+                    "cmd-down"
+                } else {
+                    "ctrl-down"
+                },
+                gpui::base::input::MoveToEnd,
+                Some("Input"),
+            )]);
+            map.add_bindings(configured_bindings(&settings, cx));
+            let readonly = ["Jaywalk", "JaywalkDiff", "ReadonlyEditor", "Input"]
+                .map(|context| KeyContext::parse(context).unwrap());
+            let search = ["Jaywalk", "JaywalkDiff", "Input"]
+                .map(|context| KeyContext::parse(context).unwrap());
+            let input = [
+                Keystroke::parse_with_os("secondary-down", jaywalk::keymap::native_os()).unwrap(),
+            ];
+            assert!(
+                map.bindings_for_input(&input, &readonly).0[0]
                     .action()
                     .as_any()
-                    .downcast_ref::<ExecuteCommand>()
-                    .unwrap()
-                    .command,
-                expected
+                    .is::<ExecuteCommand>()
             );
-        }
+            assert!(
+                map.bindings_for_input(&input, &search).0[0]
+                    .action()
+                    .as_any()
+                    .is::<gpui::base::input::MoveToEnd>()
+            );
+        });
     }
 
-    #[test]
-    fn pristine_defaults_survive_remapping_removal_and_late_widget_registration() {
-        use gpui::base::input::{Copy, SelectAll};
-        let defaults = vec![KeyBinding::new("secondary-c", Copy, Some("Input"))];
-        let rule = jaywalk::keymap::Override {
-            action: "input::Copy".into(),
-            keys: vec!["secondary-insert".into()],
-            context: None,
-            from: None,
-        };
-        let mut current = jaywalk::keymap::remap(&defaults, &[rule]).unwrap();
-        current.push(KeyBinding::new("secondary-a", SelectAll, Some("Input")));
-        let collected = super::collect_defaults(&defaults, current.into_iter());
-        assert_eq!(collected.len(), 2);
-        let restored = Keymap::new(jaywalk::keymap::remap(&collected, &[]).unwrap());
-        let context = [KeyContext::parse("Input").unwrap()];
-        assert!(
-            !restored
-                .bindings_for_input(&[Keystroke::parse("secondary-c").unwrap()], &context)
-                .0
-                .is_empty()
-        );
-        assert!(
-            !restored
-                .bindings_for_input(&[Keystroke::parse("secondary-a").unwrap()], &context)
-                .0
-                .is_empty()
-        );
-        assert!(
-            restored
-                .bindings_for_input(&[Keystroke::parse("secondary-insert").unwrap()], &context)
-                .0
-                .is_empty()
-        );
-    }
-
-    #[test]
-    fn change_keys_override_readonly_source_but_keep_editable_input_navigation() {
-        let settings = Settings::parse("").unwrap();
-        let mut map = Keymap::new(vec![KeyBinding::new(
-            "secondary-down",
-            gpui::base::input::MoveToEnd,
-            Some("Input"),
-        )]);
-        map.add_bindings(configured_bindings(&settings));
-        let readonly = ["Jaywalk", "JaywalkDiff", "ReadonlyEditor", "Input"]
-            .map(|context| KeyContext::parse(context).unwrap());
-        let search =
-            ["Jaywalk", "JaywalkDiff", "Input"].map(|context| KeyContext::parse(context).unwrap());
-        let input = [Keystroke::parse("secondary-down").unwrap()];
-        assert!(
-            map.bindings_for_input(&input, &readonly).0[0]
-                .action()
-                .as_any()
-                .is::<ExecuteCommand>()
-        );
-        assert!(
-            map.bindings_for_input(&input, &search).0[0]
-                .action()
-                .as_any()
-                .is::<gpui::base::input::MoveToEnd>()
-        );
-    }
-
-    #[test]
-    fn live_keymap_replacement_keeps_late_toolkit_bindings_and_removes_old_app_shortcuts() {
-        let initial = Settings::parse("").unwrap();
-        let mut map = Keymap::new(configured_bindings(&initial));
-        // These can arrive after the application's initial startup snapshot.
-        map.add_bindings([
-            KeyBinding::new("secondary-a", gpui::base::input::SelectAll, Some("Input")),
-            KeyBinding::new("secondary-c", gpui::base::input::Copy, Some("Input")),
-        ]);
-        let updated = Settings::default()
-            .with_keybindings(
-                jaywalk::keybinding_profiles::Profile::parse(
-                    "[keybindings]\ntoggle_history=['secondary-j']",
+    #[gpui_test::test]
+    fn live_keymap_replacement_keeps_late_toolkit_bindings_and_removes_old_app_shortcuts(
+        test_cx: &mut gpui_test::TestAppContext,
+    ) {
+        test_cx.update(|cx| {
+            let initial = Settings::parse("").unwrap();
+            let mut map = Keymap::new(configured_bindings(&initial, cx));
+            // These can arrive after the application's initial startup snapshot.
+            map.add_bindings([
+                KeyBinding::new(
+                    if cfg!(target_os = "macos") {
+                        "cmd-a"
+                    } else {
+                        "ctrl-a"
+                    },
+                    gpui::base::input::SelectAll,
+                    Some("Input"),
+                ),
+                KeyBinding::new(
+                    if cfg!(target_os = "macos") {
+                        "cmd-c"
+                    } else {
+                        "ctrl-c"
+                    },
+                    gpui::base::input::Copy,
+                    Some("Input"),
+                ),
+            ]);
+            let updated = Settings::default()
+                .with_keybindings(
+                    jaywalk::keybinding_profiles::Profile::parse(
+                        "[keybindings]\ntoggle_history=['secondary-j']",
+                    )
+                    .unwrap(),
                 )
-                .unwrap(),
-            )
-            .unwrap();
-        let retained: Vec<_> = map
-            .bindings()
-            .filter(|binding| !binding.action().as_any().is::<ExecuteCommand>())
-            .cloned()
-            .collect();
-        map.clear();
-        map.add_bindings(retained);
-        map.add_bindings(configured_bindings(&updated));
-        let contexts = [
-            KeyContext::parse("Jaywalk").unwrap(),
-            KeyContext::parse("Input").unwrap(),
-        ];
-        let matches = |key: &str| {
-            map.bindings_for_input(&[Keystroke::parse(key).unwrap()], &contexts)
+                .unwrap();
+            let retained: Vec<_> = map
+                .bindings()
+                .filter(|binding| !binding.action().as_any().is::<ExecuteCommand>())
+                .cloned()
+                .collect();
+            map.clear();
+            map.add_bindings(retained);
+            map.add_bindings(configured_bindings(&updated, cx));
+            let contexts = [
+                KeyContext::parse("Jaywalk").unwrap(),
+                KeyContext::parse("Input").unwrap(),
+            ];
+            let matches = |key: &str| {
+                map.bindings_for_input(
+                    &[Keystroke::parse_with_os(key, jaywalk::keymap::native_os()).unwrap()],
+                    &contexts,
+                )
                 .0
-        };
-        assert!(matches("secondary-a").iter().any(|binding| {
-            binding
-                .action()
-                .as_any()
-                .is::<gpui::base::input::SelectAll>()
-        }));
-        assert!(
-            matches("secondary-c")
-                .iter()
-                .any(|binding| binding.action().as_any().is::<gpui::base::input::Copy>())
-        );
-        assert!(matches("secondary-b").is_empty());
-        assert!(matches("secondary-j").iter().any(|binding| {
-            binding.action().as_any().downcast_ref::<ExecuteCommand>()
-                == Some(&ExecuteCommand {
-                    command: CommandId::ToggleHistory,
-                })
-        }));
+            };
+            assert!(matches("secondary-a").iter().any(|binding| {
+                binding
+                    .action()
+                    .as_any()
+                    .is::<gpui::base::input::SelectAll>()
+            }));
+            assert!(
+                matches("secondary-c")
+                    .iter()
+                    .any(|binding| binding.action().as_any().is::<gpui::base::input::Copy>())
+            );
+            assert!(matches("secondary-b").is_empty());
+            assert!(matches("secondary-j").iter().any(|binding| {
+                binding.action().as_any().downcast_ref::<ExecuteCommand>()
+                    == Some(&ExecuteCommand {
+                        command: CommandId::ToggleHistory,
+                    })
+            }));
+        });
     }
 }

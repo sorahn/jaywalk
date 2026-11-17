@@ -605,11 +605,11 @@ impl Viewer {
 #[cfg(test)]
 mod tests {
     use super::{DiffFile, horizontal_wheel, standard_patch};
-    use gpui::{Modifiers, ScrollDelta, ScrollWheelEvent, point, px};
+    use gpui::{Modifiers, ScrollDelta, ScrollEvent, point, px};
 
     #[test]
     fn shift_wheel_handles_native_axis_remapping_without_doubling() {
-        let mut event = ScrollWheelEvent {
+        let mut event = ScrollEvent {
             modifiers: Modifiers {
                 shift: true,
                 ..Default::default()

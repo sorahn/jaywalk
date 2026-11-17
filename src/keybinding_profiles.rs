@@ -61,13 +61,15 @@ impl Profile {
                 }
                 let mut normalized = Vec::new();
                 for stroke in binding.split_whitespace() {
-                    let stroke = gpui_kit::Keystroke::parse(stroke).map_err(|error| {
-                        format!(
-                            "Invalid shortcut {binding:?} for {}: {error}",
-                            command.label()
-                        )
-                    })?;
-                    normalized.push(stroke.unparse());
+                    let stroke =
+                        gpui_kit::Keystroke::parse_with_os(stroke, crate::keymap::native_os())
+                            .map_err(|error| {
+                                format!(
+                                    "Invalid shortcut {binding:?} for {}: {error}",
+                                    command.label()
+                                )
+                            })?;
+                    normalized.push(stroke.unparse(crate::keymap::native_os()));
                 }
                 if let Some(previous) = shortcuts.insert(normalized, command)
                     && previous != command

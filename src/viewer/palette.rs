@@ -378,7 +378,7 @@ impl Viewer {
                         div()
                             .id(("palette-item-content", index))
                             .on_click(move |event: &ClickEvent, window, cx| {
-                                if event.modifiers().secondary()
+                                if event.modifiers().secondary(cx)
                                     && let Some(directory) = &repository
                                 {
                                     cx.stop_propagation();

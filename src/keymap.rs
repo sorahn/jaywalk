@@ -1,7 +1,7 @@
 //! Rebind framework actions while retaining their original focus predicates and
 //! payloads. App commands use the simpler `[keybindings]` table instead.
 use gpui_kit::{
-    DummyKeyboardMapper, KeyBinding, KeyBindingContextPredicate, KeyBindingMetaIndex, Keystroke,
+    App, KeyBinding, KeyBindingContextPredicate, KeyBindingMetaIndex, Keystroke, OperatingSystem,
 };
 use serde::Deserialize;
 
@@ -19,6 +19,16 @@ pub struct Override {
     pub from: Option<String>,
 }
 
+/// Settings are validated before the native application is constructed.
+pub fn native_os() -> OperatingSystem {
+    match std::env::consts::OS {
+        "macos" => OperatingSystem::Mac,
+        "linux" => OperatingSystem::Linux,
+        "windows" => OperatingSystem::Windows,
+        _ => OperatingSystem::Unknown,
+    }
+}
+
 pub fn strokes(value: &str) -> Result<Vec<Keystroke>, String> {
     if value.trim().is_empty() {
         return Err("Empty shortcut; use keys = [] to unbind".into());
@@ -26,7 +36,8 @@ pub fn strokes(value: &str) -> Result<Vec<Keystroke>, String> {
     value
         .split_whitespace()
         .map(|stroke| {
-            Keystroke::parse(stroke).map_err(|error| format!("Invalid shortcut {value:?}: {error}"))
+            Keystroke::parse_with_os(stroke, native_os())
+                .map_err(|error| format!("Invalid shortcut {value:?}: {error}"))
         })
         .collect()
 }
@@ -69,7 +80,11 @@ pub fn same_binding(a: &KeyBinding, b: &KeyBinding) -> bool {
         && a.action().partial_eq(b.action())
 }
 
-pub fn remap(defaults: &[KeyBinding], overrides: &[Override]) -> Result<Vec<KeyBinding>, String> {
+pub fn remap(
+    defaults: &[KeyBinding],
+    overrides: &[Override],
+    cx: &App,
+) -> Result<Vec<KeyBinding>, String> {
     validate(overrides)?;
     let mut matched = vec![false; overrides.len()];
     let mut result: Vec<KeyBinding> = Vec::new();
@@ -109,7 +124,7 @@ pub fn remap(defaults: &[KeyBinding], overrides: &[Override]) -> Result<Vec<KeyB
                 binding.predicate(),
                 false,
                 binding.action_input(),
-                &DummyKeyboardMapper,
+                cx,
             )
             .map_err(|error| format!("Invalid keymap shortcut {key:?}: {error}"))?
             .with_meta(OVERRIDE_META);
@@ -158,101 +173,161 @@ mod tests {
             from: None,
         }
     }
-    #[test]
-    fn copy_remapping_and_unbinding_keep_original_contexts_and_restore_defaults() {
-        assert_eq!(Copy.name(), "input::Copy");
-        let defaults = vec![
-            KeyBinding::new("secondary-c", Copy, Some("Input")),
-            KeyBinding::new("secondary-c", Copy, Some("Diff")),
-        ];
-        let remapped = remap(&defaults, &[rule("input::Copy", &["secondary-insert"])]).unwrap();
-        let map = Keymap::new(remapped);
-        for context in ["Input", "Diff"] {
-            let contexts = [KeyContext::parse(context).unwrap()];
+    #[gpui_test::test]
+    fn copy_remapping_and_unbinding_keep_original_contexts_and_restore_defaults(
+        test_cx: &mut gpui_test::TestAppContext,
+    ) {
+        test_cx.update(|cx| {
+            assert_eq!(Copy.name(), "input::Copy");
+            let defaults = vec![
+                KeyBinding::new(
+                    if cfg!(target_os = "macos") {
+                        "cmd-c"
+                    } else {
+                        "ctrl-c"
+                    },
+                    Copy,
+                    Some("Input"),
+                ),
+                KeyBinding::new(
+                    if cfg!(target_os = "macos") {
+                        "cmd-c"
+                    } else {
+                        "ctrl-c"
+                    },
+                    Copy,
+                    Some("Diff"),
+                ),
+            ];
+            let remapped =
+                remap(&defaults, &[rule("input::Copy", &["secondary-insert"])], cx).unwrap();
+            let map = Keymap::new(remapped);
+            for context in ["Input", "Diff"] {
+                let contexts = [KeyContext::parse(context).unwrap()];
+                assert!(
+                    map.bindings_for_input(&strokes("secondary-c").unwrap(), &contexts)
+                        .0
+                        .is_empty()
+                );
+                assert_eq!(
+                    map.bindings_for_input(&strokes("secondary-insert").unwrap(), &contexts)
+                        .0
+                        .len(),
+                    1
+                );
+            }
             assert!(
-                map.bindings_for_input(&strokes("secondary-c").unwrap(), &contexts)
-                    .0
+                remap(&defaults, &[rule("input::Copy", &[])], cx)
+                    .unwrap()
                     .is_empty()
             );
+            assert_eq!(remap(&defaults, &[], cx).unwrap().len(), 2);
             assert_eq!(
-                map.bindings_for_input(&strokes("secondary-insert").unwrap(), &contexts)
-                    .0
-                    .len(),
-                1
+                defaults[0].keystrokes(),
+                KeyBinding::new(
+                    if cfg!(target_os = "macos") {
+                        "cmd-c"
+                    } else {
+                        "ctrl-c"
+                    },
+                    Copy,
+                    Some("Input")
+                )
+                .keystrokes()
             );
-        }
-        assert!(
-            remap(&defaults, &[rule("input::Copy", &[])])
-                .unwrap()
-                .is_empty()
-        );
-        assert_eq!(remap(&defaults, &[]).unwrap().len(), 2);
-        assert_eq!(
-            defaults[0].keystrokes(),
-            KeyBinding::new("secondary-c", Copy, Some("Input")).keystrokes()
-        );
+        });
     }
-    #[test]
-    fn context_and_original_shortcut_select_parameterized_actions_without_changing_payloads() {
-        use gpui_kit::base::actions::Confirm;
-        let defaults = vec![
-            KeyBinding::new("enter", Confirm { secondary: false }, Some("Command")),
-            KeyBinding::new(
-                "secondary-enter",
-                Confirm { secondary: true },
-                Some("Command"),
-            ),
-        ];
-        let mut override_ = rule("ui::Confirm", &["space"]);
-        override_.context = Some("Command".into());
-        override_.from = Some("enter".into());
-        let result = remap(&defaults, &[override_]).unwrap();
-        assert!(
-            !result[0]
-                .action()
-                .as_any()
-                .downcast_ref::<Confirm>()
-                .unwrap()
-                .secondary
-        );
-        assert!(
-            result[1]
-                .action()
-                .as_any()
-                .downcast_ref::<Confirm>()
-                .unwrap()
-                .secondary
-        );
+    #[gpui_test::test]
+    fn context_and_original_shortcut_select_parameterized_actions_without_changing_payloads(
+        test_cx: &mut gpui_test::TestAppContext,
+    ) {
+        test_cx.update(|cx| {
+            use gpui_kit::base::actions::Confirm;
+            let defaults = vec![
+                KeyBinding::new("enter", Confirm { secondary: false }, Some("Command")),
+                KeyBinding::new(
+                    if cfg!(target_os = "macos") {
+                        "cmd-enter"
+                    } else {
+                        "ctrl-enter"
+                    },
+                    Confirm { secondary: true },
+                    Some("Command"),
+                ),
+            ];
+            let mut override_ = rule("ui::Confirm", &["space"]);
+            override_.context = Some("Command".into());
+            override_.from = Some("enter".into());
+            let result = remap(&defaults, &[override_], cx).unwrap();
+            assert!(
+                !result[0]
+                    .action()
+                    .as_any()
+                    .downcast_ref::<Confirm>()
+                    .unwrap()
+                    .secondary
+            );
+            assert!(
+                result[1]
+                    .action()
+                    .as_any()
+                    .downcast_ref::<Confirm>()
+                    .unwrap()
+                    .secondary
+            );
+        });
     }
-    #[test]
-    fn invalid_overlapping_unknown_and_conflicting_rules_are_errors() {
-        let defaults = vec![
-            KeyBinding::new("secondary-c", Copy, Some("Input")),
-            KeyBinding::new("secondary-a", SelectAll, Some("Input")),
-        ];
-        assert!(remap(&defaults, &[rule("input::Typo", &[])]).is_err());
-        assert!(remap(&defaults, &[rule("input::Copy", &["secondary-a"])]).is_err());
-        assert!(
-            remap(
-                &defaults,
-                &[
-                    rule("input::Copy", &["secondary-a"]),
-                    rule("input::SelectAll", &[])
-                ]
-            )
-            .is_ok()
-        );
-        assert!(
-            remap(
-                &defaults,
-                &[rule("input::Copy", &[]), rule("input::Copy", &[])]
-            )
-            .is_err()
-        );
-        let mut invalid = rule("input::Copy", &["mystery-c"]);
-        assert!(validate(&[invalid.clone()]).is_err());
-        invalid.keys.clear();
-        invalid.context = Some("Input &&".into());
-        assert!(validate(&[invalid]).is_err());
+    #[gpui_test::test]
+    fn invalid_overlapping_unknown_and_conflicting_rules_are_errors(
+        test_cx: &mut gpui_test::TestAppContext,
+    ) {
+        test_cx.update(|cx| {
+            let defaults = vec![
+                KeyBinding::new(
+                    if cfg!(target_os = "macos") {
+                        "cmd-c"
+                    } else {
+                        "ctrl-c"
+                    },
+                    Copy,
+                    Some("Input"),
+                ),
+                KeyBinding::new(
+                    if cfg!(target_os = "macos") {
+                        "cmd-a"
+                    } else {
+                        "ctrl-a"
+                    },
+                    SelectAll,
+                    Some("Input"),
+                ),
+            ];
+            assert!(remap(&defaults, &[rule("input::Typo", &[])], cx).is_err());
+            assert!(remap(&defaults, &[rule("input::Copy", &["secondary-a"])], cx).is_err());
+            assert!(
+                remap(
+                    &defaults,
+                    &[
+                        rule("input::Copy", &["secondary-a"]),
+                        rule("input::SelectAll", &[])
+                    ],
+                    cx
+                )
+                .is_ok()
+            );
+            assert!(
+                remap(
+                    &defaults,
+                    &[rule("input::Copy", &[]), rule("input::Copy", &[])],
+                    cx
+                )
+                .is_err()
+            );
+            let mut invalid = rule("input::Copy", &["mystery-c"]);
+            assert!(validate(&[invalid.clone()]).is_err());
+            invalid.keys.clear();
+            invalid.context = Some("Input &&".into());
+            assert!(validate(&[invalid]).is_err());
+        });
     }
 }

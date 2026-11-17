@@ -391,7 +391,7 @@ impl Viewer {
                     cx.defer_in(window, |viewer, _, cx| viewer.sync_navigation(cx));
                 });
                 let viewer = viewer.clone();
-                window.on_mouse_event(move |event: &ScrollWheelEvent, phase, _, cx| {
+                window.on_mouse_event(move |event: &ScrollEvent, phase, _, cx| {
                     if phase != DispatchPhase::Capture || !bounds.contains(&event.position) {
                         return;
                     }

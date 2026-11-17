@@ -320,7 +320,7 @@ fn fluid_wheel_shared_drag_and_independent_offsets_keep_their_roles(cx: &mut Tes
             .input_bounds()
             .center()
     });
-    cx.simulate_event(gpui_test::ScrollWheelEvent {
+    cx.simulate_event(gpui_test::ScrollEvent {
         position,
         delta: gpui_test::ScrollDelta::Pixels(point(px(0.), px(-120.))),
         ..Default::default()
@@ -328,7 +328,7 @@ fn fluid_wheel_shared_drag_and_independent_offsets_keep_their_roles(cx: &mut Tes
     draw(cx);
     let scrolled = offsets(&viewer, cx);
     assert!(scrolled.0 > 0. && scrolled.1 > 0.);
-    cx.simulate_event(gpui_test::ScrollWheelEvent {
+    cx.simulate_event(gpui_test::ScrollEvent {
         position,
         delta: gpui_test::ScrollDelta::Pixels(point(px(0.), px(120.))),
         ..Default::default()
@@ -518,7 +518,7 @@ fn choosing_a_branch_keeps_the_loaded_overview_caption_visible(cx: &mut TestAppC
     assert!(cx.update(|_, app| viewer.read(app).selected_file.is_none()));
     let caption = cx.debug_bounds("comparison-caption").unwrap();
     assert!(caption.size.width > px(100.), "caption {caption:?}");
-    cx.simulate_event(gpui_test::ScrollWheelEvent {
+    cx.simulate_event(gpui_test::ScrollEvent {
         position: point(caption.left() + px(20.), caption.bottom() + px(200.)),
         delta: gpui_test::ScrollDelta::Pixels(point(px(0.), px(-1000.))),
         ..Default::default()

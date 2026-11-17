@@ -81,7 +81,7 @@ impl Element for StickyHeader {
             .w(bounds.size.width)
             .bg(cx.theme().background)
             .occlude()
-            .on_scroll_wheel(move |event, _, cx| {
+            .on_scroll(move |event, _, cx| {
                 let delta = event.delta.pixel_delta(row_height);
                 state.update(cx, |state, cx| {
                     if let Some(horizontal) = super::sticky_geometry::horizontal_delta(
@@ -98,7 +98,11 @@ impl Element for StickyHeader {
                 cx.stop_propagation();
             })
             .child(render_file_header_content(
-                file, &self.code, FileHeaderPlacement::Sticky, window, cx,
+                file,
+                &self.code,
+                FileHeaderPlacement::Sticky,
+                window,
+                cx,
             ))
             .into_any_element();
         let measured = header.layout_as_root(
