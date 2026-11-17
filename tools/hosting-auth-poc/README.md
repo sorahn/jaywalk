@@ -146,21 +146,53 @@ http://127.0.0.1:43761/callback
 ```
 
 Grant **Account: read**, **Repositories: read**, and **Pull requests: read**
-only. Copy its key/client ID. Keep its secret local:
+only. This is one-time developer registration, separate from ordinary sign-in.
+Copy its key/client ID and enter the secret only at the hidden local prompt:
 
 ```sh
-tools/hosting-auth-poc/target/debug/jaywalk-hosting-auth-poc bitbucket-connect CLIENT_ID
+tools/hosting-auth-poc/target/debug/jaywalk-hosting-auth-poc bitbucket-setup CLIENT_ID
 ```
 
-The tool prompts for the secret without echo, opens the browser and listens
-only on IPv4 loopback. It validates a fresh random state, rejects duplicate
-parameters and consumes the listener after one valid callback. Ctrl+C cancels;
-the browser callback expires after one hour.
+If this probe already has a Bitbucket session, recover its client credentials
+without copying or entering the secret again:
 
-**This uses your own development consumer's secret. It proves only that
-consumer's documented code/refresh protocol. It does not prove that a shared
-secret can ship safely in a desktop app.** Actual callback acceptance and any
-public-client alternative still need testing against the registered consumer.
+```sh
+tools/hosting-auth-poc/target/debug/jaywalk-hosting-auth-poc bitbucket-setup --from-session
+```
+
+Setup saves only client credentials in the separate OS-store account
+`bitbucket-development-registration`. It does not copy account tokens.
+Normal sign-in then uses that registration without prompting for a secret:
+
+```sh
+tools/hosting-auth-poc/target/debug/jaywalk-hosting-auth-poc bitbucket-connect
+tools/hosting-auth-poc/target/debug/jaywalk-hosting-auth-poc bitbucket-workspaces
+tools/hosting-auth-poc/target/debug/jaywalk-hosting-auth-poc bitbucket-select-workspace WORKSPACE
+```
+
+The browser callback listens only on IPv4 loopback, validates fresh random
+state, rejects duplicate parameters and consumes the listener after one valid
+callback. Ctrl+C cancels; the browser callback expires after one hour.
+Use `bitbucket-connect --reauthorize` to retain an existing session until new
+browser authorization and identity verification succeed. Replacement clears
+workspace selection because the account may have changed. Cancellation or
+failure leaves the previously saved session untouched.
+
+Workspace discovery uses the current account's paginated `/2.0/user/workspaces`
+results, not the workspace owning the OAuth client. Select any returned slug;
+the selection is stored with that account session and survives token refresh.
+Selection is a browsing preference, not an additional permission grant or an
+API-access restriction. This standalone probe has command-line selection;
+there is no native Accounts picker yet.
+
+`disconnect bitbucket` removes the local account session and selection but
+retains developer setup. `bitbucket-forget-registration` removes that setup
+locally, without deleting the online client or the existing session. For a fresh
+consent test, revoke only the user's authorization under Personal Bitbucket
+settings > App authorizations, then reconnect. Keep the workspace OAuth client.
+
+This uses the developer client's secret for code exchange and refresh. It does
+not decide how app credentials will be provisioned in a public desktop build.
 There is no PKCE claim for Bitbucket Cloud and no hosted service in this probe.
 
 ## Manual verification
@@ -187,7 +219,8 @@ responses retain the status code and whitelisted OAuth error messages only.
 Also test browser denial, Ctrl+C, timeout, unavailable/locked credential store,
 and revoked authorization (revoke through provider settings, then run status).
 Repeat on macOS and Linux with a fresh process and after a desktop session
-restart. Account switching is one connection per provider: disconnect first.
+restart. Account switching is one connection per provider; use `--reauthorize` to replace
+a session only after successful browser authorization, or disconnect first.
 
 ```sh
 tools/hosting-auth-poc/target/debug/jaywalk-hosting-auth-poc disconnect PROVIDER
@@ -198,7 +231,8 @@ at the provider**. Revoke in provider settings when finished. Credentials are
 stored under service `jaywalk.hosting-auth-poc.v1`, accounts `github` and
 `bitbucket`. Browser-authorized GitHub sessions and the Bitbucket entry include their
 development client secret for refresh. The development registration entry can
-also retain GitHub's client secret; it is never passed through chat or logs. No credentials are written to repository files, config, arguments or
+also retain GitHub's client secret; Bitbucket developer setup has its own
+`bitbucket-development-registration` entry; it is never passed through chat or logs. No credentials are written to repository files, config, arguments or
 fixtures. Run on your local desktop, without terminal/session recording of
 hidden input; do not paste secrets into chat.
 

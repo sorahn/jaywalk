@@ -45,6 +45,7 @@ pub(crate) fn connect(client: &Client, client_id: &str, cancelled: &AtomicBool) 
         client_id: client_id.into(),
         tokens: Tokens::parse(&response)?,
         developer_secret: Some(secret),
+        workspace: None,
     })
 }
 

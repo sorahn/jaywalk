@@ -1,4 +1,5 @@
 //! Disposable protocol/credential-store probe, not the app's provider contract.
+mod bitbucket;
 mod callback;
 mod github_browser;
 mod protocol;
@@ -51,8 +52,29 @@ enum Action {
     GithubInstall,
     /// Forget the saved development registration locally (does not delete the GitHub App).
     GithubForgetRegistration,
-    /// Development consumer only. Prompts locally for its secret; not a shipping design.
-    BitbucketConnect { client_id: String },
+    /// One-time developer setup; keep the client registration separate from account sessions.
+    BitbucketSetup {
+        #[arg(
+            required_unless_present = "from_session",
+            conflicts_with = "from_session"
+        )]
+        client_id: Option<String>,
+        /// Recover only app credentials from this probe's existing Bitbucket session.
+        #[arg(long)]
+        from_session: bool,
+    },
+    /// Browser sign-in using the saved development client; never prompts for its secret.
+    BitbucketConnect {
+        /// Keep the old session until replacement authorization and identity checks succeed.
+        #[arg(long)]
+        reauthorize: bool,
+    },
+    /// Forget only the local development registration; does not delete it online.
+    BitbucketForgetRegistration,
+    /// Discover available workspaces; selection is independent of the client's owner.
+    BitbucketWorkspaces,
+    /// Select a workspace from the current account's authenticated discovery results.
+    BitbucketSelectWorkspace { workspace: String },
     /// Load from the OS store in a fresh process and verify the account via the API.
     Status { provider: Provider },
     /// Explicitly rotate tokens and replace the stored pair (including refresh token).
@@ -118,6 +140,8 @@ struct Session {
     tokens: Tokens,
     // Developer registration secrets for browser flows; never printed or shipped.
     developer_secret: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    workspace: Option<bitbucket::Workspace>,
 }
 
 fn main() {
@@ -173,16 +197,51 @@ fn run() -> Result<()> {
                 "Connected; credentials saved in the OS store. Run status in a fresh process."
             );
         }
-        Action::BitbucketConnect { client_id } => {
-            ensure_disconnected(Provider::Bitbucket)?;
-            let session = bitbucket_connect(&client, &client_id, &cancelled)?;
+        Action::BitbucketSetup {
+            client_id,
+            from_session,
+        } => {
+            bitbucket::setup(client_id.as_deref(), from_session)?;
+        }
+        Action::BitbucketForgetRegistration => bitbucket::forget_registration()?,
+        Action::BitbucketConnect { reauthorize } => {
+            if !reauthorize {
+                ensure_disconnected(Provider::Bitbucket)?;
+            }
+            let session = bitbucket::connect(&client, &cancelled)?;
             check_cancelled(&cancelled)?;
             identity(&client, Provider::Bitbucket, &session)?;
             check_cancelled(&cancelled)?;
             save(Provider::Bitbucket, &session)?;
+            println!("Connected using the saved development client; no secret entry required.");
+        }
+        Action::BitbucketWorkspaces => {
+            let session = load(Provider::Bitbucket)?;
+            let workspaces = bitbucket::workspaces(&client, &session, &cancelled)?;
+            for workspace in &workspaces {
+                let marker = if session
+                    .workspace
+                    .as_ref()
+                    .is_some_and(|selected| selected.uuid == workspace.uuid)
+                {
+                    "selected"
+                } else {
+                    "available"
+                };
+                println!("{} ({marker})", workspace.slug);
+            }
             println!(
-                "Development-consumer flow connected. This does not prove a distributable native flow."
+                "{} accessible workspaces; choose with bitbucket-select-workspace SLUG.",
+                workspaces.len()
             );
+        }
+        Action::BitbucketSelectWorkspace { workspace } => {
+            let mut session = load(Provider::Bitbucket)?;
+            let available = bitbucket::workspaces(&client, &session, &cancelled)?;
+            session.workspace = Some(bitbucket::select_workspace(available, &workspace)?);
+            check_cancelled(&cancelled)?;
+            save(Provider::Bitbucket, &session)?;
+            println!("Workspace selection saved for this account session.");
         }
         Action::Status { provider } => {
             let session = load(provider)?;
@@ -374,47 +433,11 @@ fn github_device_connect(
                     client_id: client_id.into(),
                     tokens,
                     developer_secret: None,
+                    workspace: None,
                 });
             }
         }
     }
-}
-
-fn bitbucket_connect(client: &Client, client_id: &str, cancelled: &AtomicBool) -> Result<Session> {
-    println!("Development-only consumer test. Enter your own consumer secret locally.");
-    let secret = rpassword::prompt_password("Consumer secret (hidden): ")
-        .map_err(|_| "Cannot read secret from the terminal")?;
-    if secret.is_empty() {
-        return Err("Consumer secret is required for this development test".into());
-    }
-    let listener = callback::Listener::bind()?;
-    let state = random_string();
-    let mut url = reqwest::Url::parse("https://bitbucket.org/site/oauth2/authorize")
-        .map_err(|_| "Invalid built-in authorization URL")?;
-    url.query_pairs_mut().extend_pairs([
-        ("client_id", client_id),
-        ("response_type", "code"),
-        ("state", &state),
-        ("redirect_uri", callback::REDIRECT),
-    ]);
-    println!("Waiting for browser authorization (Ctrl+C cancels).");
-    open_browser(url.as_str())?;
-    let code = listener.receive(&state, Duration::from_secs(3600), cancelled)?;
-    let response = json(
-        client
-            .post(BITBUCKET_TOKEN)
-            .basic_auth(client_id, Some(&secret))
-            .form(&[
-                ("grant_type", "authorization_code"),
-                ("code", code.as_str()),
-                ("redirect_uri", callback::REDIRECT),
-            ]),
-    )?;
-    Ok(Session {
-        client_id: client_id.into(),
-        tokens: Tokens::parse(&response)?,
-        developer_secret: Some(secret),
-    })
 }
 
 fn json(request: RequestBuilder) -> Result<Value> {
@@ -591,6 +614,7 @@ mod tests {
             client_id: "synthetic".into(),
             tokens: Tokens::parse(&serde_json::json!({"access_token":"access","token_type":"bearer","refresh_token":"refresh"})).unwrap(),
             developer_secret: None,
+            workspace: None,
         };
         let device = refresh_parameters(Provider::Github, &session, "refresh");
         assert!(!device.iter().any(|(name, _)| *name == "client_secret"));
