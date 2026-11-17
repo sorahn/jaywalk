@@ -557,6 +557,11 @@ impl Comparison {
             }
         };
         let catalog = FileCatalog::new(before, after, &self.files);
+        let catalog = if let ContentSource::External(contents) = &self.content {
+            catalog.with_executable_changes(contents.executable_changes())
+        } else {
+            catalog
+        };
         self.catalog = Arc::new(catalog);
         let mut cached = cache
             .lock()

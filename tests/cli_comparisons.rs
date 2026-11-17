@@ -102,9 +102,20 @@ fn file_diff_handles_different_names_unicode_and_binary_errors() {
         ("\té\n".into(), "\t漢\n".into())
     );
     std::fs::write(fixture.0.join("after.txt"), [0, 1]).unwrap();
+    assert_eq!(content(&comparison, "after.txt").1, "\t漢\n");
+    let binary =
+        ExternalContents::comparison(&fixture.0.join("before.txt"), &fixture.0.join("after.txt"))
+            .unwrap();
     assert!(
-        comparison
-            .contents(&comparison.files()[0])
+        binary
+            .contents(&binary.files()[0])
+            .unwrap_err()
+            .contains("Binary")
+    );
+    fixture.write("after.txt", "later text");
+    assert!(
+        binary
+            .contents(&binary.files()[0])
             .unwrap_err()
             .contains("Binary")
     );
@@ -248,21 +259,42 @@ fn git_worktree_and_history_are_read_only_and_use_pinned_contents() {
 #[test]
 fn git_null_device_inputs_represent_additions_and_deletions() {
     let fixture = Fixture::new();
-    fixture.write("file.txt", "content\n");
-    for (left, right) in [
-        (
-            Path::new("/dev/null").to_path_buf(),
-            fixture.0.join("file.txt"),
-        ),
-        (
-            fixture.0.join("file.txt"),
-            Path::new("/dev/null").to_path_buf(),
-        ),
-    ] {
-        let comparison = ExternalContents::comparison(&left, &right).unwrap();
-        let (before, after) = content(&comparison, "file.txt");
-        assert_eq!(before + &after, "content\n");
+    use jaywalk::repository_file::ChangeKind;
+    for text in ["", "content\n"] {
+        fixture.write("file.txt", text);
+        for (left, right, expected) in [
+            (
+                Path::new("/dev/null").to_path_buf(),
+                fixture.0.join("file.txt"),
+                ChangeKind::Added,
+            ),
+            (
+                fixture.0.join("file.txt"),
+                Path::new("/dev/null").to_path_buf(),
+                ChangeKind::Removed,
+            ),
+        ] {
+            let comparison = ExternalContents::comparison(&left, &right).unwrap();
+            assert_eq!(comparison.files().len(), 1);
+            assert_eq!(comparison.files()[0].kind(), &expected);
+            let (before, after) = content(&comparison, "file.txt");
+            assert_eq!(before + &after, text);
+            let reverse = comparison.swapped().unwrap();
+            assert_eq!(
+                reverse.files()[0].kind(),
+                if expected == ChangeKind::Added {
+                    &ChangeKind::Removed
+                } else {
+                    &ChangeKind::Added
+                }
+            );
+            assert_eq!(comparison.overview().files.len(), 1);
+        }
     }
+    let absent =
+        ExternalContents::comparison(Path::new("/dev/null"), Path::new("/dev/null")).unwrap();
+    assert!(absent.files().is_empty());
+    assert_eq!(absent.catalog().entries().len(), 0);
 }
 
 #[cfg(target_os = "macos")]
@@ -686,4 +718,212 @@ fn git_blob_stream_recovers_after_rejected_files_and_preserves_pinned_data() {
     );
     f.write("c-valid.txt", "later edit\n");
     assert_eq!(content(&comparison, "c-valid.txt").1, "after λ\n");
+}
+
+#[cfg(unix)]
+#[test]
+fn external_executable_changes_are_visible_without_a_text_change() {
+    use std::os::unix::fs::PermissionsExt;
+    let fixture = Fixture::new();
+    for (side, mode) in [("left", 0o644), ("right", 0o755)] {
+        fixture.write(&format!("{side}/script.sh"), "#!/bin/sh\nexit 0\n");
+        std::fs::set_permissions(
+            fixture.0.join(side).join("script.sh"),
+            std::fs::Permissions::from_mode(mode),
+        )
+        .unwrap();
+    }
+    let comparison =
+        ExternalContents::comparison(&fixture.0.join("left"), &fixture.0.join("right")).unwrap();
+    assert_eq!(comparison.files().len(), 1);
+    assert_eq!(comparison.files()[0].status(), "modified");
+    let file = comparison.catalog().find("script.sh").unwrap();
+    assert_eq!(
+        file.metadata_change_notice().as_deref(),
+        Some("File mode changed: 100644 → 100755")
+    );
+    let (before, after) = comparison.read_file(file).unwrap();
+    assert_eq!(before, after);
+    assert_eq!(
+        comparison.overview().files[0].notice,
+        file.metadata_change_notice()
+    );
+    let swapped = comparison.swapped().unwrap();
+    assert_eq!(
+        swapped
+            .catalog()
+            .find("script.sh")
+            .unwrap()
+            .metadata_change_notice()
+            .as_deref(),
+        Some("File mode changed: 100755 → 100644")
+    );
+    std::fs::set_permissions(
+        fixture.0.join("right/script.sh"),
+        std::fs::Permissions::from_mode(0o600),
+    )
+    .unwrap();
+    let same_mode =
+        ExternalContents::comparison(&fixture.0.join("left"), &fixture.0.join("right")).unwrap();
+    assert!(same_mode.files().is_empty());
+}
+
+#[test]
+fn external_captures_survive_input_mutation_deletion_swap_and_navigation() {
+    use jaywalk::{navigation::History, repository::FileSide};
+    let fixture = Fixture::new();
+    for (path, text) in [
+        ("left/file.txt", "before\n"),
+        ("right/file.txt", "after\n"),
+        ("left/same.txt", "unchanged\n"),
+        ("right/same.txt", "unchanged\n"),
+    ] {
+        fixture.write(path, text);
+    }
+    let comparison =
+        ExternalContents::comparison(&fixture.0.join("left"), &fixture.0.join("right")).unwrap();
+    let original_identity = comparison.identity();
+    let patch = comparison.overview().files[0].patch.clone();
+    let clone = comparison.clone();
+    let mut navigation = History::new(4);
+    navigation.observe(comparison.identity(), comparison.clone());
+    fixture.write("left/file.txt", "overwritten");
+    fixture.write("right/same.txt", "was unchanged");
+    std::fs::remove_dir_all(fixture.0.join("left")).unwrap();
+    std::fs::remove_dir_all(fixture.0.join("right")).unwrap();
+    fixture.write("other-before", "other before");
+    fixture.write("other-after", "other after");
+    let other = ExternalContents::comparison(
+        &fixture.0.join("other-before"),
+        &fixture.0.join("other-after"),
+    )
+    .unwrap();
+    navigation.observe(other.identity(), other);
+    drop(comparison);
+    assert_eq!(clone.identity(), original_identity);
+    assert_eq!(
+        content(&clone, "file.txt"),
+        ("before\n".into(), "after\n".into())
+    );
+    assert_eq!(
+        clone.read_path("same.txt", FileSide::After).unwrap(),
+        "unchanged\n"
+    );
+    assert_eq!(clone.overview().files[0].patch, patch);
+    let swapped = clone.swapped().unwrap();
+    assert_eq!(
+        content(&swapped, "file.txt"),
+        ("after\n".into(), "before\n".into())
+    );
+    assert_eq!(swapped.catalog().entries().len(), 2);
+    assert_eq!(swapped.swapped().unwrap().identity(), original_identity);
+    drop(clone);
+    let back = navigation.step(false).unwrap().value;
+    assert_eq!(back.overview().files[0].patch, patch);
+    assert_eq!(content(&back, "file.txt").1, "after\n");
+    assert!(navigation.step(true).is_some());
+}
+
+#[cfg(unix)]
+#[test]
+fn external_capture_keeps_symlink_targets_and_modes_after_sources_disappear() {
+    use std::os::unix::fs::{PermissionsExt, symlink};
+    let fixture = Fixture::new();
+    fixture.write("left/script", "same");
+    fixture.write("right/script", "same");
+    symlink("missing-before", fixture.0.join("left/link")).unwrap();
+    symlink("missing-after", fixture.0.join("right/link")).unwrap();
+    std::fs::set_permissions(
+        fixture.0.join("left/script"),
+        std::fs::Permissions::from_mode(0o644),
+    )
+    .unwrap();
+    std::fs::set_permissions(
+        fixture.0.join("right/script"),
+        std::fs::Permissions::from_mode(0o755),
+    )
+    .unwrap();
+    let comparison =
+        ExternalContents::comparison(&fixture.0.join("left"), &fixture.0.join("right")).unwrap();
+    std::fs::remove_dir_all(fixture.0.join("left")).unwrap();
+    std::fs::remove_dir_all(fixture.0.join("right")).unwrap();
+    assert_eq!(
+        content(&comparison, "link"),
+        ("missing-before".into(), "missing-after".into())
+    );
+    assert!(
+        comparison
+            .catalog()
+            .find("script")
+            .unwrap()
+            .metadata_change_notice()
+            .unwrap()
+            .contains("100644 → 100755")
+    );
+    let swapped = comparison.swapped().unwrap();
+    assert_eq!(
+        content(&swapped, "link"),
+        ("missing-after".into(), "missing-before".into())
+    );
+    assert!(
+        swapped
+            .catalog()
+            .find("script")
+            .unwrap()
+            .metadata_change_notice()
+            .unwrap()
+            .contains("100755 → 100644")
+    );
+}
+
+#[test]
+fn oversized_external_snapshots_keep_equality_and_notices_after_inputs_change() {
+    use jaywalk::{repository::FileSide, text_content::TextLimit};
+    use std::io::{Seek, SeekFrom, Write};
+    let fixture = Fixture::new();
+    for side in ["left", "right"] {
+        fixture.write(&format!("{side}/large"), "");
+        std::fs::File::options()
+            .write(true)
+            .open(fixture.0.join(side).join("large"))
+            .unwrap()
+            .set_len(2 * 1_048_576)
+            .unwrap();
+    }
+    let mut after = std::fs::File::options()
+        .write(true)
+        .open(fixture.0.join("right/large"))
+        .unwrap();
+    after.seek(SeekFrom::End(-1)).unwrap();
+    after.write_all(b"x").unwrap();
+    drop(after);
+    let comparison = ExternalContents::comparison_with_limit(
+        &fixture.0.join("left"),
+        &fixture.0.join("right"),
+        TextLimit::from_mib(1).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(comparison.files().len(), 1);
+    let notice = comparison.read_path("large", FileSide::After).unwrap_err();
+    fixture.write("right/large", "small now");
+    std::fs::remove_file(fixture.0.join("left/large")).unwrap();
+    assert_eq!(
+        comparison.read_path("large", FileSide::After).unwrap_err(),
+        notice
+    );
+    assert_eq!(
+        comparison
+            .swapped()
+            .unwrap()
+            .read_path("large", FileSide::Before)
+            .unwrap_err(),
+        notice
+    );
+    assert!(
+        comparison.overview().files[0]
+            .notice
+            .as_ref()
+            .unwrap()
+            .contains("2097152 bytes")
+    );
 }

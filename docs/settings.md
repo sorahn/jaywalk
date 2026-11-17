@@ -295,6 +295,16 @@ file discovery compares bytes in small chunks. This is a per-side text limit,
 not an overall memory budget: an overview can retain many files, and parsed
 text/diffs require additional memory. Image-preview limits are separate future work.
 
+External file/directory comparisons capture their readable contents and file
+metadata when opened. Clones, Swap and Back/Forward reuse that capture even if
+the originals are edited or deleted. Contents within the text limit are streamed
+into a private temporary file; oversized entries retain their captured size and
+an unavailable-preview notice. Oversized equality comparisons stream bytes
+without loading or storing the entire file. Temporary storage is released when
+the last comparison owning it is dropped. Source changes detected during capture
+fail the open with a request to reopen; this is not an atomic filesystem snapshot.
+The limit is per side/file, not an aggregate temporary-disk budget.
+
 The default text-file limit is **5 MiB per before/after side**. Files above it
 remain listed with a size-limit notice. To inspect larger text files, raise
 `diff.max_text_file_size_mb` in your config and reload or refresh the comparison:
