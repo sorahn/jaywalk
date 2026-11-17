@@ -76,7 +76,7 @@ describes the platform dependencies. On Fedora, the corresponding core packages 
 ```sh
 sudo dnf install cargo rust gcc gcc-c++ clang cmake pkgconf-pkg-config \
   fontconfig-devel wayland-devel libxkbcommon-x11-devel libX11-devel \
-  libxcb-devel openssl-devel libzstd-devel vulkan-loader-devel \
+  libxcb-devel openssl-devel libzstd-devel vulkan-loader-devel dbus-devel \
   rpm-build desktop-file-utils
 ```
 
@@ -85,9 +85,14 @@ On openSUSE Tumbleweed, install the prerequisites with:
 ```sh
 sudo zypper install rust cargo gcc gcc-c++ clang cmake pkgconf-pkg-config \
   fontconfig-devel wayland-devel libxkbcommon-devel libxkbcommon-x11-devel \
-  libX11-devel libxcb-devel libopenssl-devel libzstd-devel vulkan-devel \
+  libX11-devel libxcb-devel libopenssl-devel libzstd-devel vulkan-devel dbus-1-devel \
   rpm-build desktop-file-utils
 ```
+
+Account credentials use the desktop's D-Bus Secret Service (for example GNOME
+Keyring or KWallet). A running, unlocked Secret Service is needed for account
+features; local diff viewing does not read the credential store at startup.
+There is no plaintext or Linux kernel-keyring fallback.
 
 `just` is optional; the packaging script can be run directly.
 
@@ -142,7 +147,35 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer scripts/bundle-macos.sh
 
 Output is `target/debug/Jaywalk.app` or `target/release/Jaywalk.app`. The script
 compiles `packaging/macos/jaywalk.icon` with Xcode's `actool`, includes modern
-and legacy icon resources, merges icon metadata, and applies an ad hoc signature.
+and legacy icon resources, merges icon metadata, and signs the helper and app.
+It uses the single available Apple Development identity, or ad hoc signing if
+none is available. If several development identities are installed, choose one
+explicitly. `JAYWALK_SIGNING_IDENTITY` accepts a certificate fingerprint or name;
+`-` explicitly requests ad hoc signing. No certificates are created or trusted
+by the scripts.
+
+```sh
+JAYWALK_SIGNING_IDENTITY="CERTIFICATE_FINGERPRINT" just bundle
+```
+
+Certificate-backed signing preserves code identity across rebuilds. Ad hoc
+signatures identify one exact binary, so Keychain's Always Allow can prompt
+again after a rebuild. Use the signed bundle when checking account integration;
+`cargo run` does not apply certificate-backed signing. Existing development
+credential entries may require one initial approval for the new identity.
+Changing certificate/identifier can require approval again. Do not remove
+credential access controls to suppress prompts. This is local signing, not
+notarization or proof of distribution readiness.
+
+The `account-store-probe` example uses only a dedicated synthetic Keychain
+entry. To check access across two different builds, build with
+`JAYWALK_SIGNING_PROBE_VERSION=one cargo build --locked --example account-store-probe`,
+sign the resulting executable with `scripts/sign-macos.sh PATH dev.jaywalk.SigningProbe`,
+and run `PATH write`. Rebuild with version `two`, sign with the same identity and
+identifier, then run `PATH read` and `PATH delete`. It must recover the synthetic
+credential without a new item-access prompt. The signing key itself may prompt
+for permission when codesign first uses it. Never run this check against real
+account entries.
 Bundling and CLI installation explicitly build the native host target into
 `target/<host>/<profile>/`, ignoring inherited Cargo target-directory and
 cross-target settings. Version extraction and copying use those exact artifacts;

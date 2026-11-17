@@ -26,7 +26,8 @@ xcrun actool packaging/macos/jaywalk.icon \
     --output-partial-info-plist "$staging/icon-info.plist" \
     --output-format human-readable-text --warnings --errors
 /usr/libexec/PlistBuddy -c "Merge $staging/icon-info.plist" "$bundle/Contents/Info.plist"
-/usr/bin/codesign --force --sign - "$bundle"
+scripts/sign-macos.sh "$bundle/Contents/MacOS/jw" dev.jaywalk.jw
+scripts/sign-macos.sh "$bundle"
 # Replace the bundle by renaming directories. Never overwrite a running Mach-O
 # executable or leave the installed bundle half-signed if compilation fails.
 if [ -e "$destination" ]; then
