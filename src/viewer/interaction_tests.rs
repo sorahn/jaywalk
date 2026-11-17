@@ -1340,3 +1340,216 @@ fn incremental_difftool_delivery_preserves_inspection_and_restores_the_full_capt
         assert_eq!(session.comparison.ready().unwrap().files().len(), 2);
     });
 }
+
+#[gpui_test::test]
+fn application_pages_keep_the_comparison_editors_selection_scroll_and_drawers(
+    cx: &mut TestAppContext,
+) {
+    use jaywalk::commands::CommandId;
+    use jaywalk::settings::DiffView;
+    let fixture = Fixture::new();
+    let before = (1..=250)
+        .map(|line| format!("unchanged {line}\n"))
+        .collect::<String>();
+    let after = (1..=250)
+        .map(|line| {
+            format!(
+                "{} {line}\n",
+                if line % 10 == 0 {
+                    "modified"
+                } else {
+                    "unchanged"
+                }
+            )
+        })
+        .collect::<String>();
+    fixture.replace(&before, &after);
+    crate::account_ui::tests::setup(cx);
+    let (viewer, cx) = setup(&fixture, cx);
+    for mode in [DiffView::SideBySide, DiffView::Inline, DiffView::Fluid] {
+        cx.update(|_, app| viewer.update(app, |viewer, cx| viewer.set_view_mode(mode, cx)));
+        draw(cx);
+        if mode == DiffView::Fluid {
+            cx.update(|_, app| viewer.update(app, |viewer, cx| viewer.scroll_comparison(250., cx)));
+            draw(cx);
+        }
+        let fluid_position = cx.update(|_, app| viewer.read(app).fluid.position);
+        let (comparison, before_editor, after_editor, standard, path, drawers) =
+            cx.update(|_, app| {
+                let viewer = viewer.read(app);
+                let code = viewer.code().unwrap();
+                (
+                    viewer
+                        .repository
+                        .ready()
+                        .unwrap()
+                        .comparison
+                        .ready()
+                        .unwrap()
+                        .clone(),
+                    code.before.clone(),
+                    code.after.clone(),
+                    code.standard.as_ref().unwrap().as_ref().unwrap().clone(),
+                    viewer.selected_path(),
+                    (
+                        viewer.layout.saved.history_hidden,
+                        viewer.layout.saved.files_hidden,
+                    ),
+                )
+            });
+        // Keep a real folded-source selection and a nonzero viewport.
+        cx.update(|_, app| {
+            standard.update(app, |state, cx| {
+                let path = state.files()[0].path().clone();
+                state.set_selected_lines(
+                    Some(gpui_kit::component::diff::DiffLineRange::new(
+                        path,
+                        gpui_kit::component::diff::DiffSide::Modified,
+                        118,
+                        122,
+                    )),
+                    cx,
+                );
+                state.restore_viewport_offset(
+                    gpui_test::ListOffset {
+                        item_ix: 6,
+                        offset_in_item: px(2.),
+                    },
+                    cx,
+                );
+            })
+        });
+        draw(cx);
+        let (offset, text, context) = cx.update(|_, app| {
+            let state = standard.read(app);
+            (
+                state.viewport_offset(),
+                state.selected_text(app),
+                state.context_lines(),
+            )
+        });
+        cx.update(|window, app| {
+            viewer.update(app, |viewer, cx| {
+                viewer.execute_command(CommandId::Accounts, window, cx)
+            })
+        });
+        draw(cx);
+        assert!(cx.debug_bounds("accounts-page").is_some());
+        assert!(cx.debug_bounds("drawer-status-History").is_none());
+        let accounts =
+            cx.update(|_, app| viewer.read(app).account_page.as_ref().unwrap().entity_id());
+        cx.update(|window, app| {
+            viewer.update(app, |viewer, cx| {
+                viewer.execute_command(CommandId::ShowWelcome, window, cx)
+            })
+        });
+        draw(cx);
+        assert!(cx.debug_bounds("welcome-page").is_some());
+        // Back/Forward travels among pages and reuses account content.
+        cx.simulate_keystrokes("secondary-alt-left");
+        draw(cx);
+        assert!(cx.debug_bounds("accounts-page").is_some());
+        assert_eq!(
+            cx.update(|_, app| viewer.read(app).account_page.as_ref().unwrap().entity_id()),
+            accounts
+        );
+        cx.simulate_keystrokes("secondary-alt-left");
+        draw(cx);
+        cx.update(|_, app| {
+            let viewer = viewer.read(app);
+            assert!(viewer.page == super::pages::Page::Comparison);
+            assert_eq!(viewer.selected_path(), path);
+            assert!(std::rc::Rc::ptr_eq(
+                viewer
+                    .repository
+                    .ready()
+                    .unwrap()
+                    .comparison
+                    .ready()
+                    .unwrap(),
+                &comparison
+            ));
+            let code = viewer.code().unwrap();
+            assert_eq!(code.before.entity_id(), before_editor.entity_id());
+            assert_eq!(code.after.entity_id(), after_editor.entity_id());
+            assert_eq!(standard.read(app).context_lines(), context);
+            assert_eq!(standard.read(app).selected_text(app), text);
+            assert_eq!(standard.read(app).viewport_offset(), offset);
+            assert_eq!(viewer.fluid.position, fluid_position);
+            assert_eq!(
+                (
+                    viewer.layout.saved.history_hidden,
+                    viewer.layout.saved.files_hidden
+                ),
+                drawers
+            );
+        });
+        cx.simulate_keystrokes("secondary-alt-right");
+        draw(cx);
+        assert!(cx.debug_bounds("accounts-page").is_some());
+        let back = cx.debug_bounds("view-back").unwrap();
+        cx.simulate_click(back.center(), Default::default());
+        draw(cx);
+        assert_eq!(
+            cx.update(|_, app| standard.read(app).selected_text(app)),
+            text
+        );
+    }
+}
+
+#[gpui_test::test]
+fn welcome_accounts_navigation_and_palette_stay_in_the_existing_window(cx: &mut TestAppContext) {
+    use jaywalk::commands::CommandId;
+    let fixture = Fixture::new();
+    crate::account_ui::tests::setup(cx);
+    let args = Arguments::parse_from(["jaywalk"]).for_welcome();
+    let (viewer, cx) = setup_arguments(&fixture, args, cx);
+    assert!(cx.debug_bounds("welcome-page").is_some());
+    let window_count = cx.update(|_, app| app.windows().len());
+    cx.simulate_keystrokes("secondary-shift-p");
+    draw(cx);
+    cx.simulate_input("Accounts");
+    draw(cx);
+    cx.simulate_keystrokes("enter");
+    draw(cx);
+    assert!(cx.debug_bounds("accounts-page").is_some());
+    assert_eq!(cx.update(|_, app| app.windows().len()), window_count);
+    // Escape from an idle page returns to Welcome rather than closing the app.
+    cx.simulate_keystrokes("escape");
+    draw(cx);
+    assert!(cx.debug_bounds("welcome-page").is_some());
+    assert_eq!(cx.update(|_, app| app.windows().len()), window_count);
+    cx.update(|window, app| {
+        viewer.update(app, |viewer, cx| {
+            viewer.execute_command(CommandId::GoForward, window, cx)
+        })
+    });
+    draw(cx);
+    assert!(cx.debug_bounds("accounts-page").is_some());
+}
+
+#[gpui_test::test]
+fn leaving_a_loading_comparison_keeps_its_result_and_forward_page(cx: &mut TestAppContext) {
+    use jaywalk::commands::CommandId;
+    let fixture = Fixture::new();
+    crate::account_ui::tests::setup(cx);
+    let (viewer, cx) = setup(&fixture, cx);
+    cx.update(|window, app| {
+        viewer.update(app, |viewer, cx| {
+            viewer.load_repository(Some("file.txt".into()), window, cx);
+            viewer.execute_command(CommandId::Accounts, window, cx);
+        })
+    });
+    draw(cx);
+    let editor = cx.update(|_, app| viewer.read(app).code().unwrap().before.entity_id());
+    cx.simulate_keystrokes("secondary-alt-left");
+    draw(cx);
+    cx.update(|_, app| {
+        let viewer = viewer.read(app);
+        assert!(viewer.page == super::pages::Page::Comparison);
+        assert_eq!(viewer.code().unwrap().before.entity_id(), editor);
+    });
+    cx.simulate_keystrokes("secondary-alt-right");
+    draw(cx);
+    assert!(cx.debug_bounds("accounts-page").is_some());
+}

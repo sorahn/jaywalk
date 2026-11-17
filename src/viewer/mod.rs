@@ -41,6 +41,7 @@ mod live;
 mod loading;
 mod navigation;
 mod overview;
+mod pages;
 mod palette;
 mod panels;
 mod reference_browser;
@@ -156,6 +157,9 @@ pub(crate) struct Viewer {
     home_source: review_context::HomeSource,
     review_picker: review_context::ReviewPicker,
     welcome: Option<welcome::WelcomeState>,
+    page: pages::Page,
+    account_page: Option<Entity<crate::account_ui::AccountPanel>>,
+    page_selection: Option<pages::RetainedSelection>,
     recent_recorded: bool,
     settings: Settings,
     focus: FocusHandle,

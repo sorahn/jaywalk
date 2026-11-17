@@ -46,8 +46,16 @@ impl Viewer {
         let references = references::ReferenceState::new(&settings.history);
         let navigation = navigation::NavigationState::new(settings.navigation.history_limit);
         let welcome = arguments.welcome.then(welcome::WelcomeState::default);
+        let page = if arguments.welcome {
+            pages::Page::Welcome
+        } else {
+            pages::Page::Comparison
+        };
         let mut viewer = Self {
             welcome,
+            page,
+            account_page: None,
+            page_selection: None,
             recent_recorded: false,
             code_font_size: settings.editor.font_size,
             line_numbers: settings.editor.line_numbers,
@@ -190,6 +198,9 @@ impl Viewer {
                     }
                     Err(error) => {
                         viewer.welcome = Some(welcome::WelcomeState::failed(error.clone()));
+                        if viewer.page == pages::Page::Comparison {
+                            viewer.page = pages::Page::Welcome;
+                        }
                         window.set_window_title("Welcome — Jaywalk");
                         LoadState::Failed(error)
                     }

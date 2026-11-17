@@ -214,8 +214,8 @@ pub(crate) fn open_with_disposition(
         let root = window
             .update(cx, |_, window, cx| {
                 window.activate_window();
-                let replace =
-                    different_subject || (viewer.read(cx).is_welcome() && !arguments.welcome);
+                let replace = different_subject
+                    || (viewer.read(cx).is_repository_free() && !arguments.welcome);
                 if replace {
                     window.set_window_title(&window_title(&arguments));
                     viewer.update(cx, |viewer, cx| {
@@ -227,6 +227,9 @@ pub(crate) fn open_with_disposition(
                     });
                 } else if let Some(path) = &arguments.file {
                     viewer.update(cx, |viewer, cx| viewer.reveal_file(path, window, cx));
+                }
+                if !arguments.welcome {
+                    viewer.update(cx, |viewer, cx| viewer.show_retained_comparison(window, cx));
                 }
                 viewer.read(cx).repository_directory()
             })
@@ -316,6 +319,65 @@ mod tests {
     use crate::Arguments;
     use clap::Parser;
     // TestAppContext uses GPUI's test platform: no native desktop window opens.
+    #[gpui_test::test]
+    fn application_commands_create_a_main_window_then_reuse_its_pages(
+        cx: &mut gpui_test::TestAppContext,
+    ) {
+        use gpui::QuitMode;
+        use jaywalk::commands::CommandId;
+        let root =
+            std::env::temp_dir().join(format!("jaywalk-page-routing-{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        let config = root.join("config.toml");
+        std::fs::write(&config, "[layout]\nremember_per_repository=false\n").unwrap();
+        let mut arguments = Arguments::parse_from(["jaywalk"]).for_welcome();
+        arguments.config = Some(config);
+        let settings = jaywalk::settings::Settings::default();
+        crate::account_ui::tests::setup(cx);
+        cx.update(|app| {
+            super::init(app);
+            crate::settings_service::init(app);
+            crate::recents::init_without_storage(app);
+            crate::viewer::init(&arguments, &settings, app).unwrap();
+            app.set_quit_mode(QuitMode::Explicit);
+            crate::show_application_page(arguments.clone(), CommandId::Accounts, app);
+        });
+        cx.run_until_parked();
+        let first = cx.update(|app| {
+            assert_eq!(app.global::<super::Windows>().0.len(), 1);
+            let (handle, viewer) = super::preferred_viewer(app).unwrap();
+            assert!(viewer.read(app).is_repository_free());
+            assert!(!viewer.read(app).is_welcome());
+            handle
+        });
+        cx.update(|app| {
+            crate::show_application_page(arguments.clone(), CommandId::ShowWelcome, app)
+        });
+        cx.run_until_parked();
+        cx.update(|app| {
+            let (handle, viewer) = super::preferred_viewer(app).unwrap();
+            assert_eq!(handle, first);
+            assert!(viewer.read(app).is_welcome());
+            assert_eq!(app.windows().len(), 1);
+            handle
+                .update(app, |_, window, _| window.remove_window())
+                .unwrap();
+        });
+        cx.run_until_parked();
+        cx.update(|app| {
+            assert!(!super::has_viewer_windows(app));
+            crate::show_application_page(arguments, CommandId::Accounts, app);
+        });
+        cx.run_until_parked();
+        cx.update(|app| {
+            assert_eq!(app.windows().len(), 1);
+            let (handle, viewer) = super::preferred_viewer(app).unwrap();
+            assert_ne!(handle, first);
+            assert!(!viewer.read(app).is_welcome());
+        });
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
     #[gpui_test::test]
     fn configured_opens_replace_the_origin_and_new_opens_keep_distinct_windows(
         cx: &mut gpui_test::TestAppContext,
@@ -508,6 +570,15 @@ fn window_title(arguments: &Arguments) -> String {
         Some(paths) => format!("{} ↔ {} — Jaywalk", paths[0].display(), paths[1].display()),
         None => format!("{} — Jaywalk", arguments.directory().display()),
     }
+}
+
+pub(crate) fn preferred_viewer(cx: &App) -> Option<(AnyWindowHandle, Entity<Viewer>)> {
+    let active = cx.active_window().map(|window| window.window_id());
+    cx.try_global::<Windows>()?
+        .0
+        .values()
+        .max_by_key(|record| (active == Some(record.window.window_id()), record.last_used))
+        .map(|record| (record.window, record.viewer.clone()))
 }
 
 pub(crate) fn has_viewer_windows(cx: &App) -> bool {

@@ -325,12 +325,20 @@ temporary inputs. Viewing never checks out revisions, edits the index or fetches
 
 ## Hosting accounts (development preview)
 
-Open **Accounts…** from the command palette, including on the welcome screen.
+Open **Accounts…** from the command palette or Welcome. Accounts and Welcome
+open in the current main window's central panel. Back/Forward returns to the
+retained comparison, file selection, folds and scroll position; sidebars hide
+on these pages and restore their previous layout when you return. With no main
+window open, an account command creates one. Tabs are not introduced by this
+change; the page model can support opt-in tabs in the future.
+
 Connect GitHub or Bitbucket in your browser; Jaywalk shows a waiting indicator
 and an **Open browser again** action. No token or client secret is entered into
-the app. **Cancel**, Escape or closing the Accounts window cancels its pending
-sign-in. Once saving has begun, cancellation shows a finishing state instead.
-Other repository windows share the same account state.
+the app. **Cancel** or Escape on the waiting page cancels sign-in. Navigating to
+another page keeps it running; closing its owning main window cancels it. Once
+saving has begun, cancellation shows a finishing state instead. Escape from an
+idle Accounts page returns to the previous page. Other repository windows share
+the same account state.
 
 **Reconnect account…** replaces a grant only after verifying the same provider
 account. **Check account connection…** verifies saved access. **Disconnect

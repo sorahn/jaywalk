@@ -3,7 +3,9 @@ use gpui::component::tooltip::Tooltip;
 
 impl Render for Viewer {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        self.preserve_window_reflow(window, cx);
+        if self.page == pages::Page::Comparison {
+            self.preserve_window_reflow(window, cx);
+        }
         let root = div()
             .id("viewer-root")
             .key_context("Jaywalk")
@@ -39,10 +41,21 @@ impl Render for Viewer {
             .font_features(typography::features(self.settings.ui.ligatures))
             .bg(gpui::component::Theme::global(cx).background)
             .text_color(gpui::component::Theme::global(cx).foreground);
-        if self.is_welcome() {
+        if self.page != pages::Page::Comparison {
+            let body = match self.page {
+                pages::Page::Welcome => self.render_welcome(cx),
+                pages::Page::Accounts => self
+                    .account_page
+                    .as_ref()
+                    .expect("Accounts is constructed before it is shown")
+                    .clone()
+                    .into_any_element(),
+                pages::Page::Comparison => unreachable!(),
+            };
             return root
                 .size_full()
-                .child(self.render_welcome(cx))
+                .child(self.render_page_header(cx))
+                .child(div().flex_1().min_h_0().child(body))
                 .children(self.render_palette(cx))
                 .into_any_element();
         }

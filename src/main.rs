@@ -152,6 +152,36 @@ fn open_arguments_in_new_window(
         cx,
     );
 }
+fn show_application_page(
+    arguments: Arguments,
+    command: jaywalk::commands::CommandId,
+    cx: &mut App,
+) {
+    if let Some((handle, viewer)) = windows::preferred_viewer(cx) {
+        cx.defer(move |cx| {
+            if handle
+                .update(cx, |_, window, cx| {
+                    viewer.update(cx, |viewer, cx| viewer.execute_command(command, window, cx));
+                    window.activate_window();
+                    cx.activate(true);
+                })
+                .is_err()
+            {
+                show_application_page(arguments, command, cx);
+            }
+        });
+    } else {
+        open_arguments_after(
+            arguments.for_welcome(),
+            None,
+            false,
+            Some(command),
+            windows::OpenDisposition::NewWindow,
+            cx,
+        );
+    }
+}
+
 fn show_recent_repository_picker(arguments: Arguments, cx: &mut App) {
     open_arguments_after(
         arguments.for_welcome(),

@@ -35,8 +35,18 @@ pub(super) struct ViewVisit {
     evolution: evolution::EvolutionCheckpoint,
     anchor: Option<jaywalk::history::Revision>,
 }
+#[derive(Clone, PartialEq, Eq)]
+pub(super) enum DestinationKey {
+    Comparison(LocationKey),
+    Page(pages::Page),
+}
+#[derive(Clone)]
+pub(super) enum Destination {
+    Comparison(Box<ViewVisit>),
+    Page(pages::Page),
+}
 pub(super) struct NavigationState {
-    pub(super) history: History<LocationKey, ViewVisit>,
+    pub(super) history: History<DestinationKey, Destination>,
     suppress: bool,
     restoring: bool,
     pub(super) pinned: bool,
@@ -52,7 +62,14 @@ impl NavigationState {
     }
 }
 impl Viewer {
-    fn navigation_key(&self) -> Option<LocationKey> {
+    fn navigation_key(&self) -> Option<DestinationKey> {
+        if self.page != pages::Page::Comparison {
+            return Some(DestinationKey::Page(self.page));
+        }
+        self.comparison_navigation_key()
+            .map(DestinationKey::Comparison)
+    }
+    fn comparison_navigation_key(&self) -> Option<LocationKey> {
         if self.review_picker.pending.is_some() {
             return None;
         }
@@ -96,8 +113,11 @@ impl Viewer {
             path: self.selected_path(),
         })
     }
-    fn capture_visit(&self, cx: &App) -> Option<(LocationKey, ViewVisit)> {
+    fn capture_visit(&self, cx: &App) -> Option<(DestinationKey, Destination)> {
         let key = self.navigation_key()?;
+        if self.page != pages::Page::Comparison {
+            return Some((key, Destination::Page(self.page)));
+        }
         let session = self.repository.ready()?;
         let comparison = session.comparison.ready()?.clone();
         let anchor = if let ComparisonScope::Revision { commit_id, .. } = &session.scope {
@@ -121,7 +141,7 @@ impl Viewer {
         };
         Some((
             key,
-            ViewVisit {
+            Destination::Comparison(Box::new(ViewVisit {
                 scope: session.scope.clone(),
                 review: session.review.clone(),
                 home_source: self.home_source,
@@ -139,8 +159,17 @@ impl Viewer {
                     .flatten(),
                 evolution: self.capture_evolution(),
                 anchor,
-            },
+            })),
         ))
+    }
+    pub(super) fn checkpoint_page_departure(&mut self, cx: &App) {
+        self.checkpoint_navigation(cx);
+        if self.page == pages::Page::Comparison && self.navigation_key().is_none() {
+            self.navigation.history.observe(
+                DestinationKey::Page(pages::Page::Comparison),
+                Destination::Page(pages::Page::Comparison),
+            );
+        }
     }
     /// Refresh the leaving view's position before an explicit navigation.
     pub(super) fn checkpoint_navigation(&mut self, cx: &App) {
@@ -150,7 +179,17 @@ impl Viewer {
         // Explicit navigation supersedes any unfinished history restoration.
         self.navigation.restoring = false;
         if let Some((key, visit)) = self.capture_visit(cx) {
-            self.navigation.history.observe(key, visit);
+            if self.page == pages::Page::Comparison
+                && self
+                    .navigation
+                    .history
+                    .current()
+                    .is_some_and(|entry| entry.key == DestinationKey::Page(pages::Page::Comparison))
+            {
+                self.navigation.history.replace_current(key, visit);
+            } else {
+                self.navigation.history.observe(key, visit);
+            }
         }
     }
     /// Observe only complete destinations. Scroll/refresh updates at the same
@@ -215,6 +254,30 @@ impl Viewer {
         let Some(target) = target else {
             return;
         };
+        let visit = match target.value {
+            Destination::Page(page) => {
+                self.navigation.restoring = false;
+                self.activate_page(page, window, cx);
+                return;
+            }
+            Destination::Comparison(visit) => {
+                if self.page != pages::Page::Comparison
+                    && self
+                        .comparison_navigation_key()
+                        .map(DestinationKey::Comparison)
+                        .as_ref()
+                        == Some(&target.key)
+                {
+                    // The comparison never left this window. Keep its exact
+                    // editor, folded rows, selection and scroll handles intact.
+                    self.navigation.restoring = false;
+                    self.activate_page(pages::Page::Comparison, window, cx);
+                    return;
+                }
+                *visit
+            }
+        };
+        self.activate_page(pages::Page::Comparison, window, cx);
         self.navigation.restoring = true;
         self.navigation.suppress = true;
         self.invalidate_history_reload();
@@ -225,7 +288,6 @@ impl Viewer {
         self.finish_loading(LoadingKind::Comparison);
         self.finish_loading(LoadingKind::Evolution);
         self.clear_file();
-        let visit = target.value;
         if let LoadState::Loaded(session) = &mut self.repository {
             self.home_source = visit.home_source;
             session.review = visit.review;
@@ -291,6 +353,7 @@ impl Viewer {
         ] {
             buttons = buttons.child(
                 Button::new(id)
+                    .debug_selector(move || id.into())
                     .ghost()
                     .small()
                     .compact()

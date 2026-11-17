@@ -1,5 +1,4 @@
-//! Compact account management window shared by all repository/welcome windows.
-use crate::viewer::commands::ExecuteCommand;
+//! Account page content; the main window owns its lifetime across navigation.
 use gpui::component::{
     Disableable, StyledExt,
     button::{Button, ButtonVariants},
@@ -17,9 +16,6 @@ use jaywalk::{
 };
 
 actions!(account_ui, [Cancel]);
-#[derive(Default)]
-struct AccountWindow(Option<(AnyWindowHandle, WeakEntity<AccountPanel>)>);
-impl Global for AccountWindow {}
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Mode {
     Accounts,
@@ -57,70 +53,25 @@ impl Mode {
 pub(crate) fn init(cx: &mut App) {
     cx.bind_keys([KeyBinding::new("escape", Cancel, Some("JaywalkAccounts"))]);
 }
-pub(crate) fn open(command: CommandId, cx: &mut App) {
-    if command == CommandId::CancelAccountSignIn {
-        if let Some(accounts) = cx.try_global::<Accounts>() {
-            let state = accounts.state.clone();
-            state.update(cx, |state, cx| {
-                if state.operation.as_ref().is_some_and(|operation| {
-                    matches!(operation.action, AccountAction::Connect { .. })
-                }) {
-                    state.cancel(cx);
-                }
-            });
-        }
-        return;
+pub(crate) fn cancel_sign_in(cx: &mut App) {
+    if let Some(accounts) = cx.try_global::<Accounts>() {
+        let state = accounts.state.clone();
+        state.update(cx, |state, cx| {
+            if state
+                .operation
+                .as_ref()
+                .is_some_and(|operation| matches!(operation.action, AccountAction::Connect { .. }))
+            {
+                state.cancel(cx);
+            }
+        });
     }
-    cx.defer(move |cx| {
-        if let Err(error) = show(command, cx) {
-            eprintln!("Could not open Accounts: {error}");
-        }
-    });
 }
-fn show(command: CommandId, cx: &mut App) -> Result<()> {
-    let mode = Mode::command(command);
-    if let Some((handle, panel)) = cx
-        .try_global::<AccountWindow>()
-        .and_then(|state| state.0.clone())
-        && handle
-            .update(cx, |_, window, cx| {
-                let _ = panel.update(cx, |view, cx| {
-                    view.mode = mode;
-                    view.disconnect = None;
-                    cx.notify();
-                });
-                window.activate_window();
-                cx.activate(true);
-            })
-            .is_ok()
-    {
-        return Ok(());
-    }
-    if !cx.has_global::<Accounts>() {
-        jaywalk::accounts::application::init(cx);
-    }
-    let options = WindowOptions {
-        app_id: Some("io.github.sorahn.jaywalk".into()),
-        titlebar: Some(TitlebarOptions {
-            title: Some("Jaywalk Accounts".into()),
-            ..Default::default()
-        }),
-        window_bounds: Some(WindowBounds::Windowed(Bounds::centered(
-            None,
-            size(px(580.), px(540.)),
-            cx,
-        ))),
-        ..Default::default()
-    };
-    let (handle, panel) = gpui::open_window(options, cx, |window, cx| {
-        crate::appearance::watch_window(window, cx);
-        cx.new(|cx| AccountPanel::new(mode, window, cx))
-    })?;
-    cx.set_global(AccountWindow(Some((handle, panel.downgrade()))));
-    cx.activate(true);
-    Ok(())
-}
-struct AccountPanel {
+
+pub(crate) struct LeavePage;
+impl EventEmitter<LeavePage> for AccountPanel {}
+
+pub(crate) struct AccountPanel {
     focus: FocusHandle,
     state: Entity<AccountState>,
     mode: Mode,
@@ -129,7 +80,8 @@ struct AccountPanel {
     _subscription: Subscription,
 }
 impl AccountPanel {
-    fn new(mode: Mode, window: &mut Window, cx: &mut Context<Self>) -> Self {
+    pub(crate) fn new(command: CommandId, window: &mut Window, cx: &mut Context<Self>) -> Self {
+        let mode = Mode::command(command);
         let state = cx.global::<Accounts>().state.clone();
         let subscription = cx.observe_in(&state, window, |this, state, window, cx| {
             let finished = state.read(cx).last_finished;
@@ -160,18 +112,27 @@ impl AccountPanel {
         panel.start(AccountAction::Load, cx);
         panel
     }
+    pub(crate) fn show(&mut self, command: CommandId, window: &mut Window, cx: &mut Context<Self>) {
+        self.mode = Mode::command(command);
+        self.disconnect = None;
+        self.focus(window, cx);
+        cx.notify();
+    }
+    pub(crate) fn focus(&self, window: &mut Window, cx: &mut Context<Self>) {
+        window.focus(&self.focus, cx);
+    }
     fn start(&mut self, action: AccountAction, cx: &mut Context<Self>) {
         if let Some(owner) = self.state.update(cx, |state, cx| state.start(action, cx)) {
             self.owner = Some(owner);
         }
     }
-    fn cancel(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    fn cancel(&mut self, _: &mut Window, cx: &mut Context<Self>) {
         if self.state.read(cx).operation.is_some() {
             self.state.update(cx, |state, cx| state.cancel(cx));
         } else if self.disconnect.take().is_some() {
             cx.notify();
         } else {
-            window.remove_window();
+            cx.emit(LeavePage);
         }
     }
     fn row(&self, account: &AccountView, busy: bool, cx: &mut Context<Self>) -> AnyElement {
@@ -506,76 +467,73 @@ impl Render for AccountPanel {
             );
         }
         div()
-            .key_context("Jaywalk")
+            .key_context("JaywalkAccounts")
+            .debug_selector(|| "accounts-page".into())
+            .track_focus(&self.focus)
             .size_full()
+            .v_flex()
             .bg(background)
             .text_color(foreground)
+            .on_action(cx.listener(|view, _: &Cancel, window, cx| view.cancel(window, cx)))
             .child(
                 div()
-                    .key_context("JaywalkAccounts")
-                    .track_focus(&self.focus)
-                    .size_full()
-                    .v_flex()
-                    .on_action(cx.listener(|view, _: &Cancel, window, cx| view.cancel(window, cx)))
-                    .on_action(cx.listener(|_, action: &ExecuteCommand, window, cx| {
-                        if action.command == CommandId::CloseWindow {
-                            window.remove_window();
-                        } else {
-                            cx.propagate();
-                        }
-                    }))
-                    .child(
-                        div().px_5().py_4().border_b_1().border_color(border).child(
-                            div()
-                                .h_flex()
-                                .items_center()
-                                .gap_3()
-                                .when(self.mode != Mode::Accounts, |header| {
-                                    header.child(
-                                        Button::new("accounts-back")
-                                            .ghost()
-                                            .label("Accounts")
-                                            .on_click(cx.listener(|view, _, _, cx| {
-                                                view.mode = Mode::Accounts;
-                                                view.disconnect = None;
-                                                cx.notify();
-                                            })),
-                                    )
-                                })
-                                .child(div().text_lg().font_medium().child(self.mode.title())),
-                        ),
-                    )
+                    .id("accounts-scroll")
+                    .debug_selector(|| "accounts-scroll".into())
+                    .flex_1()
+                    .min_h_0()
+                    .overflow_y_scroll()
+                    .p_8()
                     .child(
                         div()
-                            .id("accounts-scroll")
-                            .flex_1()
-                            .min_h_0()
-                            .overflow_y_scroll()
-                            .p_5()
+                            .mx_auto()
+                            .w_full()
+                            .max_w(rems(48.))
+                            .when(self.mode != Mode::Accounts, |column| {
+                                column.child(
+                                    div()
+                                        .h_flex()
+                                        .items_center()
+                                        .gap_3()
+                                        .mb_4()
+                                        .child(
+                                            Button::new("accounts-back")
+                                                .ghost()
+                                                .label("Accounts")
+                                                .on_click(cx.listener(|view, _, _, cx| {
+                                                    view.mode = Mode::Accounts;
+                                                    view.disconnect = None;
+                                                    cx.notify();
+                                                })),
+                                        )
+                                        .child(
+                                            div().text_lg().font_medium().child(self.mode.title()),
+                                        ),
+                                )
+                            })
                             .child(content),
-                    )
+                    ),
+            )
+            .child(
+                div()
+                    .px_5()
+                    .py_3()
+                    .border_t_1()
+                    .border_color(border)
+                    .h_flex()
+                    .justify_end()
                     .child(
-                        div()
-                            .px_5()
-                            .py_3()
-                            .border_t_1()
-                            .border_color(border)
-                            .h_flex()
-                            .justify_end()
-                            .child(
-                                Button::new("accounts-close")
-                                    .ghost()
-                                    .label("Close")
-                                    .on_click(|_, window, _| window.remove_window()),
-                            ),
+                        Button::new("accounts-leave")
+                            .ghost()
+                            .label("Back")
+                            .on_click(cx.listener(|_, _, _, cx| cx.emit(LeavePage))),
                     ),
             )
     }
 }
 
 #[cfg(test)]
-mod tests {
-    use super::{AccountPanel, AccountWindow, Mode, init, show};
+pub(crate) mod tests {
+    use super::{AccountPanel, Mode, init};
     use gpui::{AppContext, px, size};
     use jaywalk::accounts::application::Accounts;
     use jaywalk::accounts::controller::AccountAction;
@@ -589,7 +547,7 @@ mod tests {
         atomic::{AtomicUsize, Ordering},
     };
 
-    struct Store {
+    pub(crate) struct Store {
         sessions: Mutex<Vec<StoredSession>>,
         removals: AtomicUsize,
     }
@@ -653,7 +611,7 @@ mod tests {
             label: "synthetic-user".into(),
         }
     }
-    fn setup(cx: &mut gpui_test::TestAppContext) -> Arc<Store> {
+    pub(crate) fn setup(cx: &mut gpui_test::TestAppContext) -> Arc<Store> {
         let store = Arc::new(Store {
             sessions: Mutex::new(vec![serde_json::from_value(serde_json::json!({
                 "identity": {"key":{"provider":"github","subject":"1234"},"label":"synthetic-user"},
@@ -684,7 +642,7 @@ mod tests {
         let store = setup(cx);
         let mut panel = None;
         let (_, cx) = cx.add_window_view(|window, app| {
-            let view = app.new(|cx| AccountPanel::new(Mode::Disconnect, window, cx));
+            let view = app.new(|cx| AccountPanel::new(CommandId::DisconnectAccount, window, cx));
             panel = Some(view.clone());
             gpui::component::Root::new(view, window, app)
         });
@@ -713,32 +671,33 @@ mod tests {
         assert!(cx.update(|_, app| panel.read(app).state.read(app).snapshot.accounts.is_empty()));
     }
     #[gpui_test::test]
-    fn palette_commands_reuse_one_window_and_missing_setup_is_actionable(
+    fn missing_setup_is_actionable_without_opening_another_window(
         cx: &mut gpui_test::TestAppContext,
     ) {
         setup(cx);
-        cx.update(|app| show(CommandId::Accounts, app).unwrap());
-        cx.run_until_parked();
-        let (first, panel) = cx.update(|app| app.global::<AccountWindow>().0.clone().unwrap());
-        cx.update(|app| show(CommandId::ConnectAccount, app).unwrap());
-        let second = cx.update(|app| app.global::<AccountWindow>().0.as_ref().unwrap().0);
-        assert_eq!(first, second);
-        cx.update(|app| {
-            panel
-                .update(app, |view, cx| {
-                    assert!(view.mode == Mode::Connect);
-                    view.start(
-                        AccountAction::Connect {
-                            provider: Provider::Github,
-                            replace: None,
-                        },
-                        cx,
-                    );
-                })
-                .unwrap();
+        let mut panel = None;
+        let (_, cx) = cx.add_window_view(|window, app| {
+            let view = app.new(|cx| AccountPanel::new(CommandId::ConnectAccount, window, cx));
+            panel = Some(view.clone());
+            gpui::component::Root::new(view, window, app)
         });
-        cx.run_until_parked();
-        cx.update(|app| {
+        let panel = panel.unwrap();
+        draw(cx);
+        cx.update(|window, app| {
+            panel.update(app, |view, cx| {
+                assert!(view.mode == Mode::Connect);
+                view.start(
+                    AccountAction::Connect {
+                        provider: Provider::Github,
+                        replace: None,
+                    },
+                    cx,
+                );
+                view.focus(window, cx);
+            })
+        });
+        draw(cx);
+        cx.update(|_, app| {
             let state = app.global::<Accounts>().state.read(app);
             assert!(state.operation.is_none());
             assert!(
@@ -748,6 +707,55 @@ mod tests {
                     .unwrap()
                     .text
                     .contains("developer setup")
+            );
+        });
+    }
+    #[gpui_test::test]
+    fn account_pages_in_two_windows_observe_one_local_disconnect(
+        test_cx: &mut gpui_test::TestAppContext,
+    ) {
+        let store = setup(test_cx);
+        let first = {
+            let mut page = None;
+            let (_, cx) = test_cx.add_window_view(|window, app| {
+                let view = app.new(|cx| AccountPanel::new(CommandId::Accounts, window, cx));
+                page = Some(view.clone());
+                gpui::component::Root::new(view, window, app)
+            });
+            draw(cx);
+            page.unwrap()
+        };
+        let mut second = None;
+        let (_, cx) = test_cx.add_window_view(|window, app| {
+            let view = app.new(|cx| AccountPanel::new(CommandId::Accounts, window, cx));
+            second = Some(view.clone());
+            gpui::component::Root::new(view, window, app)
+        });
+        let second = second.unwrap();
+        draw(cx);
+        assert!(cx.debug_bounds("account-disconnect").is_some());
+        cx.update(|_, app| {
+            first.update(app, |page, cx| {
+                page.start(AccountAction::Disconnect(identity().key), cx)
+            })
+        });
+        draw(cx);
+        assert_eq!(store.removals.load(Ordering::SeqCst), 1);
+        assert!(cx.debug_bounds("account-disconnect").is_none());
+        cx.update(|_, app| {
+            assert_eq!(
+                first.read(app).state.entity_id(),
+                second.read(app).state.entity_id()
+            );
+            assert!(first.read(app).state.read(app).snapshot.accounts.is_empty());
+            assert!(
+                second
+                    .read(app)
+                    .state
+                    .read(app)
+                    .snapshot
+                    .accounts
+                    .is_empty()
             );
         });
     }

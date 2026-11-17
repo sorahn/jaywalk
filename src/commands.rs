@@ -135,6 +135,8 @@ impl CommandId {
                 | Self::OpenInNewWindow
                 | Self::ComparePaths
                 | Self::ShowWelcome
+                | Self::GoBack
+                | Self::GoForward
                 | Self::ClearRecent
                 | Self::ShowCommands
                 | Self::OpenSettings
