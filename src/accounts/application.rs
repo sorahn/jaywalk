@@ -12,11 +12,36 @@ impl Global for Accounts {}
 pub struct AccountState {
     pub snapshot: Snapshot,
     subscription: Option<Task<()>>,
+    pub operation: Option<super::controller::OperationView>,
+    pub notice: Option<super::controller::Notice>,
+    pub workspaces: Option<Arc<super::WorkspaceListing>>,
+    pub last_finished: Option<super::controller::Finished>,
+    pub(super) serial: u64,
+    pub(super) browser_url: Option<String>,
+}
+impl AccountState {
+    pub(crate) fn new(snapshot: Snapshot) -> Self {
+        Self {
+            snapshot,
+            subscription: None,
+            operation: None,
+            notice: None,
+            workspaces: None,
+            last_finished: None,
+            serial: 0,
+            browser_url: None,
+        }
+    }
 }
 pub fn init(cx: &mut App) {
     let backend = HttpProvider::new()
         .map(|provider| Service::new(Arc::new(OsCredentialStore::new()), Arc::new(provider)));
     install(backend, cx);
+}
+/// Install an explicitly supplied backend, including deterministic test stores.
+/// Production initialization always uses the OS credential store.
+pub fn init_with_backend(backend: Arc<Service>, cx: &mut App) {
+    install(Ok(backend), cx);
 }
 fn install(backend: Result<Arc<Service>, Error>, cx: &mut App) {
     let receiver = backend.as_ref().ok().map(|backend| backend.subscribe());
@@ -25,10 +50,7 @@ fn install(backend: Result<Arc<Service>, Error>, cx: &mut App) {
         ..Snapshot::default()
     };
     let state = cx.new(|cx: &mut Context<AccountState>| {
-        let mut state = AccountState {
-            snapshot: initial,
-            subscription: None,
-        };
+        let mut state = AccountState::new(initial);
         if let Some(receiver) = receiver {
             state.subscription = Some(cx.spawn(async move |this, cx| {
                 while let Ok(snapshot) = receiver.recv().await {

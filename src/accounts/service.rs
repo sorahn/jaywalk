@@ -155,12 +155,22 @@ impl Service {
         replace: Option<AccountKey>,
         timeout: Duration,
     ) -> Result<SignIn, Error> {
+        self.begin_sign_in_controlled(registration, replace, Control::new(timeout))
+    }
+    /// The caller creates this handle before any worker can block in Keychain.
+    pub fn begin_sign_in_controlled(
+        self: &Arc<Self>,
+        registration: ClientRegistration,
+        replace: Option<AccountKey>,
+        control: Control,
+    ) -> Result<SignIn, Error> {
         let provider = registration.provider;
         let client_id = registration.client_id.clone();
-        self.begin_with_browser(registration, replace, timeout, || {
+        self.begin_with_control(registration, replace, control, || {
             BrowserAttempt::new(provider, &client_id)
         })
     }
+    #[cfg(test)]
     fn begin_with_browser(
         self: &Arc<Self>,
         registration: ClientRegistration,
@@ -168,10 +178,19 @@ impl Service {
         timeout: Duration,
         browser: impl FnOnce() -> Result<BrowserAttempt, Error>,
     ) -> Result<SignIn, Error> {
+        self.begin_with_control(registration, replace, Control::new(timeout), browser)
+    }
+    fn begin_with_control(
+        self: &Arc<Self>,
+        registration: ClientRegistration,
+        replace: Option<AccountKey>,
+        control: Control,
+        browser: impl FnOnce() -> Result<BrowserAttempt, Error>,
+    ) -> Result<SignIn, Error> {
+        control.check()?;
         registration.validate()?;
         self.restore()?;
         let provider = registration.provider;
-        let control = Control::new(timeout);
         control.check()?;
         let mut state = self.state.lock().expect("account state mutex poisoned");
         if state.pending.contains_key(&provider) {
@@ -329,6 +348,72 @@ impl Service {
         drop(state);
         flight.wait(control)
     }
+    /// Worker-only snapshot access, never called from a rendering callback.
+    pub fn account_keys(&self) -> Vec<AccountKey> {
+        self.state
+            .lock()
+            .expect("account state mutex poisoned")
+            .accounts
+            .keys()
+            .cloned()
+            .collect()
+    }
+    pub fn selected_registration(&self, provider: Provider) -> Result<ClientRegistration, Error> {
+        self.store.selected_registration(provider)
+    }
+    pub fn import_development_registration(&self, provider: Provider) -> Result<(), Error> {
+        self.store.import_development_registration(provider)
+    }
+    pub fn workspaces(
+        self: &Arc<Self>,
+        key: &AccountKey,
+        control: &Control,
+    ) -> Result<super::WorkspaceListing, Error> {
+        if key.provider != Provider::Bitbucket {
+            return Err(Error::Unsupported);
+        }
+        let epoch = self
+            .state
+            .lock()
+            .expect("account state mutex poisoned")
+            .accounts
+            .get(key)
+            .ok_or(Error::NotConnected)?
+            .epoch;
+        let token = self.access_token(key, control)?;
+        let workspaces = self.provider.workspaces(&token, control)?;
+        control.check()?;
+        let mut state = self.state.lock().expect("account state mutex poisoned");
+        current(&mut state, key, epoch)?;
+        Ok(super::WorkspaceListing {
+            account: key.clone(),
+            workspaces,
+            epoch,
+        })
+    }
+    pub fn select_workspace(
+        &self,
+        listing: &super::WorkspaceListing,
+        uuid: &str,
+        control: &Control,
+    ) -> Result<(), Error> {
+        control.check()?;
+        let workspace = listing
+            .workspaces
+            .iter()
+            .find(|workspace| workspace.uuid == uuid)
+            .ok_or(Error::InvalidResponse)?;
+        workspace.validate()?;
+        let mut state = self.state.lock().expect("account state mutex poisoned");
+        let account = current(&mut state, &listing.account, listing.epoch)?;
+        let mut session = account.session.clone();
+        session.workspace = Some(workspace.clone());
+        control.commit()?;
+        self.store.save(&session)?;
+        account.session = session;
+        self.publish(&state);
+        Ok(())
+    }
     fn prepare_token(
         &self,
         key: &AccountKey,
@@ -468,6 +553,7 @@ fn snapshot(state: &State) -> Snapshot {
             .values()
             .map(|account| AccountView {
                 identity: account.session.identity.clone(),
+                workspace: account.session.workspace.clone(),
                 state: account.state.clone(),
             })
             .collect(),
@@ -488,6 +574,9 @@ pub struct SignIn {
     browser: Option<BrowserAttempt>,
 }
 impl SignIn {
+    pub fn control(&self) -> Control {
+        self.control.clone()
+    }
     pub fn authorization_url(&self) -> &str {
         self.browser
             .as_ref()
@@ -526,6 +615,7 @@ impl SignIn {
         let session = StoredSession {
             identity: identity.clone(),
             client_id: self.registration.client_id.clone(),
+            workspace: None,
             tokens,
             refresh_state: RefreshState::Ready,
         };
@@ -537,7 +627,7 @@ impl SignIn {
         {
             return Err(Error::Superseded);
         }
-        self.control.check()?;
+        self.control.commit()?;
         service.store.save(&session)?;
         if let Some(old) = state
             .accounts

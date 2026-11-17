@@ -13,6 +13,12 @@ pub trait CredentialStore: Send + Sync {
         provider: Provider,
         client_id: &str,
     ) -> Result<ClientRegistration, Error>;
+    fn selected_registration(&self, provider: Provider) -> Result<ClientRegistration, Error> {
+        self.registration(provider, "")
+    }
+    fn import_development_registration(&self, _: Provider) -> Result<(), Error> {
+        Err(Error::Registration)
+    }
 }
 
 const SERVICE: &str = "jaywalk.accounts.v1";
@@ -43,6 +49,12 @@ impl OsCredentialStore {
         ))?
         .set_password(&encoded)
         .map_err(|_| Error::StoreUnavailable)
+    }
+    fn select_registration(&self, registration: &ClientRegistration) -> Result<(), Error> {
+        self.save_registration(registration)?;
+        entry(&format!("selected-client/{}", registration.provider.name()))?
+            .set_password(&registration.client_id)
+            .map_err(|_| Error::StoreUnavailable)
     }
     fn read(&self) -> Result<Vec<StoredSession>, Error> {
         let encoded = match entry(ACCOUNT)?.get_password() {
@@ -121,6 +133,56 @@ impl CredentialStore for OsCredentialStore {
         }
         Ok(registration)
     }
+    fn selected_registration(&self, provider: Provider) -> Result<ClientRegistration, Error> {
+        let id = entry(&format!("selected-client/{}", provider.name()))?
+            .get_password()
+            .map_err(|error| match error {
+                keyring::Error::NoEntry => Error::Registration,
+                _ => Error::StoreUnavailable,
+            })?;
+        self.registration(provider, &id)
+    }
+    fn import_development_registration(&self, provider: Provider) -> Result<(), Error> {
+        // Explicit developer action only. Copy app registration, never user tokens.
+        let account = format!("{}-development-registration", provider.name());
+        let source = keyring::Entry::new("jaywalk.hosting-auth-poc.v1", &account)
+            .map_err(|_| Error::StoreUnavailable)?;
+        let encoded = source.get_password().map_err(|error| match error {
+            keyring::Error::NoEntry => Error::Registration,
+            _ => Error::StoreUnavailable,
+        })?;
+        self.select_registration(&development_registration(provider, &encoded)?)
+    }
+}
+
+fn development_registration(
+    provider: Provider,
+    encoded: &str,
+) -> Result<ClientRegistration, Error> {
+    let value: serde_json::Value =
+        serde_json::from_str(encoded).map_err(|_| Error::StoreInvalid)?;
+    let secret_key = if provider == Provider::Github {
+        "client_secret"
+    } else {
+        "secret"
+    };
+    let registration = ClientRegistration {
+        provider,
+        client_id: value
+            .get("client_id")
+            .and_then(serde_json::Value::as_str)
+            .ok_or(Error::Registration)?
+            .into(),
+        secret: super::Secret::new(
+            value
+                .get(secret_key)
+                .and_then(serde_json::Value::as_str)
+                .ok_or(Error::Registration)?
+                .into(),
+        )?,
+    };
+    registration.validate()?;
+    Ok(registration)
 }
 
 #[cfg(test)]
@@ -141,5 +203,23 @@ mod tests {
                 .unwrap()
                 .is_empty()
         );
+    }
+    #[test]
+    fn development_import_extracts_only_registration_and_requires_a_secret() {
+        for (provider, secret_field) in [
+            (Provider::Github, "client_secret"),
+            (Provider::Bitbucket, "secret"),
+        ] {
+            let value = serde_json::json!({"client_id":"synthetic-client",secret_field:"synthetic-secret","access_token":"do-not-import","private_key":"do-not-import"});
+            let imported = development_registration(provider, &value.to_string()).unwrap();
+            assert_eq!(imported.provider, provider);
+            assert_eq!(imported.client_id, "synthetic-client");
+            let encoded = serde_json::to_string(&imported).unwrap();
+            assert!(!encoded.contains("do-not-import"));
+            assert!(matches!(
+                development_registration(provider, r#"{"client_id":"synthetic-client"}"#),
+                Err(Error::Registration)
+            ));
+        }
     }
 }

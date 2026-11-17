@@ -25,6 +25,9 @@ pub trait HostingProvider: Send + Sync {
         token: &Secret,
         control: &Control,
     ) -> Result<Identity, Error>;
+    fn workspaces(&self, _: &Secret, _: &Control) -> Result<Vec<super::Workspace>, Error> {
+        Err(Error::Unsupported)
+    }
 }
 pub struct HttpProvider {
     client: Client,
@@ -133,6 +136,15 @@ impl HostingProvider for HttpProvider {
         };
         identity.validate()?;
         Ok(identity)
+    }
+    fn workspaces(
+        &self,
+        token: &Secret,
+        control: &Control,
+    ) -> Result<Vec<super::Workspace>, Error> {
+        super::workspaces::discover(control, |url| {
+            response(self.client.get(url).bearer_auth(token.expose()), control)
+        })
     }
 }
 fn response(request: RequestBuilder, control: &Control) -> Result<Value, Error> {

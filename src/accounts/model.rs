@@ -3,7 +3,7 @@ use std::{
     fmt,
     sync::{
         Arc,
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicU8, Ordering},
     },
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
@@ -132,6 +132,8 @@ pub(crate) enum RefreshState {
 pub struct StoredSession {
     pub identity: Identity,
     pub client_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workspace: Option<super::Workspace>,
     pub tokens: Tokens,
     pub(crate) refresh_state: RefreshState,
 }
@@ -142,6 +144,9 @@ impl StoredSession {
             return Err(Error::Registration);
         }
         self.tokens.validate()?;
+        if let Some(workspace) = &self.workspace {
+            workspace.validate()?;
+        }
         Ok(())
     }
 }
@@ -165,6 +170,7 @@ pub enum Error {
     IdentityMismatch,
     NotConnected,
     Busy,
+    Unsupported,
     Superseded,
 }
 impl fmt::Display for Error {
@@ -198,6 +204,7 @@ impl fmt::Display for Error {
                 "The signed-in account differs from the account being reconnected"
             }
             Self::NotConnected => "This account is not connected",
+            Self::Unsupported => "This provider does not support this action",
             Self::Busy => "Another operation for this account or provider is already running",
             Self::Superseded => "This request belongs to an older account session",
         })
@@ -217,34 +224,52 @@ pub enum ConnectionState {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct AccountView {
     pub identity: Identity,
+    pub workspace: Option<super::Workspace>,
     pub state: ConnectionState,
 }
 
 /// Cancellation is local to an operation/waiter, never a process-wide switch.
 #[derive(Clone)]
 pub struct Control {
-    cancelled: Arc<AtomicBool>,
+    state: Arc<AtomicU8>,
     deadline: Instant,
 }
 impl Control {
     pub fn new(timeout: Duration) -> Self {
         Self {
-            cancelled: Arc::new(AtomicBool::new(false)),
+            state: Arc::new(AtomicU8::new(0)),
             deadline: Instant::now()
                 .checked_add(timeout)
                 .unwrap_or_else(Instant::now),
         }
     }
-    pub fn cancel(&self) {
-        self.cancelled.store(true, Ordering::Release);
+    /// Returns false once a credential write has crossed its commit point.
+    /// This touches only an atomic and is safe in UI callbacks/Drop handlers.
+    pub fn cancel(&self) -> bool {
+        match self
+            .state
+            .compare_exchange(0, 1, Ordering::AcqRel, Ordering::Acquire)
+        {
+            Ok(_) => true,
+            Err(state) => state == 1,
+        }
+    }
+    pub fn is_committing(&self) -> bool {
+        self.state.load(Ordering::Acquire) == 2
+    }
+    pub(crate) fn commit(&self) -> Result<(), Error> {
+        self.check()?;
+        self.state
+            .compare_exchange(0, 2, Ordering::AcqRel, Ordering::Acquire)
+            .map(|_| ())
+            .map_err(|_| Error::Cancelled)
     }
     pub fn check(&self) -> Result<(), Error> {
-        if self.cancelled.load(Ordering::Acquire) {
-            Err(Error::Cancelled)
-        } else if Instant::now() >= self.deadline {
-            Err(Error::TimedOut)
-        } else {
-            Ok(())
+        match self.state.load(Ordering::Acquire) {
+            1 => Err(Error::Cancelled),
+            2 => Ok(()),
+            _ if Instant::now() >= self.deadline => Err(Error::TimedOut),
+            _ => Ok(()),
         }
     }
     pub(crate) fn remaining(&self) -> Result<Duration, Error> {
