@@ -248,21 +248,42 @@ fn git_worktree_and_history_are_read_only_and_use_pinned_contents() {
 #[test]
 fn git_null_device_inputs_represent_additions_and_deletions() {
     let fixture = Fixture::new();
-    fixture.write("file.txt", "content\n");
-    for (left, right) in [
-        (
-            Path::new("/dev/null").to_path_buf(),
-            fixture.0.join("file.txt"),
-        ),
-        (
-            fixture.0.join("file.txt"),
-            Path::new("/dev/null").to_path_buf(),
-        ),
-    ] {
-        let comparison = ExternalContents::comparison(&left, &right).unwrap();
-        let (before, after) = content(&comparison, "file.txt");
-        assert_eq!(before + &after, "content\n");
+    use jaywalk::repository_file::ChangeKind;
+    for text in ["", "content\n"] {
+        fixture.write("file.txt", text);
+        for (left, right, expected) in [
+            (
+                Path::new("/dev/null").to_path_buf(),
+                fixture.0.join("file.txt"),
+                ChangeKind::Added,
+            ),
+            (
+                fixture.0.join("file.txt"),
+                Path::new("/dev/null").to_path_buf(),
+                ChangeKind::Removed,
+            ),
+        ] {
+            let comparison = ExternalContents::comparison(&left, &right).unwrap();
+            assert_eq!(comparison.files().len(), 1);
+            assert_eq!(comparison.files()[0].kind(), &expected);
+            let (before, after) = content(&comparison, "file.txt");
+            assert_eq!(before + &after, text);
+            let reverse = comparison.swapped().unwrap();
+            assert_eq!(
+                reverse.files()[0].kind(),
+                if expected == ChangeKind::Added {
+                    &ChangeKind::Removed
+                } else {
+                    &ChangeKind::Added
+                }
+            );
+            assert_eq!(comparison.overview().files.len(), 1);
+        }
     }
+    let absent =
+        ExternalContents::comparison(Path::new("/dev/null"), Path::new("/dev/null")).unwrap();
+    assert!(absent.files().is_empty());
+    assert_eq!(absent.catalog().entries().len(), 0);
 }
 
 #[cfg(target_os = "macos")]

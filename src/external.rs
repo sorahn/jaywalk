@@ -179,8 +179,13 @@ impl ExternalContents {
                 .and_then(|name| name.to_str())
                 .ok_or_else(|| format!("Non-UTF-8 file name: {}", right.display()))?
                 .to_owned();
-            contents.left.insert(name.clone(), left.clone());
-            contents.right.insert(name, right.clone());
+            // The null device denotes an absent entry, not an empty file.
+            if left != Path::new("/dev/null") {
+                contents.left.insert(name.clone(), left.clone());
+            }
+            if right != Path::new("/dev/null") {
+                contents.right.insert(name, right.clone());
+            }
         } else {
             return Err("Diff inputs must both be files or both be directories.".into());
         }
