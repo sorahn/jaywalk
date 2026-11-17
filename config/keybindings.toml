@@ -5,6 +5,15 @@ keymap = []
 # Replace a command's entire array to rebind it; [] removes its shortcuts.
 # Space-separated keystrokes form chords, e.g. "secondary-k secondary-s".
 [keybindings]
+# Account commands are available from the palette and start unbound.
+accounts = []
+connect_account = []
+reconnect_account = []
+disconnect_account = []
+choose_hosting_workspace = []
+import_hosting_setup = []
+check_account = []
+cancel_account_sign_in = []
 # Back/forward through visited views, independent of file/commit ordering.
 go_back = ["secondary-alt-left"]
 go_forward = ["secondary-alt-right"]

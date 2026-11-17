@@ -5,6 +5,15 @@ use serde::Deserialize;
 #[serde(rename_all = "snake_case")]
 pub enum CommandId {
     About,
+    Accounts,
+    ConnectAccount,
+    ReconnectAccount,
+    DisconnectAccount,
+    ChooseHostingWorkspace,
+    ImportHostingSetup,
+    CheckAccount,
+    CancelAccountSignIn,
+
     OpenRepository,
     OpenRecent,
     OpenInNewWindow,
@@ -114,10 +123,20 @@ impl CommandId {
         matches!(
             self,
             Self::OpenRepository
+                | Self::Accounts
+                | Self::ConnectAccount
+                | Self::ReconnectAccount
+                | Self::DisconnectAccount
+                | Self::ChooseHostingWorkspace
+                | Self::ImportHostingSetup
+                | Self::CheckAccount
+                | Self::CancelAccountSignIn
                 | Self::OpenRecent
                 | Self::OpenInNewWindow
                 | Self::ComparePaths
                 | Self::ShowWelcome
+                | Self::GoBack
+                | Self::GoForward
                 | Self::ClearRecent
                 | Self::ShowCommands
                 | Self::OpenSettings
@@ -135,6 +154,14 @@ impl CommandId {
     }
     pub const ALL: &[Self] = &[
         Self::About,
+        Self::Accounts,
+        Self::ConnectAccount,
+        Self::ReconnectAccount,
+        Self::DisconnectAccount,
+        Self::ChooseHostingWorkspace,
+        Self::ImportHostingSetup,
+        Self::CheckAccount,
+        Self::CancelAccountSignIn,
         Self::OpenRepository,
         Self::OpenRecent,
         Self::OpenInNewWindow,
@@ -272,6 +299,15 @@ impl CommandId {
             Self::MergedBranch => "Review merged branch changes",
             Self::MergeResult => "Review merge result",
             Self::About => "About Jaywalk",
+            Self::Accounts => "Accounts…",
+            Self::ConnectAccount => "Connect account…",
+            Self::ReconnectAccount => "Reconnect account…",
+            Self::DisconnectAccount => "Disconnect account…",
+            Self::ChooseHostingWorkspace => "Bitbucket: Choose workspace…",
+            Self::ImportHostingSetup => "Developer: Import hosting setup…",
+            Self::CheckAccount => "Check account connection…",
+            Self::CancelAccountSignIn => "Cancel account sign-in",
+
             Self::OpenRepository => "Open repository…",
             Self::OpenRecent => "Open recent repository…",
             Self::OpenInNewWindow => "Open in new window",

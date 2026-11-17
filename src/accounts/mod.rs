@@ -12,3 +12,8 @@ pub use model::*;
 pub use provider::{HostingProvider, HttpProvider};
 pub use service::{Service, SignIn, Snapshot};
 pub use store::{CredentialStore, OsCredentialStore};
+
+mod workspaces;
+pub use workspaces::{Workspace, WorkspaceListing};
+
+pub mod controller;

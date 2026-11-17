@@ -13,11 +13,12 @@ impl WelcomeState {
 }
 impl Viewer {
     pub(crate) fn is_welcome(&self) -> bool {
-        self.welcome.is_some()
+        self.page == pages::Page::Welcome
     }
     pub(crate) fn report_open_error(&mut self, error: String, cx: &mut Context<Self>) {
-        if let Some(welcome) = &mut self.welcome {
-            welcome.error = Some(error);
+        if self.page != pages::Page::Comparison {
+            self.welcome.get_or_insert_default().error = Some(error);
+            self.page = pages::Page::Welcome;
         } else {
             self.live.notice = Some(super::live::LiveNotice::Diagnostic(error));
         }
@@ -100,6 +101,16 @@ impl Viewer {
                 ),
             );
         }
+        start = start.child(
+            div().h_flex().child(
+                Button::new("welcome-accounts")
+                    .ghost()
+                    .label("Accounts…")
+                    .on_click(cx.listener(|viewer, _, window, cx| {
+                        viewer.execute_command(jaywalk::commands::CommandId::Accounts, window, cx)
+                    })),
+            ),
+        );
         start = start.child(
             div()
                 .mt_4()
@@ -219,6 +230,7 @@ impl Viewer {
         let focus = self.focus.clone();
         div()
             .id("welcome-workspace")
+            .debug_selector(|| "welcome-page".into())
             .size_full()
             .v_flex()
             .overflow_y_scroll()

@@ -211,7 +211,7 @@ impl Viewer {
     }
     fn close_palette(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.palette.open = None;
-        window.focus(&self.focus, cx);
+        self.focus_page(window, cx);
         cx.notify();
     }
     pub(super) fn open_selected_recent_in_new_window(
@@ -292,7 +292,8 @@ impl Viewer {
                 .iter()
                 .filter(|command| {
                     !matches!(command, jaywalk::commands::CommandId::OpenInNewWindow)
-                        && (!self.is_welcome() || command.available_without_repository())
+                        && (self.page == pages::Page::Comparison
+                            || command.available_without_repository())
                         && (self.supports_evolution()
                             || !matches!(
                                 command,

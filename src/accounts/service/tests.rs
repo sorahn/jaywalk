@@ -14,15 +14,23 @@ struct Store {
     fail_save: AtomicUsize,
     unavailable: AtomicBool,
     fail_delete: AtomicBool,
+    load_gate: Mutex<Option<Arc<Gate>>>,
+    save_gate: Mutex<Option<Arc<Gate>>>,
 }
 impl CredentialStore for Store {
     fn load(&self) -> Result<Vec<StoredSession>, Error> {
+        if let Some(gate) = self.load_gate.lock().unwrap().clone() {
+            gate.enter();
+        }
         if self.unavailable.load(Ordering::SeqCst) {
             return Err(Error::StoreUnavailable);
         }
         Ok(self.sessions.lock().unwrap().values().cloned().collect())
     }
     fn save(&self, session: &StoredSession) -> Result<(), Error> {
+        if let Some(gate) = self.save_gate.lock().unwrap().clone() {
+            gate.enter();
+        }
         let count = self.saves.fetch_add(1, Ordering::SeqCst) + 1;
         if self.fail_save.load(Ordering::SeqCst) == count {
             return Err(Error::StoreUnavailable);
@@ -179,6 +187,7 @@ fn session(expired: bool) -> StoredSession {
     StoredSession {
         identity: identity(),
         client_id: "synthetic-client".into(),
+        workspace: None,
         tokens: tokens(expired),
         refresh_state: RefreshState::Ready,
     }
@@ -581,4 +590,131 @@ fn an_expired_sign_in_deadline_does_not_publish_or_persist_an_attempt() {
     ));
     assert!(view(&service).signing_in.is_empty());
     assert_eq!(store.saves.load(Ordering::SeqCst), 0);
+}
+
+#[test]
+fn ui_cancellation_does_not_wait_for_delayed_credential_restore() {
+    let (old, store, provider) = fixture(false, None, None);
+    drop(old);
+    let gate = Arc::new(Gate::default());
+    *store.load_gate.lock().unwrap() = Some(gate.clone());
+    let service = Service::new(store.clone(), provider.clone());
+    let cancelled = control();
+    let worker_control = cancelled.clone();
+    let worker = thread::spawn(move || {
+        service.begin_sign_in_controlled(registration(Provider::Github), None, worker_control)
+    });
+    gate.entered();
+    let (sent, received) = std::sync::mpsc::channel();
+    thread::spawn(move || {
+        sent.send(cancelled.cancel()).unwrap();
+    });
+    assert!(received.recv_timeout(Duration::from_secs(1)).unwrap());
+    gate.release();
+    assert!(matches!(worker.join().unwrap(), Err(Error::Cancelled)));
+    assert_eq!(provider.identities.load(Ordering::SeqCst), 0);
+    assert_eq!(store.saves.load(Ordering::SeqCst), 0);
+}
+#[test]
+fn cancellation_reports_finishing_after_the_credential_commit_point() {
+    let (service, store, _) = fixture(false, None, None);
+    let gate = Arc::new(Gate::default());
+    *store.save_gate.lock().unwrap() = Some(gate.clone());
+    let (attempt, address) = attempt(&service);
+    let control = attempt.control();
+    callback(&attempt, address, "code=synthetic");
+    let worker = thread::spawn(move || attempt.complete());
+    gate.entered();
+    assert!(!control.cancel());
+    assert!(control.is_committing());
+    gate.release();
+    assert!(worker.join().unwrap().is_ok());
+    assert_eq!(view(&service).accounts[0].state, ConnectionState::Connected);
+}
+
+#[test]
+fn workspace_selection_is_durable_preserves_tokens_and_rejects_stale_listings() {
+    let (_, store, provider) = fixture(false, None, None);
+    let mut saved = session(false);
+    saved.identity.key.provider = Provider::Bitbucket;
+    saved.identity.key.subject = "{synthetic-account}".into();
+    let account_key = saved.identity.key.clone();
+    store.sessions.lock().unwrap().clear();
+    store
+        .sessions
+        .lock()
+        .unwrap()
+        .insert(account_key.clone(), saved.clone());
+    *provider.identity_result.lock().unwrap() = Ok(saved.identity.clone());
+    // A new process restores an account and chooses from its authenticated listing.
+    let service = Service::new(store.clone(), provider.clone());
+    service.restore().unwrap();
+    let epoch = service.state.lock().unwrap().accounts[&account_key].epoch;
+    let workspace = super::super::Workspace {
+        uuid: "{synthetic-workspace}".into(),
+        slug: "example-team".into(),
+    };
+    let listing = super::super::WorkspaceListing {
+        account: account_key.clone(),
+        workspaces: vec![workspace.clone()],
+        epoch,
+    };
+    assert_eq!(
+        service.select_workspace(&listing, "unknown", &control()),
+        Err(Error::InvalidResponse)
+    );
+    service
+        .select_workspace(&listing, &workspace.uuid, &control())
+        .unwrap();
+    let persisted = store.sessions.lock().unwrap()[&account_key].clone();
+    assert_eq!(persisted.workspace, Some(workspace.clone()));
+    assert_eq!(
+        persisted.tokens.access.expose(),
+        saved.tokens.access.expose()
+    );
+    assert_eq!(
+        persisted.tokens.refresh.as_ref().unwrap().expose(),
+        saved.tokens.refresh.as_ref().unwrap().expose()
+    );
+    // Force a token rotation after selection; it must retain account preferences.
+    service
+        .state
+        .lock()
+        .unwrap()
+        .accounts
+        .get_mut(&account_key)
+        .unwrap()
+        .session
+        .tokens
+        .expires_at = Some(1);
+    service.access_token(&account_key, &control()).unwrap();
+    assert_eq!(
+        store.sessions.lock().unwrap()[&account_key].workspace,
+        Some(workspace)
+    );
+    service.disconnect(&account_key).unwrap();
+    assert_eq!(
+        service.select_workspace(&listing, &listing.workspaces[0].uuid, &control()),
+        Err(Error::Superseded)
+    );
+}
+
+#[test]
+fn workspace_save_failure_keeps_previous_selection() {
+    let (service, store, _) = fixture(false, None, None);
+    let listing = super::super::WorkspaceListing {
+        account: key(),
+        workspaces: vec![super::super::Workspace {
+            uuid: "{team}".into(),
+            slug: "team".into(),
+        }],
+        epoch: service.state.lock().unwrap().accounts[&key()].epoch,
+    };
+    store.fail_save.store(1, Ordering::SeqCst);
+    assert_eq!(
+        service.select_workspace(&listing, "{team}", &control()),
+        Err(Error::StoreUnavailable)
+    );
+    assert!(view(&service).accounts[0].workspace.is_none());
+    assert!(store.sessions.lock().unwrap()[&key()].workspace.is_none());
 }

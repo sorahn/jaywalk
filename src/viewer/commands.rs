@@ -12,6 +12,16 @@ pub(crate) fn init(arguments: &Arguments, settings: &Settings, cx: &mut App) -> 
     install_bindings(settings, cx)?;
     let arguments = arguments.clone();
     cx.on_action(move |action: &ExecuteCommand, cx| match action.command {
+        CommandId::Accounts
+        | CommandId::ConnectAccount
+        | CommandId::ReconnectAccount
+        | CommandId::DisconnectAccount
+        | CommandId::ChooseHostingWorkspace
+        | CommandId::ImportHostingSetup
+        | CommandId::CheckAccount => {
+            crate::show_application_page(arguments.clone(), action.command, cx)
+        }
+        CommandId::CancelAccountSignIn => crate::account_ui::cancel_sign_in(cx),
         CommandId::About => cx.defer(|cx| {
             // A menu action may run inside the active window's update. Reusing
             // that window must wait until it is back in the app's window table.
@@ -22,7 +32,9 @@ pub(crate) fn init(arguments: &Arguments, settings: &Settings, cx: &mut App) -> 
         CommandId::OpenRepository => crate::choose_repository(arguments.clone(), None, cx),
         CommandId::OpenRecent => crate::show_recent_repository_picker(arguments.clone(), cx),
         CommandId::ComparePaths => crate::choose_comparison(arguments.clone(), None, cx),
-        CommandId::ShowWelcome => crate::open_arguments(arguments.for_welcome(), None, false, cx),
+        CommandId::ShowWelcome => {
+            crate::show_application_page(arguments.clone(), action.command, cx)
+        }
         CommandId::ClearRecent => crate::recents::clear(cx),
         CommandId::Quit => cx.quit(),
         CommandId::Hide => cx.hide(),
@@ -114,7 +126,15 @@ fn configured_bindings(settings: &Settings, cx: &App) -> Vec<KeyBinding> {
     for (command, bindings) in &settings.keybindings {
         let context = match command {
             CommandId::OpenInNewWindow => Some("JaywalkRecent"),
-            CommandId::About
+            CommandId::Accounts
+            | CommandId::ConnectAccount
+            | CommandId::ReconnectAccount
+            | CommandId::DisconnectAccount
+            | CommandId::ChooseHostingWorkspace
+            | CommandId::ImportHostingSetup
+            | CommandId::CheckAccount
+            | CommandId::CancelAccountSignIn
+            | CommandId::About
             | CommandId::OpenRepository
             | CommandId::OpenRecent
             | CommandId::ComparePaths
@@ -169,13 +189,21 @@ impl Viewer {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.is_welcome() && !command.available_without_repository() {
+        if self.page != pages::Page::Comparison && !command.available_without_repository() {
             return;
         }
         match command {
             CommandId::RevealComparisonLeft | CommandId::RevealComparisonRight => {
                 self.reveal_pair_endpoint(command == CommandId::RevealComparisonRight, window, cx)
             }
+            CommandId::Accounts
+            | CommandId::ConnectAccount
+            | CommandId::ReconnectAccount
+            | CommandId::DisconnectAccount
+            | CommandId::ChooseHostingWorkspace
+            | CommandId::ImportHostingSetup
+            | CommandId::CheckAccount => self.show_accounts(command, window, cx),
+            CommandId::CancelAccountSignIn => crate::account_ui::cancel_sign_in(cx),
             CommandId::SwapComparison => self.swap_comparison(window, cx),
             CommandId::CompareRevision | CommandId::DiffFromBranchPoint => {
                 if let Some(target) = self.current_revision_target() {
@@ -256,12 +284,7 @@ impl Viewer {
             CommandId::ComparePaths => {
                 crate::choose_comparison(self.arguments.clone(), Some(cx.entity().downgrade()), cx)
             }
-            CommandId::ShowWelcome => crate::open_arguments(
-                self.arguments.for_welcome(),
-                Some(cx.entity().downgrade()),
-                false,
-                cx,
-            ),
+            CommandId::ShowWelcome => self.show_page(pages::Page::Welcome, window, cx),
             CommandId::ClearRecent => crate::recents::clear(cx),
             CommandId::GoBack => self.navigate_view(false, window, cx),
             CommandId::GoForward => self.navigate_view(true, window, cx),

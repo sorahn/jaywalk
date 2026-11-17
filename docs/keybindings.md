@@ -114,7 +114,9 @@ viewer, including for a different repository; disabled (the default) opens a new
 Reopening the same comparison in the reused window preserves its selection. With no viewer window, the command opens a welcome window first.
 The picker always offers Open repository below matching repositories as a fallback. Welcome, Compare files
 or folders, and Clear recent repositories are also remappable commands; they
-start unbound. Repository-only commands are unavailable in welcome mode.
+start unbound. Repository-only commands are unavailable on Welcome and Accounts pages.
+Back/Forward navigates these pages as well as comparisons; Welcome and Accounts
+open in the current main window without replacing its retained comparison.
 
 ## Key notation
 
@@ -162,6 +164,14 @@ layout/reset/remote-management command merely to fill the table.
 
 | Setting | Default | Command |
 | --- | --- | --- |
+| `keybindings.accounts` | `[]` | Accounts… |
+| `keybindings.connect_account` | `[]` | Connect account… |
+| `keybindings.reconnect_account` | `[]` | Reconnect account… |
+| `keybindings.disconnect_account` | `[]` | Disconnect account… (asks for confirmation) |
+| `keybindings.choose_hosting_workspace` | `[]` | Bitbucket: Choose workspace… |
+| `keybindings.check_account` | `[]` | Check account connection… |
+| `keybindings.cancel_account_sign_in` | `[]` | Cancel account sign-in |
+| `keybindings.import_hosting_setup` | `[]` | Developer: Import hosting setup… |
 | `keybindings.about` | `[]` | About Jaywalk |
 | `keybindings.open_repository` | `["secondary-o"]` | Open repository… |
 | `keybindings.open_recent` | `["ctrl-r"]` | Open recent repository |

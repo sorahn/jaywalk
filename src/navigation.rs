@@ -47,6 +47,14 @@ impl<K: Eq, V> History<K, V> {
         self.cursor = Some(self.entries.len() - 1);
         self.trim();
     }
+    /// Resolve a retained pending destination in place, preserving Forward.
+    pub fn replace_current(&mut self, key: K, value: V) {
+        if let Some(index) = self.cursor {
+            self.entries[index] = Entry { key, value };
+        } else {
+            self.observe(key, value);
+        }
+    }
     pub fn set_limit(&mut self, limit: usize) {
         self.limit = limit.max(1);
         self.trim();
@@ -143,5 +151,17 @@ mod tests {
             history.navigate(false, VisitState::Restoring).unwrap().key,
             "overview"
         );
+    }
+    #[test]
+    fn resolving_a_pending_destination_keeps_its_forward_path() {
+        let mut history = History::new(10);
+        history.observe("pending comparison", 0);
+        history.observe("accounts", 1);
+        history.step(false).unwrap();
+        history.replace_current("loaded comparison", 2);
+        assert_eq!(history.current().unwrap().key, "loaded comparison");
+        assert_eq!(history.step(true).unwrap().key, "accounts");
+        assert_eq!(history.step(false).unwrap().value, 2);
+        assert!(!history.can_back());
     }
 }
