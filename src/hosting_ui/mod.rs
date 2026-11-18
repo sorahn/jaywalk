@@ -1,6 +1,8 @@
 //! Central, read-only PR picker. Typing filters snapshots; only explicit scope,
 //! refresh and lookup actions start I/O. Main-window ownership cancels waits.
+mod filters;
 mod recent;
+use filters::Step;
 use gpui::component::{
     Disableable, Selectable, StyledExt,
     button::{Button, ButtonVariants},
@@ -150,6 +152,9 @@ impl DiscoveryRequest {
 pub(crate) struct PullRequestsPage {
     picking: bool,
     input_loading: bool,
+    step: Step,
+    filter_stack: Vec<Step>,
+    filter_input: Entity<CommandState>,
     input: Entity<CommandState>,
     scroll: ScrollHandle,
     root: Option<PathBuf>,
@@ -198,6 +203,9 @@ impl PullRequestsPage {
         let mut page = Self {
             picking: false,
             input_loading: false,
+            step: Step::Results,
+            filter_stack: Vec::new(),
+            filter_input: cx.new(|cx| CommandState::new(window, cx)),
             input,
             scroll: ScrollHandle::new(),
             root,
@@ -422,7 +430,10 @@ impl PullRequestsPage {
                 } else {
                     results.push(result);
                 }
-                if matches!(scope, Scope::Direct(_)) && !fetched.batch.items.is_empty() {
+                if matches!(scope, Scope::Direct(_))
+                    && !fetched.batch.items.is_empty()
+                    && (!self.picking || self.step == Step::Results)
+                {
                     self.input
                         .update(cx, |state, cx| state.set_query("", window, cx));
                     self.select(account, fetched.batch.items[0].clone(), window, cx);
@@ -670,8 +681,10 @@ impl PullRequestsPage {
             Some(Scope::Direct(locator)) => locator.label(),
             None => "Recent PRs".to_owned(),
         };
+        let account = self.account_label(cx);
         let summary = format!(
-            "{scope} · {count} matches{}{}",
+            "{scope} · {account} · {count} {} · Tab: filters{}{}",
+            if count == 1 { "match" } else { "matches" },
             if cached { " · cached" } else { "" },
             if partial { " · partial results" } else { "" }
         );
@@ -776,38 +789,62 @@ impl Render for PullRequestsPage {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.purge_retired(cx);
         if self.picking {
-            let busy = self.operation.is_some();
+            let busy = self.operation.is_some() && self.step == Step::Results;
             if self.input_loading != busy {
                 self.input_loading = busy;
                 self.input
                     .update(cx, |input, cx| input.set_loading(busy, window, cx));
             }
-            let lines = self.picker_context(self.choices(cx).len(), cx);
+            let lines = if self.step == Step::Results {
+                self.picker_context(self.choices(cx).len(), cx)
+            } else {
+                self.filter_context(cx)
+            };
             let maximum = (f32::from(window.bounds().size.height) - 200.).clamp(80., 360.);
-            let command = self
-                .command(cx)
-                .bordered(false)
-                .max_h(px(maximum))
-                .description(move |_, _, cx| {
-                    let muted = gpui::component::Theme::global(cx).muted_foreground;
-                    div()
-                        .debug_selector(|| "pr-picker-context".into())
-                        .v_flex()
-                        .flex_shrink_0()
-                        .px_3()
-                        .py_2()
-                        .text_sm()
-                        .text_color(muted)
-                        .children(
-                            lines
-                                .iter()
-                                .map(|line| div().truncate().child(line.clone())),
-                        )
-                });
+            let command = if self.step == Step::Results {
+                self.command(cx)
+            } else {
+                self.filter_command(cx)
+            };
+            let command =
+                command
+                    .bordered(false)
+                    .max_h(px(maximum))
+                    .description(move |_, _, cx| {
+                        let muted = gpui::component::Theme::global(cx).muted_foreground;
+                        div()
+                            .debug_selector(|| "pr-picker-context".into())
+                            .v_flex()
+                            .flex_shrink_0()
+                            .px_3()
+                            .py_2()
+                            .text_sm()
+                            .text_color(muted)
+                            .children(
+                                lines
+                                    .iter()
+                                    .map(|line| div().truncate().child(line.clone())),
+                            )
+                    });
             return div()
                 .w_full()
                 .key_context("JaywalkPullRequests")
                 .debug_selector(|| "pr-palette-picker".into())
+                .capture_action(cx.listener(
+                    |page, _: &gpui::base::input::IndentInline, window, cx| {
+                        page.toggle_filters(window, cx)
+                    },
+                ))
+                .capture_action(
+                    cx.listener(|page, _: &gpui::base::input::Escape, window, cx| {
+                        page.filter_escape(window, cx)
+                    }),
+                )
+                .capture_action(
+                    cx.listener(|page, _: &gpui::base::actions::Cancel, window, cx| {
+                        page.filter_escape(window, cx)
+                    }),
+                )
                 .on_action(cx.listener(|page, _: &Cancel, _, cx| page.cancel(cx)))
                 .child(command)
                 .into_any_element();

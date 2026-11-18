@@ -356,3 +356,116 @@ fn metadata_remains_reachable_by_scrolling_in_a_short_window(
         "the metadata card must be reachable inside the viewport"
     );
 }
+
+#[gpui_test::test]
+fn nested_filters_preserve_search_and_escape_restores_each_step(
+    test_cx: &mut gpui_test::TestAppContext,
+) {
+    use super::filters::Step;
+    let (fixture, adapter, _) = setup(test_cx);
+    let mut page = None;
+    let (_, cx) = test_cx.add_window_view(|window, app| {
+        let view = app.new(|cx| {
+            PullRequestsPage::new(None, fixture.path().join("recent.json"), vec![], window, cx)
+        });
+        view.update(app, |page, cx| {
+            page.as_picker();
+            page.focus(window, cx);
+        });
+        page = Some(view.clone());
+        gpui::component::Root::new(view, window, app)
+    });
+    let page = page.unwrap();
+    draw(cx);
+    cx.simulate_input("momentum");
+    cx.simulate_keystrokes("tab");
+    draw(cx);
+    assert!(cx.update(|_, app| page.read(app).step == Step::Filters));
+    cx.simulate_input("scope");
+    cx.simulate_keystrokes("enter");
+    draw(cx);
+    assert!(cx.update(|_, app| page.read(app).step == Step::Scope));
+    cx.simulate_input("review");
+    cx.simulate_keystrokes("enter");
+    draw(cx);
+    assert!(cx.update(|_, app| page.read(app).scope == Some(Scope::ReviewRequested)));
+    assert!(cx.update(|_, app| page.read(app).step == Step::Results));
+    assert_eq!(
+        cx.update(|_, app| page.read(app).input.read(app).query(app).to_string()),
+        "momentum"
+    );
+    assert_eq!(adapter.calls.load(Ordering::SeqCst), 4);
+
+    cx.simulate_keystrokes("tab");
+    draw(cx);
+    cx.simulate_input("account");
+    cx.simulate_keystrokes("enter");
+    draw(cx);
+    cx.simulate_input("person2");
+    cx.simulate_keystrokes("enter");
+    draw(cx);
+    assert!(cx.update(|_, app| {
+        page.read(app)
+            .account
+            .as_ref()
+            .is_some_and(|key| key.subject == "2")
+    }));
+    assert_eq!(cx.update(|_, app| page.read(app).choices(app).len()), 1);
+    assert_eq!(
+        cx.update(|_, app| page.read(app).input.read(app).query(app).to_string()),
+        "momentum"
+    );
+
+    cx.simulate_keystrokes("tab");
+    draw(cx);
+    cx.simulate_input("scope");
+    cx.simulate_keystrokes("enter");
+    draw(cx);
+    cx.simulate_input("current");
+    cx.simulate_keystrokes("enter");
+    draw(cx);
+    assert!(cx.update(|_, app| page.read(app).step == Step::Repository));
+    cx.simulate_input("unmatched");
+    cx.simulate_keystrokes("escape");
+    draw(cx);
+    assert!(cx.update(|_, app| page.read(app).step == Step::Scope));
+    cx.simulate_keystrokes("escape");
+    draw(cx);
+    assert!(cx.update(|_, app| page.read(app).step == Step::Filters));
+    cx.simulate_keystrokes("escape");
+    draw(cx);
+    assert!(cx.update(|_, app| page.read(app).step == Step::Results));
+    assert_eq!(
+        cx.update(|_, app| page.read(app).input.read(app).query(app).to_string()),
+        "momentum"
+    );
+    cx.update(|_, app| {
+        page.update(app, |page, _| {
+            page.remotes = vec![jaywalk::hosting::RemoteRepository {
+                provider: Provider::Github,
+                repository: RepositoryName::parse("team/widgets").unwrap(),
+            }];
+        })
+    });
+    cx.simulate_keystrokes("tab");
+    draw(cx);
+    cx.simulate_input("repository");
+    cx.simulate_keystrokes("enter");
+    draw(cx);
+    cx.simulate_input("widgets");
+    cx.simulate_keystrokes("enter");
+    draw(cx);
+    assert!(cx.update(|_, app| matches!(&page.read(app).scope, Some(Scope::Repository(Provider::Github, repo)) if repo.to_string() == "team/widgets")));
+    let serial = cx.update(|_, app| page.read(app).serial);
+    cx.simulate_keystrokes("tab");
+    draw(cx);
+    cx.simulate_input("refresh");
+    cx.simulate_keystrokes("enter");
+    draw(cx);
+    assert!(cx.update(|_, app| page.read(app).serial > serial));
+    assert!(cx.update(|_, app| page.read(app).step == Step::Results));
+    assert_eq!(
+        cx.update(|_, app| page.read(app).input.read(app).query(app).to_string()),
+        "momentum"
+    );
+}

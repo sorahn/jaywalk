@@ -364,9 +364,15 @@ current view stays in place until you pick a PR; Escape or clicking outside
 cancels without navigating. Search comes first, followed by two passive context
 and status lines and the fuzzy results. The search field shows loading activity;
 there are no filter or account-management buttons in this palette step.
+Press **Tab** to change scope, account or current-checkout repository, or refresh.
+Each choice opens a searchable keyboard picker; selecting a value returns to PR
+results with your original search intact. **Escape** backs out one filter step,
+including when that submenu has a search query. **Tab** also returns directly to
+PR results from any filter step. Scopes include My open PRs, Review requested,
+Recent PRs and Current repository; account selection includes All accounts.
 Selecting a PR opens its metadata in the central PR page. **Browse pull requests…**
 opens that retained page directly for browsing. The picker starts with **My open
-PRs** across connected accounts. Use the full browser for scope and account filters.
+PRs** across connected accounts. The full browser also exposes scope and account filters.
 **Review requests** uses GitHub's requested-review filter;
 Bitbucket accounts explicitly report that this scope is unsupported. Current
 repository remotes provide optional repository filters, without changing the
