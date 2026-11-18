@@ -78,6 +78,14 @@ impl Viewer {
         if first == commit {
             return;
         }
+        if session.home.hosted().is_some() {
+            self.live.notice = Some(live::LiveNotice::Diagnostic(
+                "Hosted reviews currently support the published comparison and individual commits"
+                    .into(),
+            ));
+            cx.notify();
+            return;
+        }
         let branch = session.review.aggregate.as_ref().clone();
         let second = commit.to_owned();
         let order = self.settings.comparison.pair_order;

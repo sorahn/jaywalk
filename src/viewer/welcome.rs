@@ -29,6 +29,7 @@ impl Viewer {
             .then(|| {
                 self.repository
                     .ready()
+                    .filter(|session| session.home.hosted().is_none())
                     .map(|session| session.home.root().to_path_buf())
             })
             .flatten()

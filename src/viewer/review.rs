@@ -4,6 +4,7 @@ use jaywalk::review_requests::{ComparisonRequest, FileRequest, RequestClock};
 #[derive(Default)]
 pub(super) struct ReviewRequests {
     clock: RequestClock,
+    pub(super) hosted: Option<jaywalk::accounts::Control>,
     pub(super) comparison_task: Option<Task<()>>,
     pub(super) file_task: Option<Task<()>>,
     observer: Option<Subscription>,
@@ -16,6 +17,9 @@ impl ReviewRequests {
         self.clock.file()
     }
     pub(super) fn invalidate_comparison(&mut self) {
+        if let Some(control) = self.hosted.take() {
+            control.cancel();
+        }
         self.clock.invalidate_comparison();
         self.comparison_task = None;
         self.file_task = None;
@@ -46,6 +50,14 @@ impl Viewer {
         if !self.is_welcome() {
             self.sync_overview(window, cx);
             self.sync_navigation(cx);
+        }
+    }
+}
+
+impl Drop for ReviewRequests {
+    fn drop(&mut self) {
+        if let Some(control) = &self.hosted {
+            control.cancel();
         }
     }
 }

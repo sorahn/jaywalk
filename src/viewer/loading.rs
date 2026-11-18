@@ -325,9 +325,12 @@ impl Viewer {
         }
         self.reveal_after_layout = false;
         let tab_size = self.settings.editor.tab_size;
+        let algorithm = self.settings.diff.algorithm;
         self.requests.file_task = Some(cx.spawn_in(window, async move |this, cx| {
             let result = cx
-                .background_spawn(async move { PreparedFile::load(&comparison, &file, tab_size) })
+                .background_spawn(async move {
+                    PreparedFile::load(&comparison, &file, tab_size, algorithm)
+                })
                 .await;
             let _ = this.update_in(cx, |viewer, window, cx| {
                 viewer.complete_file_load(request, result, window, cx);
@@ -474,7 +477,11 @@ impl Viewer {
     }
 
     pub(super) fn refresh(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        self.refresh_live(window, cx);
+        if self.comparison().is_some_and(|c| c.hosted().is_some()) {
+            self.update_hosted_review(window, cx);
+        } else {
+            self.refresh_live(window, cx);
+        }
     }
     fn complete_file_load(
         &mut self,
@@ -642,9 +649,9 @@ mod completion_tests {
             let first_result = if failure {
                 Err("late file failure".into())
             } else {
-                PreparedFile::load(&source, &first, 4)
+                PreparedFile::load(&source, &first, 4, Default::default())
             };
-            let second_result = PreparedFile::load(&source, &second, 4);
+            let second_result = PreparedFile::load(&source, &second, 4, Default::default());
             cx.update(|window, app| {
                 viewer.update(app, |viewer, cx| {
                     viewer.settings.ui.loading_delay_ms = 0;
@@ -697,7 +704,7 @@ mod completion_tests {
                 reason: FileLoad::Select,
             }
         });
-        let result = PreparedFile::load(&old.source, &old.file, 4);
+        let result = PreparedFile::load(&old.source, &old.file, 4, Default::default());
         cx.update(|window, app| {
             viewer.update(app, |viewer, cx| {
                 let mut args = viewer.arguments.clone();

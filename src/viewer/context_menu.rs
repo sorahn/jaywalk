@@ -128,7 +128,9 @@ impl Viewer {
                 .arguments
                 .diff
                 .is_none()
-                .then(|| comparison.root().join(&path)),
+                .then_some(comparison)
+                .filter(|c| c.hosted().is_none())
+                .map(|comparison| comparison.root().join(&path)),
             path,
             directory,
         })
@@ -141,7 +143,7 @@ impl Viewer {
                 selected.source.root(),
                 selected.file.path().to_owned(),
                 false,
-                self.arguments.diff.is_none(),
+                self.arguments.diff.is_none() && selected.source.hosted().is_none(),
             ));
         }
         self.file_target(self.browser.reading.clone()?, false)

@@ -164,8 +164,10 @@ layout/reset/remote-management command merely to fill the table.
 
 | Setting | Default | Command |
 | --- | --- | --- |
-| `keybindings.open_pull_request` | `[]` | Open pull request… (pick a PR within the command palette) |
+| `keybindings.open_pull_request` | `[]` | Open pull request… (pick a PR within the command palette, then open its published diff in the viewer) |
 | `keybindings.accounts` | `[]` | Accounts… |
+| `keybindings.update_published_review` | `[]` | Explicitly load the latest published PR comparison; the current snapshot stays visible on failure. |
+| `keybindings.open_review_in_browser` | `[]` | Open the retained hosted review in its provider. |
 | `keybindings.browse_pull_requests` | `[]` | Browse pull requests… (retained central page) |
 | `keybindings.connect_account` | `[]` | Connect account… |
 | `keybindings.reconnect_account` | `[]` | Reconnect account… |

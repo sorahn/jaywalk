@@ -1,3 +1,4 @@
+mod hosted;
 use gpui::assets::IconName;
 use gpui::component::button::{Button, ButtonVariants};
 use gpui::component::diff::{Diff, DiffFile, DiffMode, DiffState};
@@ -259,6 +260,12 @@ impl Viewer {
                 ..
             })
         )
+    }
+
+    fn is_hosted_review(&self) -> bool {
+        self.repository
+            .ready()
+            .is_some_and(|s| s.home.hosted().is_some())
     }
 
     fn supports_evolution(&self) -> bool {

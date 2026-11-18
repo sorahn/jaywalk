@@ -243,9 +243,14 @@ impl Viewer {
         {
             self.save_layout(cx);
         }
-        if previous.editor.tab_size != self.settings.editor.tab_size && self.selected_file.is_some()
+        if (previous.editor.tab_size != self.settings.editor.tab_size
+            || previous.diff.algorithm != self.settings.diff.algorithm)
+            && self.selected_file.is_some()
         {
             self.reload_open_file(window, cx);
+        }
+        if previous.diff.algorithm != self.settings.diff.algorithm {
+            self.invalidate_overview();
         }
         self.apply_overview_settings(&previous, cx);
         self.save_layout(cx);

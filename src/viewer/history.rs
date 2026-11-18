@@ -135,6 +135,7 @@ fn history_row(
                 target.clone(),
                 menu_owner.clone(),
                 viewer.supports_evolution(),
+                viewer.is_hosted_review(),
             )
         })
         .into_any_element()

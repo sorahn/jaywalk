@@ -12,7 +12,11 @@ impl Viewer {
             .compact()
             .icon(IconName::Search)
             .tooltip_with_action(
-                "Find any repository file",
+                if self.comparison().is_some_and(|c| c.hosted().is_some()) {
+                    "Find changed PR file"
+                } else {
+                    "Find any repository file"
+                },
                 &commands::ExecuteCommand {
                     command: jaywalk::commands::CommandId::FindFile,
                 },
@@ -25,7 +29,9 @@ impl Viewer {
 
     pub(super) fn render_review_source(&self, caption: AnyElement) -> AnyElement {
         use jaywalk::commands::CommandId;
-        let repository = self.arguments.diff.is_none() || self.arguments.difftool.is_some();
+        let hosted = self.comparison().is_some_and(|c| c.hosted().is_some());
+        let repository =
+            !hosted && (self.arguments.diff.is_none() || self.arguments.difftool.is_some());
         let aggregate = matches!(
             self.repository.ready().map(|session| &session.scope),
             Some(ComparisonScope::Aggregate)
@@ -58,10 +64,13 @@ impl Viewer {
             .tooltip("Choose comparison: all changes, current work, branch or base")
             .disabled(self.repository.ready().is_none())
             .dropdown_menu(move |menu, _, _| {
-                let mut entries = vec![
-                    (CommandId::AllChanges, aggregate),
-                    (CommandId::OpenedComparison, false),
-                ];
+                let mut entries = vec![(CommandId::AllChanges, aggregate)];
+                if !hosted {
+                    entries.push((CommandId::OpenedComparison, false));
+                } else {
+                    entries.push((CommandId::UpdatePublishedReview, false));
+                    entries.push((CommandId::OpenReviewInBrowser, false));
+                }
                 if repository {
                     entries.extend([
                         (CommandId::CurrentWork, false),
@@ -133,7 +142,13 @@ impl Viewer {
                     .icon(crate::appearance::active_icon(icon, active, cx))
                     .toggled(active)
                     .tooltip_with_action(
-                        command.label(),
+                        if command == CommandId::Refresh
+                            && self.comparison().is_some_and(|c| c.hosted().is_some())
+                        {
+                            "Update published PR comparison"
+                        } else {
+                            command.label()
+                        },
                         &commands::ExecuteCommand { command },
                         None,
                     )

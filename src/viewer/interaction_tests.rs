@@ -1603,9 +1603,10 @@ fn pull_request_palette_preserves_the_view_until_selection(test_cx: &mut TestApp
     assert!(cx.update(|_, app| matches!(viewer.read(app).page, super::pages::Page::Comparison)));
     cx.simulate_keystrokes("enter");
     draw(cx);
-    assert!(cx.update(|_, app| matches!(viewer.read(app).page, super::pages::Page::PullRequests)));
+    assert!(cx.update(|_, app| matches!(viewer.read(app).page, super::pages::Page::Comparison)));
     assert!(cx.update(|_, app| viewer.read(app).palette_test_state(app).0.is_none()));
-    assert!(cx.debug_bounds("pr-details").is_some());
+    assert!(cx.update(|_, app| viewer.read(app).comparison().unwrap().hosted().is_some()));
+    assert!(cx.debug_bounds("pr-details").is_none());
     cx.update(|window, app| {
         viewer.update(app, |viewer, cx| {
             viewer.navigate_view(false, window, cx);

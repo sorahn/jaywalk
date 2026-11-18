@@ -18,7 +18,7 @@ pub(super) struct RetainedSelection {
 }
 impl Viewer {
     pub(crate) fn is_repository_free(&self) -> bool {
-        self.arguments.welcome
+        self.arguments.welcome && self.repository.ready().is_none()
     }
     pub(crate) fn show_retained_comparison(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.show_page(Page::Comparison, window, cx);
@@ -43,13 +43,13 @@ impl Viewer {
                 return None;
             }
         };
-        let mut candidates = cx.global::<crate::recents::Recents>().repositories.clone();
-        if let Some(root) = &root {
-            candidates.insert(0, root.clone());
-        }
+        let options = self.settings.hosting;
+        let limit =
+            jaywalk::text_content::TextLimit::from_mib(self.settings.diff.max_text_file_size_mb)
+                .expect("validated text limit");
         let page = cx.new(|cx| {
-            let mut page =
-                crate::hosting_ui::PullRequestsPage::new(root, path, candidates, window, cx);
+            let mut page = crate::hosting_ui::PullRequestsPage::new(root, path, window, cx);
+            page.configure_review(options, limit);
             if picking {
                 page.as_picker();
             }
@@ -61,15 +61,9 @@ impl Viewer {
             move |viewer, _, event, window, cx| match event {
                 crate::hosting_ui::Event::Leave if picking => viewer.close_palette(window, cx),
                 crate::hosting_ui::Event::Leave => viewer.navigate_view(false, window, cx),
-                crate::hosting_ui::Event::Picked(selection) => {
-                    let (account, item) = selection.as_ref();
+                crate::hosting_ui::Event::Opened(review) => {
                     viewer.close_palette(window, cx);
-                    viewer.show_pull_requests(window, cx);
-                    if let Some(page) = &viewer.pull_requests_page {
-                        page.update(cx, |page, cx| {
-                            page.open_selected(account.clone(), item.clone(), window, cx);
-                        });
-                    }
+                    viewer.open_hosted_review(review.clone(), window, cx);
                 }
                 crate::hosting_ui::Event::Accounts => {
                     if picking {
@@ -77,11 +71,6 @@ impl Viewer {
                     }
                     viewer.show_accounts(jaywalk::commands::CommandId::Accounts, window, cx);
                 }
-                crate::hosting_ui::Event::Repository(path) => viewer.open_repository_path(
-                    path.clone(),
-                    crate::windows::OpenDisposition::Configured,
-                    cx,
-                ),
             },
         )
         .detach();

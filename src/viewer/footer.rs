@@ -60,7 +60,9 @@ impl Viewer {
                             .min_w_0()
                             .child(div().min_w_0().truncate().child(format!(
                                 "{}  |  {}",
-                                if self.repository.ready().is_some_and(|s| {
+                                if self.comparison().is_some_and(|c| c.hosted().is_some()) {
+                                    "Read-only hosted review"
+                                } else if self.repository.ready().is_some_and(|s| {
                                     s.comparison.ready().is_some_and(|c| c.is_external())
                                 }) {
                                     "Read-only comparison"

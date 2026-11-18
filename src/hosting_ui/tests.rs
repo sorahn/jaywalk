@@ -52,6 +52,31 @@ impl HostingProvider for Adapter {
             label: format!("person{}", token.expose()),
         })
     }
+    fn review_request(
+        &self,
+        _: &Secret,
+        request: jaywalk::hosting::review::Request,
+        control: &Control,
+    ) -> Result<jaywalk::hosting::review::Reply, Error> {
+        use jaywalk::hosting::review::{Reply, Request};
+        control.check()?;
+        let Request::Json(url) = request else {
+            return Err(Error::Unsupported);
+        };
+        let value = if url.path().contains("/compare/") {
+            serde_json::json!({"merge_base_commit":{"sha":"a".repeat(40)}})
+        } else {
+            let number = url
+                .path_segments()
+                .unwrap()
+                .next_back()
+                .unwrap()
+                .parse::<u64>()
+                .map_err(|_| Error::InvalidResponse)?;
+            serde_json::json!({"number":number,"id":number,"node_id":format!("PR_{number}"),"title":"Synthetic review","body":"Review description","user":{"login":"person"},"state":"open","changed_files":0,"commits":0,"head":{"sha":"b".repeat(40),"repo":{"full_name":"team/widgets","node_id":"R"}},"base":{"sha":"a".repeat(40),"repo":{"full_name":"team/widgets","node_id":"R"}}})
+        };
+        Ok(Reply::Json(value))
+    }
     fn pull_requests(
         &self,
         _: &Secret,
@@ -130,7 +155,7 @@ fn picker_filters_locally_disambiguates_accounts_and_purges_retired_results(
     let path = fixture.path().join("recent.json");
     let mut page = None;
     let (_, cx) = test_cx.add_window_view(|window, app| {
-        let view = app.new(|cx| PullRequestsPage::new(None, path, vec![], window, cx));
+        let view = app.new(|cx| PullRequestsPage::new(None, path, window, cx));
         page = Some(view.clone());
         view.update(app, |page, cx| page.focus(window, cx));
         gpui::component::Root::new(view, window, app)
@@ -167,25 +192,11 @@ fn picker_filters_locally_disambiguates_accounts_and_purges_retired_results(
         page.update(app, |page, cx| page.choose(choices[0].clone(), window, cx))
     });
     draw(cx);
-    assert!(cx.debug_bounds("pr-details").is_some());
+    assert!(cx.debug_bounds("pr-details").is_none());
     assert_eq!(adapter.calls.load(Ordering::SeqCst), 3);
-    assert_eq!(
-        cx.update(|_, app| page
-            .read(app)
-            .selected
-            .as_ref()
-            .unwrap()
-            .item
-            .locator
-            .number),
-        12
-    );
+    assert!(!cx.update(|_, app| page.read(app).opening));
     let key = cx.update(|_, app| {
-        page.read(app)
-            .selected
-            .as_ref()
-            .unwrap()
-            .account
+        app.global::<Accounts>().state.read(app).snapshot.accounts[0]
             .identity
             .key
             .clone()
@@ -200,9 +211,8 @@ fn newer_scope_wins_and_errors_keep_cached_results(test_cx: &mut gpui_test::Test
     let (fixture, adapter, _) = setup(test_cx);
     let mut page = None;
     let (_, cx) = test_cx.add_window_view(|window, app| {
-        let view = app.new(|cx| {
-            PullRequestsPage::new(None, fixture.path().join("recent.json"), vec![], window, cx)
-        });
+        let view = app
+            .new(|cx| PullRequestsPage::new(None, fixture.path().join("recent.json"), window, cx));
         view.update(app, |page, cx| {
             page.set_scope(Some(Scope::ReviewRequested), window, cx)
         });
@@ -245,9 +255,8 @@ fn a_full_url_offers_its_provider_even_after_a_different_account_filter(
     let (fixture, adapter, _) = setup(test_cx);
     let mut page = None;
     let (_, cx) = test_cx.add_window_view(|window, app| {
-        let view = app.new(|cx| {
-            PullRequestsPage::new(None, fixture.path().join("recent.json"), vec![], window, cx)
-        });
+        let view = app
+            .new(|cx| PullRequestsPage::new(None, fixture.path().join("recent.json"), window, cx));
         page = Some(view.clone());
         gpui::component::Root::new(view, window, app)
     });
@@ -317,15 +326,14 @@ impl gpui::Render for PageContainer {
 }
 
 #[gpui_test::test]
-fn metadata_remains_reachable_by_scrolling_in_a_short_window(
+fn published_review_does_not_add_a_metadata_card_to_the_browser(
     test_cx: &mut gpui_test::TestAppContext,
 ) {
     let (fixture, _, _) = setup(test_cx);
     let mut page = None;
     let (_, cx) = test_cx.add_window_view(|window, app| {
-        let view = app.new(|cx| {
-            PullRequestsPage::new(None, fixture.path().join("recent.json"), vec![], window, cx)
-        });
+        let view = app
+            .new(|cx| PullRequestsPage::new(None, fixture.path().join("recent.json"), window, cx));
         page = Some(view.clone());
         let container = app.new(|_| PageContainer(view));
         gpui::component::Root::new(container, window, app)
@@ -340,27 +348,8 @@ fn metadata_remains_reachable_by_scrolling_in_a_short_window(
         })
     });
     draw(cx);
-    let (maximum, origin) = cx.update(|_, app| {
-        let page = page.read(app);
-        (page.scroll.max_offset(), page.scroll.offset())
-    });
-    assert!(
-        maximum.y > px(0.),
-        "the detail card must contribute to the scroll extent"
-    );
-    cx.simulate_event(gpui_test::ScrollEvent {
-        position: gpui_test::point(px(10.), px(220.)),
-        delta: gpui_test::ScrollDelta::Pixels(gpui_test::point(px(0.), px(-1000.))),
-        ..Default::default()
-    });
-    draw(cx);
-    let offset = cx.update(|_, app| page.read(app).scroll.offset());
-    assert!(offset.y < origin.y);
-    let detail = cx.debug_bounds("pr-details").unwrap();
-    assert!(
-        detail.bottom() <= px(551.),
-        "the metadata card must be reachable inside the viewport"
-    );
+    assert!(cx.debug_bounds("pr-details").is_none());
+    assert!(!cx.update(|_, app| page.read(app).opening));
 }
 
 #[gpui_test::test]
@@ -371,9 +360,8 @@ fn nested_filters_preserve_search_and_escape_restores_each_step(
     let (fixture, adapter, _) = setup(test_cx);
     let mut page = None;
     let (_, cx) = test_cx.add_window_view(|window, app| {
-        let view = app.new(|cx| {
-            PullRequestsPage::new(None, fixture.path().join("recent.json"), vec![], window, cx)
-        });
+        let view = app
+            .new(|cx| PullRequestsPage::new(None, fixture.path().join("recent.json"), window, cx));
         view.update(app, |page, cx| {
             page.as_picker();
             page.focus(window, cx);
@@ -501,9 +489,8 @@ fn restart_snapshot_remains_visible_after_failed_in_palette_refresh(
     let bytes = std::fs::read(&path).unwrap();
     let mut page = None;
     let (_, cx) = test_cx.add_window_view(|window, app| {
-        let view = app.new(|cx| {
-            PullRequestsPage::new(None, fixture.path().join("recent.json"), vec![], window, cx)
-        });
+        let view = app
+            .new(|cx| PullRequestsPage::new(None, fixture.path().join("recent.json"), window, cx));
         view.update(app, |page, cx| {
             page.as_picker();
             page.focus(window, cx);
@@ -548,9 +535,8 @@ fn refreshed_results_preserve_selected_identity_when_rows_move(
     let (fixture, _, _) = setup(test_cx);
     let mut page = None;
     let (_, cx) = test_cx.add_window_view(|window, app| {
-        let view = app.new(|cx| {
-            PullRequestsPage::new(None, fixture.path().join("recent.json"), vec![], window, cx)
-        });
+        let view = app
+            .new(|cx| PullRequestsPage::new(None, fixture.path().join("recent.json"), window, cx));
         view.update(app, |page, cx| {
             page.as_picker();
             page.focus(window, cx);
@@ -605,4 +591,40 @@ fn refreshed_results_preserve_selected_identity_when_rows_move(
     });
     draw(cx);
     assert!(cx.update(|_, app| { let page = page.read(app); let index = page.input.read(app).selected_index().unwrap().row; matches!(&page.choices(app)[index], Choice::Item { batch, index, .. } if batch.items[*index].locator.number == 43) }));
+}
+
+#[gpui_test::test]
+fn cancelling_review_open_discards_late_completion(test_cx: &mut gpui_test::TestAppContext) {
+    let (fixture, _, _) = setup(test_cx);
+    let mut page = None;
+    let (_, cx) = test_cx.add_window_view(|window, app| {
+        let view = app
+            .new(|cx| PullRequestsPage::new(None, fixture.path().join("recent.json"), window, cx));
+        page = Some(view.clone());
+        gpui::component::Root::new(view, window, app)
+    });
+    let page = page.unwrap();
+    draw(cx);
+    let opened = std::rc::Rc::new(std::cell::Cell::new(0));
+    cx.update(|_, app| {
+        let count = opened.clone();
+        app.subscribe(&page, move |_, event, _| {
+            if matches!(event, super::Event::Opened(_)) {
+                count.set(count.get() + 1);
+            }
+        })
+        .detach();
+    });
+    cx.update(|window, app| {
+        page.update(app, |page, cx| {
+            let choice = page.choices(cx).remove(0);
+            page.choose(choice, window, cx);
+            assert!(page.opening);
+            page.cancel(cx);
+        })
+    });
+    draw(cx);
+    assert_eq!(opened.get(), 0);
+    assert!(!cx.update(|_, app| page.read(app).opening));
+    assert!(!cx.update(|_, app| page.read(app).choices(app).is_empty()));
 }

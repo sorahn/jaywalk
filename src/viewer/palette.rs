@@ -339,6 +339,30 @@ impl Viewer {
                 .iter()
                 .filter(|command| {
                     !matches!(command, jaywalk::commands::CommandId::OpenInNewWindow)
+                        && (self.is_hosted_review()
+                            || !matches!(
+                                command,
+                                jaywalk::commands::CommandId::UpdatePublishedReview
+                                    | jaywalk::commands::CommandId::OpenReviewInBrowser
+                            ))
+                        && (!self.is_hosted_review()
+                            || !matches!(
+                                command,
+                                jaywalk::commands::CommandId::ChooseReview
+                                    | jaywalk::commands::CommandId::ChooseReviewBase
+                                    | jaywalk::commands::CommandId::CurrentWork
+                                    | jaywalk::commands::CommandId::OpenedComparison
+                                    | jaywalk::commands::CommandId::CompareRevision
+                                    | jaywalk::commands::CommandId::DiffFromBranchPoint
+                                    | jaywalk::commands::CommandId::BranchChanges
+                                    | jaywalk::commands::CommandId::MergedBranch
+                                    | jaywalk::commands::CommandId::MergeResult
+                                    | jaywalk::commands::CommandId::SwapComparison
+                                    | jaywalk::commands::CommandId::RevealComparisonLeft
+                                    | jaywalk::commands::CommandId::RevealComparisonRight
+                                    | jaywalk::commands::CommandId::ShowReferences
+                                    | jaywalk::commands::CommandId::TreeAll
+                            ))
                         && (self.page == pages::Page::Comparison
                             || command.available_without_repository())
                         && (self.supports_evolution()
@@ -390,7 +414,13 @@ impl Viewer {
                 PaletteKind::PullRequests => {
                     unreachable!("PR discovery renders its own palette step")
                 }
-                PaletteKind::Files => "Find any repository file…",
+                PaletteKind::Files => {
+                    if self.comparison().is_some_and(|c| c.hosted().is_some()) {
+                        "Find changed PR file…"
+                    } else {
+                        "Find any repository file…"
+                    }
+                }
                 PaletteKind::Commands => "Run a command…",
                 PaletteKind::Repositories => "Search recent repositories…",
                 PaletteKind::Profiles => "Select keybindings profile…",

@@ -24,12 +24,14 @@ impl HomeSource {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) enum ReviewSource {
     Home(HomeSource),
+    Hosted(std::sync::Arc<jaywalk::hosting::review::Metadata>),
     Target(jaywalk::branch_review::Target),
 }
 impl ReviewSource {
     pub(super) fn label(&self) -> String {
         match self {
             Self::Home(home) => home.label().into(),
+            Self::Hosted(metadata) => metadata.label(),
             Self::Target(target) => target.label(),
         }
     }
@@ -91,6 +93,10 @@ impl Viewer {
         let Some(session) = self.repository.ready() else {
             return;
         };
+        if session.review.aggregate.hosted().is_some() {
+            self.restore_review_aggregate(window, cx);
+            return;
+        }
         if commit.is_none()
             && (session.review.aggregate.is_external()
                 || matches!(
@@ -163,6 +169,9 @@ impl Viewer {
         if self.arguments.diff.is_some() && self.arguments.difftool.is_none() {
             return;
         }
+        if session.home.hosted().is_some() {
+            return;
+        }
         let home = session.home.as_ref().clone();
         let context_source = session.review.source.clone();
         let context_base = session.review.aggregate.base().to_owned();
@@ -214,6 +223,11 @@ impl Viewer {
                                 && catalog.contains(&context_base, &context_tip, &commit)?
                             {
                                 match context_source {
+                                    ReviewSource::Hosted(_) => {
+                                        return Err(
+                                            "Choose a local repository to compare branches".into(),
+                                        );
+                                    }
                                     ReviewSource::Home(home) => Decision::Restore(home),
                                     ReviewSource::Target(target) => Decision::Target(target),
                                 }
@@ -363,6 +377,14 @@ impl Viewer {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if self
+            .repository
+            .ready()
+            .is_some_and(|s| s.home.hosted().is_some())
+        {
+            self.restore_review_aggregate(window, cx);
+            return;
+        }
         if self.arguments.diff.is_some()
             && self.arguments.difftool.is_none()
             && home == HomeSource::Workspace
