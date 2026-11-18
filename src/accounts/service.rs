@@ -351,6 +351,101 @@ impl Service {
         drop(state);
         flight.wait(control)
     }
+    /// Worker-only, read-only hosted requests bound to the original account generation.
+    pub(crate) fn review_request(
+        self: &Arc<Self>,
+        key: &AccountKey,
+        epoch: u64,
+        request: crate::hosting::review::Request,
+        control: &Control,
+    ) -> Result<crate::hosting::review::Reply, Error> {
+        let url = match &request {
+            crate::hosting::review::Request::Json(url)
+            | crate::hosting::review::Request::Bytes(url, _) => url,
+        };
+        let host = match key.provider {
+            Provider::Github => "api.github.com",
+            Provider::Bitbucket => "api.bitbucket.org",
+        };
+        if url.host_str() != Some(host) {
+            return Err(Error::InvalidResponse);
+        }
+        {
+            let mut state = self.state.lock().expect("account mutex poisoned");
+            current(&mut state, key, epoch)?;
+        }
+        {
+            let cache = loop {
+                control.check()?;
+                match self.hosting_cache.try_lock() {
+                    Ok(cache) => break cache,
+                    Err(std::sync::TryLockError::WouldBlock) => {
+                        std::thread::sleep(Duration::from_millis(20))
+                    }
+                    Err(std::sync::TryLockError::Poisoned(_)) => {
+                        panic!("hosting cache mutex poisoned")
+                    }
+                }
+            };
+            cache.check_rate(key)?;
+        }
+        let mut token = self.access_token(key, control)?;
+        let mut result = self
+            .provider
+            .review_request(&token, request.clone(), control);
+        if matches!(result, Err(Error::NeedsSignIn)) {
+            self.reject_access_token(key, &token)?;
+            token = self.access_token(key, control)?;
+            result = self.provider.review_request(&token, request, control);
+            if matches!(result, Err(Error::NeedsSignIn)) {
+                self.reject_access_token(key, &token)?;
+            }
+        }
+        if matches!(result, Err(Error::RateLimited)) {
+            self.hosting_cache
+                .lock()
+                .expect("hosting cache mutex poisoned")
+                .limited(key.clone());
+        }
+        control.check()?;
+        let mut state = self.state.lock().expect("account mutex poisoned");
+        current(&mut state, key, epoch)?;
+        result
+    }
+    pub fn open_review(
+        self: &Arc<Self>,
+        key: &AccountKey,
+        locator: &crate::hosting::Locator,
+        options: crate::hosting::review::Options,
+        limit: crate::text_content::TextLimit,
+        control: &Control,
+    ) -> Result<crate::hosting::review::Review, Error> {
+        options.validate().map_err(|_| Error::InvalidResponse)?;
+        self.restore()?;
+        if key.provider != locator.provider {
+            return Err(Error::Unsupported);
+        }
+        let epoch = self
+            .state
+            .lock()
+            .expect("account mutex poisoned")
+            .accounts
+            .get(key)
+            .ok_or(Error::NotConnected)?
+            .epoch;
+        let access = crate::hosting::review::Access {
+            service: Arc::downgrade(self),
+            account: key.clone(),
+            generation: epoch,
+        };
+        let data = crate::hosting::review::resolve(locator, options, control, |request| {
+            access.request(request, control)
+        })?;
+        control.check()?;
+        let contents = crate::hosting::review::Contents::new(data, access, options, limit);
+        let comparison = contents.comparison().map_err(|_| Error::InvalidResponse)?;
+        Ok(crate::hosting::review::Review { comparison })
+    }
     pub fn accounts_snapshot(&self) -> Snapshot {
         snapshot(&self.state.lock().expect("account state mutex poisoned"))
     }

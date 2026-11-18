@@ -175,6 +175,7 @@ pub enum Error {
     NotFound,
     LocalRepository,
     DiscoveryStorage,
+    ContentLimit,
     Superseded,
 }
 impl fmt::Display for Error {
@@ -210,6 +211,7 @@ impl fmt::Display for Error {
             Self::NotConnected => "This account is not connected",
             Self::NoAccess => "This account or app does not have access to that request",
             Self::NotFound => "Pull request not found or unavailable to this account",
+            Self::ContentLimit => "Review data exceeds the configured content/file limit",
             Self::DiscoveryStorage => "Could not read or save recent pull requests",
             Self::LocalRepository => "Could not read local repository remotes",
             Self::Unsupported => "This provider does not support this action",
