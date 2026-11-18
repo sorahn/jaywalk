@@ -13,6 +13,7 @@ pub(crate) fn init(arguments: &Arguments, settings: &Settings, cx: &mut App) -> 
     let arguments = arguments.clone();
     cx.on_action(move |action: &ExecuteCommand, cx| match action.command {
         CommandId::OpenPullRequest
+        | CommandId::BrowsePullRequests
         | CommandId::Accounts
         | CommandId::ConnectAccount
         | CommandId::ReconnectAccount
@@ -128,6 +129,7 @@ fn configured_bindings(settings: &Settings, cx: &App) -> Vec<KeyBinding> {
         let context = match command {
             CommandId::OpenInNewWindow => Some("JaywalkRecent"),
             CommandId::OpenPullRequest
+            | CommandId::BrowsePullRequests
             | CommandId::Accounts
             | CommandId::ConnectAccount
             | CommandId::ReconnectAccount
@@ -195,7 +197,10 @@ impl Viewer {
             return;
         }
         match command {
-            CommandId::OpenPullRequest => self.show_pull_requests(window, cx),
+            CommandId::OpenPullRequest => {
+                self.open_palette(palette::PaletteKind::PullRequests, window, cx)
+            }
+            CommandId::BrowsePullRequests => self.show_pull_requests(window, cx),
             CommandId::RevealComparisonLeft | CommandId::RevealComparisonRight => {
                 self.reveal_pair_endpoint(command == CommandId::RevealComparisonRight, window, cx)
             }

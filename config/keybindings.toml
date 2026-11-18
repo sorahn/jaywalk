@@ -8,6 +8,7 @@ keymap = []
 # Account commands are available from the palette and start unbound.
 accounts = []
 open_pull_request = []
+browse_pull_requests = []
 connect_account = []
 reconnect_account = []
 disconnect_account = []

@@ -23,6 +23,7 @@ use std::{
 actions!(hosting_ui, [Cancel]);
 pub(crate) enum Event {
     Leave,
+    Picked(Box<(AccountView, PullRequest)>),
     Accounts,
     Repository(PathBuf),
 }
@@ -147,6 +148,7 @@ impl DiscoveryRequest {
 }
 
 pub(crate) struct PullRequestsPage {
+    picking: bool,
     input: Entity<CommandState>,
     scroll: ScrollHandle,
     root: Option<PathBuf>,
@@ -193,6 +195,7 @@ impl PullRequestsPage {
         });
         let input = cx.new(|cx| CommandState::new(window, cx));
         let mut page = Self {
+            picking: false,
             input,
             scroll: ScrollHandle::new(),
             root,
@@ -212,6 +215,9 @@ impl PullRequestsPage {
         };
         page.refresh(window, cx);
         page
+    }
+    pub(crate) fn as_picker(&mut self) {
+        self.picking = true;
     }
     pub(crate) fn focus(&self, window: &mut Window, cx: &mut Context<Self>) {
         self.input.update(cx, |state, cx| state.focus(window, cx));
@@ -262,6 +268,10 @@ impl PullRequestsPage {
         }
     }
     fn cancel(&mut self, cx: &mut Context<Self>) {
+        if self.picking {
+            cx.emit(Event::Leave);
+            return;
+        }
         if let Some(control) = self.operation.take() {
             control.cancel();
             self.serial += 1;
@@ -557,7 +567,10 @@ impl PullRequestsPage {
                 account,
                 batch,
                 index,
-            } => self.select(account, batch.items[index].clone(), window, cx),
+            } => {
+                let item = batch.items[index].clone();
+                self.select(account, item, window, cx);
+            }
             Choice::Lookup { account, locator } => {
                 self.account = Some(account.identity.key);
                 self.set_scope(Some(Scope::Direct(locator)), window, cx);
@@ -617,6 +630,16 @@ impl PullRequestsPage {
         })
         .detach();
     }
+    pub(crate) fn open_selected(
+        &mut self,
+        account: AccountView,
+        item: PullRequest,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.select(account, item, window, cx);
+        self.scroll.scroll_to_bottom();
+    }
     fn select(
         &mut self,
         account: AccountView,
@@ -625,6 +648,10 @@ impl PullRequestsPage {
         cx: &mut Context<Self>,
     ) {
         if !self.active(&account, cx) {
+            return;
+        }
+        if self.picking {
+            cx.emit(Event::Picked(Box::new((account, item))));
             return;
         }
         if let Some(control) = self.association.take() {
@@ -838,9 +865,15 @@ impl Render for PullRequestsPage {
                     .label("Accounts…")
                     .on_click(cx.listener(|_, _, _, cx| cx.emit(Event::Accounts))),
             );
-        let help = format!(
-            "{count} matches · Numbers are repository-scoped. Cached lists may be incomplete. Direct lookup works for open or closed PRs."
-        );
+        let help = if self.picking {
+            format!(
+                "{count} matches · Search titles, branches or repository-scoped numbers; paste a PR URL for direct lookup."
+            )
+        } else {
+            format!(
+                "{count} matches · Numbers are repository-scoped. Cached lists may be incomplete. Direct lookup works for open or closed PRs."
+            )
+        };
         let mut body = div()
             .v_flex()
             .flex_shrink_0()
@@ -856,7 +889,7 @@ impl Render for PullRequestsPage {
                 div()
                     .id("pr-picker")
                     .debug_selector(|| "pr-picker".into())
-                    .h(px(320.))
+                    .h(px(if self.picking { 240. } else { 320. }))
                     .flex_shrink_0()
                     .child(picker),
             );
@@ -939,4 +972,4 @@ impl Render for PullRequestsPage {
 }
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;

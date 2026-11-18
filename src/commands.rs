@@ -7,6 +7,7 @@ pub enum CommandId {
     About,
     Accounts,
     OpenPullRequest,
+    BrowsePullRequests,
     ConnectAccount,
     ReconnectAccount,
     DisconnectAccount,
@@ -125,6 +126,7 @@ impl CommandId {
             self,
             Self::OpenRepository
                 | Self::OpenPullRequest
+                | Self::BrowsePullRequests
                 | Self::Accounts
                 | Self::ConnectAccount
                 | Self::ReconnectAccount
@@ -158,6 +160,7 @@ impl CommandId {
         Self::About,
         Self::Accounts,
         Self::OpenPullRequest,
+        Self::BrowsePullRequests,
         Self::ConnectAccount,
         Self::ReconnectAccount,
         Self::DisconnectAccount,
@@ -303,6 +306,7 @@ impl CommandId {
             Self::MergeResult => "Review merge result",
             Self::About => "About Jaywalk",
             Self::OpenPullRequest => "Open pull request…",
+            Self::BrowsePullRequests => "Browse pull requests…",
             Self::Accounts => "Accounts…",
             Self::ConnectAccount => "Connect account…",
             Self::ReconnectAccount => "Reconnect account…",

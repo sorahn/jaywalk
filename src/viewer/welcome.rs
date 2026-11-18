@@ -106,9 +106,13 @@ impl Viewer {
                 Button::new("welcome-pull-requests")
                     .ghost()
                     .label("Open pull request…")
-                    .on_click(
-                        cx.listener(|viewer, _, window, cx| viewer.show_pull_requests(window, cx)),
-                    ),
+                    .on_click(cx.listener(|viewer, _, window, cx| {
+                        viewer.execute_command(
+                            jaywalk::commands::CommandId::OpenPullRequest,
+                            window,
+                            cx,
+                        )
+                    })),
             ),
         );
         start = start.child(

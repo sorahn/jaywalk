@@ -358,8 +358,12 @@ bundle for stable Keychain access across rebuilds; see the development guide.
 
 ## Finding pull requests
 
-**Open pull request…** opens a central page from the command palette or Welcome,
-even without a repository open. The picker starts with **My open PRs** across
+**Open pull request…** continues inside the command palette from the command
+list, a configured shortcut, or Welcome, even without a repository open. The
+current view stays in place until you pick a PR; Escape or clicking outside
+cancels without navigating. Selecting a PR opens its metadata in the central PR
+page. **Browse pull requests…** opens that retained page directly for browsing.
+The picker starts with **My open PRs** across
 connected accounts. **Review requests** uses GitHub's requested-review filter;
 Bitbucket accounts explicitly report that this scope is unsupported. Current
 repository remotes provide optional repository filters, without changing the

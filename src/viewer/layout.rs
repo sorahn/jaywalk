@@ -62,7 +62,7 @@ impl Render for Viewer {
                 .size_full()
                 .child(self.render_page_header(cx))
                 .child(div().flex_1().min_h_0().child(body))
-                .children(self.render_palette(cx))
+                .children(self.render_palette(window, cx))
                 .into_any_element();
         }
         root.size_full()
@@ -75,7 +75,7 @@ impl Render for Viewer {
                     .child(self.sidebar_bounds_marker(cx)),
             )
             .child(self.render_footer(window, cx))
-            .children(self.render_palette(cx))
+            .children(self.render_palette(window, cx))
             .into_any_element()
     }
 }

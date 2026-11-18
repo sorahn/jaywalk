@@ -69,6 +69,14 @@ impl HostingProvider for Adapter {
         Ok(batch(number))
     }
 }
+pub(crate) fn fake_service() -> Arc<Service> {
+    Service::new(
+        Arc::new(Store),
+        Arc::new(Adapter {
+            calls: AtomicUsize::new(0),
+        }),
+    )
+}
 fn batch(number: u64) -> Batch {
     Batch {
         items: vec![PullRequest {
