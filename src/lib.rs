@@ -42,3 +42,5 @@ pub mod text_content;
 pub mod difftool;
 
 pub mod accounts;
+
+pub mod hosting;

@@ -11,6 +11,7 @@ use std::{
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Snapshot {
+    pub loaded: bool,
     pub accounts: Vec<AccountView>,
     pub signing_in: Vec<Provider>,
     pub store_error: Option<Error>,
@@ -75,6 +76,7 @@ pub struct Service {
     store: Arc<dyn CredentialStore>,
     provider: Arc<dyn HostingProvider>,
     state: Mutex<State>,
+    hosting_cache: Mutex<crate::hosting::Cache>,
     subscribers: Mutex<Vec<async_channel::Sender<Snapshot>>>,
 }
 impl Service {
@@ -83,6 +85,7 @@ impl Service {
             store,
             provider,
             state: Mutex::new(State::default()),
+            hosting_cache: Mutex::default(),
             subscribers: Mutex::new(Vec::new()),
         })
     }
@@ -348,6 +351,103 @@ impl Service {
         drop(state);
         flight.wait(control)
     }
+    pub fn accounts_snapshot(&self) -> Snapshot {
+        snapshot(&self.state.lock().expect("account state mutex poisoned"))
+    }
+    /// Worker-only: coalesce reads behind a bounded, token-free cache. UI code
+    /// reads its own snapshots and never takes this lock.
+    pub fn pull_requests(
+        self: &Arc<Self>,
+        key: &AccountKey,
+        scope: &crate::hosting::Scope,
+        control: &Control,
+    ) -> Result<crate::hosting::Fetched, Error> {
+        if !scope.supports(key.provider) {
+            return Err(Error::Unsupported);
+        }
+        let mut cache = loop {
+            control.check()?;
+            match self.hosting_cache.try_lock() {
+                Ok(cache) => break cache,
+                Err(std::sync::TryLockError::WouldBlock) => {
+                    std::thread::sleep(Duration::from_millis(20))
+                }
+                Err(std::sync::TryLockError::Poisoned(_)) => panic!("hosting cache mutex poisoned"),
+            }
+        };
+        let epoch = self
+            .state
+            .lock()
+            .expect("account state mutex poisoned")
+            .accounts
+            .get(key)
+            .ok_or(Error::NotConnected)?
+            .epoch;
+        if let Some(batch) = cache.get(key, epoch, scope) {
+            let mut state = self.state.lock().expect("account state mutex poisoned");
+            let account = current(&mut state, key, epoch)?;
+            if !matches!(account.state, ConnectionState::NeedsSignIn) {
+                return Ok(crate::hosting::Fetched {
+                    batch,
+                    generation: epoch,
+                    cached: true,
+                });
+            }
+        }
+        cache.check_rate(key)?;
+        let mut token = self.access_token(key, control)?;
+        let mut result = self.read_pull_requests(key, epoch, &token, scope, control);
+        if matches!(result, Err(Error::NeedsSignIn)) {
+            self.reject_access_token(key, &token)?;
+            token = self.access_token(key, control)?;
+            result = self.read_pull_requests(key, epoch, &token, scope, control);
+            if matches!(result, Err(Error::NeedsSignIn)) {
+                self.reject_access_token(key, &token)?;
+            }
+        }
+        if matches!(result, Err(Error::RateLimited)) {
+            cache.limited(key.clone());
+        }
+        let batch = Arc::new(result?);
+        control.check()?;
+        let mut state = self.state.lock().expect("account state mutex poisoned");
+        current(&mut state, key, epoch)?;
+        cache.put(key.clone(), epoch, scope.clone(), batch.clone());
+        Ok(crate::hosting::Fetched {
+            batch,
+            generation: epoch,
+            cached: false,
+        })
+    }
+    fn read_pull_requests(
+        &self,
+        key: &AccountKey,
+        epoch: u64,
+        token: &Secret,
+        scope: &crate::hosting::Scope,
+        control: &Control,
+    ) -> Result<crate::hosting::Batch, Error> {
+        let (identity, selected) = {
+            let mut state = self.state.lock().expect("account state mutex poisoned");
+            let account = current(&mut state, key, epoch)?;
+            (
+                account.session.identity.clone(),
+                account.session.workspace.clone(),
+            )
+        };
+        let mut workspaces = if key.provider == Provider::Bitbucket
+            && matches!(scope, crate::hosting::Scope::Authored)
+        {
+            self.provider.workspaces(token, control)?
+        } else {
+            vec![]
+        };
+        if let Some(selected) = selected {
+            workspaces.sort_by_key(|workspace| workspace.uuid != selected.uuid);
+        }
+        self.provider
+            .pull_requests(token, &identity, scope, &workspaces, control)
+    }
     /// Worker-only snapshot access, never called from a rendering callback.
     pub fn account_keys(&self) -> Vec<AccountKey> {
         self.state
@@ -548,10 +648,12 @@ fn current<'a>(
 }
 fn snapshot(state: &State) -> Snapshot {
     Snapshot {
+        loaded: state.loaded,
         accounts: state
             .accounts
             .values()
             .map(|account| AccountView {
+                generation: account.epoch,
                 identity: account.session.identity.clone(),
                 workspace: account.session.workspace.clone(),
                 state: account.state.clone(),
