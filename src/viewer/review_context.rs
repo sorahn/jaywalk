@@ -142,7 +142,7 @@ impl Viewer {
         };
         let tip = match &session.review.source {
             ReviewSource::Target(Target::Branch { tip, .. }) => tip.clone(),
-            _ => Tip::Commit(session.review.aggregate.tip().to_owned()),
+            _ => Tip::Commit(session.review.aggregate.recorded_tip().to_owned()),
         };
         self.begin_review_choice(Intent::Base(tip, false), window, cx);
     }
@@ -175,7 +175,7 @@ impl Viewer {
         let home = session.home.as_ref().clone();
         let context_source = session.review.source.clone();
         let context_base = session.review.aggregate.base().to_owned();
-        let context_tip = session.review.aggregate.tip().to_owned();
+        let context_tip = session.review.aggregate.recorded_tip().to_owned();
         let epoch = self.requests.comparison();
         self.cancel_live_refresh();
         self.review_picker.task = Some(cx.spawn_in(window, async move |this, cx| {

@@ -325,6 +325,14 @@ impl Viewer {
                 ) = source
                 {
                     self.pair_caption(left, right)
+                } else if matches!(
+                    source,
+                    review_context::ReviewSource::Home(review_context::HomeSource::Workspace)
+                ) {
+                    self.comparison()
+                        .and_then(|c| c.workspace_label())
+                        .map(str::to_owned)
+                        .unwrap_or_else(|| source.label())
                 } else {
                     source.label()
                 }

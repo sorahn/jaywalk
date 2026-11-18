@@ -98,7 +98,10 @@ Opened comparison are unbound by default.
 ## Branch review context
 
 Use **Current work** for the latest combined workspace comparison, including the
-current jj stack. **All changes** returns to the complete branch/range being
+current jj stack or plain Git branch commits plus uncommitted changes. Git uses
+the same integration-base suggestion described below and shows a HEAD-only
+fallback caption if it cannot choose a unique common ancestor. The virtual
+working-copy history row remains HEAD → working tree. **All changes** returns to the complete branch/range being
 reviewed; it includes commits after the individual commit you inspected. The
 adjacent dropdown offers Choose branch or range, Choose comparison base, Current
 work, and Opened comparison. The caption names the review source and base.

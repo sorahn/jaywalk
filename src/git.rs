@@ -26,6 +26,7 @@ type TextPair = Result<(String, String), String>;
 pub(crate) struct GitContents {
     pub(crate) recorded_tip: String,
     pub(crate) working_changes: bool,
+    pub(crate) workspace_label: Option<String>,
     files: Arc<BTreeMap<String, TextPair>>,
     reversed: bool,
     root: PathBuf,
@@ -101,13 +102,66 @@ pub(crate) fn load(
 ) -> Result<Comparison, String> {
     let root = output(directory, &["rev-parse", "--show-toplevel"])?;
     let root = PathBuf::from(root.trim_end_matches('\n'));
-    let base = resolve(&root, base.unwrap_or("HEAD"))?;
+    let (base, workspace_label) = if base.is_none() && tip == "@" {
+        let (base, label) = workspace_base(&root)?;
+        (base, Some(label))
+    } else {
+        (resolve(&root, base.unwrap_or("HEAD"))?, None)
+    };
     let tip = if tip == "@" {
         WORKING_TREE.into()
     } else {
         resolve(&root, tip)?
     };
-    between(root, base, tip, limit)
+    capture(root, base, tip, limit, workspace_label)
+}
+
+/// Resolve only locally known refs; startup never fetches or consults tracking
+/// upstreams, which commonly point back to the feature branch itself.
+fn workspace_base(root: &Path) -> Result<(String, String), String> {
+    let head = resolve(root, "HEAD")?;
+    let references = references(root)?;
+    let symbolic = output(
+        root,
+        &["for-each-ref", "--format=%(symref)", "refs/remotes"],
+    )?;
+    let fallback = |reason: &str| {
+        (
+            head.clone(),
+            format!("Current work · HEAD only: {reason}; choose a comparison base"),
+        )
+    };
+    let Some(reference) = crate::branch_review::suggested_base(&references.references, &symbolic)
+    else {
+        return Ok(fallback("no unambiguous integration branch"));
+    };
+    let target = references
+        .references
+        .iter()
+        .find(|r| crate::branch_review::RefName::from_reference(r) == reference)
+        .expect("suggested base came from this captured reference list");
+    let result = crate::tools::command("git")?
+        .current_dir(root)
+        .env("GIT_OPTIONAL_LOCKS", "0")
+        .args(["merge-base", "--all", &head, &target.target])
+        .output()
+        .map_err(|e| format!("Could not resolve Git integration base: {e}"))?;
+    if !result.status.success() && result.status.code() != Some(1) {
+        return Err(format!(
+            "Could not resolve Git integration base: {}",
+            String::from_utf8_lossy(&result.stderr).trim()
+        ));
+    }
+    let output = String::from_utf8(result.stdout).map_err(|e| e.to_string())?;
+    let bases: Vec<_> = output.lines().collect();
+    Ok(match bases.as_slice() {
+        [base] => (
+            (*base).into(),
+            format!("Current work · based on {}", reference.display()),
+        ),
+        [] => fallback("no common integration ancestor"),
+        _ => fallback("multiple integration ancestors"),
+    })
 }
 
 fn tree(root: &Path, revision: &str) -> Result<BTreeMap<String, GitValue>, String> {
@@ -135,6 +189,15 @@ pub(crate) fn between(
     base: String,
     tip: String,
     limit: crate::text_content::TextLimit,
+) -> Result<Comparison, String> {
+    capture(root, base, tip, limit, None)
+}
+fn capture(
+    root: PathBuf,
+    base: String,
+    tip: String,
+    limit: crate::text_content::TextLimit,
+    workspace_label: Option<String>,
 ) -> Result<Comparison, String> {
     if base == WORKING_TREE {
         if tip == WORKING_TREE {
@@ -296,6 +359,7 @@ pub(crate) fn between(
         ContentSource::Git(Arc::new(GitContents {
             recorded_tip,
             working_changes,
+            workspace_label,
             files: Arc::new(contents),
             reversed: false,
             root,

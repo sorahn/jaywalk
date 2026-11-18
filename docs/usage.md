@@ -38,7 +38,14 @@ picker's explicit Open in new window action/modifier always opens another window
 
 ## Overview and files
 
-A repository opens to the whole-branch overview. It lists the commits in the
+A repository opens to the current-work overview. In plain Git, this compares the
+working tree (including staged, unstaged and untracked changes) with the common
+ancestor of HEAD and the locally known integration branch: a unique remote
+default branch, otherwise a single local `main`/`master`/`trunk`. Tracking a feature
+branch does not make that upstream the integration target. If the target or
+common ancestor is missing or ambiguous, the caption explains the fallback to
+HEAD → working tree; choose a branch/base explicitly to review another scope.
+No fetch is performed. jj retains its mutable-stack default. It lists the commits in the
 comparison and shows a unified diff for every changed file, with unchanged ranges
 collapsed. Expand a range for context, use **Show full files** for everything,
 or choose **Open file** for the regular diff viewer. Clicking a file header folds
