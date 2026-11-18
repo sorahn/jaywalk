@@ -1,4 +1,5 @@
 mod hosted;
+mod pr_status;
 use gpui::assets::IconName;
 use gpui::component::button::{Button, ButtonVariants};
 use gpui::component::diff::{Diff, DiffFile, DiffMode, DiffState};
@@ -157,6 +158,7 @@ pub(crate) struct Viewer {
     arguments: Arguments,
     home_source: review_context::HomeSource,
     review_picker: review_context::ReviewPicker,
+    pr_status: pr_status::StatusState,
     welcome: Option<welcome::WelcomeState>,
     page: pages::Page,
     account_page: Option<Entity<crate::account_ui::AccountPanel>>,

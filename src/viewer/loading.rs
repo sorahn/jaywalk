@@ -69,6 +69,7 @@ impl Viewer {
             arguments,
             home_source,
             review_picker: review_context::ReviewPicker::default(),
+            pr_status: pr_status::StatusState::default(),
             settings,
             focus,
             panels: panels::PanelLayout::new(cx),
@@ -477,7 +478,7 @@ impl Viewer {
     }
 
     pub(super) fn refresh(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.comparison().is_some_and(|c| c.hosted().is_some()) {
+        if self.is_hosted_review() {
             self.update_hosted_review(window, cx);
         } else {
             self.refresh_live(window, cx);

@@ -543,3 +543,46 @@ remains the default. LCS is excluded after poor repetitive-file trial results.
 Histogram, Git's minimal policy and indentation-aware
 hunk shifting are not options in the current `similar` backend. Algorithm
 selection does not ignore whitespace differences.
+
+## Read-only PR status
+
+The hosted overview shows status for the **published PR snapshot head**, including
+when an individual commit is being inspected. CI/check observations and reported
+review decisions load independently after the diff opens. The status refresh icon
+or **Refresh pull request status** command fetches new observations while keeping
+the comparison, file selection and reading position. **Update published PR
+comparison** remains the separate action that replaces pinned contents.
+
+Status snapshots stay in memory, with up to 16 comparison entries per window and
+a 60-second freshness window for revisits. Explicit status refresh bypasses that
+cache; there is no automatic polling or restart persistence. A pending refresh
+keeps previous observations visible. Cancellation, navigation and late responses
+cannot switch the displayed comparison. An unsuccessful whole refresh retains the
+previous snapshot with an error; an unavailable individual provider read is
+labelled unavailable rather than reusing an old success as current data.
+
+GitHub Checks and legacy commit statuses are read separately for the immutable
+head in the target repository and, for forks, the source repository. Each read is
+bounded to 500 observations; reviews are bounded to 1,000 history records plus
+bounded requested reviewers/teams. Bitbucket reads commit build statuses for the
+pinned head in its source repository and decisions from PR participants. Partial
+results, unknown states, permission failures and an actual empty result stay
+distinct. Safe provider check links open in the system browser.
+
+Reported approvals/change requests do **not** establish merge readiness or satisfy
+branch rules. Earlier reviewed GitHub commits are labelled, comment-only reviews
+do not revoke an earlier decision, and dismissed decisions are distinguished.
+Bitbucket does not supply a reviewed commit in the participant data used here;
+its reported decisions explicitly retain that uncertainty. If the PR source or
+target moves, live review decisions are unavailable for the pinned version until
+the comparison is updated. Checks for the pinned head remain attributable to it.
+Merge-result checks on a different SHA and required-merge-rule evaluation are
+outside this slice. No approval, comment, rerun, cancellation or merge actions
+are submitted to either provider.
+
+GitHub private resources may require **Contents: read**, **Checks: read**, and
+**Commit statuses: read**, in addition to Metadata/Pull requests read. Fresh
+development registrations request those read-only permissions. Existing apps and
+installations are not silently changed; access failures remain visible. Bitbucket
+uses its existing Repository and Pull requests read grants. No new app setting is
+required for this status presentation.

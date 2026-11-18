@@ -592,8 +592,8 @@ impl Viewer {
                             } else {
                                 "Changed"
                             })
-                            .disabled(self.comparison().is_some_and(|c| c.hosted().is_some()))
-                            .tooltip(if self.comparison().is_some_and(|c| c.hosted().is_some()) {
+                            .disabled(self.is_hosted_review())
+                            .tooltip(if self.is_hosted_review() {
                                 "Hosted review: changed files only"
                             } else {
                                 "Toggle changed files / all repository files"
@@ -999,7 +999,7 @@ impl Viewer {
     }
 
     pub(super) fn set_tree_scope(&mut self, scope: TreeScope, cx: &mut Context<Self>) {
-        if scope == TreeScope::All && self.comparison().is_some_and(|c| c.hosted().is_some()) {
+        if scope == TreeScope::All && self.is_hosted_review() {
             self.live.notice = Some(live::LiveNotice::Diagnostic(
                 "Hosted reviews list changed files only".into(),
             ));

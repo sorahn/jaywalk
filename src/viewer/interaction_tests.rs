@@ -1627,3 +1627,163 @@ fn pull_request_palette_preserves_the_view_until_selection(test_cx: &mut TestApp
     assert!(cx.update(|_, app| matches!(viewer.read(app).page, super::pages::Page::PullRequests)));
     assert!(cx.update(|_, app| viewer.read(app).palette_test_state(app).0.is_none()));
 }
+
+#[gpui_test::test]
+fn hosted_status_refresh_preserves_the_comparison_and_back_uses_its_memory_cache(
+    test_cx: &mut TestAppContext,
+) {
+    use jaywalk::commands::CommandId;
+    use std::sync::atomic::Ordering;
+    let fixture = Fixture::new();
+    let (viewer, cx) = setup(&fixture, test_cx);
+    let (service, counter) = crate::hosting_ui::tests::fake_service_with_status_counter();
+    cx.update(|window, app| {
+        crate::hosting_ui::init(app);
+        jaywalk::accounts::application::init_with_backend(service, app);
+        viewer.update(app, |viewer, cx| {
+            viewer.execute_command(CommandId::OpenPullRequest, window, cx)
+        });
+    });
+    draw(cx);
+    cx.simulate_keystrokes("enter");
+    draw(cx);
+    let original = cx.update(|_, app| {
+        let viewer = viewer.read(app);
+        assert!(viewer.is_hosted_review());
+        assert!(viewer.pr_status.snapshot.is_some());
+        viewer.comparison().unwrap().identity()
+    });
+    assert!(cx.debug_bounds("pr-status").is_some());
+    let initial = counter.load(Ordering::SeqCst);
+    assert!(initial > 0);
+    cx.update(|window, app| {
+        viewer.update(app, |viewer, cx| {
+            viewer.execute_command(CommandId::RefreshReviewStatus, window, cx)
+        })
+    });
+    draw(cx);
+    let refreshed = counter.load(Ordering::SeqCst);
+    assert!(refreshed > initial);
+    assert_eq!(
+        cx.update(|_, app| viewer.read(app).comparison().unwrap().identity()),
+        original
+    );
+    cx.update(|window, app| {
+        viewer.update(app, |viewer, cx| {
+            viewer.execute_command(CommandId::ShowWelcome, window, cx)
+        })
+    });
+    draw(cx);
+    cx.update(|window, app| {
+        viewer.update(app, |viewer, cx| {
+            viewer.execute_command(CommandId::GoBack, window, cx)
+        })
+    });
+    draw(cx);
+    assert_eq!(
+        cx.update(|_, app| viewer.read(app).comparison().unwrap().identity()),
+        original
+    );
+    assert_eq!(
+        counter.load(Ordering::SeqCst),
+        refreshed,
+        "returning to a fresh retained snapshot must not refetch status"
+    );
+    cx.update(|window, app| {
+        viewer.update(app, |viewer, cx| {
+            viewer.execute_command(CommandId::RefreshReviewStatus, window, cx);
+            viewer.execute_command(CommandId::ShowWelcome, window, cx);
+        })
+    });
+    draw(cx);
+    assert!(cx.update(|_, app| viewer.read(app).page == super::pages::Page::Welcome));
+    assert!(cx.update(|_, app| viewer.read(app).pr_status.control.is_none()));
+}
+
+#[gpui_test::test]
+fn refresh_still_updates_the_hosted_review_while_a_commit_comparison_is_loading(
+    test_cx: &mut TestAppContext,
+) {
+    use jaywalk::commands::CommandId;
+    let fixture = Fixture::new();
+    let (viewer, cx) = setup(&fixture, test_cx);
+    cx.update(|window, app| {
+        crate::hosting_ui::init(app);
+        jaywalk::accounts::application::init_with_backend(
+            crate::hosting_ui::tests::fake_service(),
+            app,
+        );
+        viewer.update(app, |viewer, cx| {
+            viewer.execute_command(CommandId::OpenPullRequest, window, cx)
+        });
+    });
+    draw(cx);
+    cx.simulate_keystrokes("enter");
+    draw(cx);
+    cx.update(|window, app| {
+        viewer.update(app, |viewer, cx| {
+            let super::LoadState::Loaded(session) = &mut viewer.repository else {
+                panic!()
+            };
+            assert!(session.home.hosted().is_some());
+            session.comparison = super::LoadState::Loading;
+            viewer.execute_command(CommandId::Refresh, window, cx);
+        })
+    });
+    draw(cx);
+    assert!(
+        cx.update(|_, app| viewer
+            .read(app)
+            .comparison()
+            .is_some_and(|comparison| comparison.hosted().is_some())),
+        "Refresh must resolve the published PR even when its current commit is still loading"
+    );
+}
+
+#[gpui_test::test]
+fn hosted_overview_never_renders_the_previous_local_overview_under_its_pr_heading(
+    test_cx: &mut TestAppContext,
+) {
+    use jaywalk::{
+        accounts::Control,
+        commands::CommandId,
+        hosting::{Locator, RepositoryName},
+    };
+    let fixture = Fixture::new();
+    let (viewer, cx) = setup(&fixture, test_cx);
+    cx.update(|window, app| {
+        viewer.update(app, |viewer, cx| {
+            viewer.execute_command(CommandId::Overview, window, cx)
+        })
+    });
+    draw(cx);
+    assert!(cx.update(|_, app| viewer.read(app).capture_overview_identity().is_some()));
+    let service = crate::hosting_ui::tests::fake_service();
+    service.restore().unwrap();
+    let key = service.accounts_snapshot().accounts[0].identity.key.clone();
+    let locator = Locator {
+        provider: jaywalk::accounts::Provider::Github,
+        repository: RepositoryName::parse("team/widgets").unwrap(),
+        number: 42,
+    };
+    let review = service
+        .open_review(
+            &key,
+            &locator,
+            Default::default(),
+            Default::default(),
+            &Control::new(std::time::Duration::from_secs(30)),
+        )
+        .unwrap();
+    cx.update(|window, app| {
+        jaywalk::accounts::application::init_with_backend(service, app);
+        viewer.update(app, |viewer, cx| {
+            viewer.open_hosted_review(review, window, cx)
+        });
+        // Render before parking: the old overview exists and replacement work is pending.
+        window.draw(app).clear(app);
+    });
+    assert!(cx.debug_bounds("overview-preparing").is_some());
+    draw(cx);
+    assert!(cx.update(|_, app| viewer.read(app).is_hosted_review()));
+}

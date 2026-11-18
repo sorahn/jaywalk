@@ -47,6 +47,7 @@ impl Viewer {
         if let Err(error) = commands::refresh_bindings(cx) {
             self.config.error = Some(format!("Could not reapply keymap: {error}"));
         }
+        self.sync_pr_status(window, cx);
         if !self.is_welcome() {
             self.sync_overview(window, cx);
             self.sync_navigation(cx);

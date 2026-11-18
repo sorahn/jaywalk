@@ -23,7 +23,8 @@ tools/hosting-auth-poc/target/debug/jaywalk-hosting-auth-poc github-register
 
 This opens a temporary loopback setup page. Click **Continue to GitHub**, then
 confirm the app name in GitHub. The manifest preselects a private development
-app with Metadata and Pull requests read-only and webhooks disabled. GitHub
+app with Metadata, Pull requests, Contents, Checks and Commit statuses read-only
+and webhooks disabled. GitHub
 validates the disabled hook URL too, so it uses the project homepage as an
 inactive placeholder; no webhook service or deliveries are enabled. GitHub
 returns a temporary registration code to the probe. It exchanges that code
@@ -81,9 +82,10 @@ Create a **GitHub App** in your account's Developer settings:
   call this a Callback URL. Client-secret controls are under **Credentials**.
   Keep expiring user access tokens enabled. Device Flow is optional.
 - Disable webhooks; no webhook server or private key is needed for this probe.
-- Grant repository **Metadata: read-only** and **Pull requests: read-only**.
-  Later file/check experiments may need Contents, Checks and Commit statuses
-  read-only; do not add those until testing those endpoints.
+- Grant repository **Metadata**, **Pull requests**, **Contents**, **Checks**, and
+  **Commit statuses** read-only for the current diff/status experiments. Existing
+  installations are not silently upgraded; approve permission changes through
+  GitHub when updating an older registration.
 - Limit installation to your account and selected test repositories. Install
   it on a disposable repository containing a pull request.
 - Copy its **client ID**, not the numeric app ID. Enter its client secret only

@@ -50,7 +50,10 @@ impl Registration {
         if permissions.get("metadata") != Some(&json!("read"))
             || permissions.get("pull_requests") != Some(&json!("read"))
             || permissions.iter().any(|(name, level)| {
-                !matches!(name.as_str(), "metadata" | "pull_requests") || level != "read"
+                !matches!(
+                    name.as_str(),
+                    "metadata" | "pull_requests" | "contents" | "checks" | "statuses"
+                ) || level != "read"
             })
         {
             return Err(
@@ -185,7 +188,7 @@ fn manifest(name: &str, redirect_url: &str) -> Value {
         // GitHub validates public reachability even for an inactive hook. This
         // existing project URL is a placeholder only; no events or delivery enabled.
         "hook_attributes": {"url": HOMEPAGE, "active": false},
-        "default_permissions": {"metadata": "read", "pull_requests": "read"},
+        "default_permissions": {"metadata": "read", "pull_requests": "read", "contents":"read", "checks":"read", "statuses":"read"},
         "default_events": [],
         "request_oauth_on_install": false
     })
@@ -307,7 +310,7 @@ mod tests {
         assert_eq!(manifest["default_events"], json!([]));
         assert_eq!(
             manifest["default_permissions"],
-            json!({"metadata":"read","pull_requests":"read"})
+            json!({"metadata":"read","pull_requests":"read","contents":"read","checks":"read","statuses":"read"})
         );
         assert!(manifest.get("client_secret").is_none());
     }

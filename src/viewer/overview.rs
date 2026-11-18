@@ -338,6 +338,13 @@ impl Viewer {
             });
         }));
     }
+    pub(super) fn remeasure_overview_header(&self, cx: &mut Context<Self>) {
+        if let Some(loaded) = &self.overview.current {
+            loaded
+                .state
+                .update(cx, |state, cx| state.remeasure_preamble(cx));
+        }
+    }
     pub(super) fn apply_overview_settings(&mut self, previous: &Settings, cx: &mut Context<Self>) {
         if let Some(loaded) = &self.overview.current {
             loaded.state.update(cx, |state, cx| {
@@ -366,7 +373,15 @@ impl Viewer {
                 )
                 .into_any_element();
         }
-        let Some(loaded) = &self.overview.current else {
+        let loaded = self.overview.current.as_ref().filter(|loaded| {
+            // A newly selected hosted comparison must not inherit another
+            // review's body/counts while its own full-text overview is prepared.
+            !self.is_hosted_review()
+                || self
+                    .comparison()
+                    .is_some_and(|comparison| comparison.identity() == loaded.request.source)
+        });
+        let Some(loaded) = loaded else {
             let loading = self.overview.error.is_none()
                 && (self.loading_visible(LoadingKind::Comparison)
                     || self.loading_visible(LoadingKind::Overview));
@@ -380,6 +395,7 @@ impl Viewer {
             return surface
                 .child(
                     div()
+                        .debug_selector(|| "overview-preparing".into())
                         .flex_1()
                         .min_h_0()
                         .flex()
@@ -432,7 +448,13 @@ impl Viewer {
             .ready()
             .and_then(|s| s.review.aggregate.hosted())
             .map(|contents| contents.data.metadata.clone());
-        let expanded = move || {
+        let status_viewer = cx.entity().downgrade();
+        let status_key = self
+            .repository
+            .ready()
+            .map(|s| s.review.aggregate.identity());
+        let status = self.pr_status.presentation(status_key.as_ref());
+        let expanded = move |cx: &App| {
             let state = state.clone();
             let mut header = div()
                 .id("overview-message")
@@ -513,6 +535,7 @@ impl Viewer {
                                 .label("Open PR in browser")
                                 .on_click(move |_, _, cx| cx.open_url(&locator.url())),
                         );
+                header = header.child(pr_status::render(&status, status_viewer.clone(), cx));
                 if !metadata.body.is_empty() {
                     header = header.child(
                         div()
@@ -551,7 +574,7 @@ impl Viewer {
             })
             .collect::<Vec<_>>();
         let notices = files.clone();
-        let empty_header = loaded.files.is_empty().then(&expanded);
+        let empty_header = loaded.files.is_empty().then(|| expanded(cx));
         let menu_owner = cx.entity().downgrade();
         let menu_focus = self.focus.clone();
         let source = loaded.request.source.clone();
@@ -576,7 +599,7 @@ impl Viewer {
                 context_menu::overview_commands(menu.separator())
             })
             .border_0()
-            .render_preamble(move |_, _| expanded())
+            .render_preamble(move |_, cx| expanded(cx))
             .sticky_headers(true)
             .code_font(theme.mono_font_family.clone(), px(self.code_font_size))
             .font_features(typography::features(self.settings.editor.ligatures))
