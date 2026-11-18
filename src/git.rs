@@ -6,6 +6,7 @@ use crate::repository::{
 use crate::repository_file::ChangeKind;
 use std::collections::{BTreeMap, BTreeSet};
 pub(crate) mod blob_batch;
+mod renames;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -221,7 +222,8 @@ fn capture(
         "diff",
         "--no-ext-diff",
         "--no-textconv",
-        "--no-renames",
+        "--find-renames=50%",
+        "-l200",
         "--name-status",
         "-z",
         &base,
@@ -235,16 +237,33 @@ fn capture(
     let before_tree = tree(&root, &base)?;
     let mut files = BTreeMap::new();
     while let Some(status) = fields.next() {
-        let path = fields.next().ok_or("Incomplete Git diff entry")?;
-        let kind = match status {
-            "A" => ChangeKind::Added,
-            "D" => ChangeKind::Removed,
-            "M" | "T" => ChangeKind::Modified,
-            other => ChangeKind::Other(other.to_owned()),
+        let before_path = fields.next().ok_or("Incomplete Git diff entry")?;
+        let (kind, after_path) = if status.starts_with('R') || status.starts_with('C') {
+            if status[1..].parse::<u8>().is_err() {
+                return Err("Invalid Git rename/copy score".into());
+            }
+            (
+                if status.starts_with('R') {
+                    ChangeKind::Renamed
+                } else {
+                    ChangeKind::Copied
+                },
+                fields.next().ok_or("Incomplete Git rename/copy entry")?,
+            )
+        } else {
+            (
+                match status {
+                    "A" => ChangeKind::Added,
+                    "D" => ChangeKind::Removed,
+                    "M" | "T" => ChangeKind::Modified,
+                    other => ChangeKind::Other(other.to_owned()),
+                },
+                before_path,
+            )
         };
         files.insert(
-            path.to_owned(),
-            ChangedFile::new(kind, path.into(), path.into()),
+            after_path.to_owned(),
+            ChangedFile::new(kind, before_path.into(), after_path.into()),
         );
     }
     if working {
@@ -266,12 +285,15 @@ fn capture(
             );
         }
     }
-    let files: Vec<_> = files.into_values().collect();
+    let mut files: Vec<_> = files.into_values().collect();
     let mut after_tree = if working {
         // The diff classified remaining tracked paths as unchanged. Bind their
         // bytes to the base objects, never to future filesystem reads.
         let mut after = before_tree.clone();
         for file in &files {
+            if file.kind() == &ChangeKind::Renamed {
+                after.remove(file.before_path());
+            }
             if file.kind() == &ChangeKind::Removed {
                 after.remove(file.after_path());
             } else {
@@ -346,6 +368,9 @@ fn capture(
             Ok((before, after))
         })();
         contents.insert(file.after_path().to_owned(), pair);
+    }
+    if working {
+        renames::infer(&mut files, &mut contents, [&before_tree, &after_tree]);
     }
     Comparison::assemble(
         ComparisonMetadata {

@@ -41,7 +41,7 @@ branch does not make that upstream the integration target. If the target or
 common ancestor is missing or ambiguous, the caption explains the fallback to
 HEAD → working tree; choose a branch/base explicitly to review another scope.
 No fetch is performed. jj retains its mutable-stack default. Select a commit to review its
-changes, or select a file to open the diff viewer. **Whole branch** returns to
+changes, or select a file to open the diff viewer. **All changes** returns to
 the comparison you opened. In jj repositories, **Evolution** lets you inspect
 recorded versions of a change and what changed between rewrites.
 
@@ -62,7 +62,7 @@ integration with `jj diff` and `git difftool`.
 | Previous / next file | Cmd+[ / Cmd+] |
 | Previous / next history entry | Cmd+Shift+[ / Cmd+Shift+] |
 | Back / forward through visited views | Cmd+Option+Left / Cmd+Option+Right |
-| Whole branch | Cmd+Shift+B |
+| All changes | Cmd+Shift+B |
 | Settings | Cmd+, |
 
 All shortcuts are remappable. The [keybindings guide](docs/keybindings.md)

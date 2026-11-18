@@ -153,7 +153,7 @@ fn git_overview_has_full_message_and_keeps_nontext_entries() {
         details.message,
         "overview subject\n\nFull body with 漢字.\nSecond paragraph."
     );
-    assert_eq!(overview.files.len(), 5);
+    assert_eq!(overview.files.len(), 4);
     for entry in &overview.files {
         assert_eq!(DiffFile::parse(&entry.patch).unwrap().len(), 1);
     }
@@ -162,9 +162,14 @@ fn git_overview_has_full_message_and_keeps_nontext_entries() {
         .iter()
         .find(|entry| entry.file.after_path() == "renamed.txt")
         .unwrap();
-    // Ordinary Git currently represents renames as independent additions/deletions.
-    assert_eq!(rename.file.status(), "added");
-    assert!(rename.patch.contains("+unchanged content\n"));
+    assert_eq!(rename.file.status(), "renamed");
+    assert_eq!(rename.file.before_path(), "old.txt");
+    assert!(rename.patch.contains("rename from \"old.txt\""));
+    assert!(rename.patch.contains("rename to \"renamed.txt\""));
+    assert_eq!(
+        comparison.contents(&rename.file).unwrap(),
+        ("unchanged content\n".into(), "unchanged content\n".into())
+    );
     assert!(!rename.patch.contains("later working"));
     let binary = overview
         .files
