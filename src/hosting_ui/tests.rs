@@ -28,6 +28,7 @@ impl CredentialStore for Store {
 }
 struct Adapter {
     calls: AtomicUsize,
+    status_calls: Arc<AtomicUsize>,
     fail: std::sync::atomic::AtomicBool,
 }
 impl HostingProvider for Adapter {
@@ -65,6 +66,21 @@ impl HostingProvider for Adapter {
         };
         let value = if url.path().contains("/compare/") {
             serde_json::json!({"merge_base_commit":{"sha":"a".repeat(40)}})
+        } else if url.path().ends_with("/check-runs")
+            || url.path().ends_with("/status")
+            || url.path().ends_with("/reviews")
+        {
+            self.status_calls.fetch_add(1, Ordering::SeqCst);
+            if self.fail.load(Ordering::SeqCst) {
+                return Err(Error::Network);
+            }
+            if url.path().ends_with("/check-runs") {
+                serde_json::json!({"total_count":1,"check_runs":[{"id":1,"name":"Synthetic CI","head_sha":"b".repeat(40),"status":"completed","conclusion":"success"}]})
+            } else if url.path().ends_with("/status") {
+                serde_json::json!({"sha":"b".repeat(40),"total_count":0,"statuses":[]})
+            } else {
+                serde_json::json!([])
+            }
         } else {
             let number = url
                 .path_segments()
@@ -99,14 +115,21 @@ impl HostingProvider for Adapter {
     }
 }
 pub(crate) fn fake_service() -> Arc<Service> {
-    Service::new(
+    fake_service_with_status_counter().0
+}
+pub(crate) fn fake_service_with_status_counter() -> (Arc<Service>, Arc<AtomicUsize>) {
+    let counter = Arc::new(AtomicUsize::new(0));
+    let service = Service::new(
         Arc::new(Store),
         Arc::new(Adapter {
             calls: AtomicUsize::new(0),
+            status_calls: counter.clone(),
             fail: std::sync::atomic::AtomicBool::new(false),
         }),
-    )
+    );
+    (service, counter)
 }
+
 fn batch(number: u64) -> Batch {
     Batch {
         items: vec![PullRequest {
@@ -130,6 +153,7 @@ fn setup(cx: &mut gpui_test::TestAppContext) -> (tempfile::TempDir, Arc<Adapter>
     let fixture = tempfile::tempdir().unwrap();
     let adapter = Arc::new(Adapter {
         calls: AtomicUsize::new(0),
+        status_calls: Arc::new(AtomicUsize::new(0)),
         fail: std::sync::atomic::AtomicBool::new(false),
     });
     let service = Service::new(Arc::new(Store), adapter.clone());

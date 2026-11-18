@@ -343,6 +343,7 @@ impl Viewer {
                             || !matches!(
                                 command,
                                 jaywalk::commands::CommandId::UpdatePublishedReview
+                                    | jaywalk::commands::CommandId::RefreshReviewStatus
                                     | jaywalk::commands::CommandId::OpenReviewInBrowser
                             ))
                         && (!self.is_hosted_review()
@@ -415,7 +416,7 @@ impl Viewer {
                     unreachable!("PR discovery renders its own palette step")
                 }
                 PaletteKind::Files => {
-                    if self.comparison().is_some_and(|c| c.hosted().is_some()) {
+                    if self.is_hosted_review() {
                         "Find changed PR file…"
                     } else {
                         "Find any repository file…"

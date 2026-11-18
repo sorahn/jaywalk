@@ -267,6 +267,7 @@ impl Viewer {
                     cx,
                 );
             }
+            CommandId::RefreshReviewStatus => self.refresh_pr_status(true, window, cx),
             CommandId::UpdatePublishedReview => self.update_hosted_review(window, cx),
             CommandId::OpenReviewInBrowser => {
                 if let Some(contents) = self

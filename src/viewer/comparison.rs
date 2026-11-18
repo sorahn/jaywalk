@@ -12,7 +12,7 @@ impl Viewer {
             .compact()
             .icon(IconName::Search)
             .tooltip_with_action(
-                if self.comparison().is_some_and(|c| c.hosted().is_some()) {
+                if self.is_hosted_review() {
                     "Find changed PR file"
                 } else {
                     "Find any repository file"
@@ -29,7 +29,7 @@ impl Viewer {
 
     pub(super) fn render_review_source(&self, caption: AnyElement) -> AnyElement {
         use jaywalk::commands::CommandId;
-        let hosted = self.comparison().is_some_and(|c| c.hosted().is_some());
+        let hosted = self.is_hosted_review();
         let repository =
             !hosted && (self.arguments.diff.is_none() || self.arguments.difftool.is_some());
         let aggregate = matches!(
@@ -69,6 +69,7 @@ impl Viewer {
                     entries.push((CommandId::OpenedComparison, false));
                 } else {
                     entries.push((CommandId::UpdatePublishedReview, false));
+                    entries.push((CommandId::RefreshReviewStatus, false));
                     entries.push((CommandId::OpenReviewInBrowser, false));
                 }
                 if repository {
@@ -142,9 +143,7 @@ impl Viewer {
                     .icon(crate::appearance::active_icon(icon, active, cx))
                     .toggled(active)
                     .tooltip_with_action(
-                        if command == CommandId::Refresh
-                            && self.comparison().is_some_and(|c| c.hosted().is_some())
-                        {
+                        if command == CommandId::Refresh && self.is_hosted_review() {
                             "Update published PR comparison"
                         } else {
                             command.label()
