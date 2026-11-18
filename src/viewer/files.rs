@@ -409,7 +409,8 @@ impl Viewer {
             .comparison()
             .map(|comparison| (comparison.identity(), comparison.root().to_path_buf()));
         let focus = self.focus.clone();
-        let repository = self.arguments.diff.is_none();
+        let repository = self.arguments.diff.is_none()
+            && self.comparison().is_some_and(|c| c.hosted().is_none());
         let icons = self.settings.files.file_icons;
         let guides = self.settings.files.indent_guides;
         let guide_offset = self.settings.files.indent_guide_offset;
@@ -591,7 +592,12 @@ impl Viewer {
                             } else {
                                 "Changed"
                             })
-                            .tooltip("Toggle changed files / all repository files")
+                            .disabled(self.comparison().is_some_and(|c| c.hosted().is_some()))
+                            .tooltip(if self.comparison().is_some_and(|c| c.hosted().is_some()) {
+                                "Hosted review: changed files only"
+                            } else {
+                                "Toggle changed files / all repository files"
+                            })
                             .on_click(cx.listener(|this, _, _, cx| {
                                 this.browser.scope = if this.browser.scope == TreeScope::All {
                                     TreeScope::Changed
@@ -993,6 +999,13 @@ impl Viewer {
     }
 
     pub(super) fn set_tree_scope(&mut self, scope: TreeScope, cx: &mut Context<Self>) {
+        if scope == TreeScope::All && self.comparison().is_some_and(|c| c.hosted().is_some()) {
+            self.live.notice = Some(live::LiveNotice::Diagnostic(
+                "Hosted reviews list changed files only".into(),
+            ));
+            cx.notify();
+            return;
+        }
         self.browser.scope = scope;
         self.rebuild_browser(cx);
         self.save_layout(cx);

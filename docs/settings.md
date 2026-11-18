@@ -503,3 +503,43 @@ configuration or an explicit `--config` file. It applies live to the next manual
 created pair. It does
 not reorder open comparisons, Back/Forward snapshots, explicit CLI endpoints or
 branch-review presets. Swap reverses only the current captured comparison.
+
+## Hosted pull request reviews
+
+Selecting a GitHub or Bitbucket Cloud PR loads its published comparison into the
+existing viewer. No working checkout is required or changed. Review contents,
+commit history and prepared diffs stay in memory; PR-list metadata retains its
+existing restart cache. The file browser lists changed files only. Commit rows
+open individual first-parent changes; aggregate/overview returns to the pinned
+published diff. Pair and local branch comparisons require a local repository.
+
+| Setting | Default | Behavior |
+| --- | --- | --- |
+| `hosting.history_limit` | `200` | PR commit rows to acquire, 1–1000. Keeps the newest available rows; GitHub's PR endpoint exposes at most the first 250 commits of larger PRs. Partial history is marked and never changes the published diff. Applies to the next opened/updated review. |
+| `hosting.max_files` | `3000` | Maximum changed files per aggregate or commit, 1–3000. Reviews beyond the cap fail explicitly instead of showing a partial diff. Applies to the next opened/updated review. |
+| `hosting.max_content_mb` | `128` | MiB of successfully decoded, unique file text cached per opened review, shared across its clones and individual commit snapshots, 1–1024. Both sides count. The existing `diff.max_text_file_size_mb` also applies per file side before allocation. This bounds cached source text, not total process memory: editor, syntax, diff and navigation state require additional memory. Applies to the next opened/updated review. |
+
+API responses, tree traversal, pagination and loading waits are bounded as well.
+Binary/non-UTF-8 files, submodules and unavailable or oversized contents show an
+explicit notice; they do not become empty successful diffs. Symlinks display
+link-target text. Review text is not written into a Git object cache or checkout.
+
+A PR remains pinned to its resolved source, target and published base. Refresh
+in the viewer, or **Update published PR comparison** in the command palette,
+explicitly reloads the latest published version. Background PR-list refresh
+never replaces an open review. Back/Forward retains previously opened snapshots.
+Cancellation or a failed update leaves the displayed snapshot intact. Deleted
+or inaccessible endpoint repositories can prevent opening historical reviews.
+
+## Diff algorithm
+
+`diff.algorithm` defaults to `"myers"` and accepts `"myers"`, `"patience"`. It applies to line matching in Fluid, side-by-side, inline and overview,
+for local and hosted comparisons alike. An edit reloads the displayed file and
+rebuilds the overview using the same pinned contents and revisions; it performs
+no Git fetch or PR version update. Intraline word highlights retain their
+existing matching policy. Patience can improve alignment around unique lines
+in reordered code. Myers
+remains the default. LCS is excluded after poor repetitive-file trial results.
+Histogram, Git's minimal policy and indentation-aware
+hunk shifting are not options in the current `similar` backend. Algorithm
+selection does not ignore whitespace differences.

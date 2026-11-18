@@ -193,6 +193,9 @@ impl Viewer {
         let Some(session) = self.repository.ready() else {
             return;
         };
+        if session.home.hosted().is_some() {
+            return;
+        }
         self.live.stamp =
             session.history.as_ref().ok().map(|history| {
                 jaywalk::references::ReferenceStamp::from_snapshot(&history.references)

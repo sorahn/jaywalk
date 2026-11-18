@@ -267,6 +267,16 @@ impl Viewer {
                     cx,
                 );
             }
+            CommandId::UpdatePublishedReview => self.update_hosted_review(window, cx),
+            CommandId::OpenReviewInBrowser => {
+                if let Some(contents) = self
+                    .repository
+                    .ready()
+                    .and_then(|s| s.review.aggregate.hosted())
+                {
+                    cx.open_url(&contents.data.metadata.locator.url());
+                }
+            }
             CommandId::TreeChanged | CommandId::TreeAll => {
                 self.set_tree_scope(
                     if command == CommandId::TreeAll {

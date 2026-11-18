@@ -6,6 +6,15 @@ use std::{io::Read, time::Duration};
 /// Refresh has no automatic retry: a lost response may already have consumed a
 /// rotating refresh token. Session coordination decides what may be retried.
 pub trait HostingProvider: Send + Sync {
+    fn review_request(
+        &self,
+        _: &Secret,
+        _: crate::hosting::review::Request,
+        _: &Control,
+    ) -> Result<crate::hosting::review::Reply, Error> {
+        Err(Error::Unsupported)
+    }
+
     fn pull_requests(
         &self,
         _: &Secret,
@@ -72,6 +81,95 @@ impl HttpProvider {
     }
 }
 impl HostingProvider for HttpProvider {
+    fn review_request(
+        &self,
+        token: &Secret,
+        request: crate::hosting::review::Request,
+        control: &Control,
+    ) -> Result<crate::hosting::review::Reply, Error> {
+        use crate::hosting::review::{Reply, Request};
+        let (url, limit, raw) = match request {
+            Request::Json(url) => (url, 16 * 1024 * 1024, false),
+            Request::Bytes(url, limit) => (url, limit, true),
+        };
+        if url.scheme() != "https"
+            || !url.username().is_empty()
+            || url.password().is_some()
+            || url.port_or_known_default() != Some(443)
+            || !matches!(url.host_str(), Some("api.github.com" | "api.bitbucket.org"))
+        {
+            return Err(Error::InvalidResponse);
+        }
+        control.check()?;
+        let request = self
+            .client
+            .get(url.clone())
+            .bearer_auth(token.expose())
+            .header(
+                "Accept",
+                if raw && url.host_str() == Some("api.github.com") {
+                    "application/vnd.github.raw+json"
+                } else if raw {
+                    "application/octet-stream"
+                } else {
+                    "application/json"
+                },
+            );
+        let mut response = request.send().map_err(|_| Error::Network)?;
+        control.check()?;
+        match response.status().as_u16() {
+            200 => (),
+            301 | 302 | 303 | 307 | 308 => {
+                let location = response
+                    .headers()
+                    .get(reqwest::header::LOCATION)
+                    .and_then(|value| value.to_str().ok())
+                    .ok_or(Error::InvalidResponse)?;
+                return Ok(Reply::Redirect(
+                    url.join(location).map_err(|_| Error::InvalidResponse)?,
+                ));
+            }
+            401 => return Err(Error::NeedsSignIn),
+            403 if response
+                .headers()
+                .get("x-ratelimit-remaining")
+                .is_some_and(|value| value == "0") =>
+            {
+                return Err(Error::RateLimited);
+            }
+            403 => return Err(Error::NoAccess),
+            404 => return Err(Error::NotFound),
+            429 => return Err(Error::RateLimited),
+            _ => return Err(Error::Network),
+        }
+        if response
+            .content_length()
+            .is_some_and(|size| size > limit as u64)
+        {
+            return Err(Error::ContentLimit);
+        }
+        let mut bytes = Vec::new();
+        let mut chunk = [0; 8192];
+        loop {
+            control.check()?;
+            let count = response.read(&mut chunk).map_err(|_| Error::Network)?;
+            if count == 0 {
+                break;
+            }
+            if bytes.len().saturating_add(count) > limit {
+                return Err(Error::ContentLimit);
+            }
+            bytes.extend_from_slice(&chunk[..count]);
+        }
+        if raw {
+            Ok(Reply::Bytes(bytes))
+        } else {
+            serde_json::from_slice(&bytes)
+                .map(Reply::Json)
+                .map_err(|_| Error::InvalidResponse)
+        }
+    }
+
     fn pull_requests(
         &self,
         token: &Secret,

@@ -16,6 +16,7 @@ struct Request {
     source: ComparisonIdentity,
     tab_size: usize,
     series: bool,
+    algorithm: jaywalk::diff_model::Algorithm,
 }
 struct FileSummary {
     file: ChangedFile,
@@ -29,8 +30,13 @@ struct PreparedOverview {
     documents: Vec<DiffFile>,
 }
 impl PreparedOverview {
-    fn load(comparison: &Comparison, tab_size: usize, whole_branch: bool) -> Result<Self, String> {
-        let mut snapshot = comparison.overview();
+    fn load(
+        comparison: &Comparison,
+        tab_size: usize,
+        whole_branch: bool,
+        algorithm: jaywalk::diff_model::Algorithm,
+    ) -> Result<Self, String> {
+        let mut snapshot = comparison.overview_with_algorithm(algorithm);
         let series = if whole_branch {
             match comparison.overview_series() {
                 Ok(series) => series.map(Arc::new),
@@ -238,6 +244,7 @@ impl Viewer {
         let request = Request {
             source: comparison.identity(),
             tab_size: self.settings.editor.tab_size,
+            algorithm: self.settings.diff.algorithm,
             series: matches!(
                 self.repository.ready().map(|session| &session.scope),
                 Some(ComparisonScope::Aggregate)
@@ -258,7 +265,12 @@ impl Viewer {
         self.overview.task = Some(cx.spawn_in(window, async move |this, cx| {
             let result = cx
                 .background_spawn(async move {
-                    PreparedOverview::load(&comparison, request.tab_size, request.series)
+                    PreparedOverview::load(
+                        &comparison,
+                        request.tab_size,
+                        request.series,
+                        request.algorithm,
+                    )
                 })
                 .await;
             let _ = this.update(cx, |viewer, cx| {
@@ -270,6 +282,7 @@ impl Viewer {
                     .comparison()
                     .is_none_or(|comparison| comparison.identity() != request.source)
                     || viewer.settings.editor.tab_size != request.tab_size
+                    || viewer.settings.diff.algorithm != request.algorithm
                     || request.series
                         != matches!(
                             viewer.repository.ready().map(|session| &session.scope),
@@ -414,6 +427,11 @@ impl Viewer {
         let series = loaded.series.clone();
         let expanded_messages = self.overview.expanded_messages.clone();
         let series_viewer = cx.entity().downgrade();
+        let hosted = self
+            .repository
+            .ready()
+            .and_then(|s| s.review.aggregate.hosted())
+            .map(|contents| contents.data.metadata.clone());
         let expanded = move || {
             let state = state.clone();
             let mut header = div()
@@ -459,6 +477,51 @@ impl Viewer {
                                 }),
                         ),
                 );
+            if let Some(metadata) = &hosted {
+                let locator = metadata.locator.clone();
+                header =
+                    header
+                        .child(div().text_sm().text_color(muted).whitespace_normal().child(
+                            format!(
+                                "{} · by {} · source {} → target {} · merge base {}{}",
+                                if metadata.draft == Some(true) {
+                                    "DRAFT"
+                                } else {
+                                    &metadata.state
+                                },
+                                metadata.author,
+                                metadata
+                                    .source_branch
+                                    .as_deref()
+                                    .unwrap_or(&metadata.source.commit[..12]),
+                                metadata
+                                    .target_branch
+                                    .as_deref()
+                                    .unwrap_or(&metadata.target.commit[..12]),
+                                &metadata.base.commit[..12],
+                                if metadata.history_partial {
+                                    " · partial history"
+                                } else {
+                                    ""
+                                }
+                            ),
+                        ))
+                        .child(
+                            Button::new("hosted-provider-browser")
+                                .ghost()
+                                .small()
+                                .label("Open PR in browser")
+                                .on_click(move |_, _, cx| cx.open_url(&locator.url())),
+                        );
+                if !metadata.body.is_empty() {
+                    header = header.child(
+                        div()
+                            .text_sm()
+                            .whitespace_normal()
+                            .child(metadata.body.clone()),
+                    );
+                }
+            }
             if let Some(series) = &series {
                 header = header.child(render_series(
                     series,
@@ -493,7 +556,8 @@ impl Viewer {
         let menu_focus = self.focus.clone();
         let source = loaded.request.source.clone();
         let root = loaded.root.clone();
-        let repository = self.arguments.diff.is_none();
+        let repository = self.arguments.diff.is_none()
+            && self.comparison().is_some_and(|c| c.hosted().is_none());
         let diff = Diff::new(&loaded.state)
             .colors(crate::appearance::diff_colors(cx))
             .header_context_menu(move |file, menu, _, _| {

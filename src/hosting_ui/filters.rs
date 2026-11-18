@@ -188,7 +188,10 @@ impl PullRequestsPage {
         cx.stop_propagation();
     }
     pub(super) fn filter_escape(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.step == Step::Results {
+        if self.opening {
+            self.cancel(cx);
+            cx.stop_propagation();
+        } else if self.step == Step::Results {
             cx.propagate();
         } else {
             self.back_filter(window, cx);

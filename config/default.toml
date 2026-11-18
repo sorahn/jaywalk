@@ -123,6 +123,8 @@ list_word_wrap = false
 # Tree rows stay single-line and scroll horizontally.
 
 [diff]
+# Line matching: "myers" or "patience".
+algorithm = "myers"
 # MiB per side; bounded reads prevent allocation beyond this limit.
 max_text_file_size_mb = 5
 # "inline", "side_by_side", or "fluid"
@@ -207,3 +209,9 @@ sidebar_order = "history_first"
 # under the central workspace. Two bottom timelines appear beside each other.
 change_evolution = "sidebar"
 file_evolution = "sidebar"
+
+# Hosted review snapshots are downloaded on demand and kept only in memory.
+[hosting]
+history_limit = 200
+max_files = 3000
+max_content_mb = 128

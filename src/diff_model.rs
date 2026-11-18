@@ -1,3 +1,19 @@
+/// Line matching is a display policy; it never changes comparison endpoints.
+#[derive(Clone, Copy, Debug, Default, serde::Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum Algorithm {
+    #[default]
+    Myers,
+    Patience,
+}
+impl Algorithm {
+    pub fn similar(self) -> similar::Algorithm {
+        match self {
+            Self::Myers => similar::Algorithm::Myers,
+            Self::Patience => similar::Algorithm::Patience,
+        }
+    }
+}
 use similar::{DiffTag, TextDiff};
 use std::ops::Range;
 
@@ -27,7 +43,12 @@ fn line_offsets(text: &str) -> Vec<usize> {
 
 impl FileDiff {
     pub fn new(before: &str, after: &str) -> Self {
-        let diff = TextDiff::from_lines(before, after);
+        Self::with_algorithm(before, after, Algorithm::default())
+    }
+    pub fn with_algorithm(before: &str, after: &str, algorithm: Algorithm) -> Self {
+        let diff = TextDiff::configure()
+            .algorithm(algorithm.similar())
+            .diff_lines(before, after);
         let blocks: Vec<Correspondence> = diff
             .ops()
             .iter()

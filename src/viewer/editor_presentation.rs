@@ -1,8 +1,18 @@
 //! Prepare immutable file data off-thread; mount or update editor entities on the UI thread.
 use super::*;
 
+#[cfg(test)]
 pub(super) fn standard_patch(before: &str, after: &str) -> String {
-    similar::TextDiff::from_lines(before, after)
+    standard_patch_with_algorithm(before, after, Default::default())
+}
+fn standard_patch_with_algorithm(
+    before: &str,
+    after: &str,
+    algorithm: jaywalk::diff_model::Algorithm,
+) -> String {
+    similar::TextDiff::configure()
+        .algorithm(algorithm.similar())
+        .diff_lines(before, after)
         .unified_diff()
         .context_radius(before.lines().count().max(after.lines().count()))
         .header("a/source", "b/source")
@@ -29,14 +39,15 @@ impl PreparedFile {
         comparison: &Comparison,
         file: &jaywalk::repository_file::FileEntry,
         tab_size: usize,
+        algorithm: jaywalk::diff_model::Algorithm,
     ) -> Result<Self, String> {
         let (before, after) = comparison.read_file(file)?;
-        let model = FileDiff::new(&before, &after);
+        let model = FileDiff::with_algorithm(&before, &after, algorithm);
         let language = file_language(file.path());
         let syntax = [&before, &after].map(|text| {
             gpui::component::highlighter::PreparedInputHighlighter::new(language, text)
         });
-        let standard = DiffFile::parse(&standard_patch(&before, &after))
+        let standard = DiffFile::parse(&standard_patch_with_algorithm(&before, &after, algorithm))
             .map(|files| {
                 files
                     .into_iter()

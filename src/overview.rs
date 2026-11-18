@@ -95,6 +95,7 @@ impl Comparison {
     /// history limits and remote visibility. Parents precede descendants.
     pub fn overview_series(&self) -> Result<Option<OverviewSeries>, String> {
         let mut commits = match self.content() {
+            ContentSource::Hosted(contents) => return Ok(Some(contents.series())),
             ContentSource::Evolution(_) => return Ok(None),
             ContentSource::External(contents)
                 if self.has_git_context()
@@ -160,6 +161,7 @@ impl Comparison {
     }
     pub fn commit_details(&self) -> Result<Option<CommitDetails>, String> {
         match self.content() {
+            ContentSource::Hosted(contents) => Ok(contents.commit_details(self.tip())),
             ContentSource::External(_) => Ok(None),
             ContentSource::Git(_) if self.tip() == "working tree" => Ok(None),
             ContentSource::Git(_) => {
@@ -199,6 +201,12 @@ impl Comparison {
         }
     }
     pub fn overview(&self) -> OverviewSnapshot {
+        self.overview_with_algorithm(Default::default())
+    }
+    pub fn overview_with_algorithm(
+        &self,
+        algorithm: crate::diff_model::Algorithm,
+    ) -> OverviewSnapshot {
         let (commit, metadata_error) = match self.commit_details() {
             Ok(commit) => (commit, None),
             Err(error) => (None, Some(error)),
@@ -231,10 +239,13 @@ impl Comparison {
                         } else {
                             metadata_notice
                         };
-                        (overview_patch(file, Some((&before, &after))), notice)
+                        (
+                            overview_patch_with_algorithm(file, Some((&before, &after)), algorithm),
+                            notice,
+                        )
                     }
                     Err(error) => (
-                        overview_patch(file, None),
+                        overview_patch_with_algorithm(file, None, algorithm),
                         Some(format!("Text preview unavailable: {error}")),
                     ),
                 };
@@ -274,6 +285,13 @@ fn quoted_path(path: &str) -> String {
 /// Supply full source context so disclosures can reveal real revision contents.
 /// Folding is a presentation choice, not an omission from the immutable patch.
 pub fn overview_patch(file: &ChangedFile, contents: Option<(&str, &str)>) -> String {
+    overview_patch_with_algorithm(file, contents, Default::default())
+}
+pub fn overview_patch_with_algorithm(
+    file: &ChangedFile,
+    contents: Option<(&str, &str)>,
+    algorithm: crate::diff_model::Algorithm,
+) -> String {
     let old = quoted_path(&format!("a/{}", file.before_path()));
     let new = quoted_path(&format!("b/{}", file.after_path()));
     let mut patch = format!("diff --git {old} {new}\n");
@@ -317,7 +335,9 @@ pub fn overview_patch(file: &ChangedFile, contents: Option<(&str, &str)>) -> Str
             }
         } else {
             patch.push_str(
-                &similar::TextDiff::from_lines(before, after)
+                &similar::TextDiff::configure()
+                    .algorithm(algorithm.similar())
+                    .diff_lines(before, after)
                     .unified_diff()
                     .context_radius(before.lines().count().max(after.lines().count()))
                     .header(before_path, after_path)

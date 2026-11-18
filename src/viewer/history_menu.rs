@@ -65,6 +65,7 @@ pub(super) fn revision_menu(
     target: RevisionTarget,
     viewer: WeakEntity<Viewer>,
     jj: bool,
+    hosted: bool,
 ) -> PopupMenu {
     for command in [
         CommandId::InspectRevision,
@@ -78,6 +79,18 @@ pub(super) fn revision_menu(
         CommandId::CopyChangeId,
         CommandId::CopyCommitMessage,
     ] {
+        if hosted
+            && matches!(
+                command,
+                CommandId::CompareRevision
+                    | CommandId::DiffFromBranchPoint
+                    | CommandId::BranchChanges
+                    | CommandId::MergedBranch
+                    | CommandId::MergeResult
+            )
+        {
+            continue;
+        }
         if !target.allows(command) {
             continue;
         }
@@ -105,6 +118,16 @@ pub(super) fn revision_menu(
                         viewer.execute_revision_action(command, &subject, window, cx)
                     });
                 }),
+        );
+    }
+    if hosted {
+        return context_menu::command_entries(
+            menu.separator(),
+            &[
+                (CommandId::AllChanges, false),
+                (CommandId::UpdatePublishedReview, false),
+                (CommandId::OpenReviewInBrowser, false),
+            ],
         );
     }
     context_menu::command_entries(

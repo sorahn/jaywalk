@@ -25,9 +25,8 @@ use std::{
 actions!(hosting_ui, [Cancel, Refresh]);
 pub(crate) enum Event {
     Leave,
-    Picked(Box<(AccountView, PullRequest)>),
+    Opened(hosting::review::Review),
     Accounts,
-    Repository(PathBuf),
 }
 impl EventEmitter<Event> for PullRequestsPage {}
 pub(crate) fn init(cx: &mut App) {
@@ -75,11 +74,6 @@ impl Choice {
             Self::Recent(locator) => format!("Recent · {}", locator.label()),
         }
     }
-}
-struct Selection {
-    account: AccountView,
-    item: PullRequest,
-    association: Option<Result<hosting::Association, Error>>,
 }
 enum Update {
     Setup {
@@ -201,15 +195,16 @@ pub(crate) struct PullRequestsPage {
     input: Entity<CommandState>,
     scroll: ScrollHandle,
     root: Option<PathBuf>,
-    candidates: Vec<PathBuf>,
     recent_path: PathBuf,
     scope: Option<Scope>,
     account: Option<AccountKey>,
     views: HashMap<Scope, Vec<AccountResult>>,
     remotes: Vec<RemoteRepository>,
-    selected: Option<Selection>,
     operation: Option<Control>,
     association: Option<Control>,
+    review_options: hosting::review::Options,
+    text_limit: jaywalk::text_content::TextLimit,
+    opening: bool,
     serial: u64,
     progress: Option<String>,
     notice: Option<String>,
@@ -229,7 +224,6 @@ impl PullRequestsPage {
     pub(crate) fn new(
         root: Option<PathBuf>,
         recent_path: PathBuf,
-        candidates: Vec<PathBuf>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
@@ -252,15 +246,16 @@ impl PullRequestsPage {
             input,
             scroll: ScrollHandle::new(),
             root,
-            candidates,
             recent_path,
             scope: Some(Scope::Authored),
             account: None,
             views: HashMap::new(),
             remotes: vec![],
-            selected: None,
             operation: None,
             association: None,
+            review_options: Default::default(),
+            text_limit: Default::default(),
+            opening: false,
             serial: 0,
             progress: None,
             notice: None,
@@ -312,15 +307,12 @@ impl PullRequestsPage {
                 }
             }
         }
-        if self
-            .selected
-            .as_ref()
-            .is_some_and(|selection| !self.active(&selection.account, cx))
-        {
-            self.selected = None;
-        }
     }
     fn cancel(&mut self, cx: &mut Context<Self>) {
+        if let Some(control) = self.association.take() {
+            control.cancel();
+        }
+        self.opening = false;
         if self.picking {
             cx.emit(Event::Leave);
             return;
@@ -336,6 +328,10 @@ impl PullRequestsPage {
         }
     }
     fn set_scope(&mut self, scope: Option<Scope>, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(control) = self.association.take() {
+            control.cancel();
+        }
+        self.opening = false;
         if matches!(scope, Some(Scope::Direct(_))) {
             self.views
                 .retain(|scope, _| !matches!(scope, Scope::Direct(_)));
@@ -348,7 +344,6 @@ impl PullRequestsPage {
                 .retain(|key, _| matches!(key, Scope::Authored | Scope::ReviewRequested));
         }
         self.scope = scope;
-        self.selected = None;
         self.input
             .update(cx, |state, cx| state.set_query("", window, cx));
         self.refresh(window, cx);
@@ -669,53 +664,6 @@ impl PullRequestsPage {
             }
         }
     }
-    fn choose_checkout(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(selection) = &self.selected else {
-            return;
-        };
-        let locator = selection.item.locator.clone();
-        let receiver = cx.prompt_for_paths(PathPromptOptions {
-            files: false,
-            directories: true,
-            multiple: false,
-            prompt: Some("Choose the pull request's local repository".into()),
-        });
-        cx.spawn_in(window, async move |this, cx| {
-            let paths = match receiver.await {
-                Ok(Ok(Some(paths))) => paths,
-                Ok(Ok(None)) => return,
-                _ => {
-                    let _ = this.update(cx, |page, cx| {
-                        page.notice = Some("Could not choose a local repository.".into());
-                        cx.notify();
-                    });
-                    return;
-                }
-            };
-            let expected = locator.clone();
-            let result = cx
-                .background_spawn(async move {
-                    hosting::associate(&locator, &paths, &Control::new(Duration::from_secs(30)))
-                })
-                .await;
-            let _ = this.update(cx, |page, cx| {
-                if let Some(selection) = &mut page.selected
-                    && selection.item.locator == expected
-                {
-                    if result
-                        .as_ref()
-                        .is_ok_and(|association| association.matches.is_empty())
-                    {
-                        page.notice =
-                            Some("That folder has no matching provider/repository remote.".into());
-                    }
-                    selection.association = Some(result);
-                }
-                cx.notify();
-            });
-        })
-        .detach();
-    }
     fn command(&self, cx: &mut Context<Self>) -> Command {
         let choices = Arc::new(self.choices(cx));
         let confirm = choices.clone();
@@ -801,7 +749,10 @@ impl PullRequestsPage {
         let query_error = EntryInput::parse(&self.input.read(cx).query(cx))
             .err()
             .map(|error| format!("Could not interpret this PR reference: {error}"));
-        let detail = query_error
+        let detail = self
+            .opening
+            .then(|| "Opening published review… · Escape: cancel".to_owned())
+            .or(query_error)
             .or(error)
             .or_else(|| cx.global::<recent::Recents>().error.clone())
             .or_else(|| self.progress.clone())
@@ -825,15 +776,13 @@ impl PullRequestsPage {
             });
         [summary, detail]
     }
-    pub(crate) fn open_selected(
+    pub(crate) fn configure_review(
         &mut self,
-        account: AccountView,
-        item: PullRequest,
-        window: &mut Window,
-        cx: &mut Context<Self>,
+        options: hosting::review::Options,
+        limit: jaywalk::text_content::TextLimit,
     ) {
-        self.select(account, item, window, cx);
-        self.scroll.scroll_to_bottom();
+        self.review_options = options;
+        self.text_limit = limit;
     }
     fn select(
         &mut self,
@@ -845,39 +794,56 @@ impl PullRequestsPage {
         if !self.active(&account, cx) {
             return;
         }
-        if self.picking {
-            cx.emit(Event::Picked(Box::new((account, item))));
-            return;
-        }
         if let Some(control) = self.association.take() {
             control.cancel();
         }
-        let control = Control::new(Duration::from_secs(30));
+        let control = Control::new(Duration::from_secs(180));
         self.association = Some(control.clone());
+        self.opening = true;
+        self.notice = Some("Opening published review… · Escape: cancel".into());
+        let backend = cx.global::<Accounts>().backend.clone();
+        let options = self.review_options;
+        let limit = self.text_limit;
+        let expected = control.clone();
         let locator = item.locator.clone();
-        let waiter = control.clone();
-        let candidates = self.candidates.clone();
-        recent::record(self.recent_path.clone(), locator.clone(), cx);
-        self.selected = Some(Selection {
-            account,
-            item,
-            association: None,
-        });
         cx.spawn_in(window, async move |this, cx| {
-            let expected = locator.clone();
             let result = cx
-                .background_spawn(
-                    async move { hosting::associate(&locator, &candidates, &control) },
-                )
+                .background_spawn(async move {
+                    backend
+                        .and_then(|backend| {
+                            backend.open_review(
+                                &account.identity.key,
+                                &locator,
+                                options,
+                                limit,
+                                &control,
+                            )
+                        })
+                        .map(|review| (account, review))
+                })
                 .await;
             let _ = this.update(cx, |page, cx| {
-                if waiter.check().is_err() {
+                if expected.check().is_err() {
                     return;
                 }
-                if let Some(selection) = &mut page.selected
-                    && selection.item.locator == expected
-                {
-                    selection.association = Some(result);
+                page.association = None;
+                page.opening = false;
+                match result {
+                    Ok((account, review)) if page.active(&account, cx) => {
+                        recent::record(
+                            page.recent_path.clone(),
+                            review.metadata().locator.clone(),
+                            cx,
+                        );
+                        page.notice = None;
+                        cx.emit(Event::Opened(review));
+                    }
+                    Ok(_) => page.notice = Some("Account changed; reopen the review".into()),
+                    Err(error) => {
+                        page.notice = Some(format!(
+                            "Could not open review: {error} · Select it again to retry"
+                        ))
+                    }
                 }
                 cx.notify();
             });
@@ -890,7 +856,7 @@ impl Render for PullRequestsPage {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.purge_retired(cx);
         if self.picking {
-            let busy = self.operation.is_some() && self.step == Step::Results;
+            let busy = (self.operation.is_some() || self.opening) && self.step == Step::Results;
             if self.input_loading != busy {
                 self.input_loading = busy;
                 self.input
@@ -965,7 +931,6 @@ impl Render for PullRequestsPage {
         }
         let theme = gpui::component::Theme::global(cx);
         let muted = theme.muted_foreground;
-        let border = theme.border;
         let busy = self.operation.is_some();
         let accounts = self.accounts(cx);
         let mut filters = div().h_flex().flex_wrap().gap_2();
@@ -1127,7 +1092,7 @@ impl Render for PullRequestsPage {
         let help = format!(
             "{count} matches · Numbers are repository-scoped. Cached lists may be incomplete. Direct lookup works for open or closed PRs."
         );
-        let mut body = div()
+        let body = div()
             .v_flex()
             .flex_shrink_0()
             .w_full()
@@ -1146,70 +1111,6 @@ impl Render for PullRequestsPage {
                     .flex_shrink_0()
                     .child(picker),
             );
-        if let Some(selection) = &self.selected {
-            let locator = selection.item.locator.clone();
-            let mut detail = div()
-                .v_flex()
-                .gap_2()
-                .p_3()
-                .border_1()
-                .border_color(border)
-                .debug_selector(|| "pr-details".into())
-                .child(div().font_medium().child(selection.item.title.clone()))
-                .child(div().text_sm().child(format!(
-                    "{} · {} · by {} · {}",
-                    selection.item.locator.label(),
-                    selection.item.state,
-                    selection.item.author,
-                    selection.item.branch
-                )))
-                .child(
-                    div().h_flex().child(
-                        Button::new("pr-browser")
-                            .ghost()
-                            .label("Open in browser")
-                            .on_click(move |_, _, cx| cx.open_url(&locator.url())),
-                    ),
-                );
-            detail = detail.child(
-                Button::new("pr-choose-checkout")
-                    .ghost()
-                    .label("Choose a local checkout…")
-                    .on_click(cx.listener(|page, _, window, cx| page.choose_checkout(window, cx))),
-            );
-            match &selection.association {
-                None => detail = detail.child("Looking for matching local checkouts…"),
-                Some(Err(error)) => detail = detail.child(error.to_string()),
-                Some(Ok(association)) => {
-                    if association.matches.is_empty() {
-                        detail=detail.child("No matching checkout among the current and recent repositories. Open this review in the browser or choose a local checkout.");
-                    }
-                    for (index, path) in association.matches.iter().enumerate() {
-                        let path = path.clone();
-                        detail = detail.child(
-                            Button::new(("pr-local", index))
-                                .ghost()
-                                .label(format!("Open local repository: {}", path.display()))
-                                .on_click(cx.listener(move |_, _, _, cx| {
-                                    cx.emit(Event::Repository(path.clone()))
-                                })),
-                        );
-                    }
-                    if association.unreadable > 0 || association.truncated {
-                        detail = detail.child(format!(
-                            "{} candidate checkouts could not be inspected{}.",
-                            association.unreadable,
-                            if association.truncated {
-                                "; only the first 50 were inspected"
-                            } else {
-                                ""
-                            }
-                        ));
-                    }
-                }
-            }
-            body = body.child(detail);
-        }
         div()
             .id("pull-requests-scroll")
             .v_flex()

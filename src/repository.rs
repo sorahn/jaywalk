@@ -27,6 +27,7 @@ enum SourceIdentity {
     Git,
     External,
     Evolution,
+    Hosted,
 }
 
 pub(crate) fn next_capture() -> u64 {
@@ -91,6 +92,7 @@ pub(crate) struct ComparisonMetadata {
 #[derive(Clone, Debug)]
 pub(crate) enum ContentSource {
     Recorded,
+    Hosted(Arc<crate::hosting::review::Contents>),
     Git(Arc<crate::git::GitContents>),
     External(Arc<crate::external::ExternalContents>),
     Evolution(crate::evolution::EvolutionContents),
@@ -176,6 +178,7 @@ impl Comparison {
             ContentSource::External(contents) => {
                 ContentSource::External(Arc::new(contents.swapped()))
             }
+            ContentSource::Hosted(_) => return Err("Published review direction is pinned".into()),
             ContentSource::Evolution(_) => {
                 return Err("Swap is unavailable for patch interdiffs".into());
             }
@@ -272,6 +275,15 @@ impl Comparison {
 
     /// Resolve visible versions only. Ambiguity is an error, never a newest-time guess.
     pub fn revision(&self, expression: &str) -> Result<crate::history::Revision, String> {
+        if let Some(contents) = self.hosted() {
+            return contents
+                .data
+                .commits
+                .iter()
+                .find(|r| r.commit_id == expression)
+                .cloned()
+                .ok_or_else(|| "Commit is outside this published review".into());
+        }
         let commit = single_revision(&self.root, &self.operation, expression)?;
         let output = query(
             &self.root,
@@ -404,6 +416,9 @@ impl Comparison {
         revision: &crate::history::Revision,
         operation: Option<&str>,
     ) -> Result<Self, String> {
+        if let Some(contents) = self.hosted() {
+            return contents.for_revision(revision);
+        }
         if self.has_git_context() {
             return crate::git::for_revision(self, revision);
         }
@@ -421,6 +436,13 @@ impl Comparison {
         )
     }
 
+    pub fn hosted(&self) -> Option<&Arc<crate::hosting::review::Contents>> {
+        if let ContentSource::Hosted(contents) = &self.content {
+            Some(contents)
+        } else {
+            None
+        }
+    }
     pub fn is_external(&self) -> bool {
         matches!(self.content, ContentSource::External(_))
     }
@@ -470,6 +492,9 @@ impl Comparison {
         &self,
         history: &crate::history::HistoryQuery,
     ) -> Result<crate::history::History, String> {
+        if let Some(contents) = self.hosted() {
+            return Ok(contents.history());
+        }
         if self.has_git_context() {
             return crate::git::history(&self.root, history);
         }
@@ -539,6 +564,10 @@ impl Comparison {
             return Ok(self);
         }
         let (before, after) = match &self.content {
+            ContentSource::Hosted(contents) => (
+                contents.paths(FileSide::Before),
+                contents.paths(FileSide::After),
+            ),
             ContentSource::Git(contents) => (
                 contents.paths(FileSide::Before),
                 contents.paths(FileSide::After),
@@ -557,7 +586,9 @@ impl Comparison {
             }
         };
         let catalog = FileCatalog::new(before, after, &self.files);
-        let catalog = if let ContentSource::External(contents) = &self.content {
+        let catalog = if let ContentSource::Hosted(contents) = &self.content {
+            catalog.with_executable_changes(contents.executable_changes())
+        } else if let ContentSource::External(contents) = &self.content {
             catalog.with_executable_changes(contents.executable_changes())
         } else {
             catalog
@@ -582,6 +613,7 @@ impl Comparison {
             tip: self.tip.clone(),
             source: match self.content {
                 ContentSource::Recorded => SourceIdentity::Recorded,
+                ContentSource::Hosted(_) => SourceIdentity::Hosted,
                 ContentSource::Git(_) => SourceIdentity::Git,
                 ContentSource::External(_) => SourceIdentity::External,
                 ContentSource::Evolution(_) => SourceIdentity::Evolution,
@@ -606,6 +638,7 @@ impl Comparison {
     /// the comparison loaded; a later implementation must not read them live.
     pub fn read_path(&self, path: &str, side: FileSide) -> Result<String, String> {
         match &self.content {
+            ContentSource::Hosted(contents) => contents.read_path(path, side),
             ContentSource::Git(contents) => contents.read_path(path, side),
             ContentSource::External(contents) => contents.read_path(path, side),
             ContentSource::Evolution(contents) => {

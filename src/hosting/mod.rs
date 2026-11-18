@@ -13,3 +13,5 @@ pub use model::*;
 pub mod recent;
 
 pub mod snapshots;
+
+pub mod review;

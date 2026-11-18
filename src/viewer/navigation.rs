@@ -29,6 +29,7 @@ pub(super) struct ViewVisit {
     review: review_context::ReviewContext,
     home_source: review_context::HomeSource,
     home: Rc<Comparison>,
+    history: Result<Rc<jaywalk::history::History>, String>,
     comparison: Rc<Comparison>,
     file: Option<FileVisit>,
     overview: Option<overview::OverviewCheckpoint>,
@@ -146,6 +147,7 @@ impl Viewer {
                 review: session.review.clone(),
                 home_source: self.home_source,
                 home: session.home.clone(),
+                history: session.history.clone(),
                 comparison,
                 file: self.selected_file.as_ref().map(|selected| FileVisit {
                     file: selected.file.clone(),
@@ -292,6 +294,7 @@ impl Viewer {
             self.home_source = visit.home_source;
             session.review = visit.review;
             session.home = visit.home;
+            session.history = visit.history;
             session.scope = visit.scope;
             session.revision_comparison = Some(visit.comparison.clone());
             session.comparison = LoadState::Loaded(visit.comparison);
@@ -312,6 +315,19 @@ impl Viewer {
         }
         if !has_evolution && let Some(anchor) = visit.anchor {
             self.load_evolution(anchor, window, cx);
+        }
+        if self.comparison().is_some_and(|c| c.hosted().is_some()) {
+            self.live.poll = None;
+        } else {
+            self.start_live(window, cx);
+        }
+        if let Some(session) = self.repository.ready() {
+            let title = if session.home.hosted().is_some() {
+                session.review.source.label()
+            } else {
+                session.home.root().display().to_string()
+            };
+            window.set_window_title(&format!("{title} — Jaywalk"));
         }
         self.navigation.pinned = true;
         self.live.notice = Some(super::live::LiveNotice::VisitedView);
