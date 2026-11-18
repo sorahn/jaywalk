@@ -164,7 +164,9 @@ layout/reset/remote-management command merely to fill the table.
 
 | Setting | Default | Command |
 | --- | --- | --- |
+| `keybindings.open_pull_request` | `[]` | Open pull request… (pick a PR within the command palette) |
 | `keybindings.accounts` | `[]` | Accounts… |
+| `keybindings.browse_pull_requests` | `[]` | Browse pull requests… (retained central page) |
 | `keybindings.connect_account` | `[]` | Connect account… |
 | `keybindings.reconnect_account` | `[]` | Reconnect account… |
 | `keybindings.disconnect_account` | `[]` | Disconnect account… (asks for confirmation) |

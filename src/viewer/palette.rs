@@ -10,6 +10,7 @@ pub(super) enum PaletteKind {
     Repositories,
     Profiles,
     Reviews,
+    PullRequests,
 }
 #[derive(Clone)]
 enum Choice {
@@ -28,6 +29,7 @@ enum Choice {
 }
 pub(super) struct PaletteState {
     state: Entity<CommandState>,
+    pull_requests: Option<Entity<crate::hosting_ui::PullRequestsPage>>,
     open: Option<PaletteKind>,
     pub(super) profiles: Vec<String>,
 }
@@ -35,6 +37,7 @@ impl PaletteState {
     pub(super) fn new(window: &mut Window, cx: &mut Context<Viewer>) -> Self {
         Self {
             state: cx.new(|cx| CommandState::new(window, cx)),
+            pull_requests: None,
             open: None,
             profiles: Vec::new(),
         }
@@ -200,6 +203,17 @@ impl Viewer {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        self.palette.pull_requests = None;
+        if matches!(kind, PaletteKind::PullRequests) {
+            let Some(page) = self.new_pull_requests(true, window, cx) else {
+                return;
+            };
+            page.update(cx, |page, cx| page.focus(window, cx));
+            self.palette.pull_requests = Some(page);
+            self.palette.open = Some(kind);
+            cx.notify();
+            return;
+        }
         self.palette.open = Some(kind);
         self.palette
             .state
@@ -209,8 +223,9 @@ impl Viewer {
             .update(cx, |state, cx| state.focus(window, cx));
         cx.notify();
     }
-    fn close_palette(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    pub(super) fn close_palette(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.palette.open = None;
+        self.palette.pull_requests = None;
         self.focus_page(window, cx);
         cx.notify();
     }
@@ -251,8 +266,40 @@ impl Viewer {
     }
     pub(super) fn render_palette(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
         let kind = self.palette.open?;
+        if matches!(kind, PaletteKind::PullRequests) {
+            let picker = self.palette.pull_requests.as_ref()?.clone();
+            return Some(
+                div()
+                    .id("palette-overlay")
+                    .debug_selector(|| "palette-overlay".into())
+                    .absolute()
+                    .inset_0()
+                    .bg(rgba(0x00000070))
+                    .flex()
+                    .justify_center()
+                    .items_start()
+                    .pt_12()
+                    .on_mouse_down(
+                        MouseButton::Left,
+                        cx.listener(|viewer, _, window, cx| viewer.close_palette(window, cx)),
+                    )
+                    .child(
+                        div()
+                            .w(rems(48.))
+                            .max_w_full()
+                            .bg(gpui::component::Theme::global(cx).background)
+                            .border_1()
+                            .border_color(gpui::component::Theme::global(cx).border)
+                            .rounded_lg()
+                            .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                            .child(picker),
+                    )
+                    .into_any_element(),
+            );
+        }
         let query = self.palette.state.read(cx).query(cx);
         let choices: Vec<(String, Choice)> = match kind {
+            PaletteKind::PullRequests => unreachable!("PR discovery renders its own palette step"),
             PaletteKind::Files => self
                 .comparison()
                 .map(|comparison| {
@@ -340,6 +387,9 @@ impl Viewer {
         let command = Command::new(&self.palette.state)
             .filterable(false)
             .placeholder(match kind {
+                PaletteKind::PullRequests => {
+                    unreachable!("PR discovery renders its own palette step")
+                }
                 PaletteKind::Files => "Find any repository file…",
                 PaletteKind::Commands => "Run a command…",
                 PaletteKind::Repositories => "Search recent repositories…",

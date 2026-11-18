@@ -96,3 +96,13 @@ Kit's exact `gpui-pre` version (0.3.12). The Base dependency includes the
 fractional scroll-delta fix: unclamped input is consumed in full rather than
 turning floating-point subtraction residue into a false overscroll.
 `tests/trackpad_scroll.rs` guards that behavior through the public wrapper.
+
+`Command::description` adds a non-selectable context slot between search and
+results in `src/command/command.rs` and `src/command/state.rs`. It lets the host
+show compact status without putting controls above search or inserting fake
+results. Host interaction tests verify slot order and keyboard confirmation.
+
+`CommandItem::key` supplies an optional stable identity. Command selection follows
+that identity across label changes and reordered refresh results; unkeyed models
+retain their previous index-path behavior. A removed keyed result falls back to
+normal selection rather than transferring its identity to an unrelated row.

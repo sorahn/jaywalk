@@ -23,6 +23,7 @@ pub(crate) struct CommandOptions {
     pub(crate) scroll_bounce: Option<bool>,
     pub(crate) bordered: bool,
     pub(crate) header: Option<Rc<CommandSlot>>,
+    pub(crate) description: Option<Rc<CommandSlot>>,
     pub(crate) footer: Option<Rc<CommandSlot>>,
 }
 
@@ -36,6 +37,7 @@ impl Default for CommandOptions {
             scroll_bounce: None,
             bordered: true,
             header: None,
+            description: None,
             footer: None,
         }
     }
@@ -232,6 +234,19 @@ impl Command {
         E: IntoElement,
     {
         self.options.header = Some(Rc::new(move |state, window, cx| {
+            f(state, window, cx).into_any_element()
+        }));
+        self
+    }
+
+    /// Render non-selectable context below search and above the results.
+    /// This slot does not participate in filtering or keyboard selection.
+    pub fn description<F, E>(mut self, f: F) -> Self
+    where
+        F: Fn(&CommandState, &mut Window, &mut App) -> E + 'static,
+        E: IntoElement,
+    {
+        self.options.description = Some(Rc::new(move |state, window, cx| {
             f(state, window, cx).into_any_element()
         }));
         self

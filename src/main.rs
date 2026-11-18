@@ -10,6 +10,7 @@ mod appearance;
 mod cli;
 #[cfg(feature = "profiling")]
 mod frame_profile;
+mod hosting_ui;
 mod instance;
 mod interface_state;
 mod recents;
@@ -98,6 +99,7 @@ fn run() -> std::result::Result<(), String> {
     application.run(move |cx| {
         gpui::init(cx);
         account_ui::init(cx);
+        hosting_ui::init(cx);
         platform::install_scrollbar_preference(scrollbar_preference, cx);
         windows::init(cx);
         interface_state::init(cx);

@@ -1553,3 +1553,76 @@ fn leaving_a_loading_comparison_keeps_its_result_and_forward_page(cx: &mut TestA
     draw(cx);
     assert!(cx.debug_bounds("accounts-page").is_some());
 }
+
+#[gpui_test::test]
+fn pull_request_palette_preserves_the_view_until_selection(test_cx: &mut TestAppContext) {
+    let fixture = Fixture::new();
+    let (viewer, cx) = setup(&fixture, test_cx);
+    cx.update(|_, app| {
+        crate::hosting_ui::init(app);
+        jaywalk::accounts::application::init_with_backend(
+            crate::hosting_ui::tests::fake_service(),
+            app,
+        );
+    });
+    let original = cx.update(|_, app| viewer.read(app).comparison().unwrap().identity());
+    cx.update(|window, app| {
+        viewer.update(app, |viewer, cx| {
+            viewer.execute_command(jaywalk::commands::CommandId::OpenPullRequest, window, cx);
+        })
+    });
+    draw(cx);
+    assert!(cx.update(|_, app| matches!(viewer.read(app).page, super::pages::Page::Comparison)));
+    assert!(cx.debug_bounds("palette-overlay").is_some());
+    let picker = cx.debug_bounds("pr-palette-picker").unwrap();
+    let search = cx.debug_bounds("command-search").unwrap();
+    let context = cx.debug_bounds("pr-picker-context").unwrap();
+    let results = cx.debug_bounds("command-results").unwrap();
+    assert_eq!(search.top(), picker.top(), "nothing precedes search");
+    assert!(search.bottom() <= context.top());
+    assert!(context.bottom() <= results.top());
+    assert!(cx.debug_bounds("pr-browser-controls").is_none());
+    cx.simulate_keystrokes("escape");
+    draw(cx);
+    assert!(cx.update(|_, app| viewer.read(app).palette_test_state(app).0.is_none()));
+    assert!(cx.update(|_, app| matches!(viewer.read(app).page, super::pages::Page::Comparison)));
+    assert_eq!(
+        cx.update(|_, app| viewer.read(app).comparison().unwrap().identity()),
+        original
+    );
+
+    cx.update(|window, app| {
+        viewer.update(app, |viewer, cx| {
+            viewer.execute_command(jaywalk::commands::CommandId::ShowCommands, window, cx);
+        })
+    });
+    draw(cx);
+    cx.simulate_input("open pull request");
+    cx.simulate_keystrokes("enter");
+    draw(cx);
+    assert!(cx.update(|_, app| matches!(viewer.read(app).page, super::pages::Page::Comparison)));
+    cx.simulate_keystrokes("enter");
+    draw(cx);
+    assert!(cx.update(|_, app| matches!(viewer.read(app).page, super::pages::Page::PullRequests)));
+    assert!(cx.update(|_, app| viewer.read(app).palette_test_state(app).0.is_none()));
+    assert!(cx.debug_bounds("pr-details").is_some());
+    cx.update(|window, app| {
+        viewer.update(app, |viewer, cx| {
+            viewer.navigate_view(false, window, cx);
+        })
+    });
+    draw(cx);
+    assert!(cx.update(|_, app| matches!(viewer.read(app).page, super::pages::Page::Comparison)));
+    assert_eq!(
+        cx.update(|_, app| viewer.read(app).comparison().unwrap().identity()),
+        original
+    );
+    cx.update(|window, app| {
+        viewer.update(app, |viewer, cx| {
+            viewer.execute_command(jaywalk::commands::CommandId::BrowsePullRequests, window, cx);
+        })
+    });
+    draw(cx);
+    assert!(cx.update(|_, app| matches!(viewer.read(app).page, super::pages::Page::PullRequests)));
+    assert!(cx.update(|_, app| viewer.read(app).palette_test_state(app).0.is_none()));
+}

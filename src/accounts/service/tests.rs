@@ -94,12 +94,30 @@ struct ProviderStub {
     store: Arc<Store>,
     calls: AtomicUsize,
     identities: AtomicUsize,
+    hosting_calls: AtomicUsize,
+    hosting_gate: Mutex<Option<Arc<Gate>>>,
+    hosting_result: Mutex<Result<crate::hosting::Batch, Error>>,
     refresh_gate: Option<Arc<Gate>>,
     identity_gate: Option<Arc<Gate>>,
     refresh_result: Mutex<Result<Tokens, Error>>,
     identity_result: Mutex<Result<Identity, Error>>,
 }
 impl HostingProvider for ProviderStub {
+    fn pull_requests(
+        &self,
+        _: &Secret,
+        _: &Identity,
+        _: &crate::hosting::Scope,
+        _: &[crate::accounts::Workspace],
+        _: &Control,
+    ) -> Result<crate::hosting::Batch, Error> {
+        self.hosting_calls.fetch_add(1, Ordering::SeqCst);
+        if let Some(gate) = self.hosting_gate.lock().unwrap().clone() {
+            gate.enter();
+        }
+        self.hosting_result.lock().unwrap().clone()
+    }
+
     fn exchange(
         &self,
         _: &ClientRegistration,
@@ -207,6 +225,9 @@ fn fixture(
         store: store.clone(),
         calls: AtomicUsize::new(0),
         identities: AtomicUsize::new(0),
+        hosting_calls: AtomicUsize::new(0),
+        hosting_gate: Mutex::new(None),
+        hosting_result: Mutex::new(Ok(crate::hosting::Batch::default())),
         refresh_gate,
         identity_gate,
         refresh_result: Mutex::new(Ok(rotated())),
@@ -717,4 +738,96 @@ fn workspace_save_failure_keeps_previous_selection() {
     );
     assert!(view(&service).accounts[0].workspace.is_none());
     assert!(store.sessions.lock().unwrap()[&key()].workspace.is_none());
+}
+
+#[test]
+fn discovery_reads_coalesce_across_windows_and_queued_waiters_can_cancel() {
+    let (service, _, provider) = fixture(false, None, None);
+    let gate = Arc::new(Gate::default());
+    *provider.hosting_gate.lock().unwrap() = Some(gate.clone());
+    let first_service = service.clone();
+    let first = thread::spawn(move || {
+        first_service.pull_requests(&key(), &crate::hosting::Scope::Authored, &control())
+    });
+    gate.entered();
+    let second_control = control();
+    let waiter = second_control.clone();
+    let second_service = service.clone();
+    let second = thread::spawn(move || {
+        second_service.pull_requests(&key(), &crate::hosting::Scope::Authored, &waiter)
+    });
+    second_control.cancel();
+    assert!(matches!(second.join().unwrap(), Err(Error::Cancelled)));
+    gate.release();
+    let first = first.join().unwrap().unwrap();
+    assert!(!first.cached);
+    let second = service
+        .pull_requests(&key(), &crate::hosting::Scope::Authored, &control())
+        .unwrap();
+    assert!(second.cached);
+    assert!(Arc::ptr_eq(&first.batch, &second.batch));
+    assert_eq!(provider.hosting_calls.load(Ordering::SeqCst), 1);
+}
+#[test]
+fn late_discovery_cannot_publish_after_disconnect_and_rate_limits_back_off() {
+    let (service, _, provider) = fixture(false, None, None);
+    let gate = Arc::new(Gate::default());
+    *provider.hosting_gate.lock().unwrap() = Some(gate.clone());
+    let request = service.clone();
+    let worker = thread::spawn(move || {
+        request.pull_requests(&key(), &crate::hosting::Scope::Authored, &control())
+    });
+    gate.entered();
+    service.disconnect(&key()).unwrap();
+    gate.release();
+    assert!(matches!(worker.join().unwrap(), Err(Error::Superseded)));
+    let (service, _, provider) = fixture(false, None, None);
+    *provider.hosting_result.lock().unwrap() = Err(Error::RateLimited);
+    assert!(matches!(
+        service.pull_requests(&key(), &crate::hosting::Scope::Authored, &control()),
+        Err(Error::RateLimited)
+    ));
+    assert!(matches!(
+        service.pull_requests(&key(), &crate::hosting::Scope::ReviewRequested, &control()),
+        Err(Error::RateLimited)
+    ));
+    assert_eq!(provider.hosting_calls.load(Ordering::SeqCst), 1);
+}
+
+#[test]
+fn explicit_discovery_refresh_bypasses_cache_and_retains_it_on_failure() {
+    let (service, _, provider) = fixture(false, None, None);
+    let scope = crate::hosting::Scope::Authored;
+    let initial = service.pull_requests(&key(), &scope, &control()).unwrap();
+    assert!(!initial.cached);
+    assert!(
+        service
+            .pull_requests(&key(), &scope, &control())
+            .unwrap()
+            .cached
+    );
+    let fresh = service
+        .refresh_pull_requests(&key(), &scope, &control())
+        .unwrap();
+    assert!(!fresh.cached);
+    assert_eq!(provider.hosting_calls.load(Ordering::SeqCst), 2);
+    *provider.hosting_result.lock().unwrap() = Err(Error::Network);
+    assert!(matches!(
+        service.refresh_pull_requests(&key(), &scope, &control()),
+        Err(Error::Network)
+    ));
+    let retained = service.pull_requests(&key(), &scope, &control()).unwrap();
+    assert!(Arc::ptr_eq(&fresh.batch, &retained.batch));
+    assert_eq!(fresh.fetched_at, retained.fetched_at);
+    *provider.hosting_result.lock().unwrap() = Err(Error::RateLimited);
+    assert!(matches!(
+        service.refresh_pull_requests(&key(), &scope, &control()),
+        Err(Error::RateLimited)
+    ));
+    let calls = provider.hosting_calls.load(Ordering::SeqCst);
+    assert!(matches!(
+        service.refresh_pull_requests(&key(), &scope, &control()),
+        Err(Error::RateLimited)
+    ));
+    assert_eq!(provider.hosting_calls.load(Ordering::SeqCst), calls);
 }

@@ -6,6 +6,17 @@ use std::{io::Read, time::Duration};
 /// Refresh has no automatic retry: a lost response may already have consumed a
 /// rotating refresh token. Session coordination decides what may be retried.
 pub trait HostingProvider: Send + Sync {
+    fn pull_requests(
+        &self,
+        _: &Secret,
+        _: &Identity,
+        _: &crate::hosting::Scope,
+        _: &[super::Workspace],
+        _: &Control,
+    ) -> Result<crate::hosting::Batch, Error> {
+        Err(Error::Unsupported)
+    }
+
     fn exchange(
         &self,
         registration: &ClientRegistration,
@@ -61,6 +72,23 @@ impl HttpProvider {
     }
 }
 impl HostingProvider for HttpProvider {
+    fn pull_requests(
+        &self,
+        token: &Secret,
+        identity: &Identity,
+        scope: &crate::hosting::Scope,
+        workspaces: &[super::Workspace],
+        control: &Control,
+    ) -> Result<crate::hosting::Batch, Error> {
+        crate::hosting::discover(identity, scope, workspaces, control, |request| {
+            let request=match request {
+                crate::hosting::Request::Get(url)=>self.client.get(url),
+                crate::hosting::Request::GithubSearch {query,cursor}=>self.client.post("https://api.github.com/graphql").json(&serde_json::json!({"query":crate::hosting::GITHUB_QUERY,"variables":{"query":query,"cursor":cursor}})),
+            };
+            response_limited(request.bearer_auth(token.expose()), control, 2_097_152)
+        })
+    }
+
     fn exchange(
         &self,
         registration: &ClientRegistration,
@@ -148,6 +176,13 @@ impl HostingProvider for HttpProvider {
     }
 }
 fn response(request: RequestBuilder, control: &Control) -> Result<Value, Error> {
+    response_limited(request, control, 65_536)
+}
+fn response_limited(
+    request: RequestBuilder,
+    control: &Control,
+    limit: u64,
+) -> Result<Value, Error> {
     // Deadline checks happen before side effects. A successful token response is
     // returned even if the caller cancelled meanwhile, so rotation can be saved.
     let timeout = control.remaining()?.min(Duration::from_secs(20));
@@ -157,12 +192,20 @@ fn response(request: RequestBuilder, control: &Control) -> Result<Value, Error> 
         .send()
         .map_err(|_| Error::Network)?;
     let status = response.status().as_u16();
+    if response.status().as_u16() == 403
+        && response
+            .headers()
+            .get("x-ratelimit-remaining")
+            .is_some_and(|value| value == "0")
+    {
+        return Err(Error::RateLimited);
+    }
     let mut bytes = Vec::new();
     response
-        .take(65_537)
+        .take(limit + 1)
         .read_to_end(&mut bytes)
         .map_err(|_| Error::Network)?;
-    if bytes.len() > 65_536 {
+    if bytes.len() as u64 > limit {
         return Err(Error::InvalidResponse);
     }
     decode(status, &bytes)
@@ -186,6 +229,8 @@ fn decode(status: u16, bytes: &[u8]) -> Result<Value, Error> {
     match status {
         200..=299 => Ok(value),
         401 => Err(Error::NeedsSignIn),
+        403 => Err(Error::NoAccess),
+        404 => Err(Error::NotFound),
         429 => Err(Error::RateLimited),
         500..=599 => Err(Error::Network),
         _ => Err(Error::InvalidResponse),

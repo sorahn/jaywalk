@@ -354,3 +354,80 @@ not register a new provider app. After importing, return to **Accounts** to conn
 Public-release credential provisioning is still undecided. Credentials are never
 saved in Jaywalk's settings or repository files. On macOS, use the signed app
 bundle for stable Keychain access across rebuilds; see the development guide.
+
+
+## Finding pull requests
+
+**Open pull request…** continues inside the command palette from the command
+list, a configured shortcut, or Welcome, even without a repository open. The
+current view stays in place until you pick a PR; Escape or clicking outside
+cancels without navigating. Search comes first, followed by two passive context
+and status lines and the fuzzy results. The search field shows loading activity;
+there are no filter or account-management buttons in this palette step.
+Press **F5** or your configured **Refresh** shortcut to refresh without closing
+it. Explicit refresh bypasses the 60-second list cache and respects account rate
+limits. Previous results, filters, search and the selected PR remain in place
+until replacement data arrives; a failed refresh keeps the previous results.
+Press **Tab** to change scope, account or current-checkout repository, or refresh.
+Each choice opens a searchable keyboard picker; selecting a value returns to PR
+results with your original search intact. **Escape** backs out one filter step,
+including when that submenu has a search query. **Tab** also returns directly to
+PR results from any filter step. Scopes include My open PRs, Review requested,
+Recent PRs and Current repository; account selection includes All accounts.
+Selecting a PR opens its metadata in the central PR page. **Browse pull requests…**
+opens that retained page directly for browsing. The picker starts with **My open
+PRs** across connected accounts. The full browser also exposes scope and account filters.
+**Review requests** uses GitHub's requested-review filter;
+Bitbucket accounts explicitly report that this scope is unsupported. Current
+repository remotes provide optional repository filters, without changing the
+app's local comparison. Account buttons narrow discovery without silently
+falling back to another account.
+
+Type to fuzzy-match cached titles, repository names, source branches or numbers.
+Typing does not issue network requests. A bare number matches cached candidates;
+in an explicit current-repository scope it also offers a direct lookup there.
+Paste a GitHub/Bitbucket PR URL, or enter `owner/repository#123`, to look up an
+open or closed PR outside the cached list. Choose the provider/account explicitly
+when multiple connected accounts could resolve it. Numbers are repository-scoped.
+Only github.com and bitbucket.org are supported in this preview.
+
+GitHub discovery uses GraphQL search to obtain source branches and stable PR/repo
+IDs with each result, limited to three pages of 30 results per account/scope.
+Bitbucket authored discovery visits up to ten accessible workspaces, prioritizing
+the account's selected workspace, with at most three pages of 20 per workspace
+and ten pages total per account. Partial results and their coverage are labelled;
+use a repository scope or direct URL to narrow the request. Lists reflect the
+user's and app registration's effective permissions, not every repository on the
+provider. API search indexing may also lag recent changes.
+
+Refresh runs off the UI thread, supports cancellation, and shares a 60-second
+cache between windows. Reopening or changing filters within that interval can
+reuse cached results; explicit Refresh bypasses it. Failed refreshes retain previous usable results with an error; rate
+limits pause further requests for that account for at least 60 seconds. There
+is no automatic polling. Account disconnect/replacement invalidates old results.
+
+Select a result to inspect its title, author, source branch and state, open it
+in the browser, or find matching current/recent local checkouts. Matching reads
+Git remote configuration only; it does not fetch, checkout, snapshot or change
+working files. Up to 50 current/recent paths are inspected, with unreadable and
+truncated candidates reported. **Choose a local checkout…** can validate another
+folder against the PR's provider/repository remote. Included Git config files,
+SSH aliases and custom hosting instances are not inferred by this preview.
+
+This slice provides discovery and metadata. **Open local repository** opens that
+checkout normally; it does not claim the displayed comparison is the published
+PR diff. Exact published comparisons and missing-object handling follow separately.
+
+Recent PRs persist up to 50 canonical URLs in `recent-pull-requests.json` beside
+the user config. Titles, tokens and account credentials are not stored there.
+Recent entries use loaded metadata, including recovered snapshots, where
+available; an unresolved entry prompts for an authenticated lookup. A local
+repository is not required to discover a review or open it in the browser.
+
+PR list metadata is also saved beside the config in `pull-request-cache.json`,
+so restarting the app can show previous results while updating them. Saved
+snapshots are labelled as such, recovered only for restored connected accounts,
+and kept separate by account and scope. They contain PR titles, branches,
+authors, states, canonical URLs and provider IDs, but no credentials or bodies.
+The file is private to the local user and limited to 4 MiB and 16 account/scope
+snapshots. Successful empty results replace old lists; failed refreshes do not.

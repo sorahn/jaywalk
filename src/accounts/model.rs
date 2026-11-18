@@ -171,6 +171,10 @@ pub enum Error {
     NotConnected,
     Busy,
     Unsupported,
+    NoAccess,
+    NotFound,
+    LocalRepository,
+    DiscoveryStorage,
     Superseded,
 }
 impl fmt::Display for Error {
@@ -204,6 +208,10 @@ impl fmt::Display for Error {
                 "The signed-in account differs from the account being reconnected"
             }
             Self::NotConnected => "This account is not connected",
+            Self::NoAccess => "This account or app does not have access to that request",
+            Self::NotFound => "Pull request not found or unavailable to this account",
+            Self::DiscoveryStorage => "Could not read or save recent pull requests",
+            Self::LocalRepository => "Could not read local repository remotes",
             Self::Unsupported => "This provider does not support this action",
             Self::Busy => "Another operation for this account or provider is already running",
             Self::Superseded => "This request belongs to an older account session",
@@ -223,6 +231,7 @@ pub enum ConnectionState {
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct AccountView {
+    pub generation: u64,
     pub identity: Identity,
     pub workspace: Option<super::Workspace>,
     pub state: ConnectionState,

@@ -12,7 +12,9 @@ pub(crate) fn init(arguments: &Arguments, settings: &Settings, cx: &mut App) -> 
     install_bindings(settings, cx)?;
     let arguments = arguments.clone();
     cx.on_action(move |action: &ExecuteCommand, cx| match action.command {
-        CommandId::Accounts
+        CommandId::OpenPullRequest
+        | CommandId::BrowsePullRequests
+        | CommandId::Accounts
         | CommandId::ConnectAccount
         | CommandId::ReconnectAccount
         | CommandId::DisconnectAccount
@@ -126,7 +128,9 @@ fn configured_bindings(settings: &Settings, cx: &App) -> Vec<KeyBinding> {
     for (command, bindings) in &settings.keybindings {
         let context = match command {
             CommandId::OpenInNewWindow => Some("JaywalkRecent"),
-            CommandId::Accounts
+            CommandId::OpenPullRequest
+            | CommandId::BrowsePullRequests
+            | CommandId::Accounts
             | CommandId::ConnectAccount
             | CommandId::ReconnectAccount
             | CommandId::DisconnectAccount
@@ -189,10 +193,20 @@ impl Viewer {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if command == CommandId::Refresh && self.page == pages::Page::PullRequests {
+            if let Some(page) = &self.pull_requests_page {
+                page.update(cx, |page, cx| page.force_refresh(window, cx));
+            }
+            return;
+        }
         if self.page != pages::Page::Comparison && !command.available_without_repository() {
             return;
         }
         match command {
+            CommandId::OpenPullRequest => {
+                self.open_palette(palette::PaletteKind::PullRequests, window, cx)
+            }
+            CommandId::BrowsePullRequests => self.show_pull_requests(window, cx),
             CommandId::RevealComparisonLeft | CommandId::RevealComparisonRight => {
                 self.reveal_pair_endpoint(command == CommandId::RevealComparisonRight, window, cx)
             }
