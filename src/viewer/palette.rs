@@ -264,15 +264,10 @@ impl Viewer {
             _ => {}
         }
     }
-    pub(super) fn render_palette(
-        &self,
-        window: &Window,
-        cx: &mut Context<Self>,
-    ) -> Option<AnyElement> {
+    pub(super) fn render_palette(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
         let kind = self.palette.open?;
         if matches!(kind, PaletteKind::PullRequests) {
             let picker = self.palette.pull_requests.as_ref()?.clone();
-            let height = (f32::from(window.bounds().size.height) - 100.).clamp(160., 650.);
             return Some(
                 div()
                     .id("palette-overlay")
@@ -292,7 +287,6 @@ impl Viewer {
                         div()
                             .w(rems(48.))
                             .max_w_full()
-                            .h(px(height))
                             .bg(gpui::component::Theme::global(cx).background)
                             .border_1()
                             .border_color(gpui::component::Theme::global(cx).border)

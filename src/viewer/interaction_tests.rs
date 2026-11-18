@@ -1574,6 +1574,14 @@ fn pull_request_palette_preserves_the_view_until_selection(test_cx: &mut TestApp
     draw(cx);
     assert!(cx.update(|_, app| matches!(viewer.read(app).page, super::pages::Page::Comparison)));
     assert!(cx.debug_bounds("palette-overlay").is_some());
+    let picker = cx.debug_bounds("pr-palette-picker").unwrap();
+    let search = cx.debug_bounds("command-search").unwrap();
+    let context = cx.debug_bounds("pr-picker-context").unwrap();
+    let results = cx.debug_bounds("command-results").unwrap();
+    assert_eq!(search.top(), picker.top(), "nothing precedes search");
+    assert!(search.bottom() <= context.top());
+    assert!(context.bottom() <= results.top());
+    assert!(cx.debug_bounds("pr-browser-controls").is_none());
     cx.simulate_keystrokes("escape");
     draw(cx);
     assert!(cx.update(|_, app| viewer.read(app).palette_test_state(app).0.is_none()));

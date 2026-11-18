@@ -149,6 +149,7 @@ impl DiscoveryRequest {
 
 pub(crate) struct PullRequestsPage {
     picking: bool,
+    input_loading: bool,
     input: Entity<CommandState>,
     scroll: ScrollHandle,
     root: Option<PathBuf>,
@@ -196,6 +197,7 @@ impl PullRequestsPage {
         let input = cx.new(|cx| CommandState::new(window, cx));
         let mut page = Self {
             picking: false,
+            input_loading: false,
             input,
             scroll: ScrollHandle::new(),
             root,
@@ -630,6 +632,85 @@ impl PullRequestsPage {
         })
         .detach();
     }
+    fn command(&self, cx: &mut Context<Self>) -> Command {
+        let choices = Arc::new(self.choices(cx));
+        let confirm = choices.clone();
+        let weak = cx.entity().downgrade();
+        let cancel = cx.entity().downgrade();
+        Command::new(&self.input)
+            .filterable(false)
+            .placeholder("Fuzzy title, repository, branch, #number, or paste a PR URL…")
+            .items(
+                choices
+                    .iter()
+                    .map(|choice| CommandItem::new().label(choice.label())),
+            )
+            .on_query(cx.listener(|_, _, _, cx| cx.notify()))
+            .on_confirm(move |index, window, cx| {
+                if let Some(choice) = confirm.get(index.row) {
+                    let _ = weak.update(cx, |page, cx| page.choose(choice.clone(), window, cx));
+                }
+            })
+            .on_cancel(move |_, cx| {
+                let _ = cancel.update(cx, |page, cx| page.cancel(cx));
+            })
+    }
+    fn picker_context(&self, count: usize, cx: &App) -> [String; 2] {
+        let results = self.scope.as_ref().and_then(|scope| self.views.get(scope));
+        let cached = results.is_some_and(|results| results.iter().any(|result| result.cached));
+        let partial = results.is_some_and(|results| {
+            results
+                .iter()
+                .any(|result| result.batch.as_ref().is_some_and(|batch| batch.partial))
+        });
+        let scope = match &self.scope {
+            Some(Scope::Authored) => "My open PRs".to_owned(),
+            Some(Scope::ReviewRequested) => "Review requests".to_owned(),
+            Some(Scope::Repository(provider, repo)) => format!("{} · {repo}", provider.name()),
+            Some(Scope::Direct(locator)) => locator.label(),
+            None => "Recent PRs".to_owned(),
+        };
+        let summary = format!(
+            "{scope} · {count} matches{}{}",
+            if cached { " · cached" } else { "" },
+            if partial { " · partial results" } else { "" }
+        );
+        let error = results.and_then(|results| {
+            results.iter().find_map(|result| {
+                result.error.map(|error| {
+                    format!(
+                        "{} · {}: {error}",
+                        result.account.identity.key.provider.name(),
+                        result.account.identity.label
+                    )
+                })
+            })
+        });
+        let query_error = EntryInput::parse(&self.input.read(cx).query(cx))
+            .err()
+            .map(|error| format!("Could not interpret this PR reference: {error}"));
+        let detail = query_error
+            .or(error)
+            .or_else(|| cx.global::<recent::Recents>().error.clone())
+            .or_else(|| self.progress.clone())
+            .or_else(|| {
+                self.notice
+                    .clone()
+                    .filter(|notice| !notice.starts_with("Ready."))
+            })
+            .unwrap_or_else(|| {
+                if self.accounts(cx).is_empty() {
+                    "No connected accounts · Use Accounts… to connect".into()
+                } else if partial {
+                    "Lists are incomplete · Paste a PR URL for direct lookup".into()
+                } else if cached {
+                    "Cached for up to 60s · Paste a PR URL for direct lookup".into()
+                } else {
+                    "Search titles, branches, repositories or numbers · Or paste a PR URL".into()
+                }
+            });
+        [summary, detail]
+    }
     pub(crate) fn open_selected(
         &mut self,
         account: AccountView,
@@ -692,8 +773,45 @@ impl PullRequestsPage {
     }
 }
 impl Render for PullRequestsPage {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.purge_retired(cx);
+        if self.picking {
+            let busy = self.operation.is_some();
+            if self.input_loading != busy {
+                self.input_loading = busy;
+                self.input
+                    .update(cx, |input, cx| input.set_loading(busy, window, cx));
+            }
+            let lines = self.picker_context(self.choices(cx).len(), cx);
+            let maximum = (f32::from(window.bounds().size.height) - 200.).clamp(80., 360.);
+            let command = self
+                .command(cx)
+                .bordered(false)
+                .max_h(px(maximum))
+                .description(move |_, _, cx| {
+                    let muted = gpui::component::Theme::global(cx).muted_foreground;
+                    div()
+                        .debug_selector(|| "pr-picker-context".into())
+                        .v_flex()
+                        .flex_shrink_0()
+                        .px_3()
+                        .py_2()
+                        .text_sm()
+                        .text_color(muted)
+                        .children(
+                            lines
+                                .iter()
+                                .map(|line| div().truncate().child(line.clone())),
+                        )
+                });
+            return div()
+                .w_full()
+                .key_context("JaywalkPullRequests")
+                .debug_selector(|| "pr-palette-picker".into())
+                .on_action(cx.listener(|page, _: &Cancel, _, cx| page.cancel(cx)))
+                .child(command)
+                .into_any_element();
+        }
         let theme = gpui::component::Theme::global(cx);
         let muted = theme.muted_foreground;
         let border = theme.border;
@@ -820,29 +938,10 @@ impl Render for PullRequestsPage {
         if let Some(error) = &cx.global::<recent::Recents>().error {
             status = status.child(error.clone());
         }
-        let choices = Arc::new(self.choices(cx));
-        let count = choices.len();
-        let confirm = choices.clone();
-        let weak = cx.entity().downgrade();
-        let cancel = cx.entity().downgrade();
-        let picker = Command::new(&self.input)
-            .filterable(false)
-            .placeholder("Fuzzy title, repository, branch, #number, or paste a PR URL…")
-            .items(
-                choices
-                    .iter()
-                    .map(|choice| CommandItem::new().label(choice.label())),
-            )
-            .on_query(cx.listener(|_, _, _, cx| cx.notify()))
-            .on_confirm(move |index, window, cx| {
-                if let Some(choice) = confirm.get(index.row) {
-                    let _ = weak.update(cx, |page, cx| page.choose(choice.clone(), window, cx));
-                }
-            })
-            .on_cancel(move |_, cx| {
-                let _ = cancel.update(cx, |page, cx| page.cancel(cx));
-            });
+        let count = self.choices(cx).len();
+        let picker = self.command(cx);
         let controls = div()
+            .debug_selector(|| "pr-browser-controls".into())
             .h_flex()
             .gap_2()
             .child(
@@ -865,15 +964,9 @@ impl Render for PullRequestsPage {
                     .label("Accounts…")
                     .on_click(cx.listener(|_, _, _, cx| cx.emit(Event::Accounts))),
             );
-        let help = if self.picking {
-            format!(
-                "{count} matches · Search titles, branches or repository-scoped numbers; paste a PR URL for direct lookup."
-            )
-        } else {
-            format!(
-                "{count} matches · Numbers are repository-scoped. Cached lists may be incomplete. Direct lookup works for open or closed PRs."
-            )
-        };
+        let help = format!(
+            "{count} matches · Numbers are repository-scoped. Cached lists may be incomplete. Direct lookup works for open or closed PRs."
+        );
         let mut body = div()
             .v_flex()
             .flex_shrink_0()
@@ -889,7 +982,7 @@ impl Render for PullRequestsPage {
                 div()
                     .id("pr-picker")
                     .debug_selector(|| "pr-picker".into())
-                    .h(px(if self.picking { 240. } else { 320. }))
+                    .h(px(320.))
                     .flex_shrink_0()
                     .child(picker),
             );
@@ -968,6 +1061,7 @@ impl Render for PullRequestsPage {
             .size_full()
             .on_action(cx.listener(|page, _: &Cancel, _, cx| page.cancel(cx)))
             .child(body)
+            .into_any_element()
     }
 }
 

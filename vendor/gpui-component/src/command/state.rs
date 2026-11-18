@@ -970,6 +970,7 @@ impl Render for CommandState {
             .when(self.model.searchable, |this| {
                 this.child(
                     div()
+                        .debug_selector(|| "command-search".into())
                         .flex_none()
                         .px_3()
                         .border_b_1()
@@ -985,9 +986,13 @@ impl Render for CommandState {
                         ),
                 )
             })
+            .when_some(self.options.description.as_ref(), |this, description| {
+                this.child(description(self, window, cx))
+            })
             .child(
                 v_flex()
                     .id("command-list-container")
+                    .debug_selector(|| "command-results".into())
                     .role(Role::ListBox)
                     .relative()
                     .flex_1()
