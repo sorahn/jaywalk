@@ -57,6 +57,35 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             println!("Commit text: {} / {} bytes", before.len(), after.len());
         }
     }
+    if std::env::args().any(|arg| arg == "status") {
+        use jaywalk::hosting::status::Availability;
+        let snapshot = review
+            .comparison()
+            .hosted()
+            .expect("hosted review")
+            .status(&Control::new(Duration::from_secs(90)))?;
+        println!("Status version: {:?}", snapshot.freshness);
+        for (index, group) in snapshot.checks.iter().enumerate() {
+            match &group.checks {
+                Availability::Known(list) => println!(
+                    "Check group {index}: {} observations, partial={}",
+                    list.items.len(),
+                    list.partial
+                ),
+                Availability::Unavailable(issue) => {
+                    println!("Check group {index}: {}", issue.label())
+                }
+            }
+        }
+        match &snapshot.reviews {
+            Availability::Known(list) => println!(
+                "Reviews: {} observations, partial={}",
+                list.items.len(),
+                list.partial
+            ),
+            Availability::Unavailable(issue) => println!("Reviews: {}", issue.label()),
+        }
+    }
     let metadata = review.metadata();
     println!("History limited: {}", metadata.history_partial);
     Ok(())

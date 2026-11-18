@@ -15,3 +15,5 @@ pub mod recent;
 pub mod snapshots;
 
 pub mod review;
+
+pub mod status;

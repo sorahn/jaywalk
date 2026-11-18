@@ -195,6 +195,11 @@ impl Contents {
         })
         .comparison()
     }
+    pub fn status(&self, control: &Control) -> Result<crate::hosting::status::Snapshot, Error> {
+        crate::hosting::status::load(&self.data.metadata, control, |request| {
+            self.access.request(request, control)
+        })
+    }
     pub fn newer(
         &self,
         options: Options,
