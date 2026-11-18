@@ -364,6 +364,10 @@ current view stays in place until you pick a PR; Escape or clicking outside
 cancels without navigating. Search comes first, followed by two passive context
 and status lines and the fuzzy results. The search field shows loading activity;
 there are no filter or account-management buttons in this palette step.
+Press **F5** or your configured **Refresh** shortcut to refresh without closing
+it. Explicit refresh bypasses the 60-second list cache and respects account rate
+limits. Previous results, filters, search and the selected PR remain in place
+until replacement data arrives; a failed refresh keeps the previous results.
 Press **Tab** to change scope, account or current-checkout repository, or refresh.
 Each choice opens a searchable keyboard picker; selecting a value returns to PR
 results with your original search intact. **Escape** backs out one filter step,
@@ -397,8 +401,8 @@ user's and app registration's effective permissions, not every repository on the
 provider. API search indexing may also lag recent changes.
 
 Refresh runs off the UI thread, supports cancellation, and shares a 60-second
-cache between windows. Reopening/refreshing within that interval can reuse its
-snapshot. Failed refreshes retain previous usable results with an error; rate
+cache between windows. Reopening or changing filters within that interval can
+reuse cached results; explicit Refresh bypasses it. Failed refreshes retain previous usable results with an error; rate
 limits pause further requests for that account for at least 60 seconds. There
 is no automatic polling. Account disconnect/replacement invalidates old results.
 
@@ -416,6 +420,14 @@ PR diff. Exact published comparisons and missing-object handling follow separate
 
 Recent PRs persist up to 50 canonical URLs in `recent-pull-requests.json` beside
 the user config. Titles, tokens and account credentials are not stored there.
-Recent entries use metadata already loaded in this session where available;
-after restart an unresolved entry prompts for an authenticated lookup. A local
+Recent entries use loaded metadata, including recovered snapshots, where
+available; an unresolved entry prompts for an authenticated lookup. A local
 repository is not required to discover a review or open it in the browser.
+
+PR list metadata is also saved beside the config in `pull-request-cache.json`,
+so restarting the app can show previous results while updating them. Saved
+snapshots are labelled as such, recovered only for restored connected accounts,
+and kept separate by account and scope. They contain PR titles, branches,
+authors, states, canonical URLs and provider IDs, but no credentials or bodies.
+The file is private to the local user and limited to 4 MiB and 16 account/scope
+snapshots. Successful empty results replace old lists; failed refreshes do not.

@@ -127,7 +127,7 @@ impl PullRequestsPage {
                 self.account = account;
                 self.refresh(window, cx);
             }
-            FilterChoice::Refresh => self.refresh(window, cx),
+            FilterChoice::Refresh => self.force_refresh(window, cx),
         }
         self.enter_step(Step::Results, window, cx);
     }

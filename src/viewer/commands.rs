@@ -193,6 +193,12 @@ impl Viewer {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if command == CommandId::Refresh && self.page == pages::Page::PullRequests {
+            if let Some(page) = &self.pull_requests_page {
+                page.update(cx, |page, cx| page.force_refresh(window, cx));
+            }
+            return;
+        }
         if self.page != pages::Page::Comparison && !command.available_without_repository() {
             return;
         }

@@ -22,7 +22,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-actions!(hosting_ui, [Cancel]);
+actions!(hosting_ui, [Cancel, Refresh]);
 pub(crate) enum Event {
     Leave,
     Picked(Box<(AccountView, PullRequest)>),
@@ -31,11 +31,10 @@ pub(crate) enum Event {
 }
 impl EventEmitter<Event> for PullRequestsPage {}
 pub(crate) fn init(cx: &mut App) {
-    cx.bind_keys([KeyBinding::new(
-        "escape",
-        Cancel,
-        Some("JaywalkPullRequests"),
-    )]);
+    cx.bind_keys([
+        KeyBinding::new("escape", Cancel, Some("JaywalkPullRequests")),
+        KeyBinding::new("f5", Refresh, Some("JaywalkPullRequests")),
+    ]);
 }
 struct AccountResult {
     account: AccountView,
@@ -43,6 +42,7 @@ struct AccountResult {
     fetched: Option<Instant>,
     error: Option<Error>,
     cached: bool,
+    saved_at: Option<u64>,
 }
 #[derive(Clone)]
 enum Choice {
@@ -87,6 +87,7 @@ enum Update {
         recent: Result<Vec<Locator>, Error>,
     },
     Account(AccountView, Result<Fetched, Error>),
+    Saved(AccountView, hosting::snapshots::SavedBatch),
     Message(String),
     Notice(String),
     Done,
@@ -97,6 +98,7 @@ struct DiscoveryRequest {
     path: PathBuf,
     scope: Option<Scope>,
     account: Option<AccountKey>,
+    force: bool,
 }
 impl DiscoveryRequest {
     fn run(self, sender: &async_channel::Sender<Update>, control: &Control) -> Result<(), Error> {
@@ -126,7 +128,7 @@ impl DiscoveryRequest {
                     .into(),
             ));
         }
-        for account in accounts
+        let accounts = accounts
             .into_iter()
             .filter(|account| {
                 self.account
@@ -134,14 +136,55 @@ impl DiscoveryRequest {
                     .is_none_or(|key| key == &account.identity.key)
             })
             .take(10)
-        {
+            .collect::<Vec<_>>();
+        let snapshot_path = self.path.with_file_name("pull-request-cache.json");
+        match hosting::snapshots::load(&snapshot_path) {
+            Ok(saved) => {
+                for account in &accounts {
+                    if !matches!(account.state, ConnectionState::NeedsSignIn)
+                        && let Some(batch) = saved.get(&account.identity.key, &scope)
+                    {
+                        let _ = sender.try_send(Update::Saved(account.clone(), batch));
+                    }
+                }
+            }
+            Err(error) => {
+                let _ = sender.try_send(Update::Notice(format!("Saved PR results: {error}")));
+            }
+        }
+        for account in accounts {
             control.check()?;
             let _ = sender.try_send(Update::Message(format!(
                 "Loading {} · {}…",
                 account.identity.key.provider.name(),
                 account.identity.label
             )));
-            let result = backend.pull_requests(&account.identity.key, &scope, control);
+            let result = if self.force {
+                backend.refresh_pull_requests(&account.identity.key, &scope, control)
+            } else {
+                backend.pull_requests(&account.identity.key, &scope, control)
+            };
+            control.check()?;
+            if let Ok(fetched) = &result
+                && fetched.generation == account.generation
+                && backend.accounts_snapshot().accounts.iter().any(|current| {
+                    current.identity.key == account.identity.key
+                        && current.generation == account.generation
+                        && !matches!(current.state, ConnectionState::NeedsSignIn)
+                })
+                && let Err(error) = hosting::snapshots::save(
+                    &snapshot_path,
+                    &account.identity.key,
+                    &scope,
+                    &fetched.batch,
+                    fetched.fetched_at,
+                    control,
+                )
+            {
+                let _ = sender.try_send(Update::Notice(format!(
+                    "Could not save PR results: {error}"
+                )));
+            }
             control.check()?;
             let _ = sender.try_send(Update::Account(account, result));
         }
@@ -311,6 +354,12 @@ impl PullRequestsPage {
         self.refresh(window, cx);
     }
     fn refresh(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.load(false, window, cx);
+    }
+    pub(crate) fn force_refresh(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.load(true, window, cx);
+    }
+    fn load(&mut self, force: bool, window: &mut Window, cx: &mut Context<Self>) {
         if let Some(control) = self.operation.take() {
             control.cancel();
         }
@@ -332,6 +381,7 @@ impl PullRequestsPage {
             path,
             scope,
             account: filter,
+            force,
         };
         cx.spawn_in(window, async move |this, cx| {
             let worker_control = control.clone();
@@ -373,6 +423,7 @@ impl PullRequestsPage {
                                 }
                             }
                         }
+                        Update::Saved(account, saved) => page.accept_saved(account, saved),
                         Update::Account(account, result) => {
                             page.accept(account, result, window, cx)
                         }
@@ -402,6 +453,26 @@ impl PullRequestsPage {
         .detach();
         cx.notify();
     }
+    fn accept_saved(&mut self, account: AccountView, saved: hosting::snapshots::SavedBatch) {
+        let Some(scope) = &self.scope else {
+            return;
+        };
+        let results = self.views.entry(scope.clone()).or_default();
+        if results.iter().any(|result| {
+            result.account.identity.key == account.identity.key && result.batch.is_some()
+        }) {
+            return;
+        }
+        results.retain(|result| result.account.identity.key != account.identity.key);
+        results.push(AccountResult {
+            account,
+            batch: Some(saved.batch),
+            fetched: None,
+            error: None,
+            cached: true,
+            saved_at: Some(saved.saved_at),
+        });
+    }
     fn accept(
         &mut self,
         account: AccountView,
@@ -424,6 +495,7 @@ impl PullRequestsPage {
                     fetched: Some(Instant::now()),
                     error: None,
                     cached: fetched.cached,
+                    saved_at: None,
                 };
                 if let Some(index) = previous {
                     results[index] = result;
@@ -450,6 +522,7 @@ impl PullRequestsPage {
                         fetched: None,
                         error: Some(error),
                         cached: false,
+                        saved_at: None,
                     });
                 }
             }
@@ -651,11 +724,29 @@ impl PullRequestsPage {
         Command::new(&self.input)
             .filterable(false)
             .placeholder("Fuzzy title, repository, branch, #number, or paste a PR URL…")
-            .items(
-                choices
-                    .iter()
-                    .map(|choice| CommandItem::new().label(choice.label())),
-            )
+            .items(choices.iter().map(|choice| {
+                let key = match choice {
+                    Choice::Item {
+                        account,
+                        batch,
+                        index,
+                    } => {
+                        let item = &batch.items[*index];
+                        serde_json::to_string(&(
+                            "item",
+                            &account.identity.key,
+                            &item.repository_id,
+                            &item.id,
+                        ))
+                    }
+                    Choice::Lookup { account, locator } => {
+                        serde_json::to_string(&("lookup", &account.identity.key, locator.url()))
+                    }
+                    Choice::Recent(locator) => serde_json::to_string(&("recent", locator.url())),
+                }
+                .expect("PR identity tuple serializes");
+                CommandItem::new().key(key).label(choice.label())
+            }))
             .on_query(cx.listener(|_, _, _, cx| cx.notify()))
             .on_confirm(move |index, window, cx| {
                 if let Some(choice) = confirm.get(index.row) {
@@ -681,11 +772,19 @@ impl PullRequestsPage {
             Some(Scope::Direct(locator)) => locator.label(),
             None => "Recent PRs".to_owned(),
         };
+        let restored =
+            results.is_some_and(|results| results.iter().any(|result| result.saved_at.is_some()));
         let account = self.account_label(cx);
         let summary = format!(
-            "{scope} · {account} · {count} {} · Tab: filters{}{}",
+            "{scope} · {account} · {count} {} · Tab: filters · F5: refresh{}{}",
             if count == 1 { "match" } else { "matches" },
-            if cached { " · cached" } else { "" },
+            if restored {
+                " · saved snapshot"
+            } else if cached {
+                " · cached"
+            } else {
+                ""
+            },
             if partial { " · partial results" } else { "" }
         );
         let error = results.and_then(|results| {
@@ -714,6 +813,8 @@ impl PullRequestsPage {
             .unwrap_or_else(|| {
                 if self.accounts(cx).is_empty() {
                     "No connected accounts · Use Accounts… to connect".into()
+                } else if restored {
+                    "Showing saved results until refreshed · PR details may have changed".into()
                 } else if partial {
                     "Lists are incomplete · Paste a PR URL for direct lookup".into()
                 } else if cached {
@@ -845,6 +946,19 @@ impl Render for PullRequestsPage {
                         page.filter_escape(window, cx)
                     }),
                 )
+                .capture_action(cx.listener(
+                    |page, action: &crate::viewer::commands::ExecuteCommand, window, cx| {
+                        if action.command == jaywalk::commands::CommandId::Refresh {
+                            page.force_refresh(window, cx);
+                            cx.stop_propagation();
+                        } else {
+                            cx.propagate();
+                        }
+                    },
+                ))
+                .on_action(
+                    cx.listener(|page, _: &Refresh, window, cx| page.force_refresh(window, cx)),
+                )
                 .on_action(cx.listener(|page, _: &Cancel, _, cx| page.cancel(cx)))
                 .child(command)
                 .into_any_element();
@@ -943,15 +1057,24 @@ impl Render for PullRequestsPage {
                     ));
                 }
                 if let Some(batch) = &result.batch {
-                    let age = result.fetched.map_or(0, |at| at.elapsed().as_secs());
+                    let age = result.saved_at.map_or_else(
+                        || result.fetched.map_or(0, |at| at.elapsed().as_secs()),
+                        |saved| {
+                            std::time::SystemTime::now()
+                                .duration_since(std::time::UNIX_EPOCH)
+                                .map_or(0, |now| now.as_secs().saturating_sub(saved))
+                        },
+                    );
                     status = status.child(format!(
-                        "{} · {}: {} PRs · {} · shown {}s ago{}{}",
+                        "{} · {}: {} PRs · {} · result age {}s{}{}",
                         result.account.identity.key.provider.name(),
                         result.account.identity.label,
                         batch.items.len(),
                         batch.coverage.join(", "),
                         age,
-                        if result.cached {
+                        if result.saved_at.is_some() {
+                            " · saved snapshot; awaiting refresh"
+                        } else if result.cached {
                             " · cached (up to 60s old)"
                         } else {
                             ""
@@ -985,7 +1108,7 @@ impl Render for PullRequestsPage {
                 Button::new("pr-refresh")
                     .label("Refresh")
                     .disabled(busy)
-                    .on_click(cx.listener(|page, _, window, cx| page.refresh(window, cx))),
+                    .on_click(cx.listener(|page, _, window, cx| page.force_refresh(window, cx))),
             )
             .when(busy, |row| {
                 row.child(
@@ -1096,6 +1219,7 @@ impl Render for PullRequestsPage {
             .key_context("JaywalkPullRequests")
             .debug_selector(|| "pull-requests-page".into())
             .size_full()
+            .on_action(cx.listener(|page, _: &Refresh, window, cx| page.force_refresh(window, cx)))
             .on_action(cx.listener(|page, _: &Cancel, _, cx| page.cancel(cx)))
             .child(body)
             .into_any_element()

@@ -28,6 +28,7 @@ impl CredentialStore for Store {
 }
 struct Adapter {
     calls: AtomicUsize,
+    fail: std::sync::atomic::AtomicBool,
 }
 impl HostingProvider for Adapter {
     fn exchange(
@@ -61,6 +62,9 @@ impl HostingProvider for Adapter {
     ) -> Result<Batch, Error> {
         control.check()?;
         self.calls.fetch_add(1, Ordering::SeqCst);
+        if self.fail.load(Ordering::SeqCst) {
+            return Err(Error::Network);
+        }
         let number = match scope {
             Scope::Direct(locator) => locator.number,
             Scope::ReviewRequested => 99,
@@ -74,6 +78,7 @@ pub(crate) fn fake_service() -> Arc<Service> {
         Arc::new(Store),
         Arc::new(Adapter {
             calls: AtomicUsize::new(0),
+            fail: std::sync::atomic::AtomicBool::new(false),
         }),
     )
 }
@@ -100,6 +105,7 @@ fn setup(cx: &mut gpui_test::TestAppContext) -> (tempfile::TempDir, Arc<Adapter>
     let fixture = tempfile::tempdir().unwrap();
     let adapter = Arc::new(Adapter {
         calls: AtomicUsize::new(0),
+        fail: std::sync::atomic::AtomicBool::new(false),
     });
     let service = Service::new(Arc::new(Store), adapter.clone());
     cx.update(|app| {
@@ -468,4 +474,135 @@ fn nested_filters_preserve_search_and_escape_restores_each_step(
         cx.update(|_, app| page.read(app).input.read(app).query(app).to_string()),
         "momentum"
     );
+}
+
+#[gpui_test::test]
+fn restart_snapshot_remains_visible_after_failed_in_palette_refresh(
+    test_cx: &mut gpui_test::TestAppContext,
+) {
+    let (fixture, adapter, _) = setup(test_cx);
+    adapter.fail.store(true, Ordering::SeqCst);
+    let path = fixture.path().join("pull-request-cache.json");
+    let key = AccountKey {
+        provider: Provider::Github,
+        subject: "1".into(),
+    };
+    let mut old = batch(42);
+    old.items[0].title = "Old wheel snapshot".into();
+    jaywalk::hosting::snapshots::save(
+        &path,
+        &key,
+        &Scope::Authored,
+        &old,
+        std::time::SystemTime::now(),
+        &Control::new(std::time::Duration::from_secs(10)),
+    )
+    .unwrap();
+    let bytes = std::fs::read(&path).unwrap();
+    let mut page = None;
+    let (_, cx) = test_cx.add_window_view(|window, app| {
+        let view = app.new(|cx| {
+            PullRequestsPage::new(None, fixture.path().join("recent.json"), vec![], window, cx)
+        });
+        view.update(app, |page, cx| {
+            page.as_picker();
+            page.focus(window, cx);
+        });
+        page = Some(view.clone());
+        gpui::component::Root::new(view, window, app)
+    });
+    let page = page.unwrap();
+    draw(cx);
+    assert_eq!(cx.update(|_, app| page.read(app).choices(app).len()), 1);
+    assert!(cx.update(|_, app| {
+        page.read(app).views[&Scope::Authored]
+            .iter()
+            .any(|result| result.saved_at.is_some() && result.error == Some(Error::Network))
+    }));
+    cx.simulate_input("wheel");
+    cx.simulate_keystrokes("f5");
+    draw(cx);
+    assert_eq!(adapter.calls.load(Ordering::SeqCst), 4);
+    assert_eq!(cx.update(|_, app| page.read(app).choices(app).len()), 1);
+    assert_eq!(
+        cx.update(|_, app| page.read(app).input.read(app).query(app).to_string()),
+        "wheel"
+    );
+    assert_eq!(std::fs::read(&path).unwrap(), bytes);
+    adapter.fail.store(false, Ordering::SeqCst);
+    cx.simulate_keystrokes("f5");
+    draw(cx);
+    assert_eq!(adapter.calls.load(Ordering::SeqCst), 6);
+    assert_eq!(cx.update(|_, app| page.read(app).choices(app).len()), 2);
+    assert!(cx.update(|_, app| {
+        page.read(app).views[&Scope::Authored]
+            .iter()
+            .all(|result| result.saved_at.is_none() && result.error.is_none())
+    }));
+}
+
+#[gpui_test::test]
+fn refreshed_results_preserve_selected_identity_when_rows_move(
+    test_cx: &mut gpui_test::TestAppContext,
+) {
+    let (fixture, _, _) = setup(test_cx);
+    let mut page = None;
+    let (_, cx) = test_cx.add_window_view(|window, app| {
+        let view = app.new(|cx| {
+            PullRequestsPage::new(None, fixture.path().join("recent.json"), vec![], window, cx)
+        });
+        view.update(app, |page, cx| {
+            page.as_picker();
+            page.focus(window, cx);
+        });
+        page = Some(view.clone());
+        gpui::component::Root::new(view, window, app)
+    });
+    let page = page.unwrap();
+    draw(cx);
+    cx.update(|window, app| {
+        page.update(app, |page, cx| {
+            let account = page.accounts(cx)[0].clone();
+            let mut items = batch(42);
+            items.items.push(batch(43).items.remove(0));
+            page.accept(
+                account.clone(),
+                Ok(jaywalk::hosting::Fetched {
+                    generation: account.generation,
+                    batch: Arc::new(items),
+                    cached: false,
+                    fetched_at: std::time::SystemTime::now(),
+                }),
+                window,
+                cx,
+            );
+        })
+    });
+    draw(cx);
+    cx.simulate_keystrokes("down");
+    draw(cx);
+    cx.update(|window, app| {
+        page.update(app, |page, cx| {
+            let account = page.accounts(cx)[0].clone();
+            let mut items = batch(40);
+            items.items.extend(batch(42).items);
+            let mut selected = batch(43).items.remove(0);
+            selected.title = "Renamed result".into();
+            selected.locator.repository = RepositoryName::parse("team/renamed-widgets").unwrap();
+            items.items.push(selected);
+            page.accept(
+                account.clone(),
+                Ok(jaywalk::hosting::Fetched {
+                    generation: account.generation,
+                    batch: Arc::new(items),
+                    cached: false,
+                    fetched_at: std::time::SystemTime::now(),
+                }),
+                window,
+                cx,
+            );
+        })
+    });
+    draw(cx);
+    assert!(cx.update(|_, app| { let page = page.read(app); let index = page.input.read(app).selected_index().unwrap().row; matches!(&page.choices(app)[index], Choice::Item { batch, index, .. } if batch.items[*index].locator.number == 43) }));
 }

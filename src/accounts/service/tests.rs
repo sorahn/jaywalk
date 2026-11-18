@@ -793,3 +793,41 @@ fn late_discovery_cannot_publish_after_disconnect_and_rate_limits_back_off() {
     ));
     assert_eq!(provider.hosting_calls.load(Ordering::SeqCst), 1);
 }
+
+#[test]
+fn explicit_discovery_refresh_bypasses_cache_and_retains_it_on_failure() {
+    let (service, _, provider) = fixture(false, None, None);
+    let scope = crate::hosting::Scope::Authored;
+    let initial = service.pull_requests(&key(), &scope, &control()).unwrap();
+    assert!(!initial.cached);
+    assert!(
+        service
+            .pull_requests(&key(), &scope, &control())
+            .unwrap()
+            .cached
+    );
+    let fresh = service
+        .refresh_pull_requests(&key(), &scope, &control())
+        .unwrap();
+    assert!(!fresh.cached);
+    assert_eq!(provider.hosting_calls.load(Ordering::SeqCst), 2);
+    *provider.hosting_result.lock().unwrap() = Err(Error::Network);
+    assert!(matches!(
+        service.refresh_pull_requests(&key(), &scope, &control()),
+        Err(Error::Network)
+    ));
+    let retained = service.pull_requests(&key(), &scope, &control()).unwrap();
+    assert!(Arc::ptr_eq(&fresh.batch, &retained.batch));
+    assert_eq!(fresh.fetched_at, retained.fetched_at);
+    *provider.hosting_result.lock().unwrap() = Err(Error::RateLimited);
+    assert!(matches!(
+        service.refresh_pull_requests(&key(), &scope, &control()),
+        Err(Error::RateLimited)
+    ));
+    let calls = provider.hosting_calls.load(Ordering::SeqCst);
+    assert!(matches!(
+        service.refresh_pull_requests(&key(), &scope, &control()),
+        Err(Error::RateLimited)
+    ));
+    assert_eq!(provider.hosting_calls.load(Ordering::SeqCst), calls);
+}

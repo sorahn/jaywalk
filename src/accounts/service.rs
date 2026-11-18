@@ -362,6 +362,26 @@ impl Service {
         scope: &crate::hosting::Scope,
         control: &Control,
     ) -> Result<crate::hosting::Fetched, Error> {
+        self.pull_requests_with_policy(key, scope, false, control)
+    }
+    /// Explicit refresh bypasses existing cached data while retaining it on
+    /// failure. A fresh result from an already-running read can satisfy a waiter.
+    pub fn refresh_pull_requests(
+        self: &Arc<Self>,
+        key: &AccountKey,
+        scope: &crate::hosting::Scope,
+        control: &Control,
+    ) -> Result<crate::hosting::Fetched, Error> {
+        self.pull_requests_with_policy(key, scope, true, control)
+    }
+    fn pull_requests_with_policy(
+        self: &Arc<Self>,
+        key: &AccountKey,
+        scope: &crate::hosting::Scope,
+        refresh: bool,
+        control: &Control,
+    ) -> Result<crate::hosting::Fetched, Error> {
+        let started = std::time::Instant::now();
         if !scope.supports(key.provider) {
             return Err(Error::Unsupported);
         }
@@ -383,7 +403,12 @@ impl Service {
             .get(key)
             .ok_or(Error::NotConnected)?
             .epoch;
-        if let Some(batch) = cache.get(key, epoch, scope) {
+        let cached = if refresh {
+            cache.updated_since(key, epoch, scope, started)
+        } else {
+            cache.get(key, epoch, scope)
+        };
+        if let Some((batch, fetched_at)) = cached {
             let mut state = self.state.lock().expect("account state mutex poisoned");
             let account = current(&mut state, key, epoch)?;
             if !matches!(account.state, ConnectionState::NeedsSignIn) {
@@ -391,6 +416,7 @@ impl Service {
                     batch,
                     generation: epoch,
                     cached: true,
+                    fetched_at,
                 });
             }
         }
@@ -412,11 +438,13 @@ impl Service {
         control.check()?;
         let mut state = self.state.lock().expect("account state mutex poisoned");
         current(&mut state, key, epoch)?;
-        cache.put(key.clone(), epoch, scope.clone(), batch.clone());
+        let fetched_at = std::time::SystemTime::now();
+        cache.put(key.clone(), epoch, scope.clone(), batch.clone(), fetched_at);
         Ok(crate::hosting::Fetched {
             batch,
             generation: epoch,
             cached: false,
+            fetched_at,
         })
     }
     fn read_pull_requests(

@@ -184,6 +184,10 @@ impl CommandState {
 
     pub(crate) fn install_model(&mut self, model: CommandModel, cx: &mut Context<Self>) {
         let selected_index_path = self.selected_index();
+        let selected_key = self
+            .selected_index
+            .and_then(|index| self.item_at(index))
+            .and_then(|item| item.key.clone());
         // The model reinstalls on every host re-render, usually unchanged.
         // Keep the rows and their measured sizes then: measuring lays out
         // every row, not only the visible ones.
@@ -201,16 +205,28 @@ impl CommandState {
             self.update_matches(cx);
         }
 
-        let preserved_selection = selected_index_path.and_then(|selected_index_path| {
+        let preserved_selection = if let Some(key) = selected_key {
             self.matched
                 .iter()
                 .enumerate()
-                .find_map(|(matched_ix, matched)| {
-                    (!matched.disabled && matched.index_path == selected_index_path)
-                        .then_some(matched_ix)
+                .find_map(|(index, matched)| {
+                    (!matched.disabled
+                        && self
+                            .item_at(index)
+                            .is_some_and(|item| item.key.as_ref() == Some(&key)))
+                    .then_some(index)
                 })
-        });
-
+        } else {
+            selected_index_path.and_then(|selected_index_path| {
+                self.matched
+                    .iter()
+                    .enumerate()
+                    .find_map(|(matched_ix, matched)| {
+                        (!matched.disabled && matched.index_path == selected_index_path)
+                            .then_some(matched_ix)
+                    })
+            })
+        };
         if let Some(matched_ix) = preserved_selection {
             // Preserving the selection is not a navigation: the model
             // reinstalls on every host re-render, so scrolling here would

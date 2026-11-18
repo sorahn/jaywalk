@@ -11,3 +11,5 @@ pub use local::{Association, RemoteRepository, associate, repository_remotes};
 pub use model::*;
 
 pub mod recent;
+
+pub mod snapshots;

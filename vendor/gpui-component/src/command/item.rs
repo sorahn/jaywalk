@@ -7,6 +7,7 @@ use crate::{Disableable, Icon};
 /// A single command in a [`crate::command::Command`] palette.
 ///
 pub struct CommandItem {
+    pub(crate) key: Option<SharedString>,
     label: Option<SharedString>,
     keywords: Vec<SharedString>,
     /// Boxed: an [`Icon`] carries a whole `StyleRefinement`, which would make
@@ -21,6 +22,7 @@ pub struct CommandItem {
 impl Clone for CommandItem {
     fn clone(&self) -> Self {
         Self {
+            key: self.key.clone(),
             label: self.label.clone(),
             keywords: self.keywords.clone(),
             icon: self.icon.clone(),
@@ -36,6 +38,7 @@ impl CommandItem {
     /// Create an empty command item.
     pub fn new() -> Self {
         Self {
+            key: None,
             label: None,
             keywords: Vec::new(),
             icon: None,
@@ -44,6 +47,13 @@ impl CommandItem {
             disabled: false,
             content: None,
         }
+    }
+
+    /// Keep selection attached to this unique identity when results reorder.
+    /// Keys must be unique within the command's visible model.
+    pub fn key(mut self, key: impl Into<SharedString>) -> Self {
+        self.key = Some(key.into());
+        self
     }
 
     /// Set the label to display and search.
