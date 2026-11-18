@@ -50,6 +50,12 @@ impl Render for Viewer {
                     .expect("Accounts is constructed before it is shown")
                     .clone()
                     .into_any_element(),
+                pages::Page::PullRequests => self
+                    .pull_requests_page
+                    .as_ref()
+                    .expect("Pull requests is constructed before it is shown")
+                    .clone()
+                    .into_any_element(),
                 pages::Page::Comparison => unreachable!(),
             };
             return root

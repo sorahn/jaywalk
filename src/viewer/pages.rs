@@ -8,6 +8,7 @@ pub(super) enum Page {
     Comparison,
     Welcome,
     Accounts,
+    PullRequests,
 }
 /// Only applies to the exact retained standard widget. Source ranges survive
 /// Base retiring the hidden surface's window selection registration.
@@ -21,6 +22,53 @@ impl Viewer {
     }
     pub(crate) fn show_retained_comparison(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.show_page(Page::Comparison, window, cx);
+    }
+    pub(super) fn show_pull_requests(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.pull_requests_page.is_none() {
+            let root = self.repository_directory();
+            let mut candidates = root.iter().cloned().collect::<Vec<_>>();
+            candidates.extend(
+                cx.global::<crate::recents::Recents>()
+                    .repositories
+                    .iter()
+                    .cloned(),
+            );
+            let path = match self
+                .arguments
+                .config
+                .clone()
+                .map(Ok)
+                .unwrap_or_else(jaywalk::settings::default_path)
+            {
+                Ok(path) => path.with_file_name("recent-pull-requests.json"),
+                Err(error) => {
+                    self.report_open_error(error, cx);
+                    return;
+                }
+            };
+            let page = cx.new(|cx| {
+                crate::hosting_ui::PullRequestsPage::new(root, path, candidates, window, cx)
+            });
+            cx.subscribe_in(
+                &page,
+                window,
+                |viewer, _, event: &crate::hosting_ui::Event, window, cx| match event {
+                    crate::hosting_ui::Event::Leave => viewer.navigate_view(false, window, cx),
+                    crate::hosting_ui::Event::Accounts => {
+                        viewer.show_accounts(jaywalk::commands::CommandId::Accounts, window, cx)
+                    }
+                    crate::hosting_ui::Event::Repository(path) => viewer.open_repository_path(
+                        path.clone(),
+                        crate::windows::OpenDisposition::Configured,
+                        cx,
+                    ),
+                },
+            )
+            .detach();
+            self.pull_requests_page = Some(page);
+        }
+        self.show_page(Page::PullRequests, window, cx);
+        self.focus_page(window, cx);
     }
     pub(super) fn show_accounts(
         &mut self,
@@ -108,7 +156,11 @@ impl Viewer {
         cx.notify();
     }
     pub(super) fn focus_page(&self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.page == Page::Accounts
+        if self.page == Page::PullRequests
+            && let Some(page) = &self.pull_requests_page
+        {
+            page.update(cx, |page, cx| page.focus(window, cx));
+        } else if self.page == Page::Accounts
             && let Some(accounts) = &self.account_page
         {
             accounts.update(cx, |page, cx| page.focus(window, cx));
@@ -128,6 +180,7 @@ impl Viewer {
             .child(div().px_3().text_sm().child(match self.page {
                 Page::Welcome => "Welcome",
                 Page::Accounts => "Accounts",
+                Page::PullRequests => "Pull requests",
                 Page::Comparison => unreachable!("comparisons keep their existing header"),
             }))
             .into_any_element()

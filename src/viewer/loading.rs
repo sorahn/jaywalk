@@ -55,6 +55,7 @@ impl Viewer {
             welcome,
             page,
             account_page: None,
+            pull_requests_page: None,
             page_selection: None,
             recent_recorded: false,
             code_font_size: settings.editor.font_size,

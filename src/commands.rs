@@ -6,6 +6,7 @@ use serde::Deserialize;
 pub enum CommandId {
     About,
     Accounts,
+    OpenPullRequest,
     ConnectAccount,
     ReconnectAccount,
     DisconnectAccount,
@@ -123,6 +124,7 @@ impl CommandId {
         matches!(
             self,
             Self::OpenRepository
+                | Self::OpenPullRequest
                 | Self::Accounts
                 | Self::ConnectAccount
                 | Self::ReconnectAccount
@@ -155,6 +157,7 @@ impl CommandId {
     pub const ALL: &[Self] = &[
         Self::About,
         Self::Accounts,
+        Self::OpenPullRequest,
         Self::ConnectAccount,
         Self::ReconnectAccount,
         Self::DisconnectAccount,
@@ -299,6 +302,7 @@ impl CommandId {
             Self::MergedBranch => "Review merged branch changes",
             Self::MergeResult => "Review merge result",
             Self::About => "About Jaywalk",
+            Self::OpenPullRequest => "Open pull request…",
             Self::Accounts => "Accounts…",
             Self::ConnectAccount => "Connect account…",
             Self::ReconnectAccount => "Reconnect account…",

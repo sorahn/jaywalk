@@ -12,7 +12,8 @@ pub(crate) fn init(arguments: &Arguments, settings: &Settings, cx: &mut App) -> 
     install_bindings(settings, cx)?;
     let arguments = arguments.clone();
     cx.on_action(move |action: &ExecuteCommand, cx| match action.command {
-        CommandId::Accounts
+        CommandId::OpenPullRequest
+        | CommandId::Accounts
         | CommandId::ConnectAccount
         | CommandId::ReconnectAccount
         | CommandId::DisconnectAccount
@@ -126,7 +127,8 @@ fn configured_bindings(settings: &Settings, cx: &App) -> Vec<KeyBinding> {
     for (command, bindings) in &settings.keybindings {
         let context = match command {
             CommandId::OpenInNewWindow => Some("JaywalkRecent"),
-            CommandId::Accounts
+            CommandId::OpenPullRequest
+            | CommandId::Accounts
             | CommandId::ConnectAccount
             | CommandId::ReconnectAccount
             | CommandId::DisconnectAccount
@@ -193,6 +195,7 @@ impl Viewer {
             return;
         }
         match command {
+            CommandId::OpenPullRequest => self.show_pull_requests(window, cx),
             CommandId::RevealComparisonLeft | CommandId::RevealComparisonRight => {
                 self.reveal_pair_endpoint(command == CommandId::RevealComparisonRight, window, cx)
             }

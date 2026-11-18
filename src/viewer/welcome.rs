@@ -103,6 +103,16 @@ impl Viewer {
         }
         start = start.child(
             div().h_flex().child(
+                Button::new("welcome-pull-requests")
+                    .ghost()
+                    .label("Open pull request…")
+                    .on_click(
+                        cx.listener(|viewer, _, window, cx| viewer.show_pull_requests(window, cx)),
+                    ),
+            ),
+        );
+        start = start.child(
+            div().h_flex().child(
                 Button::new("welcome-accounts")
                     .ghost()
                     .label("Accounts…")
