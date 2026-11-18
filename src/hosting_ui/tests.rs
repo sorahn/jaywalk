@@ -1,5 +1,6 @@
 use super::{AccountResult, Choice, PullRequestsPage};
-use gpui::{AppContext, px, size};
+use gpui::component::StyledExt;
+use gpui::{AppContext, div, prelude::*, px, size};
 use jaywalk::accounts::{
     AccountKey, ClientRegistration, Control, CredentialStore, Error, HostingProvider, Identity,
     Provider, Secret, Service, StoredSession, Tokens,
@@ -286,6 +287,21 @@ fn a_full_url_offers_its_provider_even_after_a_different_account_filter(
     );
 }
 
+struct PageContainer(gpui::Entity<PullRequestsPage>);
+impl gpui::Render for PageContainer {
+    fn render(
+        &mut self,
+        _: &mut gpui::Window,
+        _: &mut gpui::Context<Self>,
+    ) -> impl gpui::IntoElement {
+        div()
+            .v_flex()
+            .size_full()
+            .child(div().h(px(40.)).flex_shrink_0())
+            .child(div().flex_1().min_h_0().child(self.0.clone()))
+    }
+}
+
 #[gpui_test::test]
 fn metadata_remains_reachable_by_scrolling_in_a_short_window(
     test_cx: &mut gpui_test::TestAppContext,
@@ -297,7 +313,8 @@ fn metadata_remains_reachable_by_scrolling_in_a_short_window(
             PullRequestsPage::new(None, fixture.path().join("recent.json"), vec![], window, cx)
         });
         page = Some(view.clone());
-        gpui::component::Root::new(view, window, app)
+        let container = app.new(|_| PageContainer(view));
+        gpui::component::Root::new(container, window, app)
     });
     let page = page.unwrap();
     cx.simulate_resize(size(px(1000.), px(550.)));
