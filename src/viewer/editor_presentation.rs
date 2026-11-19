@@ -10,13 +10,7 @@ fn standard_patch_with_algorithm(
     after: &str,
     algorithm: jaywalk::diff_model::Algorithm,
 ) -> String {
-    similar::TextDiff::configure()
-        .algorithm(algorithm.similar())
-        .diff_lines(before, after)
-        .unified_diff()
-        .context_radius(before.lines().count().max(after.lines().count()))
-        .header("a/source", "b/source")
-        .to_string()
+    jaywalk::diff_model::full_patch(before, after, algorithm, "a/source", "b/source")
 }
 pub(super) struct CodeComparison {
     pub(super) before: Entity<EditorState>,

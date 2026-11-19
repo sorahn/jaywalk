@@ -1841,3 +1841,71 @@ fn git_whole_branch_return_keeps_unstaged_rename_after_commit_inspection(cx: &mu
         );
     });
 }
+
+#[gpui_test::test]
+fn carriage_returns_preserve_source_selection_in_all_diff_modes(cx: &mut TestAppContext) {
+    use gpui_kit::component::diff::{DiffLineRange, DiffSide};
+    use jaywalk::{diff_model::Algorithm, settings::DiffView};
+    let fixture = Fixture::new();
+    let (viewer, cx) = setup(&fixture, cx);
+    for (before, after) in [
+        ("\tone\roldValue\r尾部", "\tone\rnewValue\r尾部"),
+        ("one\r\nold\r\n", "one\r\nnew\r\n"),
+        ("漢字\rold\nlast\r", "漢字\rnew\nlast\r\n"),
+        ("same\n", "same\r\n"),
+    ] {
+        fixture.replace(before, after);
+        for algorithm in [Algorithm::Myers, Algorithm::Patience] {
+            cx.update(|window, app| {
+                viewer.update(app, |v, cx| {
+                    v.settings.diff.algorithm = algorithm;
+                    v.refresh(window, cx);
+                })
+            });
+            draw(cx);
+            for mode in [DiffView::Fluid, DiffView::SideBySide, DiffView::Inline] {
+                cx.update(|_, app| viewer.update(app, |v, cx| v.set_view_mode(mode, cx)));
+                draw(cx);
+                let (old_editor, new_editor, standard) = cx.update(|_, app| {
+                    let code = viewer
+                        .read(app)
+                        .code()
+                        .expect("CR files load without panicking");
+                    (
+                        code.before.clone(),
+                        code.after.clone(),
+                        code.standard.as_ref().unwrap().as_ref().unwrap().clone(),
+                    )
+                });
+                cx.update(|_, app| {
+                    for (editor, source) in [(&old_editor, before), (&new_editor, after)] {
+                        assert_eq!(editor.read(app).value().as_ref(), source);
+                        editor.update(app, |editor, cx| {
+                            editor.set_selected_range(0..source.len(), cx);
+                            assert_eq!(editor.selected_text().to_string(), source);
+                        });
+                    }
+                });
+                cx.update(|_, app| {
+                    standard.update(app, |state, cx| {
+                        let path = state.files()[0].path().clone();
+                        for (side, source) in
+                            [(DiffSide::Original, before), (DiffSide::Modified, after)]
+                        {
+                            state.set_selected_lines(
+                                Some(DiffLineRange::new(path.clone(), side, 1, usize::MAX)),
+                                cx,
+                            );
+                            assert_eq!(
+                                state.selected_text(cx),
+                                source,
+                                "{mode:?} / {algorithm:?}: source bytes changed"
+                            );
+                        }
+                        state.set_selected_lines(None, cx);
+                    })
+                });
+            }
+        }
+    }
+}

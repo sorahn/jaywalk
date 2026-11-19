@@ -334,15 +334,13 @@ pub fn overview_patch_with_algorithm(
                 patch.push_str("\n\\ No newline at end of file\n");
             }
         } else {
-            patch.push_str(
-                &similar::TextDiff::configure()
-                    .algorithm(algorithm.similar())
-                    .diff_lines(before, after)
-                    .unified_diff()
-                    .context_radius(before.lines().count().max(after.lines().count()))
-                    .header(before_path, after_path)
-                    .to_string(),
-            );
+            patch.push_str(&crate::diff_model::full_patch(
+                before,
+                after,
+                algorithm,
+                before_path,
+                after_path,
+            ));
         }
         if before == after
             && file.kind() != &ChangeKind::Renamed
