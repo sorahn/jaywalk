@@ -565,6 +565,7 @@ impl Viewer {
         });
         self.refresh_word_colors(cx);
         self.rebuild_browser(cx);
+        self.finish_symbol_navigation(window, cx);
         cx.notify();
     }
 }

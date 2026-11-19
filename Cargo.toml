@@ -18,6 +18,7 @@ toml = "1.2"
 # Preserve comments when the palette changes keyboard.profile.
 toml_edit = "0.25"
 similar = "2.7"
+tree-sitter = "0.26.13"
 gpui-kit = { version = "=0.10.0", features = ["tree-sitter-languages"] }
 notify = "8.2.2"
 reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls"] }
