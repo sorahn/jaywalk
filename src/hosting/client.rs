@@ -74,12 +74,20 @@ pub(crate) fn discover(
         }
         return Ok(Batch {
             items: vec![item],
+            priority_count: 0,
             coverage: vec![locator.label()],
             partial: false,
         });
     }
     if identity.key.provider == Provider::Github {
         return github(identity, scope, control, &mut request);
+    }
+    // Bitbucket's documented workspace endpoint only supports authored PRs.
+    // Keep that limitation explicit rather than treating it as an empty inbox.
+    if matches!(scope, Scope::ForMe) {
+        let mut batch = discover(identity, &Scope::Authored, workspaces, control, request)?;
+        batch.partial = true;
+        return Ok(batch);
     }
     let mut batch = Batch::default();
     let starts = match scope {
@@ -179,6 +187,29 @@ fn github(
     control: &Control,
     request: &mut impl FnMut(Request) -> Result<Value, Error>,
 ) -> Result<Batch, Error> {
+    if matches!(scope, Scope::ForMe) {
+        let mut batch = Batch::default();
+        let mut seen = HashSet::new();
+        for scope in [Scope::Assigned, Scope::ReviewRequested, Scope::Authored] {
+            let found = github(identity, &scope, control, request)?;
+            batch.partial |= found.partial;
+            batch.coverage.extend(found.coverage);
+            batch.items.extend(
+                found
+                    .items
+                    .into_iter()
+                    .filter(|item| seen.insert(item.id.clone())),
+            );
+            if scope != Scope::Authored {
+                batch.priority_count = batch.items.len();
+            }
+        }
+        // Snapshots are bounded to 256 items, including all three search groups.
+        batch.partial |= batch.items.len() > 256;
+        batch.items.truncate(256);
+        batch.priority_count = batch.priority_count.min(batch.items.len());
+        return Ok(batch);
+    }
     let user = &identity.label;
     if user.is_empty()
         || user.len() > 100
@@ -190,6 +221,7 @@ fn github(
     }
     let filter = match scope {
         Scope::Authored => format!("author:{user}"),
+        Scope::Assigned => format!("assignee:{user}"),
         Scope::ReviewRequested => format!("review-requested:{user}"),
         Scope::Repository(_, repo) => format!("repo:{repo}"),
         _ => return Err(Error::Unsupported),
@@ -366,6 +398,86 @@ mod tests {
     }
     fn bitbucket_value() -> Value {
         json!({"id":12,"title":"Fix λ scrolling","links":{"html":{"href":"https://bitbucket.org/team/repo/pull-requests/12"}},"destination":{"repository":{"full_name":"team/repo","uuid":"{repo}"}},"source":{"branch":{"name":"fix/momentum"}},"author":{"display_name":"Person"},"state":"OPEN"})
+    }
+    #[test]
+    fn inbox_prioritizes_assignments_and_reviews_deduplicating_authored_results() {
+        let mut queries = vec![];
+        let batch = discover(
+            &identity(Provider::Github),
+            &Scope::ForMe,
+            &[],
+            &control(),
+            |request| {
+                let Request::GithubSearch { query, .. } = request else {
+                    panic!()
+                };
+                let mut value = github_value();
+                let number = if query.contains("assignee:") {
+                    1
+                } else if query.contains("review-requested:") {
+                    2
+                } else {
+                    3
+                };
+                let mut node = value["data"]["search"]["nodes"][0].clone();
+                node["number"] = json!(number);
+                node["id"] = json!(format!("PR_{number}"));
+                node["url"] = json!(format!("https://github.com/team/repo/pull/{number}"));
+                let mut nodes = vec![node.clone()];
+                if number == 1 {
+                    node["number"] = json!(2);
+                    node["id"] = json!("PR_2");
+                    node["url"] = json!("https://github.com/team/repo/pull/2");
+                    nodes.push(node);
+                }
+                if number == 3 {
+                    let mut duplicate = nodes[0].clone();
+                    duplicate["number"] = json!(1);
+                    duplicate["id"] = json!("PR_1");
+                    duplicate["url"] = json!("https://github.com/team/repo/pull/1");
+                    nodes.push(duplicate);
+                }
+                value["data"]["search"]["nodes"] = json!(nodes);
+                queries.push(query);
+                Ok(value)
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            batch
+                .items
+                .iter()
+                .map(|item| item.locator.number)
+                .collect::<Vec<_>>(),
+            [1, 2, 3]
+        );
+        assert_eq!(batch.priority_count, 2);
+        assert_eq!(queries.len(), 3);
+        assert!(queries[0].contains("assignee:person"));
+        assert!(queries[1].contains("review-requested:person"));
+        assert!(queries[2].contains("author:person"));
+        assert!(!batch.partial);
+    }
+    #[test]
+    fn bitbucket_inbox_is_explicitly_partial_and_uses_authored_endpoint() {
+        let batch = discover(
+            &identity(Provider::Bitbucket),
+            &Scope::ForMe,
+            &[Workspace {
+                slug: "team".into(),
+                uuid: "{team}".into(),
+            }],
+            &control(),
+            |request| {
+                let Request::Get(url) = request else { panic!() };
+                assert!(url.path().contains("/workspaces/team/pullrequests/"));
+                Ok(json!({"values":[bitbucket_value()]}))
+            },
+        )
+        .unwrap();
+        assert_eq!(batch.items.len(), 1);
+        assert_eq!(batch.priority_count, 0);
+        assert!(batch.partial);
     }
     #[test]
     fn github_search_returns_branches_and_stable_ids_in_one_request() {

@@ -47,7 +47,15 @@ impl PullRequestsPage {
             ],
             Step::Scope => vec![
                 (
-                    "My open PRs".into(),
+                    "For me · Combined inbox".into(),
+                    FilterChoice::Scope(Some(Scope::ForMe)),
+                ),
+                (
+                    "Assigned to me · GitHub".into(),
+                    FilterChoice::Scope(Some(Scope::Assigned)),
+                ),
+                (
+                    "Authored by me".into(),
                     FilterChoice::Scope(Some(Scope::Authored)),
                 ),
                 (

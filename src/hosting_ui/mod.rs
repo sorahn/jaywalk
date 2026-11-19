@@ -259,7 +259,7 @@ impl PullRequestsPage {
             scroll: ScrollHandle::new(),
             root,
             recent_path,
-            scope: Some(Scope::Authored),
+            scope: Some(Scope::ForMe),
             account: None,
             views: HashMap::new(),
             remotes: vec![],
@@ -420,8 +420,12 @@ impl PullRequestsPage {
             && let Some(scope) = &scope
             && !self.views.contains_key(scope)
         {
-            self.views
-                .retain(|key, _| matches!(key, Scope::Authored | Scope::ReviewRequested));
+            self.views.retain(|key, _| {
+                matches!(
+                    key,
+                    Scope::ForMe | Scope::Assigned | Scope::Authored | Scope::ReviewRequested
+                )
+            });
         }
         self.scope = scope;
         self.set_search_query("", window, cx);
@@ -661,7 +665,7 @@ impl PullRequestsPage {
                     for (index, item) in batch.items.iter().enumerate() {
                         if let Some(score) = item.score(&query) {
                             ranked.push((
-                                score,
+                                (score, index >= batch.priority_count),
                                 Choice::Item {
                                     account: result.account.clone(),
                                     batch: batch.clone(),
@@ -803,7 +807,9 @@ impl PullRequestsPage {
                 .any(|result| result.batch.as_ref().is_some_and(|batch| batch.partial))
         });
         let scope = match &self.scope {
-            Some(Scope::Authored) => "My open PRs".to_owned(),
+            Some(Scope::ForMe) => "For me".to_owned(),
+            Some(Scope::Assigned) => "Assigned to me".to_owned(),
+            Some(Scope::Authored) => "Authored by me".to_owned(),
             Some(Scope::ReviewRequested) => "Review requests".to_owned(),
             Some(Scope::Repository(provider, repo)) => format!("{} · {repo}", provider.name()),
             Some(Scope::Direct(locator)) => locator.label(),
@@ -853,6 +859,15 @@ impl PullRequestsPage {
             .unwrap_or_else(|| {
                 if self.accounts(cx).is_empty() {
                     "No connected accounts · Use Accounts… to connect".into()
+                } else if self.scope == Some(Scope::ForMe)
+                    && results.is_some_and(|results| {
+                        results.iter().any(|result| {
+                            result.account.identity.key.provider
+                                == jaywalk::accounts::Provider::Bitbucket
+                        })
+                    })
+                {
+                    "Bitbucket: authored PRs only · Reviewer discovery is not yet supported".into()
                 } else if restored {
                     "Showing saved results until refreshed · PR details may have changed".into()
                 } else if partial {
@@ -1031,7 +1046,13 @@ impl Render for PullRequestsPage {
         let accounts = self.accounts(cx);
         let mut filters = div().h_flex().flex_wrap().gap_2();
         for (id, label, scope) in [
-            ("pr-authored", "My open PRs", Some(Scope::Authored)),
+            ("pr-for-me", "For me", Some(Scope::ForMe)),
+            (
+                "pr-assigned",
+                "Assigned to me (GitHub)",
+                Some(Scope::Assigned),
+            ),
+            ("pr-authored", "Authored by me", Some(Scope::Authored)),
             (
                 "pr-reviews",
                 "Review requests (GitHub)",

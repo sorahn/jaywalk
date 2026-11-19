@@ -155,6 +155,7 @@ fn batch(number: u64) -> Batch {
             branch: "fix/momentum".into(),
             state: "OPEN".into(),
         }],
+        priority_count: 0,
         partial: false,
         coverage: vec!["synthetic".into()],
     }
@@ -523,7 +524,7 @@ fn restart_snapshot_remains_visible_after_failed_in_palette_refresh(
     jaywalk::hosting::snapshots::save(
         &path,
         &key,
-        &Scope::Authored,
+        &Scope::ForMe,
         &old,
         std::time::SystemTime::now(),
         &Control::new(std::time::Duration::from_secs(10)),
@@ -545,7 +546,7 @@ fn restart_snapshot_remains_visible_after_failed_in_palette_refresh(
     draw(cx);
     assert_eq!(cx.update(|_, app| page.read(app).choices(app).len()), 1);
     assert!(cx.update(|_, app| {
-        page.read(app).views[&Scope::Authored]
+        page.read(app).views[&Scope::ForMe]
             .iter()
             .any(|result| result.saved_at.is_some() && result.error == Some(Error::Network))
     }));
@@ -565,7 +566,7 @@ fn restart_snapshot_remains_visible_after_failed_in_palette_refresh(
     assert_eq!(adapter.calls.load(Ordering::SeqCst), 6);
     assert_eq!(cx.update(|_, app| page.read(app).choices(app).len()), 2);
     assert!(cx.update(|_, app| {
-        page.read(app).views[&Scope::Authored]
+        page.read(app).views[&Scope::ForMe]
             .iter()
             .all(|result| result.saved_at.is_none() && result.error.is_none())
     }));
@@ -682,4 +683,59 @@ pub(crate) fn fake_service_with_review_commits(base: String, head: String) -> Ar
             fail: std::sync::atomic::AtomicBool::new(false),
         }),
     )
+}
+
+#[gpui_test::test]
+fn inbox_default_prioritizes_across_accounts_but_preserves_text_relevance(
+    test_cx: &mut gpui_test::TestAppContext,
+) {
+    let (fixture, _, _) = setup(test_cx);
+    let mut page = None;
+    let (_, cx) = test_cx.add_window_view(|window, app| {
+        let view = app
+            .new(|cx| PullRequestsPage::new(None, fixture.path().join("recent.json"), window, cx));
+        page = Some(view.clone());
+        gpui::component::Root::new(view, window, app)
+    });
+    let page = page.unwrap();
+    draw(cx);
+    cx.update(|window, app| {
+        page.update(app, |page, cx| {
+            assert_eq!(page.scope, Some(Scope::ForMe));
+            for (index, account) in page.accounts(cx).into_iter().enumerate() {
+                let mut items = batch(10 + index as u64);
+                items.priority_count = 1;
+                items.items[0].title = "Refine scrolling target".into();
+                let mut authored = batch(20 + index as u64).items.remove(0);
+                authored.title = "target exact".into();
+                items.items.push(authored);
+                page.accept(
+                    account.clone(),
+                    Ok(jaywalk::hosting::Fetched {
+                        generation: account.generation,
+                        batch: Arc::new(items),
+                        cached: false,
+                        fetched_at: std::time::SystemTime::now(),
+                    }),
+                    window,
+                    cx,
+                );
+            }
+            let numbers = |choices: Vec<Choice>| {
+                choices
+                    .into_iter()
+                    .map(|choice| {
+                        let Choice::Item { batch, index, .. } = choice else {
+                            panic!()
+                        };
+                        batch.items[index].locator.number
+                    })
+                    .collect::<Vec<_>>()
+            };
+            assert_eq!(numbers(page.choices(cx)), [10, 11, 20, 21]);
+            // Both groups match, but the authored title has the stronger text match.
+            page.set_search_query("target", window, cx);
+            assert_eq!(numbers(page.choices(cx)), [20, 21, 10, 11]);
+        })
+    });
 }

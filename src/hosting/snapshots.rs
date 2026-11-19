@@ -33,6 +33,8 @@ struct Record {
     #[serde(default)]
     fetched_nanos: u32,
     items: Vec<Item>,
+    #[serde(default)]
+    priority_count: usize,
     partial: bool,
     coverage: Vec<String>,
 }
@@ -53,6 +55,8 @@ pub struct SavedBatch {
 }
 fn scope_key(scope: &Scope) -> String {
     match scope {
+        Scope::ForMe => "for-me".into(),
+        Scope::Assigned => "assigned".into(),
         Scope::Authored => "authored".into(),
         Scope::ReviewRequested => "review-requested".into(),
         Scope::Repository(provider, repo) => format!("repository:{}:{repo}", provider.name()),
@@ -67,7 +71,11 @@ impl Record {
         if self.fetched_nanos >= 1_000_000_000 {
             return Err(Error::DiscoveryStorage);
         }
-        if self.items.len() > 256 || self.coverage.len() > 10 || self.account.subject.is_empty() {
+        if self.items.len() > 256
+            || self.priority_count > self.items.len()
+            || self.coverage.len() > 10
+            || self.account.subject.is_empty()
+        {
             return Err(Error::DiscoveryStorage);
         }
         checked(&self.account.subject, 256)?;
@@ -96,6 +104,7 @@ impl Record {
             .collect::<Result<Vec<_>, Error>>()?;
         Ok(Batch {
             items,
+            priority_count: self.priority_count,
             partial: self.partial,
             coverage: self
                 .coverage
@@ -107,13 +116,27 @@ impl Record {
 }
 impl Snapshots {
     pub fn get(&self, account: &AccountKey, scope: &Scope) -> Option<SavedBatch> {
-        self.records
+        let record = self
+            .records
             .iter()
-            .find(|record| &record.account == account && record.scope == scope_key(scope))
-            .map(|record| SavedBatch {
-                batch: Arc::new(record.batch().expect("snapshot was validated on load")),
-                saved_at: record.saved_at,
-            })
+            .find(|record| &record.account == account && record.scope == scope_key(scope));
+        // Existing authored snapshots remain useful on the first inbox launch.
+        let fallback = record.is_none() && *scope == Scope::ForMe;
+        let record = record.or_else(|| {
+            if fallback {
+                self.records
+                    .iter()
+                    .find(|record| &record.account == account && record.scope == "authored")
+            } else {
+                None
+            }
+        })?;
+        let mut batch = record.batch().expect("snapshot was validated on load");
+        batch.partial |= fallback;
+        Some(SavedBatch {
+            batch: Arc::new(batch),
+            saved_at: record.saved_at,
+        })
     }
 }
 pub fn load(path: &Path) -> Result<Snapshots, Error> {
@@ -196,6 +219,7 @@ pub fn save(
                 state: item.state.clone(),
             })
             .collect(),
+        priority_count: batch.priority_count,
         partial: batch.partial,
         coverage: batch.coverage.clone(),
     };
@@ -256,12 +280,50 @@ mod tests {
                 branch: "fix/wheel".into(),
                 state: "OPEN".into(),
             }],
+            priority_count: 0,
             partial: true,
             coverage: vec!["synthetic".into()],
         }
     }
     fn control() -> Control {
         Control::new(Duration::from_secs(10))
+    }
+    #[test]
+    fn inbox_keeps_priority_after_restart_and_can_seed_from_old_authored_cache() {
+        let fixture = tempfile::tempdir().unwrap();
+        let path = fixture.path().join("snapshots.json");
+        save(
+            &path,
+            &key(),
+            &Scope::Authored,
+            &batch(),
+            SystemTime::now(),
+            &control(),
+        )
+        .unwrap();
+        let saved = load(&path).unwrap().get(&key(), &Scope::ForMe).unwrap();
+        assert!(saved.batch.partial);
+        assert_eq!(saved.batch.priority_count, 0);
+        let mut inbox = batch();
+        inbox.priority_count = 1;
+        inbox.partial = false;
+        save(
+            &path,
+            &key(),
+            &Scope::ForMe,
+            &inbox,
+            SystemTime::now(),
+            &control(),
+        )
+        .unwrap();
+        let saved = load(&path).unwrap().get(&key(), &Scope::ForMe).unwrap();
+        assert_eq!(saved.batch.priority_count, 1);
+        assert!(!saved.batch.partial);
+        let mut value: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        value["records"][0]["priority_count"] = serde_json::json!(2);
+        std::fs::write(&path, serde_json::to_vec(&value).unwrap()).unwrap();
+        assert!(load(&path).is_err());
     }
     #[test]
     fn metadata_survives_reload_and_is_partitioned_by_account_and_scope() {
