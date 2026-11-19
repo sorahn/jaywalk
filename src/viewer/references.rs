@@ -199,7 +199,10 @@ impl Viewer {
                     .ghost()
                     .small()
                     .compact()
-                    .icon(IconName::ListFilter)
+                    .icon(
+                        gpui::component::Icon::default()
+                            .data(include_bytes!("../../assets/icons/globe-code.svg")),
+                    )
                     .tooltip("Choose remote history sources"),
             )
             .content(move |_, _, _| {
