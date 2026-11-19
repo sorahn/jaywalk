@@ -163,7 +163,24 @@ impl Viewer {
             .into_any_element()
     }
 
+    fn render_word_wrap_toggle(&self, wrap: bool, cx: &Context<Self>) -> Button {
+        Button::new("word-wrap")
+            .debug_selector(|| "word-wrap".into())
+            .ghost()
+            .with_size(px(self.settings.ui.footer_control_height))
+            .compact()
+            .icon(crate::appearance::active_icon(IconName::TextWrap, wrap, cx))
+            .tooltip("Word wrap")
+            .toggled(wrap)
+            .on_click(cx.listener(|this, _, window, cx| this.toggle_wrap(window, cx)))
+    }
+
     fn render_diff_controls(&self, window: &Window, cx: &mut Context<Self>) -> AnyElement {
+        if self.selected_file.is_none() {
+            return self
+                .render_word_wrap_toggle(self.wrapping.inline, cx)
+                .into_any_element();
+        }
         let drawer_width: f32 = [Side::Left, Side::Right]
             .into_iter()
             .flat_map(|side| self.drawer_footer_slots(side, cx))
@@ -197,7 +214,6 @@ impl Viewer {
             .h_flex()
             .items_center()
             .flex_shrink_0()
-            .when(self.selected_file.is_none(), |controls| controls.hidden())
             .gap_2()
             .when(compact, |controls| {
                 controls.child(
@@ -227,22 +243,7 @@ impl Viewer {
                             .items_center()
                             .gap_1()
                             .mr(px(8.))
-                            .child(
-                                Button::new("word-wrap")
-                                    .ghost()
-                                    .with_size(px(self.settings.ui.footer_control_height))
-                                    .compact()
-                                    .icon(crate::appearance::active_icon(
-                                        IconName::TextWrap,
-                                        wrap,
-                                        cx,
-                                    ))
-                                    .tooltip("Word wrap")
-                                    .toggled(wrap)
-                                    .on_click(cx.listener(|this, _, window, cx| {
-                                        this.toggle_wrap(window, cx)
-                                    })),
-                            )
+                            .child(self.render_word_wrap_toggle(wrap, cx))
                             .when(
                                 view != ViewMode::Fluid
                                     && self
