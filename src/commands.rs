@@ -34,6 +34,8 @@ pub enum CommandId {
     FindFile,
     ShowCommands,
     GoToLine,
+    GoToFileSymbol,
+    GoToProjectSymbol,
     PickerHelp,
     ClearCommandUsage,
     OpenSettings,
@@ -171,6 +173,8 @@ impl CommandId {
                 | Self::ClearRecent
                 | Self::FindFile
                 | Self::GoToLine
+                | Self::GoToFileSymbol
+                | Self::GoToProjectSymbol
                 | Self::PickerHelp
                 | Self::ClearCommandUsage
                 | Self::ShowCommands
@@ -217,6 +221,8 @@ impl CommandId {
         Self::FindFile,
         Self::ShowCommands,
         Self::GoToLine,
+        Self::GoToFileSymbol,
+        Self::GoToProjectSymbol,
         Self::PickerHelp,
         Self::ClearCommandUsage,
         Self::OpenSettings,
@@ -375,6 +381,8 @@ impl CommandId {
             Self::FindFile => "Find any repository file",
             Self::ShowCommands => "Command palette",
             Self::GoToLine => "Go to line…",
+            Self::GoToFileSymbol => "Go to symbol in file…",
+            Self::GoToProjectSymbol => "Go to symbol in project…",
             Self::PickerHelp => "Picker modes and prefixes",
             Self::ClearCommandUsage => "Clear command usage history",
             Self::VersionPatch => "Version patch",

@@ -314,6 +314,12 @@ impl Viewer {
             CommandId::ClearRecent => crate::recents::clear(cx),
             CommandId::GoBack => self.navigate_view(false, window, cx),
             CommandId::GoForward => self.navigate_view(true, window, cx),
+            CommandId::GoToFileSymbol => {
+                self.open_palette(palette::PaletteKind::FileSymbols, window, cx)
+            }
+            CommandId::GoToProjectSymbol => {
+                self.open_palette(palette::PaletteKind::ProjectSymbols, window, cx)
+            }
             CommandId::GoToLine => self.open_palette(palette::PaletteKind::Line, window, cx),
             CommandId::PickerHelp => self.open_palette(palette::PaletteKind::Help, window, cx),
             CommandId::ClearCommandUsage => crate::command_usage::clear(cx),

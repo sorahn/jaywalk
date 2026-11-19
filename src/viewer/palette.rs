@@ -1,5 +1,6 @@
 //! Toolkit command UI; actions and file results preserve their original subject.
 mod support;
+mod symbols;
 use super::*;
 use gpui::component::Disableable;
 use gpui::component::command::{Command, CommandItem, CommandState};
@@ -64,6 +65,10 @@ enum Choice {
         source: Rc<jaywalk::repository::ComparisonIdentity>,
         before: bool,
     },
+    Symbol {
+        entry: jaywalk::symbols::Entry,
+        source: Rc<jaywalk::repository::ComparisonIdentity>,
+    },
     Review(review_context::ReviewChoice),
     Profile(String),
     Repository {
@@ -78,6 +83,7 @@ pub(super) struct PaletteState {
     open: Option<PaletteKind>,
     return_focus: Option<FocusHandle>,
     usage: CommandUsage,
+    symbols: symbols::SymbolPicker,
     line_before: bool,
     pub(super) generation: u64,
     pub(super) review_loading: bool,
@@ -94,6 +100,7 @@ impl PaletteState {
             open: None,
             return_focus: None,
             usage: CommandUsage::default(),
+            symbols: symbols::SymbolPicker::default(),
             line_before: false,
             generation: 0,
             review_loading: false,
@@ -213,7 +220,11 @@ fn rank_choices(
                     Some((5, 0, false))
                 }
                 Choice::Line { .. } => Some((0, 0, false)),
-                Choice::Command(_) | Choice::Mode(_) | Choice::Profile(_) | Choice::Review(_) => {
+                Choice::Command(_)
+                | Choice::Mode(_)
+                | Choice::Profile(_)
+                | Choice::Review(_)
+                | Choice::Symbol { .. } => {
                     fuzzy_score(query, &label).map(|score| (0, score, false))
                 }
                 Choice::Repository { directory, .. } => {
@@ -309,6 +320,7 @@ impl Viewer {
                 code.before.focus_handle(cx).contains_focused(window, cx)
             });
         }
+        self.palette.symbols.cancel();
         self.palette.generation += 1;
         self.palette.review_loading = false;
         self.palette.review_error = None;
@@ -323,6 +335,7 @@ impl Viewer {
         if kind == PaletteKind::PullRequests {
             self.create_pr_picker(window, cx);
         }
+        self.start_symbol_picker(window, cx);
         cx.notify();
     }
     fn retire_pr_picker(&mut self, cx: &mut Context<Self>) {
@@ -365,6 +378,7 @@ impl Viewer {
             PaletteKind::from_mode(mode)
         };
         if next != current {
+            self.palette.symbols.cancel();
             self.palette.generation += 1;
             self.palette.review_loading = false;
             self.palette.review_error = None;
@@ -377,9 +391,11 @@ impl Viewer {
                 self.create_pr_picker(window, cx);
             }
         }
+        self.start_symbol_picker(window, cx);
         cx.notify();
     }
     pub(super) fn close_palette(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.palette.symbols.cancel();
         self.palette.generation += 1;
         self.palette.review_loading = false;
         self.palette.open = None;
@@ -490,7 +506,7 @@ impl Viewer {
                     )
                 })
                 .collect(),
-            PaletteKind::FileSymbols | PaletteKind::ProjectSymbols => vec![],
+            PaletteKind::FileSymbols | PaletteKind::ProjectSymbols => self.symbol_choices(query),
             PaletteKind::Line => self.line_choice(query, cx).into_iter().collect(),
             PaletteKind::Files => self
                 .comparison()
@@ -589,8 +605,16 @@ impl Viewer {
                     .adaptive_command_order
                     .then_some(&self.palette.usage),
             )
+        } else if matches!(kind, PaletteKind::FileSymbols | PaletteKind::ProjectSymbols) {
+            choices // Symbol rows are ranked once, before cloning the visible results.
         } else {
             rank_choices(kind, query, choices)
+        };
+        // Search the complete index, but mount a bounded set of picker rows.
+        let choices = if matches!(kind, PaletteKind::FileSymbols | PaletteKind::ProjectSymbols) {
+            choices.into_iter().take(200).collect()
+        } else {
+            choices
         };
         let choices = Rc::new(choices);
         let selected = choices.clone();
@@ -638,6 +662,9 @@ impl Viewer {
                             this.go_to_source_line(line, before, window, cx);
                         }
                     }
+                    Choice::Symbol { entry, source } => {
+                        this.select_symbol(entry.clone(), source.as_ref(), window, cx)
+                    }
                     Choice::Review(choice) => this.apply_review_choice(choice, window, cx),
                     Choice::Profile(name) => this.select_keybindings_profile(name, window, cx),
                     Choice::Repository { directory, .. } => this.open_repository_path(
@@ -658,9 +685,7 @@ impl Viewer {
                     }
                     PaletteKind::Help => "Search picker modes…",
                     PaletteKind::Line => "Go to source line…",
-                    PaletteKind::FileSymbols | PaletteKind::ProjectSymbols => {
-                        "Symbol navigation is planned…"
-                    }
+                    PaletteKind::FileSymbols | PaletteKind::ProjectSymbols => "Search symbols…",
                     PaletteKind::Files => {
                         if self.is_hosted_review() {
                             "Find changed PR file…"
@@ -694,8 +719,6 @@ impl Viewer {
                         Choice::Mode(mode) => Some(
                             if self.picker_mode_available(*mode) {
                                 mode_description(*mode)
-                            } else if matches!(mode, Mode::FileSymbols | Mode::ProjectSymbols) {
-                                "Coming later"
                             } else {
                                 "Open a comparison/file first"
                             }

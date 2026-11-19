@@ -2506,3 +2506,114 @@ fn manage_accounts_disconnect_returns_to_the_valid_parent_and_keeps_its_query(
     draw(cx);
     assert!(cx.update(|_, app| viewer.read(app).palette_test_state(app).0.is_none()));
 }
+
+#[gpui_test::test]
+fn project_symbols_open_unchanged_source_and_file_symbols_use_the_before_side(
+    test_cx: &mut TestAppContext,
+) {
+    use jaywalk::commands::CommandId as C;
+    let fixture = Fixture::new();
+    std::fs::write(
+        fixture.0.join("stable.rs"),
+        "// fixture\n\nfn stable_target() {}\n",
+    )
+    .unwrap();
+    std::fs::write(
+        fixture.0.join("change.rs"),
+        "// before\nfn old_target() {}\n",
+    )
+    .unwrap();
+    fixture.git(&["add", "stable.rs", "change.rs"]);
+    fixture.git(&["commit", "-m", "source fixtures"]);
+    std::fs::write(
+        fixture.0.join("change.rs"),
+        "// after\nfn new_target() {}\n",
+    )
+    .unwrap();
+    let (viewer, cx) = setup(&fixture, test_cx);
+    cx.update(|window, app| {
+        viewer.update(app, |v, cx| {
+            v.execute_command(C::GoToProjectSymbol, window, cx);
+            v.palette_test_set_query("#stable_target", window, cx);
+        })
+    });
+    draw(cx);
+    assert!(cx.update(|_, app| {
+        viewer
+            .read(app)
+            .symbol_picker_description()
+            .contains("symbols")
+    }));
+    cx.simulate_keystrokes("enter");
+    draw(cx);
+    assert_eq!(
+        cx.update(|_, app| viewer.read(app).selected_path()),
+        Some("stable.rs".into())
+    );
+    // A project jump uses the original source row even in an unchanged file.
+    assert_eq!(
+        cx.update(|_, app| viewer
+            .read(app)
+            .code()
+            .unwrap()
+            .standard
+            .as_ref()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .read(app)
+            .selected_lines()
+            .unwrap()
+            .start()),
+        3
+    );
+    cx.update(|window, app| viewer.update(app, |v, cx| v.select_path("change.rs", window, cx)));
+    draw(cx);
+    cx.update(|window, app| {
+        let focus = viewer.read(app).code().unwrap().before.focus_handle(app);
+        window.focus(&focus, app);
+        viewer.update(app, |v, cx| {
+            v.execute_command(C::GoToFileSymbol, window, cx);
+            v.palette_test_set_query("@old_target", window, cx);
+        });
+    });
+    draw(cx);
+    cx.simulate_keystrokes("enter");
+    draw(cx);
+    assert_eq!(
+        cx.update(|_, app| viewer
+            .read(app)
+            .code()
+            .unwrap()
+            .before
+            .read(app)
+            .cursor_position()
+            .line),
+        1
+    );
+    assert!(cx.update(|_, app| viewer.read(app).palette_test_state(app).0.is_none()));
+}
+
+#[gpui_test::test]
+fn symbol_search_cancellation_cannot_replace_a_new_picker_mode(test_cx: &mut TestAppContext) {
+    use jaywalk::commands::CommandId as C;
+    let fixture = Fixture::new();
+    std::fs::write(fixture.0.join("symbols.rs"), "fn target() {}\n").unwrap();
+    let (viewer, cx) = setup(&fixture, test_cx);
+    cx.update(|window, app| {
+        viewer.update(app, |v, cx| {
+            v.execute_command(C::GoToProjectSymbol, window, cx);
+            v.palette_test_set_query(">refresh", window, cx);
+            // Deliver the query callback before yielding to the index worker.
+            v.palette_query_changed(">refresh", window, cx);
+        })
+    });
+    draw(cx);
+    assert_eq!(
+        cx.update(|_, app| viewer.read(app).palette_test_state(app).0),
+        Some(palette::PaletteKind::Commands)
+    );
+    cx.simulate_keystrokes("escape");
+    draw(cx);
+    assert!(cx.update(|_, app| viewer.read(app).palette_test_state(app).0.is_none()));
+}

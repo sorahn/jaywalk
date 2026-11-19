@@ -47,3 +47,5 @@ pub mod accounts;
 pub mod hosting;
 
 pub mod quick_picker;
+
+pub mod symbols;

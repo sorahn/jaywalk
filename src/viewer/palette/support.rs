@@ -9,7 +9,8 @@ pub(super) fn mode_command(mode: Mode) -> Option<jaywalk::commands::CommandId> {
         Mode::Repositories => CommandId::OpenRecent,
         Mode::PullRequests => CommandId::OpenPullRequest,
         Mode::Help => CommandId::PickerHelp,
-        _ => return None,
+        Mode::FileSymbols => CommandId::GoToFileSymbol,
+        Mode::ProjectSymbols => CommandId::GoToProjectSymbol,
     })
 }
 pub(super) fn mode_description(mode: Mode) -> &'static str {
@@ -20,7 +21,8 @@ pub(super) fn mode_description(mode: Mode) -> &'static str {
         Mode::Repositories => "Open a recent repository",
         Mode::PullRequests => "Search PRs; Tab changes filters",
         Mode::Help => "Choose a mode to fill its prefix",
-        Mode::FileSymbols | Mode::ProjectSymbols => "Coming later",
+        Mode::FileSymbols => "Symbols on the focused source side",
+        Mode::ProjectSymbols => "Symbols across available snapshot files",
     }
 }
 impl Viewer {
@@ -28,7 +30,10 @@ impl Viewer {
         match mode {
             Mode::Files => self.page == pages::Page::Comparison && self.comparison().is_some(),
             Mode::Line => self.page == pages::Page::Comparison && self.code().is_some(),
-            Mode::FileSymbols | Mode::ProjectSymbols => false,
+            Mode::FileSymbols => self.page == pages::Page::Comparison && self.code().is_some(),
+            Mode::ProjectSymbols => {
+                self.page == pages::Page::Comparison && self.comparison().is_some()
+            }
             _ => true,
         }
     }
@@ -39,6 +44,9 @@ impl Viewer {
             return format!("{error} · Clear command usage history to reset");
         }
         match kind {
+            PaletteKind::FileSymbols | PaletteKind::ProjectSymbols => {
+                self.symbol_picker_description()
+            }
             PaletteKind::Reviews => self.palette.review_error.clone().unwrap_or_else(|| {
                 if self.palette.review_loading {
                     "Loading branches… · Escape closes".into()
@@ -73,7 +81,7 @@ impl Viewer {
             }
             PaletteKind::Line => "Enter a line number within this file, starting at 1.",
             PaletteKind::FileSymbols | PaletteKind::ProjectSymbols => {
-                "Symbol navigation is planned. Type ? for available modes."
+                "No symbols here. Open a comparison/file with a supported language; type ? for modes."
             }
             _ => "No matching results. Type ? for available modes.",
         }
@@ -121,18 +129,23 @@ impl Viewer {
         if self.view.effective() != ViewMode::Fluid {
             if let Some(Ok(Some(state))) = self.code().map(|code| &code.standard) {
                 state.update(cx, |state, cx| {
-                    if let Some(file) = state.files().first() {
+                    if let Some(path) = state.files().first().map(|file| file.path().clone()) {
                         let side = if before_side {
                             gpui::component::diff::DiffSide::Original
                         } else {
                             gpui::component::diff::DiffSide::Modified
                         };
-                        state.scroll_to_line(
-                            gpui::component::diff::DiffLinePosition::new(
-                                file.path().clone(),
+                        state.set_selected_lines(
+                            Some(gpui::component::diff::DiffLineRange::new(
+                                path.clone(),
                                 side,
                                 line + 1,
-                            ),
+                                line + 1,
+                            )),
+                            cx,
+                        );
+                        state.scroll_to_line(
+                            gpui::component::diff::DiffLinePosition::new(path, side, line + 1),
                             cx,
                         );
                     }
