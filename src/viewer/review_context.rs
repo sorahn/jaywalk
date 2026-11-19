@@ -67,7 +67,7 @@ pub(super) enum ReviewChoice {
 pub(super) struct ReviewPicker {
     pub(super) choices: Vec<(String, ReviewChoice)>,
     catalog: Option<std::sync::Arc<Catalog>>,
-    epoch: Option<ComparisonRequest>,
+    pub(super) epoch: Option<ComparisonRequest>,
     task: Option<Task<()>>,
     pub(super) pending: Option<ComparisonRequest>,
 }
@@ -177,6 +177,8 @@ impl Viewer {
         let context_base = session.review.aggregate.base().to_owned();
         let context_tip = session.review.aggregate.recorded_tip().to_owned();
         let epoch = self.requests.comparison();
+        let picker_generation = matches!(&intent, Intent::Choose | Intent::Base(_, _))
+            .then(|| self.begin_picker_review_load(window, cx));
         self.cancel_live_refresh();
         self.review_picker.task = Some(cx.spawn_in(window, async move |this, cx| {
             let result = cx
@@ -255,8 +257,22 @@ impl Viewer {
                 })
                 .await;
             let _ = this.update_in(cx, |viewer, window, cx| {
-                if viewer.requests.comparison() != epoch {
+                if viewer.requests.comparison() != epoch
+                    || picker_generation
+                        .is_some_and(|generation| !viewer.owns_picker_review_load(generation))
+                {
                     return;
+                }
+                if picker_generation.is_some() {
+                    viewer.finish_picker_review_load(
+                        result.as_ref().err().map(|error| {
+                            format!(
+                                "Could not load branches: {error}. Select Retry loading branches."
+                            )
+                        }),
+                        window,
+                        cx,
+                    );
                 }
                 match result {
                     Err(error) => {
@@ -268,8 +284,16 @@ impl Viewer {
                     Ok((catalog, decision)) => {
                         let catalog = std::sync::Arc::new(catalog);
                         match decision {
-                            Decision::Restore(home) => viewer.load_home_review(home, window, cx),
+                            Decision::Restore(home) => {
+                                if picker_generation.is_some() {
+                                    viewer.close_palette(window, cx);
+                                }
+                                viewer.load_home_review(home, window, cx);
+                            }
                             Decision::Target(target) => {
+                                if picker_generation.is_some() {
+                                    viewer.close_palette(window, cx);
+                                }
                                 viewer.resolve_review(catalog, target, window, cx)
                             }
                             Decision::Choices(choices) => {
@@ -292,7 +316,10 @@ impl Viewer {
         self.review_picker.choices = choices;
         self.review_picker.catalog = Some(catalog);
         self.review_picker.epoch = Some(epoch);
-        self.open_palette(palette::PaletteKind::Reviews, window, cx);
+        if !self.review_picker_visible() {
+            self.open_palette(palette::PaletteKind::Reviews, window, cx);
+        }
+        cx.notify();
     }
     pub(super) fn apply_review_choice(
         &mut self,

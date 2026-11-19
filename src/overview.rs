@@ -253,10 +253,10 @@ impl Comparison {
                                 .to_owned()
                             }))
                         } else if ignored {
-                            Some(
-                                "Only ignored differences with the current comparison options"
-                                    .into(),
-                            )
+                            Some(match metadata_notice {
+                                Some(metadata) => format!("{metadata} · Text changes are ignored by the current comparison options"),
+                                None => "Only ignored differences with the current comparison options".into(),
+                            })
                         } else {
                             metadata_notice
                         };

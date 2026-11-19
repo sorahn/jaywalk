@@ -1,9 +1,14 @@
 //! Toolkit command UI; actions and file results preserve their original subject.
+mod support;
 use super::*;
+use gpui::component::Disableable;
 use gpui::component::command::{Command, CommandItem, CommandState};
 use gpui::prelude::FluentBuilder;
+use jaywalk::quick_picker::{CommandUsage, Mode};
+pub(super) use support::ShortcutHint;
+use support::{mode_command, mode_description};
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum PaletteKind {
     Files,
     Commands,
@@ -11,6 +16,38 @@ pub(super) enum PaletteKind {
     Profiles,
     Reviews,
     PullRequests,
+    Accounts,
+    Line,
+    Help,
+    FileSymbols,
+    ProjectSymbols,
+}
+impl PaletteKind {
+    fn mode(self) -> Option<Mode> {
+        Some(match self {
+            Self::Files => Mode::Files,
+            Self::Commands => Mode::Commands,
+            Self::Repositories => Mode::Repositories,
+            Self::PullRequests => Mode::PullRequests,
+            Self::Line => Mode::Line,
+            Self::Help => Mode::Help,
+            Self::FileSymbols => Mode::FileSymbols,
+            Self::ProjectSymbols => Mode::ProjectSymbols,
+            Self::Reviews | Self::Profiles | Self::Accounts => return None,
+        })
+    }
+    fn from_mode(mode: Mode) -> Self {
+        match mode {
+            Mode::Files => Self::Files,
+            Mode::Commands => Self::Commands,
+            Mode::Repositories => Self::Repositories,
+            Mode::PullRequests => Self::PullRequests,
+            Mode::Line => Self::Line,
+            Mode::Help => Self::Help,
+            Mode::FileSymbols => Self::FileSymbols,
+            Mode::ProjectSymbols => Self::ProjectSymbols,
+        }
+    }
 }
 #[derive(Clone)]
 enum Choice {
@@ -20,6 +57,13 @@ enum Choice {
         source: Rc<jaywalk::repository::ComparisonIdentity>,
     },
     Command(jaywalk::commands::CommandId),
+    Mode(Mode),
+    Line {
+        path: String,
+        line: usize,
+        source: Rc<jaywalk::repository::ComparisonIdentity>,
+        before: bool,
+    },
     Review(review_context::ReviewChoice),
     Profile(String),
     Repository {
@@ -30,15 +74,30 @@ enum Choice {
 pub(super) struct PaletteState {
     state: Entity<CommandState>,
     pull_requests: Option<Entity<crate::hosting_ui::PullRequestsPage>>,
+    accounts: Option<Entity<crate::account_picker::AccountPicker>>,
     open: Option<PaletteKind>,
+    return_focus: Option<FocusHandle>,
+    usage: CommandUsage,
+    line_before: bool,
+    pub(super) generation: u64,
+    pub(super) review_loading: bool,
+    pub(super) review_error: Option<String>,
     pub(super) profiles: Vec<String>,
 }
 impl PaletteState {
     pub(super) fn new(window: &mut Window, cx: &mut Context<Viewer>) -> Self {
+        crate::command_usage::ensure(cx);
         Self {
             state: cx.new(|cx| CommandState::new(window, cx)),
             pull_requests: None,
+            accounts: None,
             open: None,
+            return_focus: None,
+            usage: CommandUsage::default(),
+            line_before: false,
+            generation: 0,
+            review_loading: false,
+            review_error: None,
             profiles: Vec::new(),
         }
     }
@@ -113,6 +172,30 @@ fn recent_rank(query: &str, directory: &std::path::Path) -> Option<(usize, usize
     .map(|score| (4, score))
 }
 
+fn rank_commands(
+    query: &str,
+    choices: Vec<(String, Choice)>,
+    usage: Option<&CommandUsage>,
+) -> Vec<(String, Choice)> {
+    let query = jaywalk::quick_picker::CommandQuery::new(query);
+    let mut ranked: Vec<_> = choices
+        .into_iter()
+        .filter_map(|(label, choice)| {
+            let score = match (&choice, usage) {
+                (Choice::Command(command), Some(history)) => history.score(*command),
+                _ => 0,
+            };
+            let rank = query.rank(&label, score)?;
+            Some((rank, label, choice))
+        })
+        .collect();
+    ranked.sort_by(|a, b| a.0.cmp(&b.0).then_with(|| a.1.cmp(&b.1)));
+    ranked
+        .into_iter()
+        .map(|(_, label, choice)| (label, choice))
+        .collect()
+}
+
 fn rank_choices(
     kind: PaletteKind,
     query: &str,
@@ -129,7 +212,8 @@ fn rank_choices(
                 {
                     Some((5, 0, false))
                 }
-                Choice::Command(_) | Choice::Profile(_) | Choice::Review(_) => {
+                Choice::Line { .. } => Some((0, 0, false)),
+                Choice::Command(_) | Choice::Mode(_) | Choice::Profile(_) | Choice::Review(_) => {
                     fuzzy_score(query, &label).map(|score| (0, score, false))
                 }
                 Choice::Repository { directory, .. } => {
@@ -203,30 +287,108 @@ impl Viewer {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.palette.pull_requests = None;
-        if matches!(kind, PaletteKind::PullRequests) {
-            let Some(page) = self.new_pull_requests(true, window, cx) else {
-                return;
-            };
-            page.update(cx, |page, cx| page.focus(window, cx));
+        if self.palette.open.is_none() {
+            self.palette.return_focus = window.focused(cx);
+            self.palette.state = cx.new(|cx| CommandState::new(window, cx));
+            self.palette.line_before = self.code().is_some_and(|code| {
+                if self.view.effective() != ViewMode::Fluid
+                    && let Ok(Some(state)) = &code.standard
+                {
+                    return state
+                        .read(cx)
+                        .selected_lines()
+                        .map(|range| range.side())
+                        .or_else(|| {
+                            state
+                                .read(cx)
+                                .viewport_position()
+                                .map(|position| position.side())
+                        })
+                        == Some(gpui::component::diff::DiffSide::Original);
+                }
+                code.before.focus_handle(cx).contains_focused(window, cx)
+            });
+        }
+        self.palette.generation += 1;
+        self.palette.review_loading = false;
+        self.palette.review_error = None;
+        self.palette.usage = cx.global::<crate::command_usage::Usage>().history.clone();
+        self.retire_pr_picker(cx);
+        self.palette.open = Some(kind);
+        self.palette.state.update(cx, |state, cx| {
+            state.set_loading(false, window, cx);
+            state.set_query(kind.mode().map_or("", Mode::prefix), window, cx);
+            state.focus(window, cx);
+        });
+        if kind == PaletteKind::PullRequests {
+            self.create_pr_picker(window, cx);
+        }
+        cx.notify();
+    }
+    fn retire_pr_picker(&mut self, cx: &mut Context<Self>) {
+        if let Some(picker) = self.palette.accounts.take() {
+            picker.update(cx, |picker, cx| picker.cancel(cx));
+        }
+        if let Some(page) = self.palette.pull_requests.take() {
+            page.update(cx, |page, cx| page.cancel_picker(cx));
+        }
+    }
+    fn create_pr_picker(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(page) = self.new_pull_requests(true, window, cx) {
+            page.update(cx, |page, cx| {
+                page.use_picker_input(
+                    self.palette.state.clone(),
+                    self.settings.ui.loading_delay_ms,
+                    window,
+                    cx,
+                )
+            });
             self.palette.pull_requests = Some(page);
-            self.palette.open = Some(kind);
-            cx.notify();
+        }
+    }
+    pub(super) fn palette_query_changed(
+        &mut self,
+        query: &str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(current) = self.palette.open else {
+            return;
+        };
+        if self.palette.state.read(cx).query(cx).as_ref() != query {
             return;
         }
-        self.palette.open = Some(kind);
-        self.palette
-            .state
-            .update(cx, |state, cx| state.set_query("", window, cx));
-        self.palette
-            .state
-            .update(cx, |state, cx| state.focus(window, cx));
+        let mode = Mode::parse(query).0;
+        let next = if current.mode().is_none() && mode == Mode::Files {
+            current
+        } else {
+            PaletteKind::from_mode(mode)
+        };
+        if next != current {
+            self.palette.generation += 1;
+            self.palette.review_loading = false;
+            self.palette.review_error = None;
+            self.retire_pr_picker(cx);
+            self.palette.open = Some(next);
+            self.palette
+                .state
+                .update(cx, |state, cx| state.set_loading(false, window, cx));
+            if next == PaletteKind::PullRequests {
+                self.create_pr_picker(window, cx);
+            }
+        }
         cx.notify();
     }
     pub(super) fn close_palette(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.palette.generation += 1;
+        self.palette.review_loading = false;
         self.palette.open = None;
-        self.palette.pull_requests = None;
-        self.focus_page(window, cx);
+        self.retire_pr_picker(cx);
+        if let Some(focus) = self.palette.return_focus.take() {
+            window.focus(&focus, cx);
+        } else {
+            self.focus_page(window, cx);
+        }
         cx.notify();
     }
     pub(super) fn open_selected_recent_in_new_window(
@@ -243,7 +405,7 @@ impl Viewer {
         };
         let choices = rank_choices(
             PaletteKind::Repositories,
-            &state.query(cx),
+            Mode::parse(&state.query(cx)).1,
             repository_choices(&cx.global::<crate::recents::Recents>().repositories),
         );
         let Some((_, choice)) = choices.get(index.row).cloned() else {
@@ -266,8 +428,16 @@ impl Viewer {
     }
     pub(super) fn render_palette(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
         let kind = self.palette.open?;
-        if matches!(kind, PaletteKind::PullRequests) {
-            let picker = self.palette.pull_requests.as_ref()?.clone();
+        if matches!(kind, PaletteKind::PullRequests | PaletteKind::Accounts) {
+            let picker = if kind == PaletteKind::PullRequests {
+                self.palette
+                    .pull_requests
+                    .as_ref()?
+                    .clone()
+                    .into_any_element()
+            } else {
+                self.palette.accounts.as_ref()?.clone().into_any_element()
+            };
             return Some(
                 div()
                     .id("palette-overlay")
@@ -284,24 +454,47 @@ impl Viewer {
                         cx.listener(|viewer, _, window, cx| viewer.close_palette(window, cx)),
                     )
                     .child(
-                        div()
+                        crate::picker_ui::frame(cx)
                             .w(rems(48.))
                             .max_w_full()
-                            .bg(gpui::component::Theme::global(cx).background)
-                            .border_1()
-                            .border_color(gpui::component::Theme::global(cx).border)
-                            .rounded_lg()
                             .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                             .child(picker),
                     )
                     .into_any_element(),
             );
         }
-        let query = self.palette.state.read(cx).query(cx);
+        let raw_query = self.palette.state.read(cx).query(cx);
+        let query = if kind.mode().is_some() {
+            Mode::parse(&raw_query).1
+        } else {
+            raw_query.as_ref()
+        };
         let choices: Vec<(String, Choice)> = match kind {
-            PaletteKind::PullRequests => unreachable!("PR discovery renders its own palette step"),
+            PaletteKind::PullRequests | PaletteKind::Accounts => {
+                unreachable!("specialized picker renders its own rows")
+            }
+            PaletteKind::Help => Mode::ALL
+                .into_iter()
+                .map(|mode| {
+                    (
+                        format!(
+                            "{}  {}",
+                            if mode.prefix().is_empty() {
+                                "(no prefix)"
+                            } else {
+                                mode.prefix()
+                            },
+                            mode.label()
+                        ),
+                        Choice::Mode(mode),
+                    )
+                })
+                .collect(),
+            PaletteKind::FileSymbols | PaletteKind::ProjectSymbols => vec![],
+            PaletteKind::Line => self.line_choice(query, cx).into_iter().collect(),
             PaletteKind::Files => self
                 .comparison()
+                .filter(|_| self.page == pages::Page::Comparison)
                 .map(|comparison| {
                     let source = Rc::new(comparison.identity());
                     comparison
@@ -329,12 +522,21 @@ impl Viewer {
                 .iter()
                 .map(|name| (name.clone(), Choice::Profile(name.clone())))
                 .collect(),
-            PaletteKind::Reviews => self
-                .review_picker
-                .choices
-                .iter()
-                .map(|(label, choice)| (label.clone(), Choice::Review(choice.clone())))
-                .collect(),
+            PaletteKind::Reviews => {
+                let mut choices: Vec<_> = self
+                    .review_picker
+                    .choices
+                    .iter()
+                    .map(|(label, choice)| (label.clone(), Choice::Review(choice.clone())))
+                    .collect();
+                if self.palette.review_error.is_some() {
+                    choices.push((
+                        "Retry loading branches".into(),
+                        Choice::Command(jaywalk::commands::CommandId::ChooseReview),
+                    ));
+                }
+                choices
+            }
             PaletteKind::Commands => jaywalk::commands::CommandId::ALL
                 .iter()
                 .filter(|command| {
@@ -378,7 +580,18 @@ impl Viewer {
                 .map(|command| (command.label().to_owned(), Choice::Command(*command)))
                 .collect(),
         };
-        let choices = rank_choices(kind, &query, choices);
+        let choices = if kind == PaletteKind::Commands {
+            rank_commands(
+                query,
+                choices,
+                self.settings
+                    .picker
+                    .adaptive_command_order
+                    .then_some(&self.palette.usage),
+            )
+        } else {
+            rank_choices(kind, query, choices)
+        };
         let choices = Rc::new(choices);
         let selected = choices.clone();
         let cancel = cx.listener(|this, _: &(), window, cx| this.close_palette(window, cx));
@@ -388,6 +601,10 @@ impl Viewer {
                     return;
                 };
                 let choice = choice.clone();
+                if let Choice::Mode(mode) = choice {
+                    this.open_palette(PaletteKind::from_mode(mode), window, cx);
+                    return;
+                }
                 this.close_palette(window, cx);
                 match choice {
                     Choice::File { path, source, .. } => {
@@ -398,7 +615,29 @@ impl Viewer {
                             this.select_path(&path, window, cx);
                         }
                     }
-                    Choice::Command(command) => this.execute_command(command, window, cx),
+                    Choice::Command(command) => {
+                        if command != jaywalk::commands::CommandId::ClearCommandUsage
+                            && this.settings.picker.adaptive_command_order
+                        {
+                            crate::command_usage::record(command, cx);
+                        }
+                        this.execute_command(command, window, cx);
+                    }
+                    Choice::Mode(_) => unreachable!("mode selections keep the picker open"),
+                    Choice::Line {
+                        path,
+                        line,
+                        source,
+                        before,
+                    } => {
+                        if this.selected_path().as_deref() == Some(&path)
+                            && this
+                                .comparison()
+                                .is_some_and(|comparison| comparison.identity() == *source)
+                        {
+                            this.go_to_source_line(line, before, window, cx);
+                        }
+                    }
                     Choice::Review(choice) => this.apply_review_choice(choice, window, cx),
                     Choice::Profile(name) => this.select_keybindings_profile(name, window, cx),
                     Choice::Repository { directory, .. } => this.open_repository_path(
@@ -409,108 +648,158 @@ impl Viewer {
                 }
             },
         );
-        let command = Command::new(&self.palette.state)
-            .filterable(false)
-            .placeholder(match kind {
-                PaletteKind::PullRequests => {
-                    unreachable!("PR discovery renders its own palette step")
-                }
-                PaletteKind::Files => {
-                    if self.is_hosted_review() {
-                        "Find changed PR file…"
-                    } else {
-                        "Find any repository file…"
+        let command =
+            Command::new(&self.palette.state)
+                .bordered(false)
+                .filterable(false)
+                .placeholder(match kind {
+                    PaletteKind::PullRequests | PaletteKind::Accounts => {
+                        unreachable!("specialized picker renders its own rows")
                     }
-                }
-                PaletteKind::Commands => "Run a command…",
-                PaletteKind::Repositories => "Search recent repositories…",
-                PaletteKind::Profiles => "Select keybindings profile…",
-                PaletteKind::Reviews => "Choose review branch or comparison base…",
-            })
-            .items(choices.iter().enumerate().map(|(index, (label, choice))| {
-                let viewer = cx.entity().downgrade();
-                let repository = match choice {
-                    Choice::Repository { directory, .. } => Some(directory.clone()),
-                    _ => None,
-                };
-                let label: SharedString = label.clone().into();
-                let command = match choice {
-                    Choice::Command(command) => Some(*command),
-                    _ => None,
-                };
-                let status = match choice {
-                    Choice::File { status, .. } => status.clone(),
-                    Choice::Profile(name) if name == &self.settings.keyboard.profile => {
-                        Some("Active".into())
+                    PaletteKind::Help => "Search picker modes…",
+                    PaletteKind::Line => "Go to source line…",
+                    PaletteKind::FileSymbols | PaletteKind::ProjectSymbols => {
+                        "Symbol navigation is planned…"
                     }
-                    _ => None,
-                };
-                CommandItem::new()
-                    .label(label.clone())
-                    .child(move |window, _| {
-                        let shortcut = command.and_then(|command| {
-                            gpui::component::kbd::Kbd::binding_for_action(
-                                &commands::ExecuteCommand { command },
+                    PaletteKind::Files => {
+                        if self.is_hosted_review() {
+                            "Find changed PR file…"
+                        } else {
+                            "Find any repository file…"
+                        }
+                    }
+                    PaletteKind::Commands => "Run a command…",
+                    PaletteKind::Repositories => "Search recent repositories…",
+                    PaletteKind::Profiles => "Select keybindings profile…",
+                    PaletteKind::Reviews => "Choose review branch or comparison base…",
+                })
+                .items(choices.iter().enumerate().map(|(index, (label, choice))| {
+                    let query = query.to_owned();
+                    let viewer = cx.entity().downgrade();
+                    let repository = match choice {
+                        Choice::Repository { directory, .. } => Some(directory.clone()),
+                        _ => None,
+                    };
+                    let label: SharedString = label.clone().into();
+                    let command = match choice {
+                        Choice::Command(command) => Some(*command),
+                        Choice::Mode(mode) => mode_command(*mode),
+                        _ => None,
+                    };
+                    let disabled =
+                        matches!(choice, Choice::Mode(mode) if !self.picker_mode_available(*mode));
+                    let status = match choice {
+                        Choice::File { status, .. } => status.clone(),
+                        Choice::Command(command) => self.command_state_hint(*command),
+                        Choice::Mode(mode) => Some(
+                            if self.picker_mode_available(*mode) {
+                                mode_description(*mode)
+                            } else if matches!(mode, Mode::FileSymbols | Mode::ProjectSymbols) {
+                                "Coming later"
+                            } else {
+                                "Open a comparison/file first"
+                            }
+                            .into(),
+                        ),
+                        Choice::Profile(name) if name == &self.settings.keyboard.profile => {
+                            Some("Active".into())
+                        }
+                        _ => None,
+                    };
+                    CommandItem::new()
+                        .key(format!("{kind:?}:{label}"))
+                        .disabled(disabled)
+                        .label(label.clone())
+                        .child(move |window, cx| {
+                            let shortcut = command.and_then(|command| {
+                                gpui::component::kbd::Kbd::binding_for_action(
+                                    &commands::ExecuteCommand { command },
+                                    None,
+                                    window,
+                                )
+                            });
+                            let viewer = viewer.clone();
+                            let repository = repository.clone();
+                            div()
+                                .id(("palette-item-content", index))
+                                .on_click(move |event: &ClickEvent, window, cx| {
+                                    if event.modifiers().secondary(cx)
+                                        && let Some(directory) = &repository
+                                    {
+                                        cx.stop_propagation();
+                                        let _ = viewer.update(cx, |viewer, cx| {
+                                            viewer.close_palette(window, cx);
+                                            viewer.open_repository_path(
+                                                directory.clone(),
+                                                crate::windows::OpenDisposition::NewWindow,
+                                                cx,
+                                            );
+                                        });
+                                    }
+                                })
+                                .h_flex()
+                                .w_full()
+                                .items_center()
+                                .justify_between()
+                                .child(div().flex_1().min_w_0().truncate().child(
+                                    crate::picker_ui::matched_label(label.clone(), &query, cx),
+                                ))
+                                .children(
+                                    status.clone().map(|status| {
+                                        div().flex_shrink_0().text_sm().child(status)
+                                    }),
+                                )
+                                .children(shortcut)
+                        })
+                }))
+                .when(matches!(kind, PaletteKind::Repositories), |command| {
+                    command.footer(|_, window, _| {
+                        div()
+                            .h_flex()
+                            .gap_2()
+                            .px_3()
+                            .py_2()
+                            .text_sm()
+                            .children(gpui::component::kbd::Kbd::binding_for_action(
+                                &commands::ExecuteCommand {
+                                    command: jaywalk::commands::CommandId::OpenInNewWindow,
+                                },
                                 None,
                                 window,
-                            )
-                        });
-                        let viewer = viewer.clone();
-                        let repository = repository.clone();
-                        div()
-                            .id(("palette-item-content", index))
-                            .on_click(move |event: &ClickEvent, window, cx| {
-                                if event.modifiers().secondary(cx)
-                                    && let Some(directory) = &repository
-                                {
-                                    cx.stop_propagation();
-                                    let _ = viewer.update(cx, |viewer, cx| {
-                                        viewer.close_palette(window, cx);
-                                        viewer.open_repository_path(
-                                            directory.clone(),
-                                            crate::windows::OpenDisposition::NewWindow,
-                                            cx,
-                                        );
-                                    });
-                                }
-                            })
-                            .h_flex()
-                            .w_full()
-                            .items_center()
-                            .justify_between()
-                            .child(div().flex_1().min_w_0().truncate().child(label.clone()))
-                            .children(
-                                status
-                                    .clone()
-                                    .map(|status| div().flex_shrink_0().text_sm().child(status)),
-                            )
-                            .children(shortcut)
+                            ))
+                            .child("Open in new window")
                     })
-            }))
-            .when(matches!(kind, PaletteKind::Repositories), |command| {
-                command.footer(|_, window, _| {
-                    div()
-                        .h_flex()
-                        .gap_2()
-                        .px_3()
-                        .py_2()
-                        .text_sm()
-                        .children(gpui::component::kbd::Kbd::binding_for_action(
-                            &commands::ExecuteCommand {
-                                command: jaywalk::commands::CommandId::OpenInNewWindow,
-                            },
-                            None,
-                            window,
-                        ))
-                        .child("Open in new window")
                 })
-            })
-            .on_query(cx.listener(|_, _, _, cx| cx.notify()))
-            .on_cancel(move |window, cx| cancel(&(), window, cx))
-            .on_confirm(move |index, window, cx| confirm(&index, window, cx));
+                .description({
+                    let message = self.picker_description(kind, cx);
+                    move |_, _, cx| crate::picker_ui::context([message.clone()], cx)
+                })
+                .max_h(px(360.))
+                .empty({
+                    let message = self.picker_empty(kind);
+                    move |_, _, _| div().p_3().child(message)
+                })
+                .on_query(cx.listener(|this, query: &str, window, cx| {
+                    this.palette_query_changed(query, window, cx)
+                }))
+                .on_cancel(move |window, cx| cancel(&(), window, cx))
+                .on_confirm(move |index, window, cx| confirm(&index, window, cx));
         Some(
             div()
                 .id("palette-overlay")
+                .debug_selector(|| "palette-overlay".into())
+                .capture_action(
+                    cx.listener(|this, _: &gpui::base::input::Escape, window, cx| {
+                        cx.stop_propagation();
+                        this.close_palette(window, cx);
+                    }),
+                )
+                .capture_action(
+                    cx.listener(|this, _: &gpui::base::actions::Cancel, window, cx| {
+                        cx.stop_propagation();
+                        this.close_palette(window, cx);
+                    }),
+                )
                 .when(matches!(kind, PaletteKind::Repositories), |panel| {
                     panel.key_context("JaywalkRecent")
                 })
@@ -526,8 +815,8 @@ impl Viewer {
                     cx.listener(|this, _, window, cx| this.close_palette(window, cx)),
                 )
                 .child(
-                    div()
-                        .w(rems(40.))
+                    crate::picker_ui::frame(cx)
+                        .w(rems(48.))
                         .max_w_full()
                         .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                         .child(command)
@@ -720,5 +1009,63 @@ mod history_navigation_tests {
         assert_eq!(history_step(Some(2), 1, 3), None);
         assert_eq!(history_step(None, 1, 0), None);
         assert_eq!(history_step(Some(0), -1, 1), Some(HistoryStep::Overview));
+    }
+}
+
+#[cfg(test)]
+impl Viewer {
+    pub(super) fn palette_test_line_before(&self) -> bool {
+        self.palette.line_before
+    }
+    pub(super) fn palette_test_set_query(
+        &mut self,
+        query: &str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.palette.state.update(cx, |state, cx| {
+            state.set_query(query.to_owned(), window, cx)
+        });
+    }
+}
+
+impl Viewer {
+    pub(super) fn open_account_palette(
+        &mut self,
+        command: jaywalk::commands::CommandId,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if !cx.has_global::<jaywalk::accounts::application::Accounts>() {
+            jaywalk::accounts::application::init(cx);
+        }
+        self.open_palette(PaletteKind::Accounts, window, cx);
+        let input = self.palette.state.clone();
+        let delay = self.settings.ui.loading_delay_ms;
+        let picker = cx
+            .new(|cx| crate::account_picker::AccountPicker::new(command, input, delay, window, cx));
+        cx.subscribe_in(&picker, window, |viewer, picker, event, window, cx| {
+            if viewer.palette.open != Some(PaletteKind::Accounts)
+                || viewer.palette.accounts.as_ref() != Some(picker)
+            {
+                return;
+            }
+            match event {
+                crate::account_picker::Event::Leave => viewer.close_palette(window, cx),
+                crate::account_picker::Event::Input(input) => {
+                    viewer.palette.state = input.clone();
+                }
+                crate::account_picker::Event::Query(input, query) => {
+                    viewer.palette.state = input.clone();
+                    viewer.palette_query_changed(query, window, cx);
+                }
+                crate::account_picker::Event::Browse => {
+                    viewer.close_palette(window, cx);
+                    viewer.show_accounts(jaywalk::commands::CommandId::Accounts, window, cx);
+                }
+            }
+        })
+        .detach();
+        self.palette.accounts = Some(picker);
     }
 }

@@ -45,3 +45,5 @@ pub mod difftool;
 pub mod accounts;
 
 pub mod hosting;
+
+pub mod quick_picker;

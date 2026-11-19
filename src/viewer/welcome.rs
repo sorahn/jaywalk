@@ -131,6 +131,41 @@ impl Viewer {
                 .mt_4()
                 .text_lg()
                 .font_medium()
+                .child("Find and navigate"),
+        );
+        for (label, command) in [
+            ("Files", jaywalk::commands::CommandId::FindFile),
+            ("Commands", jaywalk::commands::CommandId::ShowCommands),
+            (
+                "Recent repositories",
+                jaywalk::commands::CommandId::OpenRecent,
+            ),
+            (
+                "Picker modes and prefixes (?)",
+                jaywalk::commands::CommandId::PickerHelp,
+            ),
+        ] {
+            start = start.child(
+                div()
+                    .h_flex()
+                    .items_center()
+                    .gap_2()
+                    .child(
+                        Button::new(format!("welcome-picker-{}", command.key()))
+                            .ghost()
+                            .label(label)
+                            .on_click(cx.listener(move |viewer, _, window, cx| {
+                                viewer.execute_command(command, window, cx)
+                            })),
+                    )
+                    .child(super::palette::ShortcutHint(command)),
+            );
+        }
+        start = start.child(
+            div()
+                .mt_4()
+                .text_lg()
+                .font_medium()
                 .child("Recent repositories"),
         );
         if recent.repositories.is_empty() {

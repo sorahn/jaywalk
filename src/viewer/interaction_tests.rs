@@ -3,7 +3,7 @@ use super::{Arguments, SessionLayout, Settings, Viewer, palette};
 use crate::gpui::component::Root;
 use clap::Parser;
 use gpui_test::{AppContext, Entity, MouseButton, point, px, size};
-use gpui_test::{TestAppContext, VisualTestContext};
+use gpui_test::{Focusable, TestAppContext, VisualTestContext};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -120,7 +120,7 @@ fn recent_picker_keyboard_search_selection_and_escape(cx: &mut TestAppContext) {
     draw(cx);
     assert_eq!(
         cx.update(|_, app| viewer.read(app).palette_test_state(app).1),
-        "pro"
+        "~pro"
     );
     cx.simulate_keystrokes("down");
     draw(cx);
@@ -133,12 +133,6 @@ fn recent_picker_keyboard_search_selection_and_escape(cx: &mut TestAppContext) {
     assert_eq!(
         cx.update(|_, app| viewer.read(app).palette_test_state(app).2),
         Some(0)
-    );
-    cx.simulate_keystrokes("escape");
-    draw(cx);
-    assert_eq!(
-        cx.update(|_, app| viewer.read(app).palette_test_state(app).1),
-        ""
     );
     cx.simulate_keystrokes("escape");
     draw(cx);
@@ -913,9 +907,6 @@ fn reference_browser_bounds_work_and_supports_search_keyboard_and_reopen(cx: &mu
     draw(cx);
     cx.simulate_input("no-match");
     draw(cx);
-    cx.simulate_keystrokes("escape");
-    draw(cx);
-    assert!(cx.update(|_, app| viewer.read(app).references.open));
     cx.simulate_keystrokes("escape");
     draw(cx);
     assert!(!cx.update(|_, app| viewer.read(app).references.open));
@@ -2043,4 +2034,475 @@ fn diff_config_changes_replace_only_edited_defaults_and_commands_remember_the_ig
         })
     });
     draw(cx);
+}
+
+#[gpui_test::test]
+fn unified_picker_prefixes_help_and_focus_survive_mode_changes(test_cx: &mut TestAppContext) {
+    use jaywalk::commands::CommandId as C;
+    let fixture = Fixture::new();
+    let (viewer, cx) = setup(&fixture, test_cx);
+    cx.update(|_, app| {
+        crate::hosting_ui::init(app);
+        jaywalk::accounts::application::init_with_backend(
+            crate::hosting_ui::tests::fake_service(),
+            app,
+        );
+    });
+    let original = cx.update(|window, app| {
+        let focus = viewer.read(app).code().unwrap().before.focus_handle(app);
+        window.focus(&focus, app);
+        focus
+    });
+    let identity = cx.update(|_, app| viewer.read(app).comparison().unwrap().identity());
+    cx.dispatch_action(super::commands::ExecuteCommand {
+        command: C::ShowCommands,
+    });
+    draw(cx);
+    for (query, kind) in [
+        ("~pro", palette::PaletteKind::Repositories),
+        ("?commands", palette::PaletteKind::Help),
+        ("@symbol", palette::PaletteKind::FileSymbols),
+        ("#symbol", palette::PaletteKind::ProjectSymbols),
+        ("file.txt", palette::PaletteKind::Files),
+        ("!fix", palette::PaletteKind::PullRequests),
+        (">word wrap", palette::PaletteKind::Commands),
+    ] {
+        cx.update(|window, app| {
+            viewer.update(app, |v, cx| v.palette_test_set_query(query, window, cx))
+        });
+        draw(cx);
+        assert_eq!(
+            cx.update(|_, app| viewer.read(app).palette_test_state(app).0),
+            Some(kind),
+            "query {query}"
+        );
+        assert_eq!(
+            cx.update(|_, app| viewer.read(app).comparison().unwrap().identity()),
+            identity
+        );
+    }
+    cx.update(|window, app| {
+        viewer.update(app, |v, cx| {
+            v.palette_test_set_query("?commands", window, cx)
+        })
+    });
+    draw(cx);
+    cx.simulate_keystrokes("enter");
+    draw(cx);
+    assert_eq!(
+        cx.update(|_, app| viewer.read(app).palette_test_state(app).1),
+        ">"
+    );
+    cx.simulate_keystrokes("escape");
+    draw(cx);
+    assert!(cx.update(|window, _| original.is_focused(window)));
+    assert!(cx.update(|_, app| viewer.read(app).palette_test_state(app).0.is_none()));
+}
+
+#[gpui_test::test]
+fn command_usage_is_shared_but_does_not_reorder_an_open_picker(test_cx: &mut TestAppContext) {
+    use jaywalk::commands::CommandId as C;
+    let fixture = Fixture::new();
+    let (viewer, cx) = setup(&fixture, test_cx);
+    cx.update(|window, app| {
+        crate::command_usage::record(C::ToggleWordHighlight, app);
+        viewer.update(app, |v, cx| v.execute_command(C::ShowCommands, window, cx));
+    });
+    draw(cx);
+    // Another window can record usage without changing the open picker's ordering.
+    cx.update(|_, app| {
+        for _ in 0..10 {
+            crate::command_usage::record(C::ToggleShowWhitespace, app);
+        }
+        app.refresh_windows();
+    });
+    draw(cx);
+    cx.simulate_keystrokes("enter");
+    draw(cx);
+    assert!(cx.update(|_, app| !viewer.read(app).diff_preferences.word_highlight));
+    assert!(cx.update(|_, app| !viewer.read(app).diff_preferences.show_whitespace));
+    cx.dispatch_action(super::commands::ExecuteCommand {
+        command: C::ShowCommands,
+    });
+    draw(cx);
+    cx.simulate_keystrokes("enter");
+    draw(cx);
+    assert!(cx.update(|_, app| viewer.read(app).diff_preferences.show_whitespace));
+    cx.dispatch_action(super::commands::ExecuteCommand {
+        command: C::ClearCommandUsage,
+    });
+    draw(cx);
+    assert_eq!(
+        cx.update(|_, app| app
+            .global::<crate::command_usage::Usage>()
+            .history
+            .score(C::ToggleShowWhitespace)),
+        0
+    );
+    cx.update(|window, app| {
+        viewer.update(app, |v, cx| {
+            v.settings.picker.adaptive_command_order = false;
+            v.execute_command(C::ShowCommands, window, cx);
+            v.palette_test_set_query(">Toggle word-level highlighting", window, cx);
+        })
+    });
+    draw(cx);
+    cx.simulate_keystrokes("enter");
+    draw(cx);
+    assert_eq!(
+        cx.update(|_, app| app
+            .global::<crate::command_usage::Usage>()
+            .history
+            .score(C::ToggleWordHighlight)),
+        0
+    );
+}
+
+#[gpui_test::test]
+fn line_picker_uses_focused_source_side_and_reveals_folded_context(test_cx: &mut TestAppContext) {
+    use jaywalk::commands::CommandId as C;
+    use jaywalk::settings::DiffView;
+    let fixture = Fixture::new();
+    let source = (0..150)
+        .map(|i| format!("source line {i}\n"))
+        .collect::<String>();
+    fixture.replace(&source, &source.replace("line 80", "modified line 80"));
+    let (viewer, cx) = setup(&fixture, test_cx);
+    cx.update(|window, app| {
+        let focus = viewer.read(app).code().unwrap().before.focus_handle(app);
+        window.focus(&focus, app);
+        viewer.update(app, |v, cx| v.execute_command(C::GoToLine, window, cx));
+    });
+    draw(cx);
+    cx.simulate_input("100");
+    draw(cx);
+    cx.simulate_keystrokes("enter");
+    draw(cx);
+    assert_eq!(
+        cx.update(|_, app| viewer
+            .read(app)
+            .code()
+            .unwrap()
+            .before
+            .read(app)
+            .cursor_position()
+            .line),
+        99
+    );
+    cx.update(|window, app| {
+        viewer.update(app, |v, cx| {
+            v.set_view_mode(DiffView::SideBySide, cx);
+            v.collapse_unchanged = true;
+            v.apply_standard_context(cx);
+            v.execute_command(C::GoToLine, window, cx);
+            v.palette_test_set_query(":1", window, cx);
+        })
+    });
+    draw(cx);
+    cx.simulate_keystrokes("enter");
+    draw(cx);
+    let position = cx.update(|_, app| {
+        viewer
+            .read(app)
+            .code()
+            .unwrap()
+            .standard
+            .as_ref()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .read(app)
+            .viewport_position()
+            .unwrap()
+    });
+    assert!(position.line() <= 3);
+    assert!(cx.debug_bounds("diff-expand-0-0").is_none());
+    cx.update(|window, app| {
+        viewer.update(app, |v, cx| {
+            window.focus(&v.focus, cx);
+            let state = v
+                .code()
+                .unwrap()
+                .standard
+                .as_ref()
+                .unwrap()
+                .as_ref()
+                .unwrap();
+            state.update(cx, |state, cx| {
+                let path = state.files()[0].path().clone();
+                state.set_selected_lines(
+                    Some(gpui_kit::component::diff::DiffLineRange::new(
+                        path,
+                        gpui_kit::component::diff::DiffSide::Original,
+                        1,
+                        1,
+                    )),
+                    cx,
+                );
+            });
+            v.execute_command(C::GoToLine, window, cx);
+        })
+    });
+    draw(cx);
+    assert!(cx.update(|_, app| viewer.read(app).palette_test_line_before()));
+}
+
+#[gpui_test::test]
+fn welcome_picker_explains_unavailable_modes_without_leaving_welcome(test_cx: &mut TestAppContext) {
+    use jaywalk::commands::CommandId as C;
+    let fixture = Fixture::new();
+    let args = Arguments::parse_from(["jaywalk"]);
+    let (viewer, cx) = setup_arguments(&fixture, args, test_cx);
+    for command in [C::FindFile, C::GoToLine, C::PickerHelp] {
+        cx.dispatch_action(super::commands::ExecuteCommand { command });
+        draw(cx);
+        assert!(cx.debug_bounds("palette-overlay").is_some());
+        assert!(cx.debug_bounds("welcome-page").is_some());
+        cx.simulate_keystrokes("escape");
+        draw(cx);
+    }
+    assert!(cx.update(|_, app| viewer.read(app).repository.ready().is_none()));
+}
+
+#[gpui_test::test]
+fn dismissing_a_cold_branch_picker_rejects_its_late_results(test_cx: &mut TestAppContext) {
+    use jaywalk::commands::CommandId as C;
+    let fixture = Fixture::new();
+    let (viewer, cx) = setup(&fixture, test_cx);
+    let identity = cx.update(|_, app| viewer.read(app).comparison().unwrap().identity());
+    cx.update(|window, app| {
+        viewer.update(app, |v, cx| {
+            v.execute_command(C::ChooseReview, window, cx);
+            assert!(
+                v.review_picker_visible(),
+                "cold chooser must open before its worker completes"
+            );
+            v.close_palette(window, cx);
+        })
+    });
+    draw(cx);
+    assert!(cx.update(|_, app| viewer.read(app).palette_test_state(app).0.is_none()));
+    assert_eq!(
+        cx.update(|_, app| viewer.read(app).comparison().unwrap().identity()),
+        identity
+    );
+}
+
+#[gpui_test::test]
+fn account_picker_confirms_disconnect_and_preserves_the_view(test_cx: &mut TestAppContext) {
+    use jaywalk::{accounts::application::Accounts, commands::CommandId as C};
+    crate::account_ui::tests::setup(test_cx);
+    let fixture = Fixture::new();
+    let (viewer, cx) = setup(&fixture, test_cx);
+    let identity = cx.update(|_, app| viewer.read(app).comparison().unwrap().identity());
+    cx.dispatch_action(super::commands::ExecuteCommand {
+        command: C::DisconnectAccount,
+    });
+    draw(cx);
+    assert!(cx.debug_bounds("account-palette-picker").is_some());
+    assert!(cx.debug_bounds("accounts-page").is_none());
+    cx.simulate_input("synthetic-user");
+    draw(cx);
+    cx.simulate_keystrokes("enter");
+    draw(cx);
+    assert_eq!(
+        cx.update(|_, app| app
+            .global::<Accounts>()
+            .state
+            .read(app)
+            .snapshot
+            .accounts
+            .len()),
+        1
+    );
+    cx.simulate_keystrokes("escape");
+    draw(cx);
+    assert_eq!(
+        cx.update(|_, app| viewer.read(app).palette_test_state(app).1),
+        "synthetic-user"
+    );
+    cx.simulate_keystrokes("enter");
+    draw(cx);
+    cx.simulate_input("confirm local");
+    draw(cx);
+    cx.simulate_keystrokes("enter");
+    draw(cx);
+    assert!(cx.update(|_, app| {
+        app.global::<Accounts>()
+            .state
+            .read(app)
+            .snapshot
+            .accounts
+            .is_empty()
+    }));
+    assert_eq!(
+        cx.update(|_, app| viewer.read(app).comparison().unwrap().identity()),
+        identity
+    );
+    cx.simulate_keystrokes("escape");
+    draw(cx);
+    cx.simulate_keystrokes("escape");
+    draw(cx);
+    assert!(cx.update(|_, app| viewer.read(app).palette_test_state(app).0.is_none()));
+}
+
+#[gpui_test::test]
+fn account_picker_connection_errors_and_mode_switches_stay_in_the_picker(
+    test_cx: &mut TestAppContext,
+) {
+    use jaywalk::{accounts::application::Accounts, commands::CommandId as C};
+    crate::account_ui::tests::setup(test_cx);
+    let fixture = Fixture::new();
+    let (viewer, cx) = setup(&fixture, test_cx);
+    cx.dispatch_action(super::commands::ExecuteCommand {
+        command: C::ConnectAccount,
+    });
+    draw(cx);
+    cx.simulate_input("github");
+    draw(cx);
+    cx.simulate_keystrokes("enter");
+    draw(cx);
+    // The synthetic store has no client registration; no browser or OS store is touched.
+    assert!(cx.update(|_, app| {
+        app.global::<Accounts>()
+            .state
+            .read(app)
+            .notice
+            .as_ref()
+            .unwrap()
+            .error
+    }));
+    assert!(cx.debug_bounds("account-palette-picker").is_some());
+    assert!(cx.debug_bounds("accounts-page").is_none());
+    cx.update(|window, app| viewer.update(app, |v, cx| v.palette_test_set_query("?", window, cx)));
+    draw(cx);
+    assert_eq!(
+        cx.update(|_, app| viewer.read(app).palette_test_state(app).0),
+        Some(palette::PaletteKind::Help)
+    );
+    cx.simulate_keystrokes("escape");
+    draw(cx);
+    cx.dispatch_action(super::commands::ExecuteCommand {
+        command: C::Accounts,
+    });
+    draw(cx);
+    assert!(cx.debug_bounds("accounts-page").is_some());
+}
+
+#[gpui_test::test]
+fn manage_account_picker_retains_parent_query_after_connection_check(test_cx: &mut TestAppContext) {
+    use jaywalk::{
+        accounts::{ConnectionState, application::Accounts},
+        commands::CommandId as C,
+    };
+    crate::account_ui::tests::setup(test_cx);
+    let fixture = Fixture::new();
+    let (viewer, cx) = setup(&fixture, test_cx);
+    cx.dispatch_action(super::commands::ExecuteCommand {
+        command: C::ManageAccounts,
+    });
+    draw(cx);
+    cx.simulate_input("synthetic-user");
+    draw(cx);
+    cx.simulate_keystrokes("enter");
+    draw(cx);
+    cx.simulate_input("check");
+    draw(cx);
+    cx.simulate_keystrokes("enter");
+    draw(cx);
+    assert!(cx.update(|_, app| matches!(
+        app.global::<Accounts>().state.read(app).snapshot.accounts[0].state,
+        ConnectionState::Connected
+    )));
+    cx.simulate_keystrokes("escape");
+    draw(cx);
+    assert_eq!(
+        cx.update(|_, app| viewer.read(app).palette_test_state(app).1),
+        "synthetic-user"
+    );
+    cx.update(|window, app| viewer.update(app, |v, cx| v.palette_test_set_query("~", window, cx)));
+    draw(cx);
+    assert_eq!(
+        cx.update(|_, app| viewer.read(app).palette_test_state(app).0),
+        Some(palette::PaletteKind::Repositories)
+    );
+}
+
+#[gpui_test::test]
+fn dismissing_an_account_picker_does_not_cancel_another_owners_operation(
+    test_cx: &mut TestAppContext,
+) {
+    use jaywalk::{
+        accounts::{application::Accounts, controller::AccountAction},
+        commands::CommandId as C,
+    };
+    crate::account_ui::tests::setup(test_cx);
+    let fixture = Fixture::new();
+    let (viewer, cx) = setup(&fixture, test_cx);
+    let owner = cx.update(|window, app| {
+        let state = app.global::<Accounts>().state.clone();
+        let owner = state
+            .update(app, |state, cx| state.start(AccountAction::Load, cx))
+            .unwrap();
+        viewer.update(app, |v, cx| {
+            v.execute_command(C::ManageAccounts, window, cx);
+            v.close_palette(window, cx);
+        });
+        owner
+    });
+    draw(cx);
+    assert_eq!(
+        cx.update(|_, app| app
+            .global::<Accounts>()
+            .state
+            .read(app)
+            .last_finished
+            .unwrap()
+            .id),
+        owner.id
+    );
+    assert!(cx.update(|_, app| viewer.read(app).palette_test_state(app).0.is_none()));
+}
+
+#[gpui_test::test]
+fn manage_accounts_disconnect_returns_to_the_valid_parent_and_keeps_its_query(
+    test_cx: &mut TestAppContext,
+) {
+    use jaywalk::{accounts::application::Accounts, commands::CommandId as C};
+    crate::account_ui::tests::setup(test_cx);
+    let fixture = Fixture::new();
+    let (viewer, cx) = setup(&fixture, test_cx);
+    cx.dispatch_action(super::commands::ExecuteCommand {
+        command: C::ManageAccounts,
+    });
+    draw(cx);
+    cx.simulate_input("synthetic-user");
+    draw(cx);
+    cx.simulate_keystrokes("enter");
+    draw(cx);
+    cx.simulate_input("disconnect");
+    draw(cx);
+    cx.simulate_keystrokes("enter");
+    draw(cx);
+    cx.simulate_input("confirm local");
+    draw(cx);
+    cx.simulate_keystrokes("enter");
+    draw(cx);
+    assert!(cx.update(|_, app| {
+        app.global::<Accounts>()
+            .state
+            .read(app)
+            .snapshot
+            .accounts
+            .is_empty()
+    }));
+    assert_eq!(
+        cx.update(|_, app| viewer.read(app).palette_test_state(app).1),
+        "synthetic-user"
+    );
+    assert!(cx.debug_bounds("account-palette-picker").is_some());
+    // Home is a valid empty filtered list, and a single Escape dismisses it.
+    cx.simulate_keystrokes("escape");
+    draw(cx);
+    assert!(cx.update(|_, app| viewer.read(app).palette_test_state(app).0.is_none()));
 }

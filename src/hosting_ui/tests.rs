@@ -447,9 +447,17 @@ fn nested_filters_preserve_search_and_escape_restores_each_step(
     cx.simulate_keystrokes("escape");
     draw(cx);
     assert!(cx.update(|_, app| page.read(app).step == Step::Scope));
+    assert_eq!(
+        cx.update(|_, app| page.read(app).filter_input.read(app).query(app).to_string()),
+        "current"
+    );
     cx.simulate_keystrokes("escape");
     draw(cx);
     assert!(cx.update(|_, app| page.read(app).step == Step::Filters));
+    assert_eq!(
+        cx.update(|_, app| page.read(app).filter_input.read(app).query(app).to_string()),
+        "scope"
+    );
     cx.simulate_keystrokes("escape");
     draw(cx);
     assert!(cx.update(|_, app| page.read(app).step == Step::Results));

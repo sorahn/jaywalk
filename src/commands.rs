@@ -1,11 +1,12 @@
 //! Commands shared by keyboard shortcuts, the command palette, and native menus.
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum CommandId {
     About,
     Accounts,
+    ManageAccounts,
     OpenPullRequest,
     BrowsePullRequests,
     UpdatePublishedReview,
@@ -32,6 +33,9 @@ pub enum CommandId {
     ClearRecent,
     FindFile,
     ShowCommands,
+    GoToLine,
+    PickerHelp,
+    ClearCommandUsage,
     OpenSettings,
     OpenKeybindings,
     SelectKeybindings,
@@ -136,6 +140,13 @@ pub enum CommandId {
 }
 
 impl CommandId {
+    pub fn key(self) -> String {
+        serde_json::to_value(self)
+            .expect("command IDs serialize")
+            .as_str()
+            .expect("command ID is a string")
+            .to_owned()
+    }
     pub fn available_without_repository(self) -> bool {
         matches!(
             self,
@@ -143,6 +154,7 @@ impl CommandId {
                 | Self::OpenPullRequest
                 | Self::BrowsePullRequests
                 | Self::Accounts
+                | Self::ManageAccounts
                 | Self::ConnectAccount
                 | Self::ReconnectAccount
                 | Self::DisconnectAccount
@@ -157,6 +169,10 @@ impl CommandId {
                 | Self::GoBack
                 | Self::GoForward
                 | Self::ClearRecent
+                | Self::FindFile
+                | Self::GoToLine
+                | Self::PickerHelp
+                | Self::ClearCommandUsage
                 | Self::ShowCommands
                 | Self::OpenSettings
                 | Self::OpenKeybindings
@@ -174,6 +190,7 @@ impl CommandId {
     pub const ALL: &[Self] = &[
         Self::About,
         Self::Accounts,
+        Self::ManageAccounts,
         Self::OpenPullRequest,
         Self::BrowsePullRequests,
         Self::UpdatePublishedReview,
@@ -199,6 +216,9 @@ impl CommandId {
         Self::ClearRecent,
         Self::FindFile,
         Self::ShowCommands,
+        Self::GoToLine,
+        Self::PickerHelp,
+        Self::ClearCommandUsage,
         Self::OpenSettings,
         Self::OpenKeybindings,
         Self::SelectKeybindings,
@@ -337,6 +357,7 @@ impl CommandId {
             Self::OpenPullRequest => "Open pull request…",
             Self::BrowsePullRequests => "Browse pull requests…",
             Self::Accounts => "Accounts…",
+            Self::ManageAccounts => "Manage accounts in picker…",
             Self::ConnectAccount => "Connect account…",
             Self::ReconnectAccount => "Reconnect account…",
             Self::DisconnectAccount => "Disconnect account…",
@@ -353,6 +374,9 @@ impl CommandId {
             Self::ClearRecent => "Clear recent repositories",
             Self::FindFile => "Find any repository file",
             Self::ShowCommands => "Command palette",
+            Self::GoToLine => "Go to line…",
+            Self::PickerHelp => "Picker modes and prefixes",
+            Self::ClearCommandUsage => "Clear command usage history",
             Self::VersionPatch => "Version patch",
             Self::SincePrevious => "Since previous version",
             Self::OpenSettings => "Open settings",

@@ -103,6 +103,7 @@ pub struct Config {
     pub live: LiveSettings,
     pub window: WindowSettings,
     pub ui: UiSettings,
+    pub picker: PickerSettings,
     pub editor: EditorSettings,
     pub panels: PanelSettings,
     pub layout: LayoutSettings,
@@ -1194,4 +1195,10 @@ mod appearance_tests {
             assert!(Settings::parse(source).is_err());
         }
     }
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct PickerSettings {
+    pub adaptive_command_order: bool,
 }

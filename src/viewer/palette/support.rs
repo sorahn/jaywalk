@@ -1,0 +1,288 @@
+use super::*;
+
+pub(super) fn mode_command(mode: Mode) -> Option<jaywalk::commands::CommandId> {
+    use jaywalk::commands::CommandId;
+    Some(match mode {
+        Mode::Files => CommandId::FindFile,
+        Mode::Commands => CommandId::ShowCommands,
+        Mode::Line => CommandId::GoToLine,
+        Mode::Repositories => CommandId::OpenRecent,
+        Mode::PullRequests => CommandId::OpenPullRequest,
+        Mode::Help => CommandId::PickerHelp,
+        _ => return None,
+    })
+}
+pub(super) fn mode_description(mode: Mode) -> &'static str {
+    match mode {
+        Mode::Files => "Files in the captured comparison",
+        Mode::Commands => "Actions and current settings",
+        Mode::Line => "Source line in the focused file side",
+        Mode::Repositories => "Open a recent repository",
+        Mode::PullRequests => "Search PRs; Tab changes filters",
+        Mode::Help => "Choose a mode to fill its prefix",
+        Mode::FileSymbols | Mode::ProjectSymbols => "Coming later",
+    }
+}
+impl Viewer {
+    pub(super) fn picker_mode_available(&self, mode: Mode) -> bool {
+        match mode {
+            Mode::Files => self.page == pages::Page::Comparison && self.comparison().is_some(),
+            Mode::Line => self.page == pages::Page::Comparison && self.code().is_some(),
+            Mode::FileSymbols | Mode::ProjectSymbols => false,
+            _ => true,
+        }
+    }
+    pub(super) fn picker_description(&self, kind: PaletteKind, cx: &App) -> String {
+        if kind == PaletteKind::Commands
+            && let Some(error) = &cx.global::<crate::command_usage::Usage>().error
+        {
+            return format!("{error} · Clear command usage history to reset");
+        }
+        match kind {
+            PaletteKind::Reviews => self.palette.review_error.clone().unwrap_or_else(|| {
+                if self.palette.review_loading {
+                    "Loading branches… · Escape closes".into()
+                } else {
+                    "Choose a branch/range · Escape closes · ? lists picker modes".into()
+                }
+            }),
+            PaletteKind::Profiles => {
+                "Choose a keybinding profile · Escape closes · ? lists picker modes".into()
+            }
+            PaletteKind::Line => format!(
+                "Source line on the {} side · Enter a positive line number · ? lists modes",
+                if self.palette.line_before {
+                    "before"
+                } else {
+                    "after"
+                }
+            ),
+            _ => format!(
+                "{} · ? lists modes and shortcuts · Escape closes",
+                kind.mode().map_or("Choose", Mode::label)
+            ),
+        }
+    }
+    pub(super) fn picker_empty(&self, kind: PaletteKind) -> &'static str {
+        match kind {
+            PaletteKind::Files if !self.picker_mode_available(Mode::Files) => {
+                "Open a comparison to search its files. Type ? for available modes."
+            }
+            PaletteKind::Line if !self.picker_mode_available(Mode::Line) => {
+                "Open a file first to go to a source line. Type ? for available modes."
+            }
+            PaletteKind::Line => "Enter a line number within this file, starting at 1.",
+            PaletteKind::FileSymbols | PaletteKind::ProjectSymbols => {
+                "Symbol navigation is planned. Type ? for available modes."
+            }
+            _ => "No matching results. Type ? for available modes.",
+        }
+    }
+    pub(super) fn line_choice(&self, query: &str, cx: &App) -> Option<(String, Choice)> {
+        if !self.picker_mode_available(Mode::Line) {
+            return None;
+        }
+        let line = query.trim().parse::<usize>().ok()?.checked_sub(1)?;
+        let code = self.code()?;
+        let before = self.palette.line_before;
+        let offsets = if before {
+            &code.model.before_offsets
+        } else {
+            &code.model.after_offsets
+        };
+        if line >= offsets.len().saturating_sub(1) {
+            return None;
+        }
+        let source = Rc::new(self.comparison()?.identity());
+        let _ = cx;
+        Some((
+            format!(
+                "Go to line {} · {}",
+                line + 1,
+                if before { "Before" } else { "After" }
+            ),
+            Choice::Line {
+                path: self.selected_path()?,
+                line,
+                source,
+                before,
+            },
+        ))
+    }
+    pub(super) fn go_to_source_line(
+        &mut self,
+        line: usize,
+        before_side: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.navigation_target = None;
+        self.reveal_after_layout = false;
+        if self.view.effective() != ViewMode::Fluid {
+            if let Some(Ok(Some(state))) = self.code().map(|code| &code.standard) {
+                state.update(cx, |state, cx| {
+                    if let Some(file) = state.files().first() {
+                        let side = if before_side {
+                            gpui::component::diff::DiffSide::Original
+                        } else {
+                            gpui::component::diff::DiffSide::Modified
+                        };
+                        state.scroll_to_line(
+                            gpui::component::diff::DiffLinePosition::new(
+                                file.path().clone(),
+                                side,
+                                line + 1,
+                            ),
+                            cx,
+                        );
+                    }
+                });
+            }
+        } else if let Some(code) = self.code() {
+            let target = if before_side {
+                code.before.clone()
+            } else {
+                code.after.clone()
+            };
+            target.update(cx, |editor, cx| {
+                editor.set_cursor_position(
+                    gpui::component::input::Position::new(line as u32, 0),
+                    window,
+                    cx,
+                )
+            });
+            let code = self.code().expect("file remains loaded");
+            let geometry =
+                comparison_geometry(code.before.read(cx), code.after.read(cx), &code.model);
+            let position = geometry.position_for_line(&code.model, line, before_side);
+            self.scroll_comparison(position - self.fluid.position, cx);
+        }
+        self.checkpoint_navigation(cx);
+        cx.notify();
+    }
+    pub(super) fn command_state_hint(
+        &self,
+        command: jaywalk::commands::CommandId,
+    ) -> Option<String> {
+        use jaywalk::commands::CommandId as C;
+        let p = self.diff_preferences;
+        let enabled = match command {
+            C::ToggleWrap => Some(self.wrapping.enabled(if self.selected_file.is_none() {
+                ViewMode::Inline
+            } else {
+                self.view.effective()
+            })),
+            C::ToggleLineNumbers => Some(self.line_numbers),
+            C::ToggleUnchangedLines => Some(self.collapse_unchanged),
+            C::ToggleIgnoreLineEndings => Some(p.comparison.ignore_line_endings),
+            C::ToggleIgnoreBlankLines => Some(p.comparison.ignore_blank_lines),
+            C::ToggleWordHighlight => Some(p.word_highlight),
+            C::ToggleShowWhitespace => Some(p.show_whitespace),
+            C::ToggleShowLineEndings => Some(p.show_line_endings),
+            C::ToggleWhitespaceErrors => Some(p.highlight_whitespace_errors),
+            C::ToggleHistory => Some(!self.layout.saved.history_hidden),
+            C::ToggleFiles => Some(!self.layout.saved.files_hidden),
+            C::ToggleChangeEvolution => Some(self.evolution.visible),
+            C::ToggleFileEvolution => Some(self.file_evolution.visible),
+            _ => None,
+        };
+        if let Some(enabled) = enabled {
+            return Some(if enabled { "On" } else { "Off" }.into());
+        }
+        match command {
+            C::ToggleWhitespaceDifferences => Some(format!("{:?}", p.comparison.whitespace)),
+            C::WhitespaceExact
+            | C::WhitespaceTrailing
+            | C::WhitespaceChanges
+            | C::WhitespaceAll => {
+                use jaywalk::diff_options::Whitespace as W;
+                let selected = match command {
+                    C::WhitespaceExact => W::Exact,
+                    C::WhitespaceTrailing => W::IgnoreTrailing,
+                    C::WhitespaceChanges => W::IgnoreChanges,
+                    _ => W::IgnoreAll,
+                };
+                (p.comparison.whitespace == selected).then(|| "Active".into())
+            }
+            C::ViewFluid | C::ViewInline | C::ViewSideBySide => {
+                let selected = match command {
+                    C::ViewFluid => ViewMode::Fluid,
+                    C::ViewInline => ViewMode::Inline,
+                    _ => ViewMode::SideBySide,
+                };
+                (self.view.preferred() == selected).then(|| "Active".into())
+            }
+            _ => None,
+        }
+    }
+}
+
+impl Viewer {
+    pub(in crate::viewer) fn palette_owns_pr(
+        &self,
+        page: &Entity<crate::hosting_ui::PullRequestsPage>,
+    ) -> bool {
+        self.palette.open == Some(PaletteKind::PullRequests)
+            && self.palette.pull_requests.as_ref() == Some(page)
+    }
+}
+
+#[derive(IntoElement)]
+pub(crate) struct ShortcutHint(pub(crate) jaywalk::commands::CommandId);
+impl RenderOnce for ShortcutHint {
+    fn render(self, window: &mut Window, _: &mut App) -> impl IntoElement {
+        div().children(gpui::component::kbd::Kbd::binding_for_action(
+            &commands::ExecuteCommand { command: self.0 },
+            None,
+            window,
+        ))
+    }
+}
+
+impl Viewer {
+    pub(in crate::viewer) fn begin_picker_review_load(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> u64 {
+        if self.review_picker.epoch != Some(self.requests.comparison()) {
+            self.review_picker.choices.clear();
+        }
+        self.open_palette(PaletteKind::Reviews, window, cx);
+        self.palette.review_loading = true;
+        let generation = self.palette.generation;
+        let delay = std::time::Duration::from_millis(self.settings.ui.loading_delay_ms);
+        cx.spawn_in(window, async move |viewer, cx| {
+            cx.background_executor().timer(delay).await;
+            let _ = viewer.update_in(cx, |viewer, window, cx| {
+                if viewer.owns_picker_review_load(generation) && viewer.palette.review_loading {
+                    viewer
+                        .palette
+                        .state
+                        .update(cx, |state, cx| state.set_loading(true, window, cx));
+                    cx.notify();
+                }
+            });
+        })
+        .detach();
+        generation
+    }
+    pub(in crate::viewer) fn owns_picker_review_load(&self, generation: u64) -> bool {
+        self.palette.generation == generation && self.palette.open == Some(PaletteKind::Reviews)
+    }
+    pub(in crate::viewer) fn finish_picker_review_load(
+        &mut self,
+        error: Option<String>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.palette.review_loading = false;
+        self.palette.review_error = error;
+        self.palette
+            .state
+            .update(cx, |state, cx| state.set_loading(false, window, cx));
+    }
+    pub(in crate::viewer) fn review_picker_visible(&self) -> bool {
+        self.palette.open == Some(PaletteKind::Reviews)
+    }
+}

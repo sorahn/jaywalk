@@ -210,13 +210,14 @@ impl Viewer {
             CommandId::RevealComparisonLeft | CommandId::RevealComparisonRight => {
                 self.reveal_pair_endpoint(command == CommandId::RevealComparisonRight, window, cx)
             }
-            CommandId::Accounts
+            CommandId::Accounts => self.show_accounts(command, window, cx),
+            CommandId::ManageAccounts
             | CommandId::ConnectAccount
             | CommandId::ReconnectAccount
             | CommandId::DisconnectAccount
             | CommandId::ChooseHostingWorkspace
             | CommandId::ImportHostingSetup
-            | CommandId::CheckAccount => self.show_accounts(command, window, cx),
+            | CommandId::CheckAccount => self.open_account_palette(command, window, cx),
             CommandId::CancelAccountSignIn => crate::account_ui::cancel_sign_in(cx),
             CommandId::SwapComparison => self.swap_comparison(window, cx),
             CommandId::CompareRevision | CommandId::DiffFromBranchPoint => {
@@ -313,6 +314,9 @@ impl Viewer {
             CommandId::ClearRecent => crate::recents::clear(cx),
             CommandId::GoBack => self.navigate_view(false, window, cx),
             CommandId::GoForward => self.navigate_view(true, window, cx),
+            CommandId::GoToLine => self.open_palette(palette::PaletteKind::Line, window, cx),
+            CommandId::PickerHelp => self.open_palette(palette::PaletteKind::Help, window, cx),
+            CommandId::ClearCommandUsage => crate::command_usage::clear(cx),
             CommandId::FindFile => self.open_palette(palette::PaletteKind::Files, window, cx),
             CommandId::ShowCommands => {
                 self.open_palette(palette::PaletteKind::Commands, window, cx)

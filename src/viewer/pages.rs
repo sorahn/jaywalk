@@ -55,15 +55,19 @@ impl Viewer {
             }
             page
         });
-        cx.subscribe_in(
-            &page,
-            window,
-            move |viewer, _, event, window, cx| match event {
+        cx.subscribe_in(&page, window, move |viewer, page, event, window, cx| {
+            if picking && !viewer.palette_owns_pr(page) {
+                return;
+            }
+            match event {
                 crate::hosting_ui::Event::Leave if picking => viewer.close_palette(window, cx),
                 crate::hosting_ui::Event::Leave => viewer.navigate_view(false, window, cx),
                 crate::hosting_ui::Event::Opened(review) => {
                     viewer.close_palette(window, cx);
                     viewer.open_hosted_review(review.clone(), window, cx);
+                }
+                crate::hosting_ui::Event::PickerQuery(query) => {
+                    viewer.palette_query_changed(query, window, cx)
                 }
                 crate::hosting_ui::Event::Accounts => {
                     if picking {
@@ -71,8 +75,8 @@ impl Viewer {
                     }
                     viewer.show_accounts(jaywalk::commands::CommandId::Accounts, window, cx);
                 }
-            },
-        )
+            }
+        })
         .detach();
         Some(page)
     }

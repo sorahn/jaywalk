@@ -27,6 +27,7 @@ pub(crate) enum Event {
     Leave,
     Opened(hosting::review::Review),
     Accounts,
+    PickerQuery(String),
 }
 impl EventEmitter<Event> for PullRequestsPage {}
 pub(crate) fn init(cx: &mut App) {
@@ -188,10 +189,15 @@ impl DiscoveryRequest {
 
 pub(crate) struct PullRequestsPage {
     picking: bool,
+    prefixed: bool,
     input_loading: bool,
+    loading_delay: Duration,
+    loading_visible: bool,
+    indicator_generation: u64,
     step: Step,
     filter_stack: Vec<Step>,
     filter_input: Entity<CommandState>,
+    filter_inputs: HashMap<Step, Entity<CommandState>>,
     input: Entity<CommandState>,
     scroll: ScrollHandle,
     root: Option<PathBuf>,
@@ -239,10 +245,15 @@ impl PullRequestsPage {
         let input = cx.new(|cx| CommandState::new(window, cx));
         let mut page = Self {
             picking: false,
+            prefixed: false,
             input_loading: false,
+            loading_delay: Duration::from_millis(200),
+            loading_visible: false,
+            indicator_generation: 0,
             step: Step::Results,
             filter_stack: Vec::new(),
             filter_input: cx.new(|cx| CommandState::new(window, cx)),
+            filter_inputs: HashMap::new(),
             input,
             scroll: ScrollHandle::new(),
             root,
@@ -263,6 +274,73 @@ impl PullRequestsPage {
         };
         page.refresh(window, cx);
         page
+    }
+    pub(crate) fn use_picker_input(
+        &mut self,
+        input: Entity<CommandState>,
+        delay_ms: u64,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.input = input;
+        self.prefixed = true;
+        self.loading_delay = Duration::from_millis(delay_ms);
+        self.begin_loading_indicator(window, cx);
+        self.focus(window, cx);
+    }
+    fn begin_loading_indicator(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.indicator_generation += 1;
+        let generation = self.indicator_generation;
+        self.loading_visible = self.loading_delay.is_zero();
+        let delay = self.loading_delay;
+        cx.spawn_in(window, async move |page, cx| {
+            cx.background_executor().timer(delay).await;
+            let _ = page.update(cx, |page, cx| {
+                if page.indicator_generation == generation {
+                    page.loading_visible = true;
+                    cx.notify();
+                }
+            });
+        })
+        .detach();
+    }
+    pub(crate) fn cancel_picker(&mut self, cx: &mut Context<Self>) {
+        if let Some(control) = self.operation.take() {
+            control.cancel();
+        }
+        if let Some(control) = self.association.take() {
+            control.cancel();
+        }
+        self.serial += 1;
+        self.indicator_generation += 1;
+        self.opening = false;
+        cx.notify();
+    }
+    fn search_query(&self, cx: &App) -> String {
+        let query = self.input.read(cx).query(cx);
+        if self.prefixed {
+            query
+                .strip_prefix('!')
+                .unwrap_or(&query)
+                .trim_start()
+                .to_owned()
+        } else {
+            query.to_string()
+        }
+    }
+    fn set_search_query(
+        &self,
+        query: impl AsRef<str>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let query = if self.prefixed {
+            format!("!{}", query.as_ref())
+        } else {
+            query.as_ref().to_owned()
+        };
+        self.input
+            .update(cx, |state, cx| state.set_query(query, window, cx));
     }
     pub(crate) fn as_picker(&mut self) {
         self.picking = true;
@@ -344,8 +422,7 @@ impl PullRequestsPage {
                 .retain(|key, _| matches!(key, Scope::Authored | Scope::ReviewRequested));
         }
         self.scope = scope;
-        self.input
-            .update(cx, |state, cx| state.set_query("", window, cx));
+        self.set_search_query("", window, cx);
         self.refresh(window, cx);
     }
     fn refresh(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -362,6 +439,7 @@ impl PullRequestsPage {
         let serial = self.serial;
         let control = Control::new(Duration::from_secs(180));
         self.operation = Some(control.clone());
+        self.begin_loading_indicator(window, cx);
         self.progress = Some("Loading saved accounts…".into());
         self.notice = None;
         let backend = cx.global::<Accounts>().backend.clone();
@@ -524,7 +602,7 @@ impl PullRequestsPage {
         }
     }
     fn choices(&self, cx: &App) -> Vec<Choice> {
-        let query = self.input.read(cx).query(cx).to_string();
+        let query = self.search_query(cx);
         let mut rows = vec![];
         let accounts = self.accounts(cx);
         if let Ok(input) = EntryInput::parse(&query) {
@@ -657,8 +735,7 @@ impl PullRequestsPage {
                 self.set_scope(Some(Scope::Direct(locator)), window, cx);
             }
             Choice::Recent(locator) => {
-                self.input
-                    .update(cx, |state, cx| state.set_query(locator.url(), window, cx));
+                self.set_search_query(locator.url(), window, cx);
                 self.focus(window, cx);
                 cx.notify();
             }
@@ -693,9 +770,19 @@ impl PullRequestsPage {
                     Choice::Recent(locator) => serde_json::to_string(&("recent", locator.url())),
                 }
                 .expect("PR identity tuple serializes");
-                CommandItem::new().key(key).label(choice.label())
+                let label: SharedString = choice.label().into();
+                let query = self.search_query(cx);
+                CommandItem::new()
+                    .key(key)
+                    .label(label.clone())
+                    .child(move |_, cx| crate::picker_ui::matched_label(label.clone(), &query, cx))
             }))
-            .on_query(cx.listener(|_, _, _, cx| cx.notify()))
+            .on_query(cx.listener(|page, query: &str, _, cx| {
+                if page.prefixed {
+                    cx.emit(Event::PickerQuery(query.to_owned()));
+                }
+                cx.notify();
+            }))
             .on_confirm(move |index, window, cx| {
                 if let Some(choice) = confirm.get(index.row) {
                     let _ = weak.update(cx, |page, cx| page.choose(choice.clone(), window, cx));
@@ -746,7 +833,7 @@ impl PullRequestsPage {
                 })
             })
         });
-        let query_error = EntryInput::parse(&self.input.read(cx).query(cx))
+        let query_error = EntryInput::parse(&self.search_query(cx))
             .err()
             .map(|error| format!("Could not interpret this PR reference: {error}"));
         let detail = self
@@ -800,6 +887,7 @@ impl PullRequestsPage {
         let control = Control::new(Duration::from_secs(180));
         self.association = Some(control.clone());
         self.opening = true;
+        self.begin_loading_indicator(window, cx);
         self.notice = Some("Opening published review… · Escape: cancel".into());
         let backend = cx.global::<Accounts>().backend.clone();
         let options = self.review_options;
@@ -856,7 +944,9 @@ impl Render for PullRequestsPage {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.purge_retired(cx);
         if self.picking {
-            let busy = (self.operation.is_some() || self.opening) && self.step == Step::Results;
+            let busy = self.loading_visible
+                && (self.operation.is_some() || self.opening)
+                && self.step == Step::Results;
             if self.input_loading != busy {
                 self.input_loading = busy;
                 self.input
@@ -878,20 +968,8 @@ impl Render for PullRequestsPage {
                     .bordered(false)
                     .max_h(px(maximum))
                     .description(move |_, _, cx| {
-                        let muted = gpui::component::Theme::global(cx).muted_foreground;
-                        div()
+                        crate::picker_ui::context(lines.clone(), cx)
                             .debug_selector(|| "pr-picker-context".into())
-                            .v_flex()
-                            .flex_shrink_0()
-                            .px_3()
-                            .py_2()
-                            .text_sm()
-                            .text_color(muted)
-                            .children(
-                                lines
-                                    .iter()
-                                    .map(|line| div().truncate().child(line.clone())),
-                            )
                     });
             return div()
                 .w_full()
@@ -1056,7 +1134,7 @@ impl Render for PullRequestsPage {
         if self.remotes.len() > 8 {
             status=status.child("Showing the first eight remote filters. Use a repository-qualified number or URL for another repository.");
         }
-        let query = self.input.read(cx).query(cx).to_string();
+        let query = self.search_query(cx);
         if let Err(error) = EntryInput::parse(&query) {
             status = status.child(format!("Could not interpret this PR reference: {error}"));
         }
