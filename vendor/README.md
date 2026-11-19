@@ -106,3 +106,13 @@ results. Host interaction tests verify slot order and keyboard confirmation.
 that identity across label changes and reordered refresh results; unkeyed models
 retain their previous index-path behavior. A removed keyed result falls back to
 normal selection rather than transferring its identity to an unrelated row.
+
+The local diff patch adds validated `DiffFile::with_alignment` for complete source
+texts. Alignment indices must cover both sides exactly once, in source order;
+sparse multi-hunk and conflict documents are rejected. This lets hosts suppress
+ignored differences while retaining distinct source strings, selections and copy
+addresses. Counts, hunk ranges and counterparts are rebuilt from the supplied
+alignment. `Diff::display_options` controls word highlights, painted space/tab
+markers, row-ending labels and cached whitespace-error spans. Marker painting uses
+original-to-display mappings (including expanded tabs) and does not mutate source
+or clipboard text. Configurable whitespace-error color is part of `DiffColors`.

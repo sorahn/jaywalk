@@ -14,7 +14,7 @@ impl Algorithm {
         }
     }
 }
-use similar::{DiffTag, TextDiff};
+use similar::TextDiff;
 use std::ops::Range;
 
 #[derive(Clone, Debug)]
@@ -33,9 +33,14 @@ pub struct FileDiff {
     pub after_words: Vec<Range<usize>>,
 }
 
-fn line_offsets(text: &str) -> Vec<usize> {
+// The editor and Git patch records use LF boundaries. A CR is preserved as
+// source content (including the CR in CRLF), not treated as an extra row.
+fn source_lines(text: &str) -> Vec<&str> {
+    text.split_inclusive('\n').collect()
+}
+fn line_offsets(lines: &[&str]) -> Vec<usize> {
     let mut offsets = vec![0];
-    for line in text.split_inclusive('\n') {
+    for line in lines {
         offsets.push(offsets.last().copied().unwrap() + line.len());
     }
     offsets
@@ -46,28 +51,79 @@ impl FileDiff {
         Self::with_algorithm(before, after, Algorithm::default())
     }
     pub fn with_algorithm(before: &str, after: &str, algorithm: Algorithm) -> Self {
-        let diff = TextDiff::configure()
-            .algorithm(algorithm.similar())
-            .diff_lines(before, after);
-        let blocks: Vec<Correspondence> = diff
-            .ops()
-            .iter()
-            .map(|operation| Correspondence {
-                before: operation.old_range(),
-                after: operation.new_range(),
-                changed: operation.tag() != DiffTag::Equal,
-            })
-            .collect();
-        let (before_words, after_words) = changed_words(before, after, &blocks);
+        Self::with_options(before, after, algorithm, Default::default())
+    }
+    pub fn with_options(
+        before: &str,
+        after: &str,
+        algorithm: Algorithm,
+        options: crate::diff_options::ComparisonOptions,
+    ) -> Self {
+        let old = source_lines(before);
+        let new = source_lines(after);
+        let before_offsets = line_offsets(&old);
+        let after_offsets = line_offsets(&new);
+        let blocks = if options == Default::default() {
+            line_diff(&old, &new, algorithm)
+                .ops()
+                .iter()
+                .map(|op| Correspondence {
+                    before: op.old_range(),
+                    after: op.new_range(),
+                    changed: op.tag() != similar::DiffTag::Equal,
+                })
+                .collect()
+        } else {
+            let rows = options.alignment(before, after, algorithm);
+            let mut blocks: Vec<Correspondence> = Vec::new();
+            let (mut a, mut b) = (0, 0);
+            for row in rows {
+                let next = Correspondence {
+                    before: a..a + usize::from(row.before.is_some()),
+                    after: b..b + usize::from(row.after.is_some()),
+                    changed: row.changed,
+                };
+                a = next.before.end;
+                b = next.after.end;
+                if let Some(last) = blocks.last_mut()
+                    && last.changed == next.changed
+                    && (next.changed
+                        || (last.before.is_empty() == next.before.is_empty()
+                            && last.after.is_empty() == next.after.is_empty()))
+                {
+                    last.before.end = next.before.end;
+                    last.after.end = next.after.end;
+                } else {
+                    blocks.push(next);
+                }
+            }
+            blocks
+        };
+        let (before_words, after_words) =
+            changed_words(before, after, &blocks, &before_offsets, &after_offsets);
         Self {
             blocks,
             before_words,
             after_words,
-            before_offsets: line_offsets(before),
-            after_offsets: line_offsets(after),
+            before_offsets,
+            after_offsets,
         }
     }
 
+    pub fn line_alignment(&self) -> Vec<crate::diff_options::LineAlignment> {
+        self.blocks
+            .iter()
+            .flat_map(|b| {
+                (0..b.before.len().max(b.after.len())).map(move |n| {
+                    crate::diff_options::LineAlignment {
+                        before: (n < b.before.len()).then_some(b.before.start + n),
+                        after: (n < b.after.len()).then_some(b.after.start + n),
+                        changed: b.changed,
+                    }
+                })
+            })
+            .collect()
+    }
     /// Map a source line to its counterpart, without treating insertions as padding.
     pub fn corresponding_line(&self, line: usize, before: bool) -> usize {
         for block in &self.blocks {
@@ -77,7 +133,7 @@ impl FileDiff {
                 (&block.after, &block.before)
             };
             if source.contains(&line) {
-                return if !block.changed {
+                return if !block.changed && source.len() == target.len() {
                     target.start + line - source.start
                 } else if target.is_empty() {
                     target.start
@@ -103,6 +159,55 @@ impl FileDiff {
         };
         offsets[range.start]..offsets[range.end]
     }
+}
+
+fn line_diff<'old, 'new, 'bufs>(
+    old: &'bufs [&'old str],
+    new: &'bufs [&'new str],
+    algorithm: Algorithm,
+) -> TextDiff<'old, 'new, 'bufs, str> {
+    TextDiff::configure()
+        .algorithm(algorithm.similar())
+        .newline_terminated(true)
+        .diff_slices(old, new)
+}
+
+/// Full-context patch with LF record boundaries and exact original source bytes.
+/// `similar`'s default tokenizer/formatter also treats bare CR as a newline;
+/// feeding it LF slices alone does not fix the missing-final-newline marker.
+pub fn full_patch(
+    before: &str,
+    after: &str,
+    algorithm: Algorithm,
+    old_path: &str,
+    new_path: &str,
+) -> String {
+    let old = source_lines(before);
+    let new = source_lines(after);
+    let diff = line_diff(&old, &new, algorithm);
+    let mut patch = String::new();
+    for hunk in diff
+        .unified_diff()
+        .context_radius(old.len().max(new.len()))
+        .iter_hunks()
+    {
+        if patch.is_empty() {
+            patch.push_str(&format!("--- {old_path}\n+++ {new_path}\n"));
+        }
+        patch.push_str(&format!("{}\n", hunk.header()));
+        for change in hunk.iter_changes() {
+            patch.push(match change.tag() {
+                similar::ChangeTag::Equal => ' ',
+                similar::ChangeTag::Delete => '-',
+                similar::ChangeTag::Insert => '+',
+            });
+            patch.push_str(change.value());
+            if !change.value().ends_with('\n') {
+                patch.push_str("\n\\ No newline at end of file\n");
+            }
+        }
+    }
+    patch
 }
 
 fn word_tokens(text: &str) -> Vec<&str> {
@@ -134,9 +239,9 @@ fn changed_words(
     before: &str,
     after: &str,
     blocks: &[Correspondence],
+    old: &[usize],
+    new: &[usize],
 ) -> (Vec<Range<usize>>, Vec<Range<usize>>) {
-    let old = line_offsets(before);
-    let new = line_offsets(after);
     let mut removed = Vec::new();
     let mut added = Vec::new();
     for block in blocks.iter().filter(|block| block.changed) {

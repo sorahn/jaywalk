@@ -243,6 +243,40 @@ impl Viewer {
         {
             self.save_layout(cx);
         }
+        let old_preferences = previous.diff.preferences();
+        let new_preferences = self.settings.diff.preferences();
+        let before = self.diff_preferences;
+        if old_preferences.comparison.whitespace != new_preferences.comparison.whitespace {
+            self.diff_preferences.comparison.whitespace = new_preferences.comparison.whitespace;
+        }
+        if old_preferences.comparison.ignore_line_endings
+            != new_preferences.comparison.ignore_line_endings
+        {
+            self.diff_preferences.comparison.ignore_line_endings =
+                new_preferences.comparison.ignore_line_endings;
+        }
+        if old_preferences.comparison.ignore_blank_lines
+            != new_preferences.comparison.ignore_blank_lines
+        {
+            self.diff_preferences.comparison.ignore_blank_lines =
+                new_preferences.comparison.ignore_blank_lines;
+        }
+        if old_preferences.word_highlight != new_preferences.word_highlight {
+            self.diff_preferences.word_highlight = new_preferences.word_highlight;
+        }
+        if old_preferences.show_whitespace != new_preferences.show_whitespace {
+            self.diff_preferences.show_whitespace = new_preferences.show_whitespace;
+        }
+        if old_preferences.show_line_endings != new_preferences.show_line_endings {
+            self.diff_preferences.show_line_endings = new_preferences.show_line_endings;
+        }
+        if old_preferences.highlight_whitespace_errors
+            != new_preferences.highlight_whitespace_errors
+        {
+            self.diff_preferences.highlight_whitespace_errors =
+                new_preferences.highlight_whitespace_errors;
+        }
+        self.apply_diff_preferences(before, window, cx);
         if (previous.editor.tab_size != self.settings.editor.tab_size
             || previous.diff.algorithm != self.settings.diff.algorithm)
             && self.selected_file.is_some()

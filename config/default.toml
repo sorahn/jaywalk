@@ -125,6 +125,15 @@ list_word_wrap = false
 [diff]
 # Line matching: "myers" or "patience".
 algorithm = "myers"
+# Comparison changes alignment only; original source bytes remain intact.
+# exact | ignore_trailing | ignore_changes | ignore_all
+whitespace = "exact"
+ignore_line_endings = false
+ignore_blank_lines = false
+word_highlight = true
+show_whitespace = false
+show_line_endings = false
+highlight_whitespace_errors = false
 # MiB per side; bounded reads prevent allocation beyond this limit.
 max_text_file_size_mb = 5
 # "inline", "side_by_side", or "fluid"
@@ -145,6 +154,7 @@ removed_background = { light = "#cf222e", dark = "#f85149" }
 modified_background = { light = "#0969da", dark = "#3794ff" }
 word_added = { light = "#22863a", dark = "#4ec96e" }
 word_removed = { light = "#cf222e", dark = "#f85149" }
+whitespace_error = { light = "#bc4c00", dark = "#ffb454" }
 conflict_base = { light = "#57606a", dark = "#a4b4c2" }
 
 [diff.before]

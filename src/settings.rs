@@ -344,6 +344,13 @@ pub enum DiffView {
 #[serde(deny_unknown_fields)]
 pub struct DiffSettings {
     pub algorithm: crate::diff_model::Algorithm,
+    pub whitespace: crate::diff_options::Whitespace,
+    pub ignore_line_endings: bool,
+    pub ignore_blank_lines: bool,
+    pub word_highlight: bool,
+    pub show_whitespace: bool,
+    pub show_line_endings: bool,
+    pub highlight_whitespace_errors: bool,
     pub max_text_file_size_mb: u64,
     pub collapse_unchanged: bool,
     pub context_lines: usize,
@@ -355,6 +362,29 @@ pub struct DiffSettings {
     pub inline: PaneSettings,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct DiffPreferences {
+    pub comparison: crate::diff_options::ComparisonOptions,
+    pub word_highlight: bool,
+    pub show_whitespace: bool,
+    pub show_line_endings: bool,
+    pub highlight_whitespace_errors: bool,
+}
+impl DiffSettings {
+    pub fn preferences(&self) -> DiffPreferences {
+        DiffPreferences {
+            comparison: crate::diff_options::ComparisonOptions {
+                whitespace: self.whitespace,
+                ignore_line_endings: self.ignore_line_endings,
+                ignore_blank_lines: self.ignore_blank_lines,
+            },
+            word_highlight: self.word_highlight,
+            show_whitespace: self.show_whitespace,
+            show_line_endings: self.show_line_endings,
+            highlight_whitespace_errors: self.highlight_whitespace_errors,
+        }
+    }
+}
 /// Shared diff palette, independent of application control/status colors.
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
@@ -368,6 +398,7 @@ pub struct DiffColorSettings {
     pub word_added: ColorSetting,
     pub word_removed: ColorSetting,
     pub conflict_base: ColorSetting,
+    pub whitespace_error: ColorSetting,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq)]

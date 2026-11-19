@@ -33,21 +33,62 @@ impl Viewer {
         let model = model.clone();
         let viewer = cx.entity().downgrade();
         let navigation_target = self.navigation_target;
+        let show_endings = self.diff_preferences.show_line_endings;
+        let single_file = self.view.is_single_file();
+        let endings = self.code().unwrap().endings.clone();
+        let font_size = px(self.code_font_size);
         canvas(
             |_, _, _| (),
             move |overlay_bounds, _, window, cx| {
-                let Some(bounds) = gutter_bounds.get() else {
-                    return;
-                };
                 let before_state = before.read(cx);
                 let after_state = after.read(cx);
                 let before_bounds = before_viewport.get().unwrap_or(before_state.input_bounds());
                 let after_bounds = after_viewport.get().unwrap_or(after_state.input_bounds());
+                let bounds = match gutter_bounds.get() {
+                    Some(bounds) => bounds,
+                    None if single_file => Bounds::from_corners(
+                        point(before_bounds.right(), before_bounds.top()),
+                        point(before_bounds.right(), before_bounds.bottom()),
+                    ),
+                    None => return,
+                };
                 let colors = crate::appearance::diff_colors(cx);
                 let line_height = before_state.line_height().unwrap_or(px(20.));
                 let before_origin = before_state.text_bounds().unwrap_or(before_bounds).origin.y;
                 let after_origin = after_state.text_bounds().unwrap_or(after_bounds).origin.y;
                 let geometry = comparison_geometry(before_state, after_state, &model);
+                let mut ending_runs = Vec::new();
+                if show_endings {
+                    for (state, positions, markers, viewport, origin) in [
+                        (
+                            before_state,
+                            &geometry.before,
+                            &endings[0],
+                            before_bounds,
+                            before_origin,
+                        ),
+                        (
+                            after_state,
+                            &geometry.after,
+                            &endings[1],
+                            after_bounds,
+                            after_origin,
+                        ),
+                    ] {
+                        let first = positions
+                            .partition_point(|y| origin + px(*y) < viewport.top())
+                            .saturating_sub(1)
+                            .min(markers.len());
+                        let last = positions
+                            .partition_point(|y| origin + px(*y) <= viewport.bottom())
+                            .min(markers.len());
+                        for (offset, label) in &markers[first..last.max(first)] {
+                            if let Some(bounds) = state.range_to_bounds(&(*offset..*offset)) {
+                                ending_runs.push((viewport, bounds.origin, *label));
+                            }
+                        }
+                    }
+                }
                 let resolved_horizontal = -f32::from(
                     before_state
                         .scroll_offset()
@@ -93,6 +134,36 @@ impl Viewer {
                 };
                 let before_text = text_start(before_state, &model.before_offsets);
                 let after_text = text_start(after_state, &model.after_offsets);
+                let font = gpui::Font {
+                    family: gpui::component::Theme::global(cx).mono_font_family.clone(),
+                    ..Default::default()
+                };
+                let marker_color = gpui::component::Theme::global(cx).muted_foreground;
+                for (viewport, origin, label) in ending_runs {
+                    window.with_content_mask(Some(ContentMask { bounds: viewport }), |window| {
+                        let shape = window.text_system().shape_line(
+                            label.into(),
+                            font_size,
+                            &[gpui::TextRun {
+                                len: label.len(),
+                                font: font.clone(),
+                                color: marker_color,
+                                background_color: None,
+                                underline: None,
+                                strikethrough: None,
+                            }],
+                            None,
+                        );
+                        let _ = shape.paint(
+                            origin + point(px(4.), px(0.)),
+                            line_height,
+                            gpui::TextAlign::Left,
+                            None,
+                            window,
+                            cx,
+                        );
+                    });
+                }
                 fluid_scrollbar::paint_shared_scrollbar(
                     viewer.clone(),
                     clip,

@@ -586,3 +586,34 @@ development registrations request those read-only permissions. Existing apps and
 installations are not silently changed; access failures remain visible. Bitbucket
 uses its existing Repository and Pull requests read grants. No new app setting is
 required for this status presentation.
+
+## Comparison and invisible-character options
+
+These defaults apply to local, standalone and hosted comparisons. Commands override
+individual values in the current viewer; they do not edit configuration or fetch a
+new snapshot. Opening a new/replaced viewer uses its configuration defaults. Changing a configured
+default replaces that value's override; unchanged fields leave overrides intact. Ignore rules rebuild alignment from the same pinned
+source. Rendering-only options update without recomputing comparison matching.
+
+| Setting | Default | Meaning |
+| --- | --- | --- |
+| `diff.whitespace` | `"exact"` | `exact`, `ignore_trailing` (spaces/tabs at line ends), `ignore_changes` (also equate nonempty runs of spaces/tabs), or `ignore_all` (remove spaces/tabs from comparison keys). Leading/interior whitespace presence remains significant in `ignore_changes`. |
+| `diff.ignore_line_endings` | `false` | Compare CRLF and LF endings equally. Missing final LF remains significant; bare CR inside an LF row remains source content. |
+| `diff.ignore_blank_lines` | `false` | Ignore rows containing only ASCII spaces, tabs or CR/LF when aligning. Blank rows remain present in the source and clipboard. |
+| `diff.word_highlight` | `true` | Emphasize changed words within changed lines. Row backgrounds/signs remain independent. |
+| `diff.show_whitespace` | `false` | Paint space dots and tab arrows without changing source characters or tab stops. |
+| `diff.show_line_endings` | `false` | Paint LF/CRLF/EOF labels at row ends. A final bare CR is labeled CR · EOF; internal bare CR remains content within the LF row. |
+| `diff.highlight_whitespace_errors` | `false` | Highlight trailing ASCII spaces/tabs and spaces before tabs within leading indentation. This is visual feedback, not trimming or an edit. |
+| `diff.colors.whitespace_error` | `{ light = "#bc4c00", dark = "#ffb454" }` | Error-highlight hue. Accepts a shared hex string or light/dark values, like all configurable colors. |
+
+All modes and the stacked overview use the same filtered alignment for highlighting,
+counts, navigation and unchanged-range folding. Ignore filters never erase changed
+file metadata or either side's original bytes. The comparison caption names active
+ignore rules; files with no visible text changes remain available. Whitespace can
+be meaningful in source languages, so exact comparison remains the default.
+
+Visibility commands show markers rather than inserting glyphs into the buffer.
+Copied source excludes marker labels and includes original spaces, tabs and endings.
+`Toggle whitespace differences` switches between exact matching and the last chosen
+ignore-whitespace mode (initially `ignore_all` when no non-exact mode was selected).
+Moved-code detection is not implemented by these settings.

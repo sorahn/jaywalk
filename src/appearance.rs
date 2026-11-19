@@ -141,6 +141,7 @@ fn resolve_diff_colors(colors: DiffColorSettings, dark: bool) -> gpui::component
         word_added: resolve(colors.word_added),
         word_removed: resolve(colors.word_removed),
         conflict_base: resolve(colors.conflict_base),
+        whitespace_error: resolve(colors.whitespace_error),
     }
 }
 

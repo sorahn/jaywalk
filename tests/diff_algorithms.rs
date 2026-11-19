@@ -11,6 +11,14 @@ fn each_algorithm_preserves_full_content_and_agrees_across_fluid_and_standard_di
         ("", "added\n"),
         ("removed", ""),
         ("last\n", "last"),
+        ("one\rold\r", "one\rnew\r"),
+        ("one\r\nold\r\n", "one\r\nnew\r\n"),
+        ("漢字\rold\nlast\r", "漢字\rnew\nlast\r\n"),
+        ("same\n", "same\r\n"),
+        ("same\r", "same"),
+        ("", "\r"),
+        ("\r", ""),
+        ("one\r\nold\rtail", "one\r\nnew\rtail"),
         (
             "fn alpha() {\n    old();\n}\n\nfn beta() {\n    keep();\n}\n",
             "fn alpha(arg: i32) {\n    new();\n}\n\nfn beta() {\n    keep();\n}\n",
@@ -77,5 +85,56 @@ fn algorithm_settings_keep_myers_default_and_reject_unsupported_backends() {
     }
     for name in ["histogram", "minimal", "lcs", "typo"] {
         assert!(Settings::parse(&format!("[diff]\nalgorithm='{name}'")).is_err());
+    }
+}
+
+#[test]
+fn carriage_return_word_spans_slice_the_original_utf8_text_and_use_editor_rows() {
+    for algorithm in [Algorithm::Myers, Algorithm::Patience] {
+        for ending in ["\r", "\r\n", "\n"] {
+            let before = format!("漢字{ending}let café = oldValue;{ending}尾部");
+            let after = format!("漢字{ending}let café = newValue;{ending}尾部");
+            let model = FileDiff::with_algorithm(&before, &after, algorithm);
+            assert_eq!(
+                model.before_offsets.len(),
+                before.split_inclusive('\n').count() + 1
+            );
+            assert_eq!(
+                model.after_offsets.len(),
+                after.split_inclusive('\n').count() + 1
+            );
+            assert_eq!(
+                model
+                    .before_words
+                    .iter()
+                    .map(|r| &before[r.clone()])
+                    .collect::<Vec<_>>(),
+                ["oldValue"]
+            );
+            assert_eq!(
+                model
+                    .after_words
+                    .iter()
+                    .map(|r| &after[r.clone()])
+                    .collect::<Vec<_>>(),
+                ["newValue"]
+            );
+            assert_eq!(
+                model
+                    .blocks
+                    .iter()
+                    .map(|b| &before[model.byte_range(b, true)])
+                    .collect::<String>(),
+                before
+            );
+            assert_eq!(
+                model
+                    .blocks
+                    .iter()
+                    .map(|b| &after[model.byte_range(b, false)])
+                    .collect::<String>(),
+                after
+            );
+        }
     }
 }

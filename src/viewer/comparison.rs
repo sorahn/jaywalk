@@ -160,6 +160,12 @@ impl Viewer {
     }
 
     pub(super) fn unchanged_file_summary(&self) -> &'static str {
+        if self
+            .code()
+            .is_some_and(|c| !c.text_equal && c.model.blocks.iter().all(|b| !b.changed))
+        {
+            return "Only ignored differences";
+        }
         let status = self
             .selected_file
             .as_ref()
@@ -180,9 +186,10 @@ impl Viewer {
             .as_ref()
             .expect("loaded file has metadata");
         let file = &selected.file;
-        let contents_unchanged = self
+        let contents_unchanged = self.code().is_some_and(|code| code.text_equal);
+        let no_visible_changes = self
             .code()
-            .is_some_and(|code| code.model.blocks.iter().all(|block| !block.changed));
+            .is_some_and(|code| code.model.blocks.iter().all(|b| !b.changed));
         let updating = self.loading_visible(LoadingKind::Comparison)
             || self.loading_visible(LoadingKind::File)
             || self.loading_visible(LoadingKind::Live);
@@ -205,7 +212,7 @@ impl Viewer {
                     ""
                 }
             )),
-            _ if contents_unchanged && file.kind().is_some() => {
+            _ if no_visible_changes && file.kind().is_some() => {
                 Some(self.unchanged_file_summary().to_owned())
             }
             _ => None,
@@ -525,6 +532,7 @@ impl Viewer {
                         .into_any_element()
                 } else if let Some(Ok(Some(state))) = self.code().map(|code| &code.standard) {
                     Diff::new(state)
+                        .display_options(self.diff_render_options())
                         .colors(crate::appearance::diff_colors(cx))
                         .border_0()
                         .code_font(

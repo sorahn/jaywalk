@@ -107,6 +107,7 @@ pub(crate) struct LayoutKey {
     soft_wrap: bool,
     side_wrap: [bool; 2],
     split_ratio: f32,
+    line_endings: bool,
 }
 
 impl LayoutKey {
@@ -122,6 +123,7 @@ impl LayoutKey {
         soft_wrap: bool,
         side_wrap: [bool; 2],
         split_ratio: f32,
+        line_endings: bool,
     ) -> Self {
         Self {
             rem,
@@ -134,6 +136,7 @@ impl LayoutKey {
             soft_wrap,
             side_wrap,
             split_ratio,
+            line_endings,
         }
     }
 }

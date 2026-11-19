@@ -81,6 +81,7 @@ impl SeriesEntry {
     }
 }
 pub struct OverviewFile {
+    pub alignment: Option<Vec<crate::diff_options::LineAlignment>>,
     pub file: ChangedFile,
     pub patch: String,
     pub notice: Option<String>,
@@ -207,6 +208,13 @@ impl Comparison {
         &self,
         algorithm: crate::diff_model::Algorithm,
     ) -> OverviewSnapshot {
+        self.overview_with_options(algorithm, Default::default())
+    }
+    pub fn overview_with_options(
+        &self,
+        algorithm: crate::diff_model::Algorithm,
+        options: crate::diff_options::ComparisonOptions,
+    ) -> OverviewSnapshot {
         let (commit, metadata_error) = match self.commit_details() {
             Ok(commit) => (commit, None),
             Err(error) => (None, Some(error)),
@@ -219,12 +227,20 @@ impl Comparison {
                     .catalog()
                     .find(file.after_path())
                     .and_then(|entry| entry.metadata_change_notice());
+                let mut alignment = None;
                 let (patch, notice) = match self
                     .catalog()
                     .find(file.after_path())
                     .map_or_else(|| self.contents(file), |entry| self.read_file(entry))
                 {
                     Ok((before, after)) => {
+                        if options != Default::default() {
+                            alignment = Some(options.alignment(&before, &after, algorithm));
+                        }
+                        let ignored = before != after
+                            && alignment
+                                .as_ref()
+                                .is_some_and(|rows| rows.iter().all(|r| !r.changed));
                         let notice = if before == after {
                             Some(metadata_notice.clone().unwrap_or_else(|| {
                                 match file.kind() {
@@ -236,6 +252,11 @@ impl Comparison {
                                 }
                                 .to_owned()
                             }))
+                        } else if ignored {
+                            Some(
+                                "Only ignored differences with the current comparison options"
+                                    .into(),
+                            )
                         } else {
                             metadata_notice
                         };
@@ -250,6 +271,7 @@ impl Comparison {
                     ),
                 };
                 OverviewFile {
+                    alignment,
                     file: file.clone(),
                     patch,
                     notice,
@@ -334,15 +356,13 @@ pub fn overview_patch_with_algorithm(
                 patch.push_str("\n\\ No newline at end of file\n");
             }
         } else {
-            patch.push_str(
-                &similar::TextDiff::configure()
-                    .algorithm(algorithm.similar())
-                    .diff_lines(before, after)
-                    .unified_diff()
-                    .context_radius(before.lines().count().max(after.lines().count()))
-                    .header(before_path, after_path)
-                    .to_string(),
-            );
+            patch.push_str(&crate::diff_model::full_patch(
+                before,
+                after,
+                algorithm,
+                before_path,
+                after_path,
+            ));
         }
         if before == after
             && file.kind() != &ChangeKind::Renamed

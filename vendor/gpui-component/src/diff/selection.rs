@@ -215,6 +215,9 @@ pub(crate) struct CodeText {
     selection: TextSelectionHandle,
     geometry: Rc<RefCell<SelectionGeometry>>,
     styled_text: Option<StyledText>,
+    options: super::DiffDisplayOptions,
+    font_size: Pixels,
+    row_height: Pixels,
 }
 
 impl CodeText {
@@ -229,6 +232,9 @@ impl CodeText {
         highlights: Vec<(Range<usize>, HighlightStyle)>,
         selection: TextSelectionHandle,
         geometry: Rc<RefCell<SelectionGeometry>>,
+        options: super::DiffDisplayOptions,
+        font_size: Pixels,
+        row_height: Pixels,
     ) -> Self {
         Self {
             id,
@@ -241,6 +247,9 @@ impl CodeText {
             selection,
             geometry,
             styled_text: None,
+            options,
+            font_size,
+            row_height,
         }
     }
 }
@@ -312,14 +321,20 @@ impl Element for CodeText {
     ) {
         let text = self.styled_text.as_mut().unwrap();
         text.prepaint(id, inspector, bounds, &mut (), window, cx);
+        let mut run_bounds = bounds;
+        if self.options.line_endings
+            && self.range.end == self.document.lines(self.side)[self.line_ix].display().len()
+        {
+            run_bounds.size.width += gpui::px(64.);
+        }
         self.geometry.borrow_mut().runs.push(CodeRun {
             file: self.file,
             side: self.side,
             line_ix: self.line_ix,
             display_range: self.range.clone(),
             layout: text.layout().clone(),
-            bounds,
-            visible: bounds.intersect(&window.content_mask().bounds),
+            bounds: run_bounds,
+            visible: run_bounds.intersect(&window.content_mask().bounds),
             document: self.document.clone(),
         });
     }
@@ -342,6 +357,77 @@ impl Element for CodeText {
             window,
             cx,
         );
+        let line = &self.document.lines(self.side)[self.line_ix];
+        let font = window.text_style().font();
+        let color = crate::ActiveTheme::theme(cx).muted_foreground;
+        let paint = |label: &str, offset: usize, window: &mut Window, cx: &mut App| {
+            if let Some(origin) = self
+                .styled_text
+                .as_ref()
+                .unwrap()
+                .layout()
+                .position_for_index(offset)
+            {
+                let shaped = window.text_system().shape_line(
+                    label.to_owned().into(),
+                    self.font_size,
+                    &[gpui::TextRun {
+                        len: label.len(),
+                        font: font.clone(),
+                        color,
+                        background_color: None,
+                        underline: None,
+                        strikethrough: None,
+                    }],
+                    None,
+                );
+                let _ = shaped.paint(
+                    origin,
+                    self.row_height,
+                    gpui::TextAlign::Left,
+                    None,
+                    window,
+                    cx,
+                );
+            }
+        };
+        if self.options.whitespace {
+            let source_start = line.source_offset(self.range.start);
+            let mut source_end = line.source_offset(self.range.end);
+            // Include a tab spanning a chunk boundary; its display start
+            // determines which chunk owns the marker.
+            if source_end < line.text().len() {
+                source_end += line.text()[source_end..].chars().next().unwrap().len_utf8();
+            }
+            for (relative, c) in line.text()[source_start..source_end]
+                .char_indices()
+                .filter(|(_, c)| matches!(c, ' ' | '\t'))
+            {
+                let ix = source_start + relative;
+                let start = line.display_range(ix..ix + c.len_utf8()).start;
+                if self.range.contains(&start) {
+                    paint(
+                        if c == '\t' { "→" } else { "·" },
+                        start - self.range.start,
+                        window,
+                        cx,
+                    );
+                }
+            }
+        }
+        if self.options.line_endings && self.range.end == line.display().len() {
+            let raw = &self.document.source(self.side)[line.source()];
+            let label = if raw.ends_with("\r\n") {
+                " CRLF"
+            } else if raw.ends_with('\n') {
+                " LF"
+            } else if raw.ends_with('\r') {
+                " CR · EOF"
+            } else {
+                " EOF"
+            };
+            paint(label, self.range.len(), window, cx);
+        }
     }
 }
 

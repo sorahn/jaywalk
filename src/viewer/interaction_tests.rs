@@ -1841,3 +1841,206 @@ fn git_whole_branch_return_keeps_unstaged_rename_after_commit_inspection(cx: &mu
         );
     });
 }
+
+#[gpui_test::test]
+fn carriage_returns_preserve_source_selection_in_all_diff_modes(cx: &mut TestAppContext) {
+    use gpui_kit::component::diff::{DiffLineRange, DiffSide};
+    use jaywalk::{diff_model::Algorithm, settings::DiffView};
+    let fixture = Fixture::new();
+    let (viewer, cx) = setup(&fixture, cx);
+    for (before, after) in [
+        ("\tone\roldValue\r尾部", "\tone\rnewValue\r尾部"),
+        ("one\r\nold\r\n", "one\r\nnew\r\n"),
+        ("漢字\rold\nlast\r", "漢字\rnew\nlast\r\n"),
+        ("same\n", "same\r\n"),
+    ] {
+        fixture.replace(before, after);
+        for algorithm in [Algorithm::Myers, Algorithm::Patience] {
+            cx.update(|window, app| {
+                viewer.update(app, |v, cx| {
+                    v.settings.diff.algorithm = algorithm;
+                    v.refresh(window, cx);
+                })
+            });
+            draw(cx);
+            for mode in [DiffView::Fluid, DiffView::SideBySide, DiffView::Inline] {
+                cx.update(|_, app| viewer.update(app, |v, cx| v.set_view_mode(mode, cx)));
+                draw(cx);
+                let (old_editor, new_editor, standard) = cx.update(|_, app| {
+                    let code = viewer
+                        .read(app)
+                        .code()
+                        .expect("CR files load without panicking");
+                    (
+                        code.before.clone(),
+                        code.after.clone(),
+                        code.standard.as_ref().unwrap().as_ref().unwrap().clone(),
+                    )
+                });
+                cx.update(|_, app| {
+                    for (editor, source) in [(&old_editor, before), (&new_editor, after)] {
+                        assert_eq!(editor.read(app).value().as_ref(), source);
+                        editor.update(app, |editor, cx| {
+                            editor.set_selected_range(0..source.len(), cx);
+                            assert_eq!(editor.selected_text().to_string(), source);
+                        });
+                    }
+                });
+                cx.update(|_, app| {
+                    standard.update(app, |state, cx| {
+                        let path = state.files()[0].path().clone();
+                        for (side, source) in
+                            [(DiffSide::Original, before), (DiffSide::Modified, after)]
+                        {
+                            state.set_selected_lines(
+                                Some(DiffLineRange::new(path.clone(), side, 1, usize::MAX)),
+                                cx,
+                            );
+                            assert_eq!(
+                                state.selected_text(cx),
+                                source,
+                                "{mode:?} / {algorithm:?}: source bytes changed"
+                            );
+                        }
+                        state.set_selected_lines(None, cx);
+                    })
+                });
+            }
+        }
+    }
+}
+
+#[gpui_test::test]
+fn comparison_options_keep_each_sources_bytes_and_agree_in_every_view(cx: &mut TestAppContext) {
+    use gpui_kit::component::diff::{DiffLineRange, DiffSide};
+    use jaywalk::{commands::CommandId, settings::DiffView};
+    let f = Fixture::new();
+    let before = "let café = 1; \r\n\n\t \r\nlast\r\n";
+    let after = "letcafé=1;\nlast\n";
+    f.replace(before, after);
+    let (viewer, cx) = setup(&f, cx);
+    let identity = cx.update(|_, app| viewer.read(app).comparison().unwrap().identity());
+    for command in [
+        CommandId::WhitespaceAll,
+        CommandId::ToggleIgnoreLineEndings,
+        CommandId::ToggleIgnoreBlankLines,
+    ] {
+        cx.update(|w, app| viewer.update(app, |v, cx| v.execute_command(command, w, cx)));
+        draw(cx);
+    }
+    for mode in [DiffView::Fluid, DiffView::SideBySide, DiffView::Inline] {
+        cx.update(|_, app| viewer.update(app, |v, cx| v.set_view_mode(mode, cx)));
+        draw(cx);
+        let standard = cx.update(|_, app| {
+            let v = viewer.read(app);
+            assert_eq!(v.comparison().unwrap().identity(), identity);
+            let code = v.code().unwrap();
+            assert!(code.model.blocks.iter().all(|b| !b.changed));
+            assert_eq!(code.before.read(app).value().as_ref(), before);
+            assert_eq!(code.after.read(app).value().as_ref(), after);
+            code.standard.as_ref().unwrap().as_ref().unwrap().clone()
+        });
+        cx.update(|_, app| {
+            standard.update(app, |state, cx| {
+                assert_eq!(state.change_navigation_position().1, 0);
+                let path = state.files()[0].path().clone();
+                for (side, text) in [(DiffSide::Original, before), (DiffSide::Modified, after)] {
+                    state.set_selected_lines(
+                        Some(DiffLineRange::new(path.clone(), side, 1, usize::MAX)),
+                        cx,
+                    );
+                    assert_eq!(state.selected_text(cx), text);
+                }
+                state.set_selected_lines(None, cx);
+            })
+        });
+    }
+    let old_model = cx.update(|_, app| viewer.read(app).code().unwrap().model.clone());
+    for command in [
+        CommandId::ToggleShowWhitespace,
+        CommandId::ToggleShowLineEndings,
+        CommandId::ToggleWhitespaceErrors,
+        CommandId::ToggleWordHighlight,
+    ] {
+        cx.update(|w, app| viewer.update(app, |v, cx| v.execute_command(command, w, cx)));
+        draw(cx);
+        cx.update(|_, app| {
+            assert!(std::rc::Rc::ptr_eq(
+                &old_model,
+                &viewer.read(app).code().unwrap().model
+            ))
+        });
+    }
+    cx.update(|_, app| {
+        let v = viewer.read(app);
+        assert!(
+            v.diff_preferences.show_whitespace
+                && v.diff_preferences.show_line_endings
+                && v.diff_preferences.highlight_whitespace_errors
+        );
+        assert!(!v.diff_preferences.word_highlight);
+    });
+    cx.update(|w, app| {
+        viewer.update(app, |v, cx| {
+            v.execute_command(CommandId::WhitespaceExact, w, cx)
+        })
+    });
+    draw(cx);
+    cx.update(|_, app| {
+        assert!(
+            viewer
+                .read(app)
+                .code()
+                .unwrap()
+                .model
+                .blocks
+                .iter()
+                .any(|b| b.changed)
+        )
+    });
+}
+
+#[gpui_test::test]
+fn diff_config_changes_replace_only_edited_defaults_and_commands_remember_the_ignore_mode(
+    cx: &mut TestAppContext,
+) {
+    use jaywalk::{commands::CommandId, diff_options::Whitespace};
+    let f = Fixture::new();
+    let (viewer, cx) = setup(&f, cx);
+    cx.update(|w, app| {
+        viewer.update(app, |v, cx| {
+            v.execute_command(CommandId::WhitespaceTrailing, w, cx);
+            v.execute_command(CommandId::ToggleWhitespaceDifferences, w, cx);
+            assert_eq!(v.diff_preferences.comparison.whitespace, Whitespace::Exact);
+            v.execute_command(CommandId::ToggleWhitespaceDifferences, w, cx);
+            assert_eq!(
+                v.diff_preferences.comparison.whitespace,
+                Whitespace::IgnoreTrailing
+            );
+            v.execute_command(CommandId::ToggleShowWhitespace, w, cx);
+        })
+    });
+    draw(cx);
+    cx.update(|w, app| {
+        viewer.update(app, |v, cx| {
+            let mut settings = v.settings.clone();
+            settings.ui.font_size += 1.;
+            v.apply_settings(settings, w, cx);
+            assert!(v.diff_preferences.show_whitespace);
+            assert_eq!(
+                v.diff_preferences.comparison.whitespace,
+                Whitespace::IgnoreTrailing
+            );
+            let mut settings = v.settings.clone();
+            settings.diff.whitespace = Whitespace::IgnoreAll;
+            settings.diff.show_line_endings = true;
+            v.apply_settings(settings, w, cx);
+            assert_eq!(
+                v.diff_preferences.comparison.whitespace,
+                Whitespace::IgnoreAll
+            );
+            assert!(v.diff_preferences.show_whitespace && v.diff_preferences.show_line_endings);
+        })
+    });
+    draw(cx);
+}

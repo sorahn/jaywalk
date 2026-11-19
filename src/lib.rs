@@ -1,6 +1,7 @@
 pub mod branch_review;
 pub mod commands;
 pub mod diff_model;
+pub mod diff_options;
 pub mod evolution;
 pub mod external;
 pub mod file_browser;

@@ -465,3 +465,24 @@ profile: `compare_revision` (also in a history row's context menu),
 in the comparison header reveal endpoints without changing the inspected file.
 All changes restores the pair after inspecting a commit; Current work returns
 to the workspace. Back/Forward restores the pair and captured contents.
+
+### Comparison and invisible characters
+
+These commands require a loaded comparison and are unbound by default. Add their
+keys to the selected keybindings profile to assign shortcuts. Commands override
+current-viewer defaults without editing config; active ignore rules appear in the
+comparison caption. They preserve source bytes for copying.
+
+| Key | Command |
+| --- | --- |
+| `toggle_whitespace_differences` | Toggle exact comparison / last ignore-whitespace mode |
+| `whitespace_exact` | Compare whitespace exactly |
+| `whitespace_trailing` | Ignore trailing whitespace |
+| `whitespace_changes` | Ignore changes in whitespace amount |
+| `whitespace_all` | Ignore all whitespace |
+| `toggle_ignore_line_endings` | Toggle ignoring CRLF/LF differences |
+| `toggle_ignore_blank_lines` | Toggle ignoring blank-line changes |
+| `toggle_word_highlight` | Toggle word-level highlighting |
+| `toggle_show_whitespace` | Toggle visible spaces and tabs |
+| `toggle_show_line_endings` | Toggle visible line endings |
+| `toggle_whitespace_errors` | Toggle whitespace error highlighting |
