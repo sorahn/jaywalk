@@ -45,9 +45,12 @@ changes, or select a file to open the diff viewer. **All changes** returns to
 the comparison you opened. In jj repositories, **Evolution** lets you inspect
 recorded versions of a change and what changed between rewrites.
 
-Jaywalk reads local repository data. It does not commit, snapshot your working
-copy, fetch remotes, or resolve merges. jj comparisons use recorded snapshots;
-plain Git comparisons include staged, unstaged, and untracked worktree files.
+Normal repository viewing does not commit, snapshot your working copy, fetch
+remotes or resolve merges. jj comparisons use recorded snapshots; plain Git
+comparisons include staged, unstaged and untracked worktree files. Optional
+[local PR review](docs/settings.md#local-pr-review-local_review) can acquire pinned
+Git objects in private storage, or check out a PR in a clean plain-Git repository
+with guarded restoration. These actions are disabled by default.
 See the [usage guide](docs/usage.md) for comparison behavior, live updates, and
 integration with `jj diff` and `git difftool`.
 

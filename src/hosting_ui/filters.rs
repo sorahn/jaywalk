@@ -25,7 +25,7 @@ impl PullRequestsPage {
                 self.accounts(cx)
                     .iter()
                     .find(|account| &account.identity.key == key)
-                    .map(|account| format!("{} · {}", key.provider.name(), account.identity.label))
+                    .map(|account| format!("{} · {}", key.provider.name(), account.label()))
                     .unwrap_or_else(|| "Unavailable account".into())
             },
         )
@@ -47,11 +47,19 @@ impl PullRequestsPage {
             ],
             Step::Scope => vec![
                 (
-                    "My open PRs".into(),
+                    "For me · Combined inbox".into(),
+                    FilterChoice::Scope(Some(Scope::ForMe)),
+                ),
+                (
+                    "Assigned to me · GitHub".into(),
+                    FilterChoice::Scope(Some(Scope::Assigned)),
+                ),
+                (
+                    "Authored by me".into(),
                     FilterChoice::Scope(Some(Scope::Authored)),
                 ),
                 (
-                    "Review requested · GitHub".into(),
+                    "Review requested".into(),
                     FilterChoice::Scope(Some(Scope::ReviewRequested)),
                 ),
                 ("Recent PRs".into(), FilterChoice::Scope(None)),
@@ -66,7 +74,7 @@ impl PullRequestsPage {
                         format!(
                             "{} · {}",
                             account.identity.key.provider.name(),
-                            account.identity.label
+                            account.label()
                         ),
                         FilterChoice::Account(Some(account.identity.key)),
                     )

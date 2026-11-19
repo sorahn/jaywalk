@@ -27,6 +27,7 @@ impl CredentialStore for Store {
     }
 }
 struct Adapter {
+    review_commits: Option<(String, String)>,
     calls: AtomicUsize,
     status_calls: Arc<AtomicUsize>,
     fail: std::sync::atomic::AtomicBool,
@@ -64,8 +65,16 @@ impl HostingProvider for Adapter {
         let Request::Json(url) = request else {
             return Err(Error::Unsupported);
         };
+        let base = self
+            .review_commits
+            .as_ref()
+            .map_or_else(|| "a".repeat(40), |(base, _)| base.clone());
+        let head = self
+            .review_commits
+            .as_ref()
+            .map_or_else(|| "b".repeat(40), |(_, head)| head.clone());
         let value = if url.path().contains("/compare/") {
-            serde_json::json!({"merge_base_commit":{"sha":"a".repeat(40)}})
+            serde_json::json!({"merge_base_commit":{"sha":base}})
         } else if url.path().ends_with("/check-runs")
             || url.path().ends_with("/status")
             || url.path().ends_with("/reviews")
@@ -75,9 +84,9 @@ impl HostingProvider for Adapter {
                 return Err(Error::Network);
             }
             if url.path().ends_with("/check-runs") {
-                serde_json::json!({"total_count":1,"check_runs":[{"id":1,"name":"Synthetic CI","head_sha":"b".repeat(40),"status":"completed","conclusion":"success"}]})
+                serde_json::json!({"total_count":1,"check_runs":[{"id":1,"name":"Synthetic CI","head_sha":head,"status":"completed","conclusion":"success"}]})
             } else if url.path().ends_with("/status") {
-                serde_json::json!({"sha":"b".repeat(40),"total_count":0,"statuses":[]})
+                serde_json::json!({"sha":head,"total_count":0,"statuses":[]})
             } else {
                 serde_json::json!([])
             }
@@ -89,7 +98,7 @@ impl HostingProvider for Adapter {
                 .unwrap()
                 .parse::<u64>()
                 .map_err(|_| Error::InvalidResponse)?;
-            serde_json::json!({"number":number,"id":number,"node_id":format!("PR_{number}"),"title":"Synthetic review","body":"Review description","user":{"login":"person"},"state":"open","changed_files":0,"commits":0,"head":{"sha":"b".repeat(40),"repo":{"full_name":"team/widgets","node_id":"R"}},"base":{"sha":"a".repeat(40),"repo":{"full_name":"team/widgets","node_id":"R"}}})
+            serde_json::json!({"number":number,"id":number,"node_id":format!("PR_{number}"),"title":"Synthetic review","body":"Review description","user":{"login":"person"},"state":"open","changed_files":0,"commits":0,"head":{"sha":head,"repo":{"full_name":"team/widgets","node_id":"R"}},"base":{"sha":base,"repo":{"full_name":"team/widgets","node_id":"R"}}})
         };
         Ok(Reply::Json(value))
     }
@@ -122,6 +131,7 @@ pub(crate) fn fake_service_with_status_counter() -> (Arc<Service>, Arc<AtomicUsi
     let service = Service::new(
         Arc::new(Store),
         Arc::new(Adapter {
+            review_commits: None,
             calls: AtomicUsize::new(0),
             status_calls: counter.clone(),
             fail: std::sync::atomic::AtomicBool::new(false),
@@ -145,6 +155,7 @@ fn batch(number: u64) -> Batch {
             branch: "fix/momentum".into(),
             state: "OPEN".into(),
         }],
+        priority_count: 0,
         partial: false,
         coverage: vec!["synthetic".into()],
     }
@@ -152,6 +163,7 @@ fn batch(number: u64) -> Batch {
 fn setup(cx: &mut gpui_test::TestAppContext) -> (tempfile::TempDir, Arc<Adapter>, Arc<Service>) {
     let fixture = tempfile::tempdir().unwrap();
     let adapter = Arc::new(Adapter {
+        review_commits: None,
         calls: AtomicUsize::new(0),
         status_calls: Arc::new(AtomicUsize::new(0)),
         fail: std::sync::atomic::AtomicBool::new(false),
@@ -293,6 +305,7 @@ fn a_full_url_offers_its_provider_even_after_a_different_account_filter(
                 .snapshot
                 .accounts
                 .push(jaywalk::accounts::AccountView {
+                    name: None,
                     generation: 999,
                     identity: Identity {
                         key: AccountKey {
@@ -512,7 +525,7 @@ fn restart_snapshot_remains_visible_after_failed_in_palette_refresh(
     jaywalk::hosting::snapshots::save(
         &path,
         &key,
-        &Scope::Authored,
+        &Scope::ForMe,
         &old,
         std::time::SystemTime::now(),
         &Control::new(std::time::Duration::from_secs(10)),
@@ -534,7 +547,7 @@ fn restart_snapshot_remains_visible_after_failed_in_palette_refresh(
     draw(cx);
     assert_eq!(cx.update(|_, app| page.read(app).choices(app).len()), 1);
     assert!(cx.update(|_, app| {
-        page.read(app).views[&Scope::Authored]
+        page.read(app).views[&Scope::ForMe]
             .iter()
             .any(|result| result.saved_at.is_some() && result.error == Some(Error::Network))
     }));
@@ -554,7 +567,7 @@ fn restart_snapshot_remains_visible_after_failed_in_palette_refresh(
     assert_eq!(adapter.calls.load(Ordering::SeqCst), 6);
     assert_eq!(cx.update(|_, app| page.read(app).choices(app).len()), 2);
     assert!(cx.update(|_, app| {
-        page.read(app).views[&Scope::Authored]
+        page.read(app).views[&Scope::ForMe]
             .iter()
             .all(|result| result.saved_at.is_none() && result.error.is_none())
     }));
@@ -597,7 +610,10 @@ fn refreshed_results_preserve_selected_identity_when_rows_move(
         })
     });
     draw(cx);
-    cx.simulate_keystrokes("down");
+    cx.update(|window, app| page.update(app, |page, cx| {
+        let index = page.choices(cx).iter().position(|choice| matches!(choice, Choice::Item { batch, index, .. } if batch.items[*index].locator.number == 43)).unwrap();
+        page.input.update(cx, |state,cx| state.set_selected_index(Some(gpui::component::IndexPath::new(index)), window, cx));
+    }));
     draw(cx);
     cx.update(|window, app| {
         page.update(app, |page, cx| {
@@ -659,4 +675,123 @@ fn cancelling_review_open_discards_late_completion(test_cx: &mut gpui_test::Test
     assert_eq!(opened.get(), 0);
     assert!(!cx.update(|_, app| page.read(app).opening));
     assert!(!cx.update(|_, app| page.read(app).choices(app).is_empty()));
+}
+
+pub(crate) fn fake_service_with_review_commits(base: String, head: String) -> Arc<Service> {
+    Service::new(
+        Arc::new(Store),
+        Arc::new(Adapter {
+            review_commits: Some((base, head)),
+            calls: AtomicUsize::new(0),
+            status_calls: Arc::new(AtomicUsize::new(0)),
+            fail: std::sync::atomic::AtomicBool::new(false),
+        }),
+    )
+}
+
+#[gpui_test::test]
+fn inbox_default_prioritizes_across_accounts_but_preserves_text_relevance(
+    test_cx: &mut gpui_test::TestAppContext,
+) {
+    let (fixture, _, _) = setup(test_cx);
+    let mut page = None;
+    let (_, cx) = test_cx.add_window_view(|window, app| {
+        let view = app
+            .new(|cx| PullRequestsPage::new(None, fixture.path().join("recent.json"), window, cx));
+        page = Some(view.clone());
+        gpui::component::Root::new(view, window, app)
+    });
+    let page = page.unwrap();
+    draw(cx);
+    cx.update(|window, app| {
+        page.update(app, |page, cx| {
+            assert_eq!(page.scope, Some(Scope::ForMe));
+            for (index, account) in page.accounts(cx).into_iter().enumerate() {
+                let mut items = batch(10 + index as u64);
+                items.priority_count = 1;
+                items.items[0].title = "Refine scrolling target".into();
+                let mut authored = batch(20 + index as u64).items.remove(0);
+                authored.title = "target exact".into();
+                items.items.push(authored);
+                page.accept(
+                    account.clone(),
+                    Ok(jaywalk::hosting::Fetched {
+                        generation: account.generation,
+                        batch: Arc::new(items),
+                        cached: false,
+                        fetched_at: std::time::SystemTime::now(),
+                    }),
+                    window,
+                    cx,
+                );
+            }
+            let numbers = |choices: Vec<Choice>| {
+                choices
+                    .into_iter()
+                    .map(|choice| {
+                        let Choice::Item { batch, index, .. } = choice else {
+                            panic!()
+                        };
+                        batch.items[index].locator.number
+                    })
+                    .collect::<Vec<_>>()
+            };
+            assert_eq!(numbers(page.choices(cx)), [10, 11, 20, 21]);
+            // Both groups match, but the authored title has the stronger text match.
+            page.set_search_query("target", window, cx);
+            assert_eq!(numbers(page.choices(cx)), [20, 21, 10, 11]);
+        })
+    });
+}
+
+#[gpui_test::test]
+fn configured_account_order_wins_over_completion_order_and_updates_live(
+    test_cx: &mut gpui_test::TestAppContext,
+) {
+    use jaywalk::accounts::preferences::AccountConfig;
+    let (fixture, adapter, service) = setup(test_cx);
+    let config = |ids: &[&str]| {
+        ids.iter()
+            .map(|id| AccountConfig {
+                provider: Provider::Github,
+                id: (*id).into(),
+                name: Some(format!("Account {id}")),
+                client_id: None,
+                workspace: None,
+            })
+            .collect::<Vec<_>>()
+    };
+    service
+        .configure_accounts(fixture.path().join("config.toml"), config(&["2", "1"]), 3)
+        .unwrap();
+    let mut page = None;
+    let (_, cx) = test_cx.add_window_view(|window, app| {
+        let view = app
+            .new(|cx| PullRequestsPage::new(None, fixture.path().join("recent.json"), window, cx));
+        page = Some(view.clone());
+        gpui::component::Root::new(view, window, app)
+    });
+    let page = page.unwrap();
+    draw(cx);
+    cx.update(|window,app| page.update(app,|page,cx| {
+        page.views.clear();
+        let mut accounts=page.accounts(cx); accounts.reverse();
+        for account in accounts {
+            page.accept(account.clone(),Ok(jaywalk::hosting::Fetched {generation:account.generation,batch:Arc::new(batch(42)),cached:false,fetched_at:std::time::SystemTime::now()}),window,cx);
+        }
+        let choices=page.choices(cx);
+        assert!(matches!(&choices[0],Choice::Item {account,..} if account.identity.key.subject == "2" && account.label() == "Account 2"));
+        assert!(matches!(&choices[1],Choice::Item {account,..} if account.identity.key.subject == "1"));
+    }));
+    let requests = adapter.calls.load(Ordering::SeqCst);
+    service
+        .configure_accounts(fixture.path().join("config.toml"), config(&["1", "2"]), 3)
+        .unwrap();
+    draw(cx);
+    assert_eq!(
+        requests,
+        adapter.calls.load(Ordering::SeqCst),
+        "reordering must not refetch PRs"
+    );
+    assert!(cx.update(|_,app| matches!(&page.read(app).choices(app)[0],Choice::Item {account,..} if account.identity.key.subject == "1")));
 }

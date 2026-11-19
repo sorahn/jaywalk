@@ -183,7 +183,13 @@ impl HostingProvider for HttpProvider {
                 crate::hosting::Request::Get(url)=>self.client.get(url),
                 crate::hosting::Request::GithubSearch {query,cursor}=>self.client.post("https://api.github.com/graphql").json(&serde_json::json!({"query":crate::hosting::GITHUB_QUERY,"variables":{"query":query,"cursor":cursor}})),
             };
-            response_limited(request.bearer_auth(token.expose()), control, 2_097_152)
+            response_limited(
+                request
+                    .bearer_auth(token.expose())
+                    .header("Accept", "application/json"),
+                control,
+                2_097_152,
+            )
         })
     }
 

@@ -100,6 +100,13 @@ impl Viewer {
         }
         let previous_wrap = self.wrapping;
         let previous = std::mem::replace(&mut self.settings, settings);
+        if let Some(page) = &self.pull_requests_page {
+            page.update(cx, |page, _| {
+                page.configure_local_review(self.settings.local_review)
+            });
+        }
+        self.configure_picker_local_review(cx);
+
         self.navigation
             .history
             .set_limit(self.settings.navigation.history_limit);

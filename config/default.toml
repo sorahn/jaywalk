@@ -1,6 +1,10 @@
 # Copy this file to ~/.config/jaywalk/config.toml and edit it directly.
 # Unspecified values inherit these defaults. Saved edits apply automatically.
 
+# Connected account metadata is added as [[accounts]] tables. Reorder them to
+# choose account/list/request priority. Credentials stay in the OS store.
+accounts = []
+
 [keyboard]
 # Loads keybindings/default.toml beside this config.
 profile = "keybindings/default.toml"
@@ -226,6 +230,14 @@ file_evolution = "sidebar"
 
 # Hosted review snapshots are downloaded on demand and kept only in memory.
 [hosting]
+# Maximum independent account discoveries in flight across all windows.
+concurrent_accounts = 3
 history_limit = 200
 max_files = 3000
 max_content_mb = 128
+
+# Local PR acquisition and checkout are opt-in; project settings are separate.
+[local_review]
+mode = "hosted"
+max_repository_mb = 512
+fetch_missing = true

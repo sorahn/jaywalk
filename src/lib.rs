@@ -49,3 +49,5 @@ pub mod hosting;
 pub mod quick_picker;
 
 pub mod symbols;
+
+pub mod local_review;

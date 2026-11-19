@@ -243,6 +243,9 @@ impl Selection {
         })
     }
     pub fn save(self) -> Result<crate::settings::Settings, String> {
+        let _writer = crate::settings_reload::CONFIG_WRITER
+            .lock()
+            .expect("config writer mutex poisoned");
         let read = |path: &Path| {
             std::fs::read_to_string(path)
                 .map_err(|error| format!("Could not read {}: {error}", path.display()))

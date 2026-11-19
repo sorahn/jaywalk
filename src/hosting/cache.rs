@@ -2,7 +2,7 @@ use super::{Batch, Scope};
 use crate::accounts::{AccountKey, Error};
 use std::{
     collections::HashMap,
-    sync::Arc,
+    sync::{Arc, Mutex, Weak},
     time::{Duration, Instant, SystemTime},
 };
 struct Entry {
@@ -14,8 +14,19 @@ struct Entry {
 pub(crate) struct Cache {
     entries: HashMap<(AccountKey, u64, Scope), Entry>,
     limited: HashMap<AccountKey, Instant>,
+    requests: HashMap<(AccountKey, u64), Weak<Mutex<()>>>,
 }
 impl Cache {
+    pub(crate) fn request_gate(&mut self, key: &AccountKey, generation: u64) -> Arc<Mutex<()>> {
+        self.requests.retain(|_, gate| gate.strong_count() > 0);
+        let gate = self.requests.entry((key.clone(), generation)).or_default();
+        if let Some(gate) = gate.upgrade() {
+            return gate;
+        }
+        let next = Arc::new(Mutex::new(()));
+        *gate = Arc::downgrade(&next);
+        next
+    }
     pub(crate) fn get(
         &self,
         key: &AccountKey,

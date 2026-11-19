@@ -74,6 +74,7 @@ pub(crate) fn discover(
         }
         return Ok(Batch {
             items: vec![item],
+            priority_count: 0,
             coverage: vec![locator.label()],
             partial: false,
         });
@@ -81,24 +82,60 @@ pub(crate) fn discover(
     if identity.key.provider == Provider::Github {
         return github(identity, scope, control, &mut request);
     }
+    bitbucket(identity, scope, workspaces, control, &mut request)
+}
+fn bitbucket(
+    identity: &Identity,
+    scope: &Scope,
+    workspaces: &[Workspace],
+    control: &Control,
+    request: &mut impl FnMut(Request) -> Result<Value, Error>,
+) -> Result<Batch, Error> {
+    if matches!(scope, Scope::ForMe) {
+        return inbox(&[Scope::ReviewRequested, Scope::Authored], |scope| {
+            bitbucket(identity, scope, workspaces, control, request)
+        });
+    }
+    let reviewing = matches!(scope, Scope::ReviewRequested);
+    let reviewer_query = format!(
+        "state=\"OPEN\" AND reviewers.uuid={}",
+        json!(identity.key.subject)
+    );
+    if reviewing {
+        verify_bitbucket_identity(identity, control, request)?;
+    }
     let mut batch = Batch::default();
     let starts = match scope {
-        Scope::Authored => {
+        Scope::Authored | Scope::ReviewRequested => {
             batch.partial = workspaces.len() > 10;
             workspaces
                 .iter()
                 .take(10)
                 .map(|workspace| {
                     let mut url = api_url(Provider::Bitbucket)?;
-                    url.path_segments_mut()
-                        .map_err(|_| Error::InvalidResponse)?
-                        .extend([
+                    let mut segments = url
+                        .path_segments_mut()
+                        .map_err(|_| Error::InvalidResponse)?;
+                    if reviewing {
+                        // Verified against the browser and OAuth API origin. Keep the
+                        // internal contract isolated here; never use browser cookies.
+                        segments.extend([
+                            "internal",
+                            "workspaces",
+                            &workspace.slug,
+                            "pullrequests",
+                            "",
+                        ]);
+                    } else {
+                        segments.extend([
                             "2.0",
                             "workspaces",
                             &workspace.slug,
                             "pullrequests",
                             &identity.key.subject,
                         ]);
+                    }
+                    drop(segments);
                     Ok((url, workspace.slug.clone()))
                 })
                 .collect::<Result<Vec<_>, Error>>()?
@@ -130,6 +167,12 @@ pub(crate) fn discover(
             ("pagelen", "20"),
             ("sort", "-updated_on"),
         ]);
+        if reviewing {
+            first.query_pairs_mut().extend_pairs([
+                ("q", reviewer_query.as_str()),
+                ("fields", "values.id,values.title,values.state,values.author.display_name,values.destination.repository.full_name,values.destination.repository.uuid,values.source.branch.name,values.links.html.href,values.reviewers.uuid,next,size,pagelen"),
+            ]);
+        }
         let path = first.path().to_owned();
         let mut next = Some(first);
         let mut per_scope = 0;
@@ -140,6 +183,16 @@ pub(crate) fn discover(
                 break;
             }
             validate_page(&url, &path)?;
+            if reviewing
+                && url
+                    .query_pairs()
+                    .filter(|(key, _)| key == "q")
+                    .map(|(_, value)| value)
+                    .collect::<Vec<_>>()
+                    != [reviewer_query.as_str()]
+            {
+                return Err(Error::InvalidResponse);
+            }
             if !seen.insert(url.to_string()) {
                 return Err(Error::InvalidResponse);
             }
@@ -151,7 +204,27 @@ pub(crate) fn discover(
                 .and_then(Value::as_array)
                 .ok_or(Error::InvalidResponse)?
             {
-                batch.items.push(bitbucket_item(value)?);
+                let item = bitbucket_item(value)?;
+                if reviewing
+                    && (item.state != "OPEN"
+                        || !item
+                            .locator
+                            .repository
+                            .owner
+                            .eq_ignore_ascii_case(&coverage)
+                        || !value
+                            .get("reviewers")
+                            .and_then(Value::as_array)
+                            .is_some_and(|reviewers| {
+                                reviewers.iter().any(|reviewer| {
+                                    reviewer.get("uuid").and_then(Value::as_str)
+                                        == Some(identity.key.subject.as_str())
+                                })
+                            }))
+                {
+                    return Err(Error::InvalidResponse);
+                }
+                batch.items.push(item);
             }
             next = match value.get("next") {
                 None | Some(Value::Null) => None,
@@ -171,6 +244,60 @@ pub(crate) fn discover(
     batch
         .items
         .retain(|item| ids.insert((item.repository_id.clone(), item.locator.number)));
+    if reviewing {
+        // Revocation during pagination can also silently turn pages into empty 200s.
+        verify_bitbucket_identity(identity, control, request)?;
+    }
+    Ok(batch)
+}
+fn verify_bitbucket_identity(
+    identity: &Identity,
+    control: &Control,
+    request: &mut impl FnMut(Request) -> Result<Value, Error>,
+) -> Result<(), Error> {
+    // The internal endpoint can return 200/empty for invalid credentials. Verify
+    // this exact token around its reads so the account service can refresh/retry.
+    control.check()?;
+    let value = request(Request::Get(
+        api_url(Provider::Bitbucket)?
+            .join("2.0/user")
+            .map_err(|_| Error::InvalidResponse)?,
+    ))?;
+    control.check()?;
+    let subject = bounded_text(value.get("uuid").and_then(Value::as_str), 256)?;
+    if subject != identity.key.subject {
+        return Err(Error::IdentityMismatch);
+    }
+    Ok(())
+}
+fn inbox(
+    scopes: &[Scope],
+    mut fetch: impl FnMut(&Scope) -> Result<Batch, Error>,
+) -> Result<Batch, Error> {
+    let mut batch = Batch::default();
+    let mut seen = HashSet::new();
+    for scope in scopes {
+        let found = fetch(scope)?;
+        batch.partial |= found.partial;
+        for coverage in found.coverage {
+            if !batch.coverage.contains(&coverage) {
+                batch.coverage.push(coverage);
+            }
+        }
+        batch.items.extend(
+            found
+                .items
+                .into_iter()
+                .filter(|item| seen.insert(item.id.clone())),
+        );
+        if *scope != Scope::Authored {
+            batch.priority_count = batch.items.len();
+        }
+    }
+    // Match the persistent snapshot bounds, retaining the attention group first.
+    batch.partial |= batch.items.len() > 256;
+    batch.items.truncate(256);
+    batch.priority_count = batch.priority_count.min(batch.items.len());
     Ok(batch)
 }
 fn github(
@@ -179,6 +306,12 @@ fn github(
     control: &Control,
     request: &mut impl FnMut(Request) -> Result<Value, Error>,
 ) -> Result<Batch, Error> {
+    if matches!(scope, Scope::ForMe) {
+        return inbox(
+            &[Scope::Assigned, Scope::ReviewRequested, Scope::Authored],
+            |scope| github(identity, scope, control, request),
+        );
+    }
     let user = &identity.label;
     if user.is_empty()
         || user.len() > 100
@@ -190,6 +323,7 @@ fn github(
     }
     let filter = match scope {
         Scope::Authored => format!("author:{user}"),
+        Scope::Assigned => format!("assignee:{user}"),
         Scope::ReviewRequested => format!("review-requested:{user}"),
         Scope::Repository(_, repo) => format!("repo:{repo}"),
         _ => return Err(Error::Unsupported),
@@ -368,6 +502,310 @@ mod tests {
         json!({"id":12,"title":"Fix λ scrolling","links":{"html":{"href":"https://bitbucket.org/team/repo/pull-requests/12"}},"destination":{"repository":{"full_name":"team/repo","uuid":"{repo}"}},"source":{"branch":{"name":"fix/momentum"}},"author":{"display_name":"Person"},"state":"OPEN"})
     }
     #[test]
+    fn inbox_prioritizes_assignments_and_reviews_deduplicating_authored_results() {
+        let mut queries = vec![];
+        let batch = discover(
+            &identity(Provider::Github),
+            &Scope::ForMe,
+            &[],
+            &control(),
+            |request| {
+                let Request::GithubSearch { query, .. } = request else {
+                    panic!()
+                };
+                let mut value = github_value();
+                let number = if query.contains("assignee:") {
+                    1
+                } else if query.contains("review-requested:") {
+                    2
+                } else {
+                    3
+                };
+                let mut node = value["data"]["search"]["nodes"][0].clone();
+                node["number"] = json!(number);
+                node["id"] = json!(format!("PR_{number}"));
+                node["url"] = json!(format!("https://github.com/team/repo/pull/{number}"));
+                let mut nodes = vec![node.clone()];
+                if number == 1 {
+                    node["number"] = json!(2);
+                    node["id"] = json!("PR_2");
+                    node["url"] = json!("https://github.com/team/repo/pull/2");
+                    nodes.push(node);
+                }
+                if number == 3 {
+                    let mut duplicate = nodes[0].clone();
+                    duplicate["number"] = json!(1);
+                    duplicate["id"] = json!("PR_1");
+                    duplicate["url"] = json!("https://github.com/team/repo/pull/1");
+                    nodes.push(duplicate);
+                }
+                value["data"]["search"]["nodes"] = json!(nodes);
+                queries.push(query);
+                Ok(value)
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            batch
+                .items
+                .iter()
+                .map(|item| item.locator.number)
+                .collect::<Vec<_>>(),
+            [1, 2, 3]
+        );
+        assert_eq!(batch.priority_count, 2);
+        assert_eq!(queries.len(), 3);
+        assert!(queries[0].contains("assignee:person"));
+        assert!(queries[1].contains("review-requested:person"));
+        assert!(queries[2].contains("author:person"));
+        assert!(!batch.partial);
+    }
+    fn review_value() -> Value {
+        let mut value = bitbucket_value();
+        value["reviewers"] = json!([{"uuid":"{person}"}]);
+        value
+    }
+    fn workspace() -> Workspace {
+        Workspace {
+            slug: "team".into(),
+            uuid: "{team}".into(),
+        }
+    }
+    #[test]
+    fn bitbucket_inbox_verifies_identity_and_prioritizes_reviews_before_authored() {
+        let mut paths = vec![];
+        let batch = discover(
+            &identity(Provider::Bitbucket),
+            &Scope::ForMe,
+            &[workspace()],
+            &control(),
+            |request| {
+                let Request::Get(url) = request else { panic!() };
+                paths.push(url.path().to_owned());
+                if url.path() == "/2.0/user" {
+                    return Ok(json!({"uuid":"{person}"}));
+                }
+                if url.path().starts_with("/internal/") {
+                    assert_eq!(
+                        url.query_pairs().find(|(k, _)| k == "q").unwrap().1,
+                        "state=\"OPEN\" AND reviewers.uuid=\"{person}\""
+                    );
+                    return Ok(json!({"values":[review_value()]}));
+                }
+                let mut authored = bitbucket_value();
+                authored["id"] = json!(13);
+                authored["links"]["html"]["href"] =
+                    json!("https://bitbucket.org/team/repo/pull-requests/13");
+                Ok(json!({"values":[bitbucket_value(), authored]}))
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            paths,
+            [
+                "/2.0/user",
+                "/internal/workspaces/team/pullrequests/",
+                "/2.0/user",
+                "/2.0/workspaces/team/pullrequests/%7Bperson%7D"
+            ]
+        );
+        assert_eq!(
+            batch
+                .items
+                .iter()
+                .map(|item| item.locator.number)
+                .collect::<Vec<_>>(),
+            [12, 13]
+        );
+        assert_eq!(batch.priority_count, 1);
+        assert_eq!(batch.coverage, ["team"]);
+        assert!(!batch.partial);
+        assert!(Scope::ReviewRequested.supports(Provider::Bitbucket));
+    }
+    #[test]
+    fn bitbucket_reviewer_identity_failures_never_request_or_cache_a_false_empty_list() {
+        for (reply, expected) in [
+            (Err(Error::NeedsSignIn), Error::NeedsSignIn),
+            (Ok(json!({"uuid":"{other}"})), Error::IdentityMismatch),
+            (Ok(json!({"values":[]})), Error::InvalidResponse),
+        ] {
+            let mut calls = 0;
+            let result = discover(
+                &identity(Provider::Bitbucket),
+                &Scope::ReviewRequested,
+                &[workspace()],
+                &control(),
+                |request| {
+                    let Request::Get(url) = request else { panic!() };
+                    assert_eq!(url.path(), "/2.0/user");
+                    calls += 1;
+                    reply.clone()
+                },
+            );
+            assert_eq!(result.unwrap_err(), expected);
+            assert_eq!(calls, 1);
+        }
+    }
+    #[test]
+    fn bitbucket_reviewer_revocation_during_read_rejects_false_empty_success() {
+        let mut identity_calls = 0;
+        let result = discover(
+            &identity(Provider::Bitbucket),
+            &Scope::ForMe,
+            &[workspace()],
+            &control(),
+            |request| {
+                let Request::Get(url) = request else { panic!() };
+                if url.path() == "/2.0/user" {
+                    identity_calls += 1;
+                    return if identity_calls == 1 {
+                        Ok(json!({"uuid":"{person}"}))
+                    } else {
+                        Err(Error::NeedsSignIn)
+                    };
+                }
+                assert!(url.path().starts_with("/internal/"));
+                Ok(json!({"values":[]}))
+            },
+        );
+        assert_eq!(result.unwrap_err(), Error::NeedsSignIn);
+        assert_eq!(identity_calls, 2);
+    }
+    #[test]
+    fn bitbucket_reviewer_pages_cannot_change_origin_workspace_or_filter() {
+        for invalid in [
+            "https://evil.example/steal",
+            "https://api.bitbucket.org/internal/workspaces/other/pullrequests/",
+            "https://user:secret@api.bitbucket.org/internal/workspaces/team/pullrequests/",
+            "http://api.bitbucket.org/internal/workspaces/team/pullrequests/",
+            "https://api.bitbucket.org/internal/workspaces/team/pullrequests/?q=other",
+        ] {
+            let mut calls = 0;
+            let result = discover(
+                &identity(Provider::Bitbucket),
+                &Scope::ReviewRequested,
+                &[workspace()],
+                &control(),
+                |request| {
+                    let Request::Get(url) = request else { panic!() };
+                    calls += 1;
+                    if url.path() == "/2.0/user" {
+                        return Ok(json!({"uuid":"{person}"}));
+                    }
+                    assert_eq!(
+                        calls, 2,
+                        "bad continuation must never receive a bearer request"
+                    );
+                    Ok(json!({"values":[review_value()],"next":invalid}))
+                },
+            );
+            assert_eq!(result.unwrap_err(), Error::InvalidResponse);
+            assert_eq!(calls, 2);
+        }
+        let mut pages = 0;
+        let batch = discover(
+            &identity(Provider::Bitbucket),
+            &Scope::ReviewRequested,
+            &[workspace()],
+            &control(),
+            |request| {
+                let Request::Get(mut url) = request else {
+                    panic!()
+                };
+                if url.path() == "/2.0/user" {
+                    return Ok(json!({"uuid":"{person}"}));
+                }
+                pages += 1;
+                let mut pairs = url
+                    .query_pairs()
+                    .filter(|(key, _)| key != "page")
+                    .map(|(key, value)| (key.into_owned(), value.into_owned()))
+                    .collect::<Vec<_>>();
+                pairs.push(("page".into(), (pages + 1).to_string()));
+                url.set_query(None);
+                url.query_pairs_mut().extend_pairs(pairs);
+                Ok(json!({"values":[review_value()],"next":url.as_str()}))
+            },
+        )
+        .unwrap();
+        assert_eq!(pages, 3);
+        assert!(batch.partial);
+        assert_eq!(batch.items.len(), 1);
+    }
+    #[test]
+    fn bitbucket_reviewer_contract_drift_and_endpoint_failures_are_errors() {
+        let mut missing = review_value();
+        missing.as_object_mut().unwrap().remove("reviewers");
+        let mut wrong = review_value();
+        wrong["reviewers"] = json!([{"uuid":"{other}"}]);
+        let mut closed = review_value();
+        closed["state"] = json!("MERGED");
+        for item in [missing, wrong, closed] {
+            let result = discover(
+                &identity(Provider::Bitbucket),
+                &Scope::ForMe,
+                &[workspace()],
+                &control(),
+                |request| {
+                    let Request::Get(url) = request else { panic!() };
+                    if url.path() == "/2.0/user" {
+                        return Ok(json!({"uuid":"{person}"}));
+                    }
+                    Ok(json!({"values":[item]}))
+                },
+            );
+            assert_eq!(result.unwrap_err(), Error::InvalidResponse);
+        }
+        for error in [
+            Error::NotFound,
+            Error::NoAccess,
+            Error::RateLimited,
+            Error::Network,
+            Error::Cancelled,
+        ] {
+            let result = discover(
+                &identity(Provider::Bitbucket),
+                &Scope::ForMe,
+                &[workspace()],
+                &control(),
+                |request| {
+                    let Request::Get(url) = request else { panic!() };
+                    if url.path() == "/2.0/user" {
+                        return Ok(json!({"uuid":"{person}"}));
+                    }
+                    Err(error)
+                },
+            );
+            assert_eq!(result.unwrap_err(), error);
+        }
+    }
+    #[test]
+    fn combined_inbox_obeys_snapshot_limits_and_retains_priority() {
+        let batch = inbox(&[Scope::ReviewRequested, Scope::Authored], |scope| {
+            let start = if *scope == Scope::ReviewRequested {
+                0
+            } else {
+                200
+            };
+            let mut batch = Batch {
+                coverage: vec!["same-workspace".into()],
+                ..Batch::default()
+            };
+            for index in start..start + 200 {
+                let mut item = bitbucket_item(&bitbucket_value()).unwrap();
+                item.id = format!("pr_{index}");
+                item.locator.number = index + 1;
+                batch.items.push(item);
+            }
+            Ok(batch)
+        })
+        .unwrap();
+        assert_eq!(batch.items.len(), 256);
+        assert_eq!(batch.priority_count, 200);
+        assert_eq!(batch.coverage, ["same-workspace"]);
+        assert!(batch.partial);
+    }
+    #[test]
     fn github_search_returns_branches_and_stable_ids_in_one_request() {
         let batch = discover(
             &identity(Provider::Github),
@@ -439,7 +877,7 @@ mod tests {
         assert!(matches!(
             discover(
                 &identity(Provider::Bitbucket),
-                &Scope::ReviewRequested,
+                &Scope::Assigned,
                 &[],
                 &control(),
                 |_| panic!("unsupported scope never requests")

@@ -512,10 +512,63 @@ created pair. It does
 not reorder open comparisons, Back/Forward snapshots, explicit CLI endpoints or
 branch-review presets. Swap reverses only the current captured comparison.
 
+## Connected accounts
+
+Public account configuration lives in ordered `[[accounts]]` tables in the active
+config file. Once account features restore the OS credential store, Jaywalk appends
+newly connected accounts to that file. It preserves existing rows, comments and
+unrelated settings. This stays lazy: opening a local diff alone does not read Keychain.
+
+```toml
+[[accounts]]
+provider = "github"
+id = "12345"                 # Stable provider account ID, not the login name.
+name = "Personal"            # Optional display name; provider queries keep the real login.
+client_id = "public-client-id"
+
+[[accounts]]
+provider = "bitbucket"
+id = "{account-uuid}"
+name = "Work"
+client_id = "public-client-id"
+workspace = { uuid = "{workspace-uuid}", slug = "my-workspace" }
+```
+
+Reorder the tables to set the default account-list order and PR request dispatch
+priority across windows. Faster accounts publish results immediately; completion
+order never becomes account-list order. Text relevance and the assigned/review
+request group still take precedence over account order in PR search results.
+Names, visible account order and preferred workspace apply live. A listing/refresh
+captures its dispatch order and worker count when it starts; later edits apply to
+the next listing, while the shared limit also constrains queued service requests.
+The last successfully applied
+config source controls application-wide preferences, matching other shared settings.
+
+`provider` accepts `github` or `bitbucket`. `id` is required; `name` and `client_id`
+are optional nonempty strings of at most 256 bytes without control characters.
+Duplicate provider/ID pairs are rejected; at most 256 preference rows are accepted.
+`workspace` is optional and Bitbucket-only. Choosing a workspace through account
+commands writes it here. Omitting it clears the preferred workspace; it does not
+restrict discovery to one workspace.
+
+The public OAuth `client_id` selects a registration for Connect/Reconnect; its
+matching client secret must already exist in the OS store. Changing the client
+requires reconnecting and does not reinterpret existing tokens as belonging to a
+different app. Config entries do not grant access or create a signed-in account.
+Disconnected rows remain as preferences for later reconnection. Removing a row
+for a still-connected account causes it to be appended again when metadata syncs.
+Unknown/unconnected rows do not appear as active accounts or generate requests.
+
+Access tokens, refresh tokens and client secrets remain in the OS credential
+store. Secret fields in account config are rejected. Existing credential records
+retain their authentication binding; public config controls display, ordering,
+registration selection and workspace preference. Malformed configs and conflicting
+edits are preserved, with an error shown while the last valid settings stay active.
+
 ## Hosted pull request reviews
 
 Selecting a GitHub or Bitbucket Cloud PR loads its published comparison into the
-existing viewer. No working checkout is required or changed. Review contents,
+existing viewer. By default no working checkout is required or changed. Review contents,
 commit history and prepared diffs stay in memory; PR-list metadata retains its
 existing restart cache. The file browser lists changed files only. Commit rows
 open individual first-parent changes; aggregate/overview returns to the pinned
@@ -523,6 +576,7 @@ published diff. Pair and local branch comparisons require a local repository.
 
 | Setting | Default | Behavior |
 | --- | --- | --- |
+| `hosting.concurrent_accounts` | `3` | Maximum independent uncached PR-account discoveries across windows, integer 1–8. Accounts are dispatched in configured order; workspaces and pages within each account remain sequential. Lowering the limit lets in-flight jobs finish and holds new starts. Applies live to new work. |
 | `hosting.history_limit` | `200` | PR commit rows to acquire, 1–1000. Keeps the newest available rows; GitHub's PR endpoint exposes at most the first 250 commits of larger PRs. Partial history is marked and never changes the published diff. Applies to the next opened/updated review. |
 | `hosting.max_files` | `3000` | Maximum changed files per aggregate or commit, 1–3000. Reviews beyond the cap fail explicitly instead of showing a partial diff. Applies to the next opened/updated review. |
 | `hosting.max_content_mb` | `128` | MiB of successfully decoded, unique file text cached per opened review, shared across its clones and individual commit snapshots, 1–1024. Both sides count. The existing `diff.max_text_file_size_mb` also applies per file side before allocation. This bounds cached source text, not total process memory: editor, syntax, diff and navigation state require additional memory. Applies to the next opened/updated review. |
@@ -530,7 +584,7 @@ published diff. Pair and local branch comparisons require a local repository.
 API responses, tree traversal, pagination and loading waits are bounded as well.
 Binary/non-UTF-8 files, submodules and unavailable or oversized contents show an
 explicit notice; they do not become empty successful diffs. Symlinks display
-link-target text. Review text is not written into a Git object cache or checkout.
+link-target text. In the default hosted mode, review text is not written into a Git object cache or checkout. The opt-in local modes below acquire Git objects on disk.
 
 A PR remains pinned to its resolved source, target and published base. Refresh
 in the viewer, or **Update published PR comparison** in the command palette,
@@ -625,3 +679,25 @@ Copied source excludes marker labels and includes original spaces, tabs and endi
 `Toggle whitespace differences` switches between exact matching and the last chosen
 ignore-whitespace mode (initially `ignore_all` when no non-exact mode was selected).
 Moved-code detection is not implemented by these settings.
+
+## Local PR review (`local_review`)
+
+These application-level settings apply to the next PR opening or explicit **Review PR locally…** action; changing them does not switch an already-open repository. They update live in both the retained PR browser and its picker. Project settings remain separate.
+
+| Setting | Default | Behavior |
+| --- | --- | --- |
+| `local_review.mode` | `"hosted"` | `hosted` uses provider-backed content. `isolated` tries a matching known repository and acquires pinned PR objects in private Jaywalk-owned temporary storage, leaving the known checkout/refs/index unchanged. `checkout_if_clean` additionally attempts a temporary detached checkout in a clean plain-Git repository, with guarded restoration. All local behavior is opt-in. |
+| `local_review.fetch_missing` | `true` | Allow Git transport to fetch exact PR revisions missing from the known repository. Set false to reuse locally available objects only, with hosted fallback on missing/unavailable objects. Applies to the next local acquisition; per-repository transport credentials remain separate from provider API sign-in. |
+| `local_review.max_repository_mb` | `512` | Temporary Git storage budget in MiB, 16–8192. Checked periodically while Git runs and after acquisition; transient disk usage can exceed the budget between checks. A storage-limit failure stops acquisition and retains hosted viewing. This is not a hard OS disk quota or process-memory bound. |
+
+Normal PR opening considers the current repository and recent/opened repository history (at most 50 candidate paths). Matching uses supported Git remote provider/repository identities, including known fork transport URLs when available, rather than directory names. A missing or ambiguous match, failed Git authentication or refused checkout keeps the hosted snapshot and explains why. **Review PR locally…** lets you select a matching repository explicitly; with the default `hosted` setting that command uses isolated acquisition. With `checkout_if_clean`, it follows the clean-checkout policy instead. Git transport uses its own configured credentials/SSH agent; a provider API connection does not establish Git transport access.
+
+The local source fetches exact published head/base objects with shallow history into an independently owned object store. It never uses a long-lived alternate pointing into a user repository and never initializes/fetches submodules. Full snapshot files become available to the file picker, All-files browser and project symbols; the published PR identity, aggregate, provider commit series and read-only status remain attached. Individual commit inspection can acquire additional pinned objects on demand. Existing per-file and decoded-content limits still apply. Review objects are ephemeral: normal cleanup follows retained snapshot lifetime; a forced process termination can leave private temporary directories for later OS/manual cleanup. PR-list metadata keeps its existing restart cache.
+
+Clean-only checkout refuses staged, unstaged, untracked and submodule changes, in-progress Git operations, and jj/colocated repositories. It also protects ignored files from overwrite. Preflight records the checkout before acquisition and rechecks repository identity, HEAD and branch before switching. No stash, force checkout, reset, clean, branch reset, pull, merge or hook execution is used. Missing checkout objects are fetched using normal Git transport in this explicitly enabled mode, with graph connectivity verified before switching; a shallow scratch store is never used to seed a user checkout. Acquisition disables tag updates, pruning, submodule fetches and automatic maintenance, and does not update branch refs or FETCH_HEAD. An already matching clean checkout is reused without detaching it.
+
+A temporary checkout writes and syncs a private recovery receipt before switching. Ownership is shared between viewers of the same checkout/revision. Replacing the active comparison, navigating to a different comparison, or releasing its last owning viewer schedules restoration; Back/Forward can retain pinned review objects without owning the user checkout. Temporarily opening Welcome, Accounts or the PR browser retains the active comparison and its checkout; use Restore review checkout to finish it explicitly without closing the window. Normal quit waits for guarded restoration on its worker. Restoration proceeds only if the repository is still clean at the expected detached revision and the original branch has not moved; otherwise it leaves the repository alone and retains the receipt. External Git commands and editor writes cannot be locked out by a preflight check.
+
+**Restore review checkout…** lists receipts in the active configuration's `review-checkouts/` state directory, including receipts from interrupted runs. It verifies repository identity and current state before doing anything. Recovery is never forced or performed automatically on startup. Once a protected checkout/restore has begun, closing its picker stops waiting rather than cancelling that Git operation; the receipt and restoration worker retain ownership. Each protected Git command has a 30-second deadline. Failure, interruption or an external lock can leave a receipt requiring manual recovery; no forced repair is attempted. A later review cannot reuse an old receipt, and checkout creation stops during application quit.
+
+These actions prepare local review sources and optional checkout only. They do not start a language server or implement Cmd/Ctrl-click Go to Definition yet. Semantic navigation must distinguish exact Before/After revisions and report unavailable context rather than using the current checkout for another revision. Explicit Fetch/Pull of the user's repository remains separate work.

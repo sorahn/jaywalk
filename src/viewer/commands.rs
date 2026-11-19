@@ -320,6 +320,8 @@ impl Viewer {
             CommandId::GoToProjectSymbol => {
                 self.open_palette(palette::PaletteKind::ProjectSymbols, window, cx)
             }
+            CommandId::ReviewPRLocally => self.choose_local_repository(window, cx),
+            CommandId::RestoreReviewCheckout => self.choose_checkout_recovery(window, cx),
             CommandId::GoToLine => self.open_palette(palette::PaletteKind::Line, window, cx),
             CommandId::PickerHelp => self.open_palette(palette::PaletteKind::Help, window, cx),
             CommandId::ClearCommandUsage => crate::command_usage::clear(cx),

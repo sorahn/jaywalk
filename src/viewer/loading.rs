@@ -78,6 +78,7 @@ impl Viewer {
             arguments,
             home_source,
             review_picker: review_context::ReviewPicker::default(),
+            local_actions: Default::default(),
             pr_status: pr_status::StatusState::default(),
             settings,
             focus,

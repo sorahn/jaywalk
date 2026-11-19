@@ -128,6 +128,8 @@ impl EntryInput {
 }
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum Scope {
+    ForMe,
+    Assigned,
     Authored,
     ReviewRequested,
     Repository(Provider, RepositoryName),
@@ -136,8 +138,8 @@ pub enum Scope {
 impl Scope {
     pub fn supports(&self, provider: Provider) -> bool {
         match self {
-            Self::Authored => true,
-            Self::ReviewRequested => provider == Provider::Github,
+            Self::ForMe | Self::Authored | Self::ReviewRequested => true,
+            Self::Assigned => provider == Provider::Github,
             Self::Repository(p, _) => *p == provider,
             Self::Direct(locator) => locator.provider == provider,
         }
@@ -188,6 +190,8 @@ impl PullRequest {
 #[derive(Clone, Debug, Default)]
 pub struct Batch {
     pub items: Vec<PullRequest>,
+    /// Leading assigned/review-requested items in the combined For Me list.
+    pub priority_count: usize,
     pub partial: bool,
     pub coverage: Vec<String>,
 }

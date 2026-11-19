@@ -226,7 +226,7 @@ impl AccountPicker {
                 format!(
                     "{} · {} · {status}",
                     account.identity.key.provider.name(),
-                    account.identity.label
+                    account.label()
                 ),
                 choice,
             )

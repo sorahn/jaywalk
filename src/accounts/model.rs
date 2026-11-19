@@ -233,10 +233,17 @@ pub enum ConnectionState {
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct AccountView {
+    pub name: Option<String>,
     pub generation: u64,
     pub identity: Identity,
     pub workspace: Option<super::Workspace>,
     pub state: ConnectionState,
+}
+
+impl AccountView {
+    pub fn label(&self) -> &str {
+        self.name.as_deref().unwrap_or(&self.identity.label)
+    }
 }
 
 /// Cancellation is local to an operation/waiter, never a process-wide switch.

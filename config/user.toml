@@ -1,6 +1,9 @@
 # Jaywalk user overrides. Unspecified settings inherit defaults.
 # Saved edits apply live. See docs/settings.md for all settings.
 
+# Public [[accounts]] metadata is added after account restoration/connection.
+# Reorder those tables to choose account priority; credentials stay in the OS store.
+
 [keyboard]
 profile = "keybindings/default.toml"
 # Optional extra folders for Select keybindings profile…

@@ -15,6 +15,8 @@ pub(super) enum PaletteKind {
     Commands,
     Repositories,
     Profiles,
+    LocalRepositories,
+    CheckoutRecovery,
     Reviews,
     PullRequests,
     Accounts,
@@ -34,7 +36,11 @@ impl PaletteKind {
             Self::Help => Mode::Help,
             Self::FileSymbols => Mode::FileSymbols,
             Self::ProjectSymbols => Mode::ProjectSymbols,
-            Self::Reviews | Self::Profiles | Self::Accounts => return None,
+            Self::Reviews
+            | Self::Profiles
+            | Self::Accounts
+            | Self::LocalRepositories
+            | Self::CheckoutRecovery => return None,
         })
     }
     fn from_mode(mode: Mode) -> Self {
@@ -71,6 +77,8 @@ enum Choice {
     },
     Review(review_context::ReviewChoice),
     Profile(String),
+    LocalRepository(std::path::PathBuf),
+    RestoreCheckout(std::path::PathBuf),
     Repository {
         directory: std::path::PathBuf,
         order: usize,
@@ -220,6 +228,9 @@ fn rank_choices(
                     Some((5, 0, false))
                 }
                 Choice::Line { .. } => Some((0, 0, false)),
+                Choice::LocalRepository(_) | Choice::RestoreCheckout(_) => {
+                    fuzzy_score(query, &label).map(|score| (0, score, false))
+                }
                 Choice::Command(_)
                 | Choice::Mode(_)
                 | Choice::Profile(_)
@@ -292,12 +303,43 @@ impl Viewer {
             state.selected_index().map(|index| index.row),
         )
     }
+    pub(super) fn configure_picker_local_review(&mut self, cx: &mut Context<Self>) {
+        if let Some(page) = &self.palette.pull_requests {
+            page.update(cx, |page, _| {
+                page.configure_local_review(self.settings.local_review)
+            });
+        }
+    }
+    pub(super) fn close_local_palette(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if matches!(
+            self.palette.open,
+            Some(PaletteKind::LocalRepositories | PaletteKind::CheckoutRecovery)
+        ) {
+            self.close_palette(window, cx);
+        }
+    }
+    pub(super) fn set_palette_loading(
+        &mut self,
+        loading: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.palette
+            .state
+            .update(cx, |state, cx| state.set_loading(loading, window, cx));
+    }
     pub(super) fn open_palette(
         &mut self,
         kind: PaletteKind,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if !matches!(
+            kind,
+            PaletteKind::LocalRepositories | PaletteKind::CheckoutRecovery
+        ) {
+            self.cancel_local_action();
+        }
         if self.palette.open.is_none() {
             self.palette.return_focus = window.focused(cx);
             self.palette.state = cx.new(|cx| CommandState::new(window, cx));
@@ -378,6 +420,12 @@ impl Viewer {
             PaletteKind::from_mode(mode)
         };
         if next != current {
+            if matches!(
+                current,
+                PaletteKind::LocalRepositories | PaletteKind::CheckoutRecovery
+            ) {
+                self.cancel_local_action();
+            }
             self.palette.symbols.cancel();
             self.palette.generation += 1;
             self.palette.review_loading = false;
@@ -395,6 +443,7 @@ impl Viewer {
         cx.notify();
     }
     pub(super) fn close_palette(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.cancel_local_action();
         self.palette.symbols.cancel();
         self.palette.generation += 1;
         self.palette.review_loading = false;
@@ -507,6 +556,28 @@ impl Viewer {
                 })
                 .collect(),
             PaletteKind::FileSymbols | PaletteKind::ProjectSymbols => self.symbol_choices(query),
+            PaletteKind::LocalRepositories => self
+                .local_actions
+                .repositories
+                .iter()
+                .map(|path| {
+                    (
+                        path.display().to_string(),
+                        Choice::LocalRepository(path.clone()),
+                    )
+                })
+                .collect(),
+            PaletteKind::CheckoutRecovery => self
+                .local_actions
+                .recoveries
+                .iter()
+                .map(|receipt| {
+                    (
+                        format!("Restore {}", receipt.root.display()),
+                        Choice::RestoreCheckout(receipt.path.clone()),
+                    )
+                })
+                .collect(),
             PaletteKind::Line => self.line_choice(query, cx).into_iter().collect(),
             PaletteKind::Files => self
                 .comparison()
@@ -557,11 +628,14 @@ impl Viewer {
                 .iter()
                 .filter(|command| {
                     !matches!(command, jaywalk::commands::CommandId::OpenInNewWindow)
+                        && (!self.hosted_changed_only()
+                            || **command != jaywalk::commands::CommandId::TreeAll)
                         && (self.is_hosted_review()
                             || !matches!(
                                 command,
                                 jaywalk::commands::CommandId::UpdatePublishedReview
                                     | jaywalk::commands::CommandId::RefreshReviewStatus
+                                    | jaywalk::commands::CommandId::ReviewPRLocally
                                     | jaywalk::commands::CommandId::OpenReviewInBrowser
                             ))
                         && (!self.is_hosted_review()
@@ -580,7 +654,6 @@ impl Viewer {
                                     | jaywalk::commands::CommandId::RevealComparisonLeft
                                     | jaywalk::commands::CommandId::RevealComparisonRight
                                     | jaywalk::commands::CommandId::ShowReferences
-                                    | jaywalk::commands::CommandId::TreeAll
                             ))
                         && (self.page == pages::Page::Comparison
                             || command.available_without_repository())
@@ -666,6 +739,8 @@ impl Viewer {
                         this.select_symbol(entry.clone(), source.as_ref(), window, cx)
                     }
                     Choice::Review(choice) => this.apply_review_choice(choice, window, cx),
+                    Choice::LocalRepository(path) => this.open_review_locally(path, window, cx),
+                    Choice::RestoreCheckout(path) => this.restore_checkout(path, window, cx),
                     Choice::Profile(name) => this.select_keybindings_profile(name, window, cx),
                     Choice::Repository { directory, .. } => this.open_repository_path(
                         directory,
@@ -683,11 +758,13 @@ impl Viewer {
                     PaletteKind::PullRequests | PaletteKind::Accounts => {
                         unreachable!("specialized picker renders its own rows")
                     }
+                    PaletteKind::LocalRepositories => "Choose a local repository…",
+                    PaletteKind::CheckoutRecovery => "Choose a checkout to restore…",
                     PaletteKind::Help => "Search picker modes…",
                     PaletteKind::Line => "Go to source line…",
                     PaletteKind::FileSymbols | PaletteKind::ProjectSymbols => "Search symbols…",
                     PaletteKind::Files => {
-                        if self.is_hosted_review() {
+                        if self.hosted_changed_only() {
                             "Find changed PR file…"
                         } else {
                             "Find any repository file…"

@@ -31,7 +31,7 @@ pub(crate) fn publish(
     settings: Settings,
     cx: &mut App,
 ) -> Result<Entity<SourceState>, String> {
-    apply_shared(&settings, cx)?;
+    apply_shared(&settings, &source, cx)?;
     if let Some(state) = cx.global::<SettingsService>().sources.get(&source).cloned() {
         state.update(cx, |state, cx| {
             if *state.current != settings || state.error.is_some() {
@@ -46,16 +46,28 @@ pub(crate) fn publish(
     let state = cx.new(|cx: &mut Context<SourceState>| {
         let mut state = SourceState { current: Arc::new(settings), error: None, task: None };
         state.task = Some(cx.spawn(async move |this, cx| {
-            let mut watcher = SettingsWatcher::new(source);
+            let mut watcher = SettingsWatcher::new(source.clone());
+            let mut sync_failed = false;
             loop {
                 let Ok(interval) = this.update(cx, |state, _| state.current.settings.poll_interval_ms) else { break; };
                 cx.background_executor().timer(Duration::from_millis(interval)).await;
-                let (next, result) = cx.background_spawn(async move { let result = watcher.poll(); (watcher, result) }).await;
+                let backend = cx.update(|cx| cx.try_global::<jaywalk::accounts::application::Accounts>().and_then(|accounts| accounts.backend.as_ref().ok()).cloned());
+                let worker_source = source.clone();
+                let (next, result, failed) = cx.background_spawn(async move {
+                    let sync = backend.map_or(Ok(()), |backend| backend.synchronize_account_config(worker_source.path()));
+                    let failed = sync.is_err();
+                    let result = match sync {
+                        Err(error) => { let _ = watcher.poll(); Some(Err(error)) },
+                        Ok(()) => watcher.poll().or_else(|| sync_failed.then(|| worker_source.read())),
+                    };
+                    (watcher, result, failed)
+                }).await;
                 watcher = next;
+                sync_failed = failed;
                 if let Some(result) = result {
                     let _ = this.update(cx, |state, cx| {
                         if result.as_ref().is_ok_and(|settings| *state.current == *settings) && state.error.is_none() { return; }
-                        let result = result.and_then(|settings| { apply_shared(&settings, cx)?; Ok(settings) });
+                        let result = result.and_then(|settings| { apply_shared(&settings, &source, cx)?; Ok(settings) });
                         match result {
                             Ok(settings) => {
                                 if *state.current == settings && state.error.is_none() { return; }
@@ -88,7 +100,7 @@ pub(crate) fn source(
     publish(source, settings.clone(), cx)
 }
 
-fn apply_shared(settings: &Settings, cx: &mut App) -> Result<(), String> {
+fn apply_shared(settings: &Settings, source: &SettingsSource, cx: &mut App) -> Result<(), String> {
     // Validate/install the keymap before mutating any other shared state.
     let previous = cx.global::<SettingsService>().active.clone();
     if previous
@@ -109,6 +121,16 @@ fn apply_shared(settings: &Settings, cx: &mut App) -> Result<(), String> {
             || old.diff.colors != settings.diff.colors
     }) {
         crate::appearance::apply(settings, cx);
+    }
+    if let Some(backend) = cx
+        .try_global::<jaywalk::accounts::application::Accounts>()
+        .and_then(|accounts| accounts.backend.as_ref().ok())
+    {
+        backend.configure_accounts(
+            source.path().to_path_buf(),
+            settings.accounts.clone(),
+            settings.hosting.concurrent_accounts,
+        )?;
     }
     cx.global_mut::<SettingsService>().active = Some(Arc::new(settings.clone()));
     Ok(())
