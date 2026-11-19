@@ -6,6 +6,7 @@ use crate::repository::{
 use crate::repository_file::ChangeKind;
 use std::collections::{BTreeMap, BTreeSet};
 pub(crate) mod blob_batch;
+mod renames;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -26,6 +27,7 @@ type TextPair = Result<(String, String), String>;
 pub(crate) struct GitContents {
     pub(crate) recorded_tip: String,
     pub(crate) working_changes: bool,
+    pub(crate) workspace_label: Option<String>,
     files: Arc<BTreeMap<String, TextPair>>,
     reversed: bool,
     root: PathBuf,
@@ -101,13 +103,66 @@ pub(crate) fn load(
 ) -> Result<Comparison, String> {
     let root = output(directory, &["rev-parse", "--show-toplevel"])?;
     let root = PathBuf::from(root.trim_end_matches('\n'));
-    let base = resolve(&root, base.unwrap_or("HEAD"))?;
+    let (base, workspace_label) = if base.is_none() && tip == "@" {
+        let (base, label) = workspace_base(&root)?;
+        (base, Some(label))
+    } else {
+        (resolve(&root, base.unwrap_or("HEAD"))?, None)
+    };
     let tip = if tip == "@" {
         WORKING_TREE.into()
     } else {
         resolve(&root, tip)?
     };
-    between(root, base, tip, limit)
+    capture(root, base, tip, limit, workspace_label)
+}
+
+/// Resolve only locally known refs; startup never fetches or consults tracking
+/// upstreams, which commonly point back to the feature branch itself.
+fn workspace_base(root: &Path) -> Result<(String, String), String> {
+    let head = resolve(root, "HEAD")?;
+    let references = references(root)?;
+    let symbolic = output(
+        root,
+        &["for-each-ref", "--format=%(symref)", "refs/remotes"],
+    )?;
+    let fallback = |reason: &str| {
+        (
+            head.clone(),
+            format!("Current work · HEAD only: {reason}; choose a comparison base"),
+        )
+    };
+    let Some(reference) = crate::branch_review::suggested_base(&references.references, &symbolic)
+    else {
+        return Ok(fallback("no unambiguous integration branch"));
+    };
+    let target = references
+        .references
+        .iter()
+        .find(|r| crate::branch_review::RefName::from_reference(r) == reference)
+        .expect("suggested base came from this captured reference list");
+    let result = crate::tools::command("git")?
+        .current_dir(root)
+        .env("GIT_OPTIONAL_LOCKS", "0")
+        .args(["merge-base", "--all", &head, &target.target])
+        .output()
+        .map_err(|e| format!("Could not resolve Git integration base: {e}"))?;
+    if !result.status.success() && result.status.code() != Some(1) {
+        return Err(format!(
+            "Could not resolve Git integration base: {}",
+            String::from_utf8_lossy(&result.stderr).trim()
+        ));
+    }
+    let output = String::from_utf8(result.stdout).map_err(|e| e.to_string())?;
+    let bases: Vec<_> = output.lines().collect();
+    Ok(match bases.as_slice() {
+        [base] => (
+            (*base).into(),
+            format!("Current work · based on {}", reference.display()),
+        ),
+        [] => fallback("no common integration ancestor"),
+        _ => fallback("multiple integration ancestors"),
+    })
 }
 
 fn tree(root: &Path, revision: &str) -> Result<BTreeMap<String, GitValue>, String> {
@@ -136,6 +191,15 @@ pub(crate) fn between(
     tip: String,
     limit: crate::text_content::TextLimit,
 ) -> Result<Comparison, String> {
+    capture(root, base, tip, limit, None)
+}
+fn capture(
+    root: PathBuf,
+    base: String,
+    tip: String,
+    limit: crate::text_content::TextLimit,
+    workspace_label: Option<String>,
+) -> Result<Comparison, String> {
     if base == WORKING_TREE {
         if tip == WORKING_TREE {
             return Err("Choose two distinct working/recorded endpoints".into());
@@ -158,7 +222,8 @@ pub(crate) fn between(
         "diff",
         "--no-ext-diff",
         "--no-textconv",
-        "--no-renames",
+        "--find-renames=50%",
+        "-l200",
         "--name-status",
         "-z",
         &base,
@@ -172,16 +237,33 @@ pub(crate) fn between(
     let before_tree = tree(&root, &base)?;
     let mut files = BTreeMap::new();
     while let Some(status) = fields.next() {
-        let path = fields.next().ok_or("Incomplete Git diff entry")?;
-        let kind = match status {
-            "A" => ChangeKind::Added,
-            "D" => ChangeKind::Removed,
-            "M" | "T" => ChangeKind::Modified,
-            other => ChangeKind::Other(other.to_owned()),
+        let before_path = fields.next().ok_or("Incomplete Git diff entry")?;
+        let (kind, after_path) = if status.starts_with('R') || status.starts_with('C') {
+            if status[1..].parse::<u8>().is_err() {
+                return Err("Invalid Git rename/copy score".into());
+            }
+            (
+                if status.starts_with('R') {
+                    ChangeKind::Renamed
+                } else {
+                    ChangeKind::Copied
+                },
+                fields.next().ok_or("Incomplete Git rename/copy entry")?,
+            )
+        } else {
+            (
+                match status {
+                    "A" => ChangeKind::Added,
+                    "D" => ChangeKind::Removed,
+                    "M" | "T" => ChangeKind::Modified,
+                    other => ChangeKind::Other(other.to_owned()),
+                },
+                before_path,
+            )
         };
         files.insert(
-            path.to_owned(),
-            ChangedFile::new(kind, path.into(), path.into()),
+            after_path.to_owned(),
+            ChangedFile::new(kind, before_path.into(), after_path.into()),
         );
     }
     if working {
@@ -203,12 +285,15 @@ pub(crate) fn between(
             );
         }
     }
-    let files: Vec<_> = files.into_values().collect();
+    let mut files: Vec<_> = files.into_values().collect();
     let mut after_tree = if working {
         // The diff classified remaining tracked paths as unchanged. Bind their
         // bytes to the base objects, never to future filesystem reads.
         let mut after = before_tree.clone();
         for file in &files {
+            if file.kind() == &ChangeKind::Renamed {
+                after.remove(file.before_path());
+            }
             if file.kind() == &ChangeKind::Removed {
                 after.remove(file.after_path());
             } else {
@@ -284,6 +369,9 @@ pub(crate) fn between(
         })();
         contents.insert(file.after_path().to_owned(), pair);
     }
+    if working {
+        renames::infer(&mut files, &mut contents, [&before_tree, &after_tree]);
+    }
     Comparison::assemble(
         ComparisonMetadata {
             root: root.clone(),
@@ -296,6 +384,7 @@ pub(crate) fn between(
         ContentSource::Git(Arc::new(GitContents {
             recorded_tip,
             working_changes,
+            workspace_label,
             files: Arc::new(contents),
             reversed: false,
             root,

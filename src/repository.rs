@@ -218,6 +218,19 @@ impl Comparison {
     pub fn operation(&self) -> &str {
         &self.operation
     }
+    /// The captured committed endpoint beneath a virtual Git working tree.
+    pub fn recorded_tip(&self) -> &str {
+        match &self.content {
+            ContentSource::Git(contents) => &contents.recorded_tip,
+            _ => &self.tip,
+        }
+    }
+    pub fn workspace_label(&self) -> Option<&str> {
+        match &self.content {
+            ContentSource::Git(contents) => contents.workspace_label.as_deref(),
+            _ => None,
+        }
+    }
     pub fn base(&self) -> &str {
         &self.base
     }

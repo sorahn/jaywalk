@@ -1213,12 +1213,12 @@ fn snapshot_pairs_order_by_ancestry_or_selection_and_keep_divergent_direction() 
     let fixture = Fixture::new();
     let base = Comparison::load(&fixture.0, None, "@")
         .unwrap()
-        .base()
+        .recorded_tip()
         .to_owned();
     fixture.git(&["add", "file.txt"]);
     fixture.git(&["commit", "-m", "second"]);
     let home = Comparison::load(&fixture.0, None, "@").unwrap();
-    let tip = home.base().to_owned();
+    let tip = home.recorded_tip().to_owned();
     let catalog = Catalog::capture(&home).unwrap();
     let ancestry = catalog.pair(&tip, &base, PairOrder::Ancestry).unwrap();
     assert_eq!(
@@ -1247,8 +1247,8 @@ fn snapshot_pairs_order_by_ancestry_or_selection_and_keep_divergent_direction() 
     fixture.git(&["commit", "-m", "divergent"]);
     let other = Comparison::load(&fixture.0, None, "@").unwrap();
     let catalog = Catalog::capture(&other).unwrap();
-    let first = home.base();
-    let second = other.base();
+    let first = home.recorded_tip();
+    let second = other.recorded_tip();
     assert_eq!(
         catalog.pair(first, second, PairOrder::Ancestry).unwrap(),
         Target::Pair {
@@ -1786,4 +1786,58 @@ fn hosted_overview_never_renders_the_previous_local_overview_under_its_pr_headin
     assert!(cx.debug_bounds("overview-preparing").is_some());
     draw(cx);
     assert!(cx.update(|_, app| viewer.read(app).is_hosted_review()));
+}
+
+#[gpui_test::test]
+fn git_whole_branch_return_keeps_unstaged_rename_after_commit_inspection(cx: &mut TestAppContext) {
+    let fixture = Fixture::new();
+    let before = (0..40)
+        .map(|n| format!("line {n:02}: retained source content\n"))
+        .collect::<String>();
+    fixture.replace(&before, &before);
+    fixture.git(&["switch", "-c", "feature"]);
+    let after = before.replace(
+        "line 10: retained source content",
+        "line 10: committed change",
+    );
+    std::fs::write(fixture.0.join("file.txt"), &after).unwrap();
+    fixture.git(&["add", "file.txt"]);
+    fixture.git(&["commit", "-m", "branch change"]);
+    std::fs::rename(fixture.0.join("file.txt"), fixture.0.join("renamed.txt")).unwrap();
+    let (viewer, cx) = setup(&fixture, cx);
+    let commit = cx.update(|_, app| {
+        let v = viewer.read(app);
+        let c = v.comparison().unwrap();
+        assert_eq!(c.workspace_label(), Some("Current work · based on main"));
+        assert_eq!(v.selected_path().as_deref(), Some("renamed.txt"));
+        assert_eq!(
+            c.files()
+                .iter()
+                .find(|f| f.after_path() == "renamed.txt")
+                .unwrap()
+                .status(),
+            "renamed"
+        );
+        c.recorded_tip().to_owned()
+    });
+    cx.update(|window, app| viewer.update(app, |v, cx| v.select_revision(&commit, window, cx)));
+    draw(cx);
+    cx.update(|_, app| assert_eq!(viewer.read(app).comparison().unwrap().tip(), commit));
+    cx.update(|window, app| viewer.update(app, |v, cx| v.all_review_changes(None, window, cx)));
+    draw(cx);
+    cx.update(|_, app| {
+        let v = viewer.read(app);
+        let c = v.comparison().unwrap();
+        assert!(matches!(
+            v.repository.ready().unwrap().review.source,
+            super::review_context::ReviewSource::Home(super::review_context::HomeSource::Workspace)
+        ));
+        assert_eq!(c.tip(), "working tree");
+        assert_eq!(c.workspace_label(), Some("Current work · based on main"));
+        assert!(
+            c.files()
+                .iter()
+                .any(|f| f.after_path() == "renamed.txt" && f.status() == "renamed")
+        );
+    });
 }

@@ -591,11 +591,20 @@ fn git_and_jj_catalogs_preserve_side_kinds_independently_of_text() {
                 .unwrap_err()
                 .contains("Submodule")
         );
-        for (path, status) in [("empty-added", "added"), ("empty-deleted", "removed")] {
-            let entry = comparison.catalog().find(path).unwrap();
-            assert_eq!(entry.status(), Some(status));
-            assert!(entry.type_change_notice().is_none());
-            assert_eq!(comparison.read_file(entry).unwrap(), ("".into(), "".into()));
+        let empty = comparison.catalog().find("empty-added").unwrap();
+        if empty.status() == Some("renamed") {
+            // Git can report a recorded empty-file rename. Preserve its result;
+            // unstaged inference deliberately leaves empty candidates separate.
+            assert_eq!(empty.before_path(), "empty-deleted");
+            assert_eq!(comparison.read_file(empty).unwrap(), ("".into(), "".into()));
+            assert!(empty.type_change_notice().is_none());
+        } else {
+            for (path, status) in [("empty-added", "added"), ("empty-deleted", "removed")] {
+                let entry = comparison.catalog().find(path).unwrap();
+                assert_eq!(entry.status(), Some(status));
+                assert!(entry.type_change_notice().is_none());
+                assert_eq!(comparison.read_file(entry).unwrap(), ("".into(), "".into()));
+            }
         }
         let overview = comparison.overview();
         assert!(

@@ -119,33 +119,7 @@ impl Catalog {
             &catalog.root,
             &["for-each-ref", "--format=%(symref)", "refs/remotes"],
         )?;
-        let mut defaults: Vec<_> = catalog
-            .references
-            .iter()
-            .filter(|reference| {
-                reference.remote().is_some_and(|remote| {
-                    symbolic
-                        .lines()
-                        .any(|line| line == format!("refs/remotes/{remote}/{}", reference.name))
-                })
-            })
-            .map(RefName::from_reference)
-            .collect();
-        if defaults.is_empty() {
-            defaults = catalog
-                .references
-                .iter()
-                .filter(|reference| {
-                    reference.remote().is_none()
-                        && matches!(reference.name.as_str(), "main" | "master" | "trunk")
-                })
-                .map(RefName::from_reference)
-                .collect();
-        }
-        defaults.dedup();
-        if defaults.len() == 1 {
-            catalog.default_base = defaults.pop();
-        }
+        catalog.default_base = suggested_base(&catalog.references, &symbolic);
         Ok(catalog)
     }
     pub fn default_base(&self) -> Option<&RefName> {
@@ -444,5 +418,35 @@ fn validate_id(id: &str) -> Result<(), String> {
         Err("Review endpoints must be resolved commit IDs".into())
     } else {
         Ok(())
+    }
+}
+
+/// Use the same conservative integration target for startup and branch picking.
+pub(crate) fn suggested_base(references: &[Reference], symbolic: &str) -> Option<RefName> {
+    let mut defaults: Vec<_> = references
+        .iter()
+        .filter(|reference| {
+            reference.remote().is_some_and(|remote| {
+                symbolic
+                    .lines()
+                    .any(|line| line == format!("refs/remotes/{remote}/{}", reference.name))
+            })
+        })
+        .map(RefName::from_reference)
+        .collect();
+    if defaults.is_empty() {
+        defaults = references
+            .iter()
+            .filter(|reference| {
+                reference.remote().is_none()
+                    && matches!(reference.name.as_str(), "main" | "master" | "trunk")
+            })
+            .map(RefName::from_reference)
+            .collect();
+    }
+    if defaults.len() == 1 {
+        defaults.pop()
+    } else {
+        None
     }
 }

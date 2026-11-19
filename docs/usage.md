@@ -38,7 +38,14 @@ picker's explicit Open in new window action/modifier always opens another window
 
 ## Overview and files
 
-A repository opens to the whole-branch overview. It lists the commits in the
+A repository opens to the current-work overview. In plain Git, this compares the
+working tree (including staged, unstaged and untracked changes) with the common
+ancestor of HEAD and the locally known integration branch: a unique remote
+default branch, otherwise a single local `main`/`master`/`trunk`. Tracking a feature
+branch does not make that upstream the integration target. If the target or
+common ancestor is missing or ambiguous, the caption explains the fallback to
+HEAD → working tree; choose a branch/base explicitly to review another scope.
+No fetch is performed. jj retains its mutable-stack default. It lists the commits in the
 comparison and shows a unified diff for every changed file, with unchanged ranges
 collapsed. Expand a range for context, use **Show full files** for everything,
 or choose **Open file** for the regular diff viewer. Clicking a file header folds
@@ -205,6 +212,25 @@ stacked diff. Choose another branch/base from the dropdown beside All changes,
 or use the history/reference context menus. The caption shows which source and
 base you are reviewing. See [context menus](context-menus.md#branch-review-context)
 for ambiguity, merged branches and live/pinned behavior.
+
+Git recognizes recorded/staged renames with rename detection enabled. For an
+unstaged move to an untracked path, Jaywalk also matches captured deleted/added
+text without staging, writing the index or creating Git objects. Unique nonempty
+exact matches are preferred. Small edited text files can match by shared line
+bytes (at least 60% of the larger file), only when each side is the other's clear
+best match and no competing candidate reaches 30%. Duplicates, splits, file-type
+changes and ambiguous candidates stay separate. Unchanged source files are never
+consumed to infer copies. Symlinks use their link text, never target contents.
+
+Inference is deliberately bounded: at most 200 readable candidates per side and
+64 MiB total candidate text for exact matching; approximate matching additionally
+limits each file to 64 KiB, total text to 8 MiB, 20,000 candidate pairs, 65,536
+source lines and one million distinct-line comparisons. If a pass exceeds its
+budget, remaining additions/deletions stay intact. Binary, unavailable and
+oversized text cannot be inferred; Git-reported renames remain visible. These
+limits bound this matching pass, not total comparison memory. A detected rename
+is one file entry with its original path and both captured content sides; later
+edits appear on refresh.
 
 In fluid view, drag the short, full-width thumb in the center gutter to scroll both panes
 through the comparison. Its travel stays about 5% clear of each end so the thumb
