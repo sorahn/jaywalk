@@ -17,3 +17,5 @@ mod workspaces;
 pub use workspaces::{Workspace, WorkspaceListing};
 
 pub mod controller;
+
+pub mod preferences;

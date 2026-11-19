@@ -512,6 +512,59 @@ created pair. It does
 not reorder open comparisons, Back/Forward snapshots, explicit CLI endpoints or
 branch-review presets. Swap reverses only the current captured comparison.
 
+## Connected accounts
+
+Public account configuration lives in ordered `[[accounts]]` tables in the active
+config file. Once account features restore the OS credential store, Jaywalk appends
+newly connected accounts to that file. It preserves existing rows, comments and
+unrelated settings. This stays lazy: opening a local diff alone does not read Keychain.
+
+```toml
+[[accounts]]
+provider = "github"
+id = "12345"                 # Stable provider account ID, not the login name.
+name = "Personal"            # Optional display name; provider queries keep the real login.
+client_id = "public-client-id"
+
+[[accounts]]
+provider = "bitbucket"
+id = "{account-uuid}"
+name = "Work"
+client_id = "public-client-id"
+workspace = { uuid = "{workspace-uuid}", slug = "my-workspace" }
+```
+
+Reorder the tables to set the default account-list order and PR request dispatch
+priority across windows. Faster accounts publish results immediately; completion
+order never becomes account-list order. Text relevance and the assigned/review
+request group still take precedence over account order in PR search results.
+Names, visible account order and preferred workspace apply live. A listing/refresh
+captures its dispatch order and worker count when it starts; later edits apply to
+the next listing, while the shared limit also constrains queued service requests.
+The last successfully applied
+config source controls application-wide preferences, matching other shared settings.
+
+`provider` accepts `github` or `bitbucket`. `id` is required; `name` and `client_id`
+are optional nonempty strings of at most 256 bytes without control characters.
+Duplicate provider/ID pairs are rejected; at most 256 preference rows are accepted.
+`workspace` is optional and Bitbucket-only. Choosing a workspace through account
+commands writes it here. Omitting it clears the preferred workspace; it does not
+restrict discovery to one workspace.
+
+The public OAuth `client_id` selects a registration for Connect/Reconnect; its
+matching client secret must already exist in the OS store. Changing the client
+requires reconnecting and does not reinterpret existing tokens as belonging to a
+different app. Config entries do not grant access or create a signed-in account.
+Disconnected rows remain as preferences for later reconnection. Removing a row
+for a still-connected account causes it to be appended again when metadata syncs.
+Unknown/unconnected rows do not appear as active accounts or generate requests.
+
+Access tokens, refresh tokens and client secrets remain in the OS credential
+store. Secret fields in account config are rejected. Existing credential records
+retain their authentication binding; public config controls display, ordering,
+registration selection and workspace preference. Malformed configs and conflicting
+edits are preserved, with an error shown while the last valid settings stay active.
+
 ## Hosted pull request reviews
 
 Selecting a GitHub or Bitbucket Cloud PR loads its published comparison into the
@@ -523,6 +576,7 @@ published diff. Pair and local branch comparisons require a local repository.
 
 | Setting | Default | Behavior |
 | --- | --- | --- |
+| `hosting.concurrent_accounts` | `3` | Maximum independent uncached PR-account discoveries across windows, integer 1–8. Accounts are dispatched in configured order; workspaces and pages within each account remain sequential. Lowering the limit lets in-flight jobs finish and holds new starts. Applies live to new work. |
 | `hosting.history_limit` | `200` | PR commit rows to acquire, 1–1000. Keeps the newest available rows; GitHub's PR endpoint exposes at most the first 250 commits of larger PRs. Partial history is marked and never changes the published diff. Applies to the next opened/updated review. |
 | `hosting.max_files` | `3000` | Maximum changed files per aggregate or commit, 1–3000. Reviews beyond the cap fail explicitly instead of showing a partial diff. Applies to the next opened/updated review. |
 | `hosting.max_content_mb` | `128` | MiB of successfully decoded, unique file text cached per opened review, shared across its clones and individual commit snapshots, 1–1024. Both sides count. The existing `diff.max_text_file_size_mb` also applies per file side before allocation. This bounds cached source text, not total process memory: editor, syntax, diff and navigation state require additional memory. Applies to the next opened/updated review. |

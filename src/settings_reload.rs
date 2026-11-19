@@ -3,6 +3,10 @@ use crate::keybinding_profiles::{self as profiles, Profile};
 use crate::settings::{Config, Settings, default_path};
 use std::path::{Path, PathBuf};
 
+// Serialize the app's config writers; editor changes are still checked against
+// the original text before atomic replacement.
+pub(crate) static CONFIG_WRITER: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 #[derive(Clone, PartialEq, Eq, Hash)]
 pub struct SettingsSource {
     path: PathBuf,

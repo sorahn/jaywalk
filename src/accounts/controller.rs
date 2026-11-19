@@ -138,7 +138,8 @@ impl AccountState {
                         let prepared = cx
                             .background_spawn(async move {
                                 attempt_control.check()?;
-                                let registration = backend.selected_registration(provider)?;
+                                let registration =
+                                    backend.registration_for(provider, replace.as_ref())?;
                                 attempt_control.check()?;
                                 backend.begin_sign_in_controlled(
                                     registration,

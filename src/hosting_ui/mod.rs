@@ -64,13 +64,9 @@ impl Choice {
                 account,
                 batch,
                 index,
-            } => format!(
-                "{} · {}",
-                batch.items[*index].label(),
-                account.identity.label
-            ),
+            } => format!("{} · {}", batch.items[*index].label(), account.label()),
             Self::Lookup { account, locator } => {
-                format!("Look up {} · {}", locator.label(), account.identity.label)
+                format!("Look up {} · {}", locator.label(), account.label())
             }
             Self::Recent(locator) => format!("Recent · {}", locator.label()),
         }
@@ -96,7 +92,12 @@ struct DiscoveryRequest {
     force: bool,
 }
 impl DiscoveryRequest {
-    fn run(self, sender: &async_channel::Sender<Update>, control: &Control) -> Result<(), Error> {
+    async fn run(
+        self,
+        sender: &async_channel::Sender<Update>,
+        control: &Control,
+        executor: &BackgroundExecutor,
+    ) -> Result<(), Error> {
         control.check()?;
         let remotes = self
             .root
@@ -147,42 +148,82 @@ impl DiscoveryRequest {
                 let _ = sender.try_send(Update::Notice(format!("Saved PR results: {error}")));
             }
         }
-        for account in accounts {
-            control.check()?;
-            let _ = sender.try_send(Update::Message(format!(
-                "Loading {} · {}…",
-                account.identity.key.provider.name(),
-                account.identity.label
-            )));
-            let result = if self.force {
-                backend.refresh_pull_requests(&account.identity.key, &scope, control)
-            } else {
-                backend.pull_requests(&account.identity.key, &scope, control)
-            };
-            control.check()?;
-            if let Ok(fetched) = &result
-                && fetched.generation == account.generation
-                && backend.accounts_snapshot().accounts.iter().any(|current| {
-                    current.identity.key == account.identity.key
-                        && current.generation == account.generation
-                        && !matches!(current.state, ConnectionState::NeedsSignIn)
-                })
-                && let Err(error) = hosting::snapshots::save(
-                    &snapshot_path,
-                    &account.identity.key,
-                    &scope,
-                    &fetched.batch,
-                    fetched.fetched_at,
-                    control,
-                )
-            {
-                let _ = sender.try_send(Update::Notice(format!(
-                    "Could not save PR results: {error}"
-                )));
+        let concurrency = backend.discovery_concurrency();
+        let mut pending = accounts.into_iter();
+        let mut running: Vec<Task<()>> = vec![];
+        std::future::poll_fn(|cx| {
+            use std::{future::Future, pin::Pin, task::Poll};
+            for index in (0..running.len()).rev() {
+                if Pin::new(&mut running[index]).poll(cx).is_ready() {
+                    drop(running.swap_remove(index));
+                }
             }
-            control.check()?;
-            let _ = sender.try_send(Update::Account(account, result));
-        }
+            let mut spawned = false;
+            while running.len() < concurrency && control.check().is_ok() {
+                let Some(account) = pending.next() else {
+                    break;
+                };
+                spawned = true;
+                let backend = backend.clone();
+                let scope = scope.clone();
+                let sender = sender.clone();
+                let control = control.clone();
+                let snapshot_path = snapshot_path.clone();
+                let force = self.force;
+                running.push(executor.spawn(async move {
+                    let result = (|| -> Result<(), Error> {
+                        control.check()?;
+                        let _ = sender.try_send(Update::Message(format!(
+                            "Loading {} · {}…",
+                            account.identity.key.provider.name(),
+                            account.label()
+                        )));
+                        let result = if force {
+                            backend.refresh_pull_requests(&account.identity.key, &scope, &control)
+                        } else {
+                            backend.pull_requests(&account.identity.key, &scope, &control)
+                        };
+                        control.check()?;
+                        if let Ok(fetched) = &result
+                            && fetched.generation == account.generation
+                            && backend.accounts_snapshot().accounts.iter().any(|current| {
+                                current.identity.key == account.identity.key
+                                    && current.generation == account.generation
+                                    && !matches!(current.state, ConnectionState::NeedsSignIn)
+                            })
+                            && let Err(error) = hosting::snapshots::save(
+                                &snapshot_path,
+                                &account.identity.key,
+                                &scope,
+                                &fetched.batch,
+                                fetched.fetched_at,
+                                &control,
+                            )
+                        {
+                            let _ = sender.try_send(Update::Notice(format!(
+                                "Could not save PR results: {error}"
+                            )));
+                        }
+                        control.check()?;
+                        let _ = sender.try_send(Update::Account(account, result));
+                        Ok(())
+                    })();
+                    if let Err(error) = result {
+                        let _ = sender.try_send(Update::Notice(error.to_string()));
+                    }
+                }));
+            }
+            if spawned {
+                cx.waker().wake_by_ref();
+            }
+            if running.is_empty() {
+                Poll::Ready(())
+            } else {
+                Poll::Pending
+            }
+        })
+        .await;
+        control.check()?;
         Ok(())
     }
 }
@@ -365,6 +406,25 @@ impl PullRequestsPage {
                 && !matches!(current.state, ConnectionState::NeedsSignIn)
         })
     }
+    fn order_results(&mut self, cx: &App) {
+        let accounts = self.accounts(cx);
+        for results in self.views.values_mut() {
+            for result in results.iter_mut() {
+                if let Some(current) = accounts.iter().find(|account| {
+                    account.identity.key == result.account.identity.key
+                        && account.generation == result.account.generation
+                }) {
+                    result.account = current.clone();
+                }
+            }
+            results.sort_by_key(|result| {
+                accounts
+                    .iter()
+                    .position(|account| account.identity.key == result.account.identity.key)
+                    .unwrap_or(usize::MAX)
+            });
+        }
+    }
     fn purge_retired(&mut self, cx: &App) {
         if !cx.global::<Accounts>().state.read(cx).snapshot.loaded {
             return;
@@ -387,6 +447,7 @@ impl PullRequestsPage {
                 }
             }
         }
+        self.order_results(cx);
     }
     fn cancel(&mut self, cx: &mut Context<Self>) {
         if let Some(control) = self.association.take() {
@@ -464,8 +525,9 @@ impl PullRequestsPage {
         };
         cx.spawn_in(window, async move |this, cx| {
             let worker_control = control.clone();
+            let executor = cx.background_executor().clone();
             let worker = cx.background_spawn(async move {
-                if let Err(error) = request.run(&sender, &worker_control) {
+                if let Err(error) = request.run(&sender, &worker_control, &executor).await {
                     let _ = sender.try_send(Update::Notice(error.to_string()));
                 }
                 let _ = sender.try_send(Update::Done);
@@ -502,7 +564,7 @@ impl PullRequestsPage {
                                 }
                             }
                         }
-                        Update::Saved(account, saved) => page.accept_saved(account, saved),
+                        Update::Saved(account, saved) => page.accept_saved(account, saved, cx),
                         Update::Account(account, result) => {
                             page.accept(account, result, window, cx)
                         }
@@ -532,7 +594,20 @@ impl PullRequestsPage {
         .detach();
         cx.notify();
     }
-    fn accept_saved(&mut self, account: AccountView, saved: hosting::snapshots::SavedBatch) {
+    fn accept_saved(
+        &mut self,
+        account: AccountView,
+        saved: hosting::snapshots::SavedBatch,
+        cx: &App,
+    ) {
+        let account = self
+            .accounts(cx)
+            .into_iter()
+            .find(|current| {
+                current.identity.key == account.identity.key
+                    && current.generation == account.generation
+            })
+            .unwrap_or(account);
         let Some(scope) = &self.scope else {
             return;
         };
@@ -551,6 +626,7 @@ impl PullRequestsPage {
             cached: true,
             saved_at: Some(saved.saved_at),
         });
+        self.order_results(cx);
     }
     fn accept(
         &mut self,
@@ -559,6 +635,14 @@ impl PullRequestsPage {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        let account = self
+            .accounts(cx)
+            .into_iter()
+            .find(|current| {
+                current.identity.key == account.identity.key
+                    && current.generation == account.generation
+            })
+            .unwrap_or(account);
         let Some(scope) = self.scope.clone() else {
             return;
         };
@@ -606,6 +690,8 @@ impl PullRequestsPage {
                 }
             }
         }
+        self.order_results(cx);
+        cx.notify();
     }
     fn choices(&self, cx: &App) -> Vec<Choice> {
         let query = self.search_query(cx);
@@ -836,7 +922,7 @@ impl PullRequestsPage {
                     format!(
                         "{} · {}: {error}",
                         result.account.identity.key.provider.name(),
-                        result.account.identity.label
+                        result.account.label()
                     )
                 })
             })
@@ -1093,11 +1179,7 @@ impl Render for PullRequestsPage {
             account_filters = account_filters.child(
                 Button::new(("pr-account", index))
                     .ghost()
-                    .label(format!(
-                        "{} · {}",
-                        key.provider.name(),
-                        account.identity.label
-                    ))
+                    .label(format!("{} · {}", key.provider.name(), account.label()))
                     .selected(self.account.as_ref() == Some(&key))
                     .on_click(cx.listener(move |page, _, window, cx| {
                         page.account = Some(key.clone());
@@ -1126,7 +1208,7 @@ impl Render for PullRequestsPage {
                     status = status.child(format!(
                         "{} · {}: {error}",
                         result.account.identity.key.provider.name(),
-                        result.account.identity.label
+                        result.account.label()
                     ));
                 }
                 if let Some(batch) = &result.batch {
@@ -1141,7 +1223,7 @@ impl Render for PullRequestsPage {
                     status = status.child(format!(
                         "{} · {}: {} PRs · {} · result age {}s{}{}",
                         result.account.identity.key.provider.name(),
-                        result.account.identity.label,
+                        result.account.label(),
                         batch.items.len(),
                         batch.coverage.join(", "),
                         age,

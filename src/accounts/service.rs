@@ -35,6 +35,47 @@ struct State {
     loaded: bool,
     serial: u64,
     store_error: Option<Error>,
+    configuration: Option<AccountConfiguration>,
+}
+#[derive(PartialEq, Eq)]
+struct AccountConfiguration {
+    path: std::path::PathBuf,
+    entries: Vec<super::preferences::AccountConfig>,
+    concurrent_accounts: usize,
+}
+fn preference<'a>(
+    state: &'a State,
+    key: &AccountKey,
+) -> Option<&'a super::preferences::AccountConfig> {
+    state
+        .configuration
+        .as_ref()?
+        .entries
+        .iter()
+        .find(|entry| entry.key() == *key)
+}
+fn preferred_workspace(
+    state: &State,
+    key: &AccountKey,
+    fallback: &Option<super::Workspace>,
+) -> Option<super::Workspace> {
+    preference(state, key).map_or_else(|| fallback.clone(), |entry| entry.workspace.clone())
+}
+#[derive(Default)]
+struct DiscoverySlots {
+    active: Mutex<usize>,
+    changed: Condvar,
+}
+struct DiscoveryPermit<'a>(&'a DiscoverySlots);
+impl Drop for DiscoveryPermit<'_> {
+    fn drop(&mut self) {
+        *self
+            .0
+            .active
+            .lock()
+            .expect("discovery slots mutex poisoned") -= 1;
+        self.0.changed.notify_all();
+    }
 }
 struct Flight {
     result: Mutex<Option<Result<Secret, Error>>>,
@@ -77,6 +118,7 @@ pub struct Service {
     provider: Arc<dyn HostingProvider>,
     state: Mutex<State>,
     hosting_cache: Mutex<crate::hosting::Cache>,
+    discovery_slots: DiscoverySlots,
     subscribers: Mutex<Vec<async_channel::Sender<Snapshot>>>,
 }
 impl Service {
@@ -86,8 +128,113 @@ impl Service {
             provider,
             state: Mutex::new(State::default()),
             hosting_cache: Mutex::default(),
+            discovery_slots: DiscoverySlots::default(),
             subscribers: Mutex::new(Vec::new()),
         })
+    }
+    /// Apply public preferences without reading credentials or writing files.
+    pub fn configure_accounts(
+        &self,
+        path: std::path::PathBuf,
+        entries: Vec<super::preferences::AccountConfig>,
+        concurrent_accounts: usize,
+    ) -> Result<(), String> {
+        super::preferences::validate(&entries)?;
+        if !(1..=8).contains(&concurrent_accounts) {
+            return Err("hosting.concurrent_accounts must be 1..8".into());
+        }
+        let mut state = self.state.lock().expect("account state mutex poisoned");
+        let configuration = AccountConfiguration {
+            path,
+            entries,
+            concurrent_accounts,
+        };
+        if state.configuration.as_ref() != Some(&configuration) {
+            state.configuration = Some(configuration);
+            self.publish(&state);
+        }
+        Ok(())
+    }
+    /// Worker-only: append metadata after lazy restore/sign-in, never credentials.
+    pub fn synchronize_account_config(&self, path: &std::path::Path) -> Result<(), String> {
+        let entries = {
+            let state = self.state.lock().expect("account state mutex poisoned");
+            if !state.loaded
+                || state
+                    .configuration
+                    .as_ref()
+                    .is_none_or(|config| config.path != path)
+            {
+                return Ok(());
+            }
+            snapshot(&state)
+                .accounts
+                .iter()
+                .map(|view| {
+                    super::preferences::AccountConfig::from_session(
+                        &state.accounts[&view.identity.key].session,
+                    )
+                })
+                .collect::<Vec<_>>()
+        };
+        super::preferences::synchronize(path, &entries, None)?;
+        Ok(())
+    }
+    pub fn discovery_concurrency(&self) -> usize {
+        self.state
+            .lock()
+            .expect("account state mutex poisoned")
+            .configuration
+            .as_ref()
+            .map(|config| config.concurrent_accounts)
+            .unwrap_or_else(|| {
+                crate::settings::Config::default()
+                    .hosting
+                    .concurrent_accounts
+            })
+    }
+    fn discovery_permit(&self, control: &Control) -> Result<DiscoveryPermit<'_>, Error> {
+        let mut active = self
+            .discovery_slots
+            .active
+            .lock()
+            .expect("discovery slots mutex poisoned");
+        loop {
+            control.check()?;
+            if *active < self.discovery_concurrency() {
+                *active += 1;
+                return Ok(DiscoveryPermit(&self.discovery_slots));
+            }
+            (active, _) = self
+                .discovery_slots
+                .changed
+                .wait_timeout(active, Duration::from_millis(20))
+                .expect("discovery slots mutex poisoned");
+        }
+    }
+    pub fn registration_for(
+        &self,
+        provider: Provider,
+        replace: Option<&AccountKey>,
+    ) -> Result<ClientRegistration, Error> {
+        let id = {
+            let state = self.state.lock().expect("account state mutex poisoned");
+            state
+                .configuration
+                .as_ref()
+                .and_then(|config| {
+                    config.entries.iter().find(|entry| {
+                        entry.provider == provider
+                            && replace.is_none_or(|key| entry.key() == *key)
+                            && entry.client_id.is_some()
+                    })
+                })
+                .and_then(|entry| entry.client_id.clone())
+        };
+        match id {
+            Some(id) => self.store.registration(provider, &id),
+            None => self.selected_registration(provider),
+        }
     }
     pub fn subscribe(&self) -> async_channel::Receiver<Snapshot> {
         let state = self.state.lock().expect("account state mutex poisoned");
@@ -484,16 +631,6 @@ impl Service {
         if !scope.supports(key.provider) {
             return Err(Error::Unsupported);
         }
-        let mut cache = loop {
-            control.check()?;
-            match self.hosting_cache.try_lock() {
-                Ok(cache) => break cache,
-                Err(std::sync::TryLockError::WouldBlock) => {
-                    std::thread::sleep(Duration::from_millis(20))
-                }
-                Err(std::sync::TryLockError::Poisoned(_)) => panic!("hosting cache mutex poisoned"),
-            }
-        };
         let epoch = self
             .state
             .lock()
@@ -502,6 +639,29 @@ impl Service {
             .get(key)
             .ok_or(Error::NotConnected)?
             .epoch;
+        let gate = self
+            .hosting_cache
+            .lock()
+            .expect("hosting cache mutex poisoned")
+            .request_gate(key, epoch);
+        // Serialize/coalesce requests only for this account generation. A slow
+        // provider must not hold the cache mutex needed by unrelated accounts.
+        let _request = loop {
+            control.check()?;
+            match gate.try_lock() {
+                Ok(guard) => break guard,
+                Err(std::sync::TryLockError::WouldBlock) => {
+                    std::thread::sleep(Duration::from_millis(20))
+                }
+                Err(std::sync::TryLockError::Poisoned(_)) => {
+                    panic!("hosting request mutex poisoned")
+                }
+            }
+        };
+        let cache = self
+            .hosting_cache
+            .lock()
+            .expect("hosting cache mutex poisoned");
         let cached = if refresh {
             cache.updated_since(key, epoch, scope, started)
         } else {
@@ -520,6 +680,8 @@ impl Service {
             }
         }
         cache.check_rate(key)?;
+        drop(cache);
+        let _permit = self.discovery_permit(control)?;
         let mut token = self.access_token(key, control)?;
         let mut result = self.read_pull_requests(key, epoch, &token, scope, control);
         if matches!(result, Err(Error::NeedsSignIn)) {
@@ -531,10 +693,17 @@ impl Service {
             }
         }
         if matches!(result, Err(Error::RateLimited)) {
-            cache.limited(key.clone());
+            self.hosting_cache
+                .lock()
+                .expect("hosting cache mutex poisoned")
+                .limited(key.clone());
         }
         let batch = Arc::new(result?);
         control.check()?;
+        let mut cache = self
+            .hosting_cache
+            .lock()
+            .expect("hosting cache mutex poisoned");
         let mut state = self.state.lock().expect("account state mutex poisoned");
         current(&mut state, key, epoch)?;
         let fetched_at = std::time::SystemTime::now();
@@ -557,10 +726,9 @@ impl Service {
         let (identity, selected) = {
             let mut state = self.state.lock().expect("account state mutex poisoned");
             let account = current(&mut state, key, epoch)?;
-            (
-                account.session.identity.clone(),
-                account.session.workspace.clone(),
-            )
+            let identity = account.session.identity.clone();
+            let workspace = account.session.workspace.clone();
+            (identity, preferred_workspace(&state, key, &workspace))
         };
         let mut workspaces = if key.provider == Provider::Bitbucket
             && matches!(
@@ -581,14 +749,13 @@ impl Service {
     }
     /// Worker-only snapshot access, never called from a rendering callback.
     pub fn account_keys(&self) -> Vec<AccountKey> {
-        self.state
-            .lock()
-            .expect("account state mutex poisoned")
+        self.accounts_snapshot()
             .accounts
-            .keys()
-            .cloned()
+            .into_iter()
+            .map(|account| account.identity.key)
             .collect()
     }
+
     pub fn selected_registration(&self, provider: Provider) -> Result<ClientRegistration, Error> {
         self.store.selected_registration(provider)
     }
@@ -636,6 +803,26 @@ impl Service {
             .ok_or(Error::InvalidResponse)?;
         workspace.validate()?;
         let mut state = self.state.lock().expect("account state mutex poisoned");
+        current(&mut state, &listing.account, listing.epoch)?;
+        if let Some(config) = &state.configuration {
+            let path = config.path.clone();
+            let known = state
+                .accounts
+                .values()
+                .map(|account| super::preferences::AccountConfig::from_session(&account.session))
+                .collect::<Vec<_>>();
+            control.commit()?;
+            let entries =
+                super::preferences::synchronize(&path, &known, Some((&listing.account, workspace)))
+                    .map_err(|_| Error::Persistence)?;
+            state
+                .configuration
+                .as_mut()
+                .expect("configuration is still held by the state lock")
+                .entries = entries;
+            self.publish(&state);
+            return Ok(());
+        }
         let account = current(&mut state, &listing.account, listing.epoch)?;
         let mut session = account.session.clone();
         session.workspace = Some(workspace.clone());
@@ -778,18 +965,32 @@ fn current<'a>(
         .ok_or(Error::Superseded)
 }
 fn snapshot(state: &State) -> Snapshot {
-    Snapshot {
-        loaded: state.loaded,
-        accounts: state
-            .accounts
-            .values()
-            .map(|account| AccountView {
+    let mut accounts = state
+        .accounts
+        .values()
+        .map(|account| {
+            let key = &account.session.identity.key;
+            AccountView {
+                name: preference(state, key).and_then(|entry| entry.name.clone()),
                 generation: account.epoch,
                 identity: account.session.identity.clone(),
-                workspace: account.session.workspace.clone(),
+                workspace: preferred_workspace(state, key, &account.session.workspace),
                 state: account.state.clone(),
-            })
-            .collect(),
+            }
+        })
+        .collect::<Vec<_>>();
+    if let Some(config) = &state.configuration {
+        accounts.sort_by_key(|account| {
+            config
+                .entries
+                .iter()
+                .position(|entry| entry.key() == account.identity.key)
+                .unwrap_or(usize::MAX)
+        });
+    }
+    Snapshot {
+        loaded: state.loaded,
+        accounts,
         signing_in: state.pending.keys().copied().collect(),
         store_error: state.store_error,
     }
@@ -899,3 +1100,6 @@ impl Drop for SignIn {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod discovery_tests;

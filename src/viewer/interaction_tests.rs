@@ -2777,3 +2777,67 @@ fn local_pr_checkout_refusal_preserves_the_view_and_all_dirty_files(test_cx: &mu
     cx.simulate_keystrokes("escape");
     draw(cx);
 }
+
+#[gpui_test::test]
+fn account_metadata_is_added_lazily_and_config_order_reloads_across_the_app(
+    test_cx: &mut TestAppContext,
+) {
+    let fixture = Fixture::new();
+    let backend = crate::hosting_ui::tests::fake_service();
+    test_cx.update(|app| {
+        jaywalk::accounts::application::init_with_backend(backend.clone(), app);
+    });
+    let (viewer, cx) = setup(&fixture, test_cx);
+    let path = fixture.0.join("settings.toml");
+    assert!(
+        Settings::parse(&std::fs::read_to_string(&path).unwrap())
+            .unwrap()
+            .accounts
+            .is_empty()
+    );
+    assert!(
+        !backend.accounts_snapshot().loaded,
+        "a local diff must not load credentials"
+    );
+    jaywalk::settings_reload::SettingsSource::resolve(Some(&path))
+        .unwrap()
+        .initialize()
+        .unwrap();
+    backend.restore().unwrap();
+    for _ in 0..3 {
+        cx.executor()
+            .advance_clock(std::time::Duration::from_secs(1));
+        draw(cx);
+    }
+    let contents = std::fs::read_to_string(&path).unwrap();
+    let config = Settings::parse(&contents).unwrap();
+    assert_eq!(config.accounts.len(), 2);
+    assert!(
+        config
+            .accounts
+            .iter()
+            .all(|account| account.client_id.as_deref() == Some("synthetic-client"))
+    );
+    // Simulate an editor moving complete account sections in the file.
+    let mut sections = contents.split("[[accounts]]");
+    let mut edited = sections.next().unwrap().to_owned();
+    for section in sections.collect::<Vec<_>>().into_iter().rev() {
+        edited.push_str("[[accounts]]");
+        edited.push_str(&section.replace("name = \"person2\"", "name = \"Work\""));
+    }
+    std::fs::write(&path, &edited).unwrap();
+    assert_eq!(Settings::parse(&edited).unwrap().accounts[0].id, "2");
+    for _ in 0..3 {
+        cx.executor()
+            .advance_clock(std::time::Duration::from_secs(1));
+        draw(cx);
+    }
+    let accounts = backend.accounts_snapshot().accounts;
+    assert_eq!(accounts[0].identity.key.subject, "2");
+    assert_eq!(accounts[0].label(), "Work");
+    assert_eq!(accounts[0].identity.label, "person2");
+    assert_eq!(
+        cx.update(|_, app| viewer.read(app).settings.accounts[0].id.clone()),
+        "2"
+    );
+}

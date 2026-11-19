@@ -230,7 +230,7 @@ impl AccountPanel {
             .child(
                 div()
                     .font_medium()
-                    .child(format!("{name} · {}", account.identity.label)),
+                    .child(format!("{name} · {}", account.label())),
             )
             .child(
                 div()
@@ -335,7 +335,7 @@ impl Render for AccountPanel {
                     .accounts
                     .iter()
                     .find(|account| account.identity.key == key)
-                    .map_or("this account", |account| account.identity.label.as_str())
+                    .map_or("this account", |account| account.label())
                     .to_owned();
                 let confirmation = div().v_flex().gap_2().p_3().border_1().border_color(border)
                     .child(format!("Disconnect {label}?"))

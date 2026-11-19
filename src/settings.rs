@@ -93,6 +93,7 @@ pub struct LiveSettings {
 #[derive(Clone, Debug, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct Config {
+    pub accounts: Vec<crate::accounts::preferences::AccountConfig>,
     pub hosting: crate::hosting::review::Options,
     pub local_review: crate::local_review::Options,
     pub application: ApplicationSettings,
@@ -524,6 +525,7 @@ impl Config {
     }
 
     fn validate(&self) -> Result<(), String> {
+        crate::accounts::preferences::validate(&self.accounts)?;
         self.hosting.validate()?;
         self.local_review.validate()?;
         crate::keybinding_profiles::validate_reference(&self.keyboard.profile)?;

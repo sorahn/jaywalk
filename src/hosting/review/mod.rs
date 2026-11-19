@@ -22,6 +22,7 @@ use std::{
 #[derive(Clone, Copy, Debug, serde::Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct Options {
+    pub concurrent_accounts: usize,
     pub history_limit: usize,
     pub max_files: usize,
     pub max_content_mb: u64,
@@ -33,6 +34,9 @@ impl Default for Options {
 }
 impl Options {
     pub fn validate(self) -> Result<(), String> {
+        if !(1..=8).contains(&self.concurrent_accounts) {
+            return Err("hosting.concurrent_accounts must be 1..8".into());
+        }
         if !(1..=1000).contains(&self.history_limit)
             || !(1..=3000).contains(&self.max_files)
             || !(1..=1024).contains(&self.max_content_mb)

@@ -305,6 +305,7 @@ fn a_full_url_offers_its_provider_even_after_a_different_account_filter(
                 .snapshot
                 .accounts
                 .push(jaywalk::accounts::AccountView {
+                    name: None,
                     generation: 999,
                     identity: Identity {
                         key: AccountKey {
@@ -609,7 +610,10 @@ fn refreshed_results_preserve_selected_identity_when_rows_move(
         })
     });
     draw(cx);
-    cx.simulate_keystrokes("down");
+    cx.update(|window, app| page.update(app, |page, cx| {
+        let index = page.choices(cx).iter().position(|choice| matches!(choice, Choice::Item { batch, index, .. } if batch.items[*index].locator.number == 43)).unwrap();
+        page.input.update(cx, |state,cx| state.set_selected_index(Some(gpui::component::IndexPath::new(index)), window, cx));
+    }));
     draw(cx);
     cx.update(|window, app| {
         page.update(app, |page, cx| {
@@ -738,4 +742,56 @@ fn inbox_default_prioritizes_across_accounts_but_preserves_text_relevance(
             assert_eq!(numbers(page.choices(cx)), [20, 21, 10, 11]);
         })
     });
+}
+
+#[gpui_test::test]
+fn configured_account_order_wins_over_completion_order_and_updates_live(
+    test_cx: &mut gpui_test::TestAppContext,
+) {
+    use jaywalk::accounts::preferences::AccountConfig;
+    let (fixture, adapter, service) = setup(test_cx);
+    let config = |ids: &[&str]| {
+        ids.iter()
+            .map(|id| AccountConfig {
+                provider: Provider::Github,
+                id: (*id).into(),
+                name: Some(format!("Account {id}")),
+                client_id: None,
+                workspace: None,
+            })
+            .collect::<Vec<_>>()
+    };
+    service
+        .configure_accounts(fixture.path().join("config.toml"), config(&["2", "1"]), 3)
+        .unwrap();
+    let mut page = None;
+    let (_, cx) = test_cx.add_window_view(|window, app| {
+        let view = app
+            .new(|cx| PullRequestsPage::new(None, fixture.path().join("recent.json"), window, cx));
+        page = Some(view.clone());
+        gpui::component::Root::new(view, window, app)
+    });
+    let page = page.unwrap();
+    draw(cx);
+    cx.update(|window,app| page.update(app,|page,cx| {
+        page.views.clear();
+        let mut accounts=page.accounts(cx); accounts.reverse();
+        for account in accounts {
+            page.accept(account.clone(),Ok(jaywalk::hosting::Fetched {generation:account.generation,batch:Arc::new(batch(42)),cached:false,fetched_at:std::time::SystemTime::now()}),window,cx);
+        }
+        let choices=page.choices(cx);
+        assert!(matches!(&choices[0],Choice::Item {account,..} if account.identity.key.subject == "2" && account.label() == "Account 2"));
+        assert!(matches!(&choices[1],Choice::Item {account,..} if account.identity.key.subject == "1"));
+    }));
+    let requests = adapter.calls.load(Ordering::SeqCst);
+    service
+        .configure_accounts(fixture.path().join("config.toml"), config(&["1", "2"]), 3)
+        .unwrap();
+    draw(cx);
+    assert_eq!(
+        requests,
+        adapter.calls.load(Ordering::SeqCst),
+        "reordering must not refetch PRs"
+    );
+    assert!(cx.update(|_,app| matches!(&page.read(app).choices(app)[0],Choice::Item {account,..} if account.identity.key.subject == "1")));
 }

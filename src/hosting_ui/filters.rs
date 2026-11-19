@@ -25,7 +25,7 @@ impl PullRequestsPage {
                 self.accounts(cx)
                     .iter()
                     .find(|account| &account.identity.key == key)
-                    .map(|account| format!("{} · {}", key.provider.name(), account.identity.label))
+                    .map(|account| format!("{} · {}", key.provider.name(), account.label()))
                     .unwrap_or_else(|| "Unavailable account".into())
             },
         )
@@ -74,7 +74,7 @@ impl PullRequestsPage {
                         format!(
                             "{} · {}",
                             account.identity.key.provider.name(),
-                            account.identity.label
+                            account.label()
                         ),
                         FilterChoice::Account(Some(account.identity.key)),
                     )
