@@ -517,3 +517,8 @@ comparison caption. They preserve source bytes for copying.
 | `toggle_show_whitespace` | Toggle visible spaces and tabs |
 | `toggle_show_line_endings` | Toggle visible line endings |
 | `toggle_whitespace_errors` | Toggle whitespace error highlighting |
+
+In the overview, single-click a changed file in the file list or tree to scroll
+to its section; double-click to open its individual diff. In an individual diff,
+a single click opens the selected file. Files without an overview section open
+directly. The file panel highlights the file currently being read in the overview.

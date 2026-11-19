@@ -178,21 +178,35 @@ fn preserve_expansion(
 
 impl Viewer {
     pub(super) fn initialize_browser(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        self.browser.observer =
-            Some(
-                cx.observe_in(&self.browser.tree, window, |viewer, tree, window, cx| {
-                    let index = tree
-                        .read(cx)
-                        .selected_item()
-                        .and_then(|item| viewer.browser.tree_indices.get(&item.id))
-                        .copied();
-                    if let Some(index) = index
-                        && viewer.selected_index() != Some(index)
-                    {
-                        viewer.select_browser_entry(index, window, cx);
-                    }
-                }),
-            );
+        let mut observed_selection = self
+            .browser
+            .tree
+            .read(cx)
+            .selected_item()
+            .map(|item| item.id.clone());
+        self.browser.observer = Some(cx.observe_in(
+            &self.browser.tree,
+            window,
+            move |viewer, tree, window, cx| {
+                let selection = tree.read(cx).selected_item().map(|item| item.id.clone());
+                // Expansion and layout also notify. Only a selection change
+                // should navigate; scrolling the overview must stay independent.
+                if observed_selection == selection {
+                    return;
+                }
+                observed_selection = selection;
+                let index = tree
+                    .read(cx)
+                    .selected_item()
+                    .and_then(|item| viewer.browser.tree_indices.get(&item.id))
+                    .copied();
+                if let Some(index) = index
+                    && viewer.selected_index() != Some(index)
+                {
+                    viewer.select_browser_entry(index, window, cx);
+                }
+            },
+        ));
     }
 
     fn select_browser_entry(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
@@ -202,8 +216,21 @@ impl Viewer {
             .get(index)
             .map(|file| file.path().to_owned())
         {
-            self.select_path(&path, window, cx);
+            self.activate_browser_path(&path, false, window, cx);
         }
+    }
+
+    fn activate_browser_path(
+        &mut self,
+        path: &str,
+        open: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if !open && self.navigate_overview_file(path, cx) {
+            return;
+        }
+        self.select_path(path, window, cx);
     }
 
     pub(super) fn is_retained_preview(&self) -> bool {
@@ -417,6 +444,8 @@ impl Viewer {
         let guide_color = gpui::component::Theme::global(cx)
             .foreground
             .opacity(self.settings.files.indent_guide_opacity);
+        let click_viewer = viewer.clone();
+        let click_source = source.as_ref().map(|(identity, _)| identity.clone());
         let tree = Tree::new(&self.browser.tree, move |_, entry, _, _, _| {
             let file_index = indices.get(&entry.item().id).copied();
             let temporary = file_index.is_some() && file_index == retained;
@@ -429,7 +458,13 @@ impl Viewer {
                         file_style(file.status().unwrap_or("unchanged"), dark).1
                     })
             };
-            let mut content = div().h_flex().items_center().gap_1().whitespace_nowrap();
+            let selector = format!("browser-tree:{}", entry.item().id);
+            let mut content = div()
+                .debug_selector(move || selector.clone())
+                .h_flex()
+                .items_center()
+                .gap_1()
+                .whitespace_nowrap();
             let icon = if entry.is_folder() {
                 Some(if entry.is_expanded() {
                     IconName::FolderOpen
@@ -455,6 +490,11 @@ impl Viewer {
                     .child(entry.item().label.clone()),
             );
             let depth = entry.depth();
+            let path = file_index
+                .and_then(|index| files.get(index))
+                .map(|file| file.path().to_owned());
+            let click_viewer = click_viewer.clone();
+            let click_source = click_source.clone();
             ListItem::new(entry.item().id.clone())
                 .h(px(row_height))
                 .py_0()
@@ -496,6 +536,24 @@ impl Viewer {
                     )
                 })
                 .child(content)
+                .when_some(path, |row, path| {
+                    row.on_click(move |event, window, cx| {
+                        let _ = click_viewer.update(cx, |viewer, cx| {
+                            if click_source.as_ref().is_some_and(|source| {
+                                viewer
+                                    .comparison()
+                                    .is_some_and(|comparison| comparison.identity() == *source)
+                            }) {
+                                viewer.activate_browser_path(
+                                    &path,
+                                    event.click_count() >= 2,
+                                    window,
+                                    cx,
+                                );
+                            }
+                        });
+                    })
+                })
         })
         .context_menu(move |_, entry, menu, _, _| {
             let Some((prefix, path)) = entry.item().id.split_once(':') else {
@@ -710,6 +768,10 @@ impl Viewer {
                     list = list.child(
                         div()
                             .id(SharedString::from(format!("file:{}", file.path())))
+                            .debug_selector({
+                                let selector = format!("browser-file:{}", file.path());
+                                move || selector.clone()
+                            })
                             .h_flex()
                             .items_center()
                             .gap_2()
@@ -755,14 +817,22 @@ impl Viewer {
                                     .when(temporary, |label| label.italic())
                                     .child(label),
                             )
-                            .on_click(cx.listener(move |this, _, window, cx| {
-                                if source.as_ref().is_some_and(|source| {
-                                    this.comparison()
-                                        .is_some_and(|comparison| comparison.identity() == *source)
-                                }) {
-                                    this.select_path(&path, window, cx);
-                                }
-                            }))
+                            .on_click(cx.listener(
+                                move |this, event: &gpui::ClickEvent, window, cx| {
+                                    if source.as_ref().is_some_and(|source| {
+                                        this.comparison().is_some_and(|comparison| {
+                                            comparison.identity() == *source
+                                        })
+                                    }) {
+                                        this.activate_browser_path(
+                                            &path,
+                                            event.click_count() >= 2,
+                                            window,
+                                            cx,
+                                        );
+                                    }
+                                },
+                            ))
                             .context_menu(move |menu, _, _| match &target {
                                 Some(target) => context_menu::file_menu(
                                     menu.action_context(focus.clone()),
