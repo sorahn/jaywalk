@@ -24,6 +24,24 @@ The shipped platform-specific entries are:
 | `platform.linux.refresh` | `["secondary-shift-r"]` | Linux refresh shortcut. |
 | `platform.linux.fullscreen` | `["f11"]` | Linux fullscreen shortcut. |
 
+## Unified picker
+
+The existing shortcuts open one picker with editable prefixes. Changing or removing the prefix switches mode; `?` lists available modes and the current remappable shortcut hints. Selecting a help result fills its prefix without navigating the viewer.
+
+| Prefix | Mode | Default shortcut |
+|---|---|---|
+| none | Files in the captured comparison | Secondary+P |
+| `>` | Commands, with current setting/state hints | Secondary+Shift+P, F1 |
+| `:` | Go to a source line in the focused file side | Ctrl+G |
+| `~` | Recent repositories | Ctrl+R |
+| `!` | Pull requests | Open pull request command |
+| `?` | Modes and prefixes | Picker modes and prefixes command |
+| `@`, `#` | File/project symbols | Reserved; not implemented yet |
+
+For example: `src/main.rs`, `>refresh`, `:120`, `~jaywalk`, `!fix scrolling`. Start a literal filename with `./` if it begins with a mode character, such as `./!important.rs`. File/line modes explain when a comparison/file is unavailable on Welcome. Escape dismisses the root picker and restores its originating focus. Nested PR filters retain parent queries, selection and scrolling; Escape returns one step. The full PR browsing page remains reachable through **Browse pull requests**.
+
+Commands can learn frequency/recency across restarts. Exact and strong prefix matches keep priority over weak fuzzy matches; usage reorders similarly relevant results. Disable learning with `picker.adaptive_command_order = false`, or use **Clear command usage history** to reset its shared history. New commands `go_to_line`, `picker_help` and `clear_command_usage` are remappable; the last two start unbound. Existing recent-picker secondary-enter and modifier-click behavior is unchanged.
+
 ## Files and profile selection
 
 On first use, Jaywalk creates `~/.config/jaywalk/config.toml` and a sparse

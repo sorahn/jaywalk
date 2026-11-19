@@ -173,14 +173,7 @@ impl ReferenceBrowser {
         });
     }
     fn cancel(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if !self.input.read(cx).value().is_empty() {
-            self.input
-                .update(cx, |input, cx| input.set_value("", window, cx));
-            self.filter(cx);
-            cx.notify();
-        } else {
-            let _ = self.popup.update(cx, |popup, cx| popup.dismiss(window, cx));
-        }
+        let _ = self.popup.update(cx, |popup, cx| popup.dismiss(window, cx));
     }
 }
 impl Render for ReferenceBrowser {
@@ -230,19 +223,28 @@ impl Render for ReferenceBrowser {
         .track_scroll(&self.scroll)
         .h(px((self.rows.len().clamp(1, 14) * 30) as f32))
         .w_full();
-        div()
+        crate::picker_ui::frame(cx)
             .id("reference-browser")
             .debug_selector(|| "reference-browser".to_owned())
             .key_context("ReferenceBrowser")
             .v_flex()
             .gap_1()
-            .p_2()
             .w(px(400.))
             .on_action(cx.listener(|this, _: &SelectDown, _, cx| this.step(1, cx)))
             .on_action(cx.listener(|this, _: &SelectUp, _, cx| this.step(-1, cx)))
             .on_action(cx.listener(|this, _: &Confirm, window, cx| this.confirm(window, cx)))
             .on_action(cx.listener(|this, _: &Cancel, window, cx| this.cancel(window, cx)))
             .child(Input::new(&self.input))
+            .child(crate::picker_ui::context(
+                [format!(
+                    "{} references · Up/Down selects · Enter opens · Escape closes",
+                    self.rows
+                        .iter()
+                        .filter(|row| matches!(row, Row::Reference(_)))
+                        .count()
+                )],
+                cx,
+            ))
             .child(if self.rows.is_empty() {
                 div()
                     .p_2()

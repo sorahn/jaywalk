@@ -8,6 +8,7 @@ mod about;
 mod account_ui;
 mod appearance;
 mod cli;
+mod command_usage;
 #[cfg(feature = "profiling")]
 mod frame_profile;
 mod hosting_ui;
@@ -18,6 +19,7 @@ mod settings_service;
 mod windows;
 use cli::Arguments;
 mod launcher;
+mod picker_ui;
 mod platform;
 mod viewer;
 use viewer::Viewer;
@@ -103,6 +105,7 @@ fn run() -> std::result::Result<(), String> {
         platform::install_scrollbar_preference(scrollbar_preference, cx);
         windows::init(cx);
         interface_state::init(cx);
+        command_usage::init(cx);
         settings_service::init(cx);
         jaywalk::accounts::application::init(cx);
         recents::init(recent_store, cx);

@@ -1,7 +1,7 @@
 //! Keyboard-only filter steps share discovery state but keep their own query.
 use super::*;
 
-#[derive(Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Default, PartialEq, Eq, Hash)]
 pub(super) enum Step {
     #[default]
     Results,
@@ -91,6 +91,7 @@ impl PullRequestsPage {
         if step == Step::Results {
             self.filter_stack.clear();
         } else if step != self.step {
+            self.filter_inputs.remove(&step);
             self.filter_stack.push(self.step);
         }
         self.show_step(step, window, cx);
@@ -100,10 +101,13 @@ impl PullRequestsPage {
         if step == Step::Results {
             self.focus(window, cx);
         } else {
-            self.filter_input.update(cx, |input, cx| {
-                input.set_query("", window, cx);
-                input.focus(window, cx);
-            });
+            self.filter_input = self
+                .filter_inputs
+                .entry(step)
+                .or_insert_with(|| cx.new(|cx| CommandState::new(window, cx)))
+                .clone();
+            self.filter_input
+                .update(cx, |input, cx| input.focus(window, cx));
         }
         cx.notify();
     }
@@ -135,7 +139,7 @@ impl PullRequestsPage {
         let choices = self.filter_choices(cx);
         let labels = choices
             .iter()
-            .map(|(label, _)| CommandItem::new().label(label.clone()))
+            .map(|(label, _)| CommandItem::new().key(label.clone()).label(label.clone()))
             .collect::<Vec<_>>();
         let weak = cx.entity().downgrade();
         let cancel = weak.clone();
@@ -188,7 +192,7 @@ impl PullRequestsPage {
         cx.stop_propagation();
     }
     pub(super) fn filter_escape(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.opening {
+        if self.opening || (self.step == Step::Results && self.prefixed) {
             self.cancel(cx);
             cx.stop_propagation();
         } else if self.step == Step::Results {

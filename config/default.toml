@@ -16,6 +16,10 @@ single_window_mode = false
 # Order newly selected pairs; explicit CLI requests keep their direction.
 pair_order = "ancestry"
 
+[picker]
+# Rank similarly relevant commands using local frequency and recency.
+adaptive_command_order = true
+
 [navigation]
 history_limit = 100
 
