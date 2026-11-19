@@ -59,7 +59,7 @@ impl PullRequestsPage {
                     FilterChoice::Scope(Some(Scope::Authored)),
                 ),
                 (
-                    "Review requested · GitHub".into(),
+                    "Review requested".into(),
                     FilterChoice::Scope(Some(Scope::ReviewRequested)),
                 ),
                 ("Recent PRs".into(), FilterChoice::Scope(None)),

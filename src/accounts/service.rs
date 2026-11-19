@@ -565,7 +565,9 @@ impl Service {
         let mut workspaces = if key.provider == Provider::Bitbucket
             && matches!(
                 scope,
-                crate::hosting::Scope::ForMe | crate::hosting::Scope::Authored
+                crate::hosting::Scope::ForMe
+                    | crate::hosting::Scope::Authored
+                    | crate::hosting::Scope::ReviewRequested
             ) {
             self.provider.workspaces(token, control)?
         } else {

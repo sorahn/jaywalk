@@ -859,15 +859,6 @@ impl PullRequestsPage {
             .unwrap_or_else(|| {
                 if self.accounts(cx).is_empty() {
                     "No connected accounts · Use Accounts… to connect".into()
-                } else if self.scope == Some(Scope::ForMe)
-                    && results.is_some_and(|results| {
-                        results.iter().any(|result| {
-                            result.account.identity.key.provider
-                                == jaywalk::accounts::Provider::Bitbucket
-                        })
-                    })
-                {
-                    "Bitbucket: authored PRs only · Reviewer discovery is not yet supported".into()
                 } else if restored {
                     "Showing saved results until refreshed · PR details may have changed".into()
                 } else if partial {
@@ -1055,7 +1046,7 @@ impl Render for PullRequestsPage {
             ("pr-authored", "Authored by me", Some(Scope::Authored)),
             (
                 "pr-reviews",
-                "Review requests (GitHub)",
+                "Review requests",
                 Some(Scope::ReviewRequested),
             ),
             ("pr-recents", "Recent PRs", None),

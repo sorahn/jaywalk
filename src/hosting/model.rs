@@ -138,8 +138,8 @@ pub enum Scope {
 impl Scope {
     pub fn supports(&self, provider: Provider) -> bool {
         match self {
-            Self::ForMe | Self::Authored => true,
-            Self::Assigned | Self::ReviewRequested => provider == Provider::Github,
+            Self::ForMe | Self::Authored | Self::ReviewRequested => true,
+            Self::Assigned => provider == Provider::Github,
             Self::Repository(p, _) => *p == provider,
             Self::Direct(locator) => locator.provider == provider,
         }
