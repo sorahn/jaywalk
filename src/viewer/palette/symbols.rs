@@ -217,11 +217,7 @@ impl Viewer {
         {
             return "Comparison changed; reopen symbol search".into();
         }
-        let coverage = if matches!(key.scope, Scope::Project)
-            && self
-                .comparison()
-                .is_some_and(|comparison| comparison.hosted().is_some())
-        {
+        let coverage = if matches!(key.scope, Scope::Project) && self.hosted_changed_only() {
             "PR changed files only"
         } else if matches!(key.scope, Scope::Project) {
             "Snapshot files; After side, removed files Before"

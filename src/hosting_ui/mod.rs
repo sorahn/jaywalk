@@ -209,6 +209,7 @@ pub(crate) struct PullRequestsPage {
     operation: Option<Control>,
     association: Option<Control>,
     review_options: hosting::review::Options,
+    local_options: jaywalk::local_review::Options,
     text_limit: jaywalk::text_content::TextLimit,
     opening: bool,
     serial: u64,
@@ -265,6 +266,7 @@ impl PullRequestsPage {
             operation: None,
             association: None,
             review_options: Default::default(),
+            local_options: Default::default(),
             text_limit: Default::default(),
             opening: false,
             serial: 0,
@@ -863,6 +865,9 @@ impl PullRequestsPage {
             });
         [summary, detail]
     }
+    pub(crate) fn configure_local_review(&mut self, options: jaywalk::local_review::Options) {
+        self.local_options = options;
+    }
     pub(crate) fn configure_review(
         &mut self,
         options: hosting::review::Options,
@@ -891,6 +896,9 @@ impl PullRequestsPage {
         self.notice = Some("Opening published review… · Escape: cancel".into());
         let backend = cx.global::<Accounts>().backend.clone();
         let options = self.review_options;
+        let local_options = self.local_options;
+        let receipts = self.recent_path.with_file_name("review-checkouts");
+        let candidates = crate::windows::repository_candidates(self.root.as_deref(), cx);
         let limit = self.text_limit;
         let expected = control.clone();
         let locator = item.locator.clone();
@@ -904,6 +912,16 @@ impl PullRequestsPage {
                                 &locator,
                                 options,
                                 limit,
+                                &control,
+                            )
+                        })
+                        .map_err(|error| error.to_string())
+                        .and_then(|review| {
+                            jaywalk::local_review::apply(
+                                review,
+                                &candidates,
+                                local_options,
+                                &receipts,
                                 &control,
                             )
                         })

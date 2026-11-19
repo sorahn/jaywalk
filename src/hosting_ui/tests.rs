@@ -27,6 +27,7 @@ impl CredentialStore for Store {
     }
 }
 struct Adapter {
+    review_commits: Option<(String, String)>,
     calls: AtomicUsize,
     status_calls: Arc<AtomicUsize>,
     fail: std::sync::atomic::AtomicBool,
@@ -64,8 +65,16 @@ impl HostingProvider for Adapter {
         let Request::Json(url) = request else {
             return Err(Error::Unsupported);
         };
+        let base = self
+            .review_commits
+            .as_ref()
+            .map_or_else(|| "a".repeat(40), |(base, _)| base.clone());
+        let head = self
+            .review_commits
+            .as_ref()
+            .map_or_else(|| "b".repeat(40), |(_, head)| head.clone());
         let value = if url.path().contains("/compare/") {
-            serde_json::json!({"merge_base_commit":{"sha":"a".repeat(40)}})
+            serde_json::json!({"merge_base_commit":{"sha":base}})
         } else if url.path().ends_with("/check-runs")
             || url.path().ends_with("/status")
             || url.path().ends_with("/reviews")
@@ -75,9 +84,9 @@ impl HostingProvider for Adapter {
                 return Err(Error::Network);
             }
             if url.path().ends_with("/check-runs") {
-                serde_json::json!({"total_count":1,"check_runs":[{"id":1,"name":"Synthetic CI","head_sha":"b".repeat(40),"status":"completed","conclusion":"success"}]})
+                serde_json::json!({"total_count":1,"check_runs":[{"id":1,"name":"Synthetic CI","head_sha":head,"status":"completed","conclusion":"success"}]})
             } else if url.path().ends_with("/status") {
-                serde_json::json!({"sha":"b".repeat(40),"total_count":0,"statuses":[]})
+                serde_json::json!({"sha":head,"total_count":0,"statuses":[]})
             } else {
                 serde_json::json!([])
             }
@@ -89,7 +98,7 @@ impl HostingProvider for Adapter {
                 .unwrap()
                 .parse::<u64>()
                 .map_err(|_| Error::InvalidResponse)?;
-            serde_json::json!({"number":number,"id":number,"node_id":format!("PR_{number}"),"title":"Synthetic review","body":"Review description","user":{"login":"person"},"state":"open","changed_files":0,"commits":0,"head":{"sha":"b".repeat(40),"repo":{"full_name":"team/widgets","node_id":"R"}},"base":{"sha":"a".repeat(40),"repo":{"full_name":"team/widgets","node_id":"R"}}})
+            serde_json::json!({"number":number,"id":number,"node_id":format!("PR_{number}"),"title":"Synthetic review","body":"Review description","user":{"login":"person"},"state":"open","changed_files":0,"commits":0,"head":{"sha":head,"repo":{"full_name":"team/widgets","node_id":"R"}},"base":{"sha":base,"repo":{"full_name":"team/widgets","node_id":"R"}}})
         };
         Ok(Reply::Json(value))
     }
@@ -122,6 +131,7 @@ pub(crate) fn fake_service_with_status_counter() -> (Arc<Service>, Arc<AtomicUsi
     let service = Service::new(
         Arc::new(Store),
         Arc::new(Adapter {
+            review_commits: None,
             calls: AtomicUsize::new(0),
             status_calls: counter.clone(),
             fail: std::sync::atomic::AtomicBool::new(false),
@@ -152,6 +162,7 @@ fn batch(number: u64) -> Batch {
 fn setup(cx: &mut gpui_test::TestAppContext) -> (tempfile::TempDir, Arc<Adapter>, Arc<Service>) {
     let fixture = tempfile::tempdir().unwrap();
     let adapter = Arc::new(Adapter {
+        review_commits: None,
         calls: AtomicUsize::new(0),
         status_calls: Arc::new(AtomicUsize::new(0)),
         fail: std::sync::atomic::AtomicBool::new(false),
@@ -659,4 +670,16 @@ fn cancelling_review_open_discards_late_completion(test_cx: &mut gpui_test::Test
     assert_eq!(opened.get(), 0);
     assert!(!cx.update(|_, app| page.read(app).opening));
     assert!(!cx.update(|_, app| page.read(app).choices(app).is_empty()));
+}
+
+pub(crate) fn fake_service_with_review_commits(base: String, head: String) -> Arc<Service> {
+    Service::new(
+        Arc::new(Store),
+        Arc::new(Adapter {
+            review_commits: Some((base, head)),
+            calls: AtomicUsize::new(0),
+            status_calls: Arc::new(AtomicUsize::new(0)),
+            fail: std::sync::atomic::AtomicBool::new(false),
+        }),
+    )
 }

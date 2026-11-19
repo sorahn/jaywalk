@@ -70,7 +70,7 @@ fn setup_arguments<'a>(
     cx: &'a mut TestAppContext,
 ) -> (Entity<Viewer>, &'a mut VisualTestContext) {
     let config = fixture.0.join("settings.toml");
-    let contents = "[live]\nenabled=false\n[layout]\nremember_per_repository=false\n[layout.placement]\nhistory_side='left'\nfiles_side='left'\n";
+    let contents = "[local_review]\nfetch_missing=false\n[live]\nenabled=false\n[layout]\nremember_per_repository=false\n[layout.placement]\nhistory_side='left'\nfiles_side='left'\n";
     std::fs::write(&config, contents).unwrap();
     args.config = Some(config);
     args.normalize().unwrap();
@@ -2616,4 +2616,164 @@ fn symbol_search_cancellation_cannot_replace_a_new_picker_mode(test_cx: &mut Tes
     cx.simulate_keystrokes("escape");
     draw(cx);
     assert!(cx.update(|_, app| viewer.read(app).palette_test_state(app).0.is_none()));
+}
+
+#[gpui_test::test]
+fn local_pr_action_uses_the_picker_and_opens_a_full_pinned_tree_headlessly(
+    test_cx: &mut TestAppContext,
+) {
+    use jaywalk::{
+        accounts::Control,
+        commands::CommandId as C,
+        hosting::{Locator, RepositoryName},
+    };
+    let fixture = Fixture::new();
+    fixture.git(&["remote", "add", "origin", "git@github.com:team/widgets.git"]);
+    let base = jaywalk::repository::Comparison::load(&fixture.0, Some("HEAD"), "HEAD")
+        .unwrap()
+        .tip()
+        .to_owned();
+    fixture.git(&["commit", "--allow-empty", "-m", "review head"]);
+    let head = jaywalk::repository::Comparison::load(&fixture.0, Some("HEAD"), "HEAD")
+        .unwrap()
+        .tip()
+        .to_owned();
+    let service = crate::hosting_ui::tests::fake_service_with_review_commits(base, head);
+    service.restore().unwrap();
+    let key = service.accounts_snapshot().accounts[0].identity.key.clone();
+    let review = service
+        .open_review(
+            &key,
+            &Locator {
+                provider: jaywalk::accounts::Provider::Github,
+                repository: RepositoryName::parse("team/widgets").unwrap(),
+                number: 42,
+            },
+            Default::default(),
+            Default::default(),
+            &Control::new(std::time::Duration::from_secs(30)),
+        )
+        .unwrap();
+    let (viewer, cx) = setup(&fixture, test_cx);
+    cx.update(|window, app| {
+        jaywalk::accounts::application::init_with_backend(service, app);
+        viewer.update(app, |v, cx| {
+            v.open_hosted_review(review, window, cx);
+            v.execute_command(C::ReviewPRLocally, window, cx);
+        });
+    });
+    draw(cx);
+    assert_eq!(
+        cx.update(|_, app| viewer.read(app).palette_test_state(app).0),
+        Some(palette::PaletteKind::LocalRepositories)
+    );
+    cx.simulate_keystrokes("enter");
+    draw(cx);
+    assert!(cx.update(|_, app| {
+        viewer
+            .read(app)
+            .comparison()
+            .unwrap()
+            .hosted()
+            .unwrap()
+            .is_local()
+    }));
+    assert!(cx.update(|_, app| viewer.read(app).palette_test_state(app).0.is_none()));
+    cx.update(|window, app| {
+        viewer.update(app, |v, cx| {
+            v.set_tree_scope(jaywalk::settings::TreeScope::All, cx);
+            v.select_path("file.txt", window, cx);
+        })
+    });
+    draw(cx);
+    assert_eq!(
+        cx.update(|_, app| viewer
+            .read(app)
+            .code()
+            .unwrap()
+            .after
+            .read(app)
+            .value()
+            .to_string()),
+        "original\n"
+    );
+    assert_eq!(
+        std::fs::read_to_string(fixture.0.join("file.txt")).unwrap(),
+        "changed\n"
+    );
+    cx.update(|window, app| {
+        viewer.update(app, |v, cx| {
+            v.execute_command(C::RestoreReviewCheckout, window, cx)
+        })
+    });
+    draw(cx);
+    assert_eq!(
+        cx.update(|_, app| viewer.read(app).local_actions.recoveries.len()),
+        0
+    );
+    cx.simulate_keystrokes("escape");
+    draw(cx);
+}
+
+#[gpui_test::test]
+fn local_pr_checkout_refusal_preserves_the_view_and_all_dirty_files(test_cx: &mut TestAppContext) {
+    use jaywalk::{
+        accounts::Control,
+        commands::CommandId as C,
+        hosting::{Locator, RepositoryName},
+    };
+    let fixture = Fixture::new();
+    fixture.git(&["remote", "add", "origin", "git@github.com:team/widgets.git"]);
+    let head = std::fs::read(fixture.0.join(".git/HEAD")).unwrap();
+    let index = std::fs::read(fixture.0.join(".git/index")).unwrap();
+    let service = crate::hosting_ui::tests::fake_service();
+    service.restore().unwrap();
+    let key = service.accounts_snapshot().accounts[0].identity.key.clone();
+    let review = service
+        .open_review(
+            &key,
+            &Locator {
+                provider: jaywalk::accounts::Provider::Github,
+                repository: RepositoryName::parse("team/widgets").unwrap(),
+                number: 42,
+            },
+            Default::default(),
+            Default::default(),
+            &Control::new(std::time::Duration::from_secs(30)),
+        )
+        .unwrap();
+    let identity = review.comparison().identity();
+    let (viewer, cx) = setup(&fixture, test_cx);
+    cx.update(|window, app| {
+        jaywalk::accounts::application::init_with_backend(service, app);
+        viewer.update(app, |v, cx| {
+            v.settings.local_review.mode = jaywalk::local_review::Mode::CheckoutIfClean;
+            v.open_hosted_review(review, window, cx);
+            v.execute_command(C::ReviewPRLocally, window, cx);
+        });
+    });
+    draw(cx);
+    cx.simulate_keystrokes("enter");
+    draw(cx);
+    assert_eq!(
+        cx.update(|_, app| viewer.read(app).comparison().unwrap().identity()),
+        identity
+    );
+    assert!(cx.update(|_, app| {
+        viewer
+            .read(app)
+            .local_actions
+            .message
+            .as_ref()
+            .unwrap()
+            .contains("refused")
+    }));
+    assert_eq!(std::fs::read(fixture.0.join(".git/HEAD")).unwrap(), head);
+    assert_eq!(std::fs::read(fixture.0.join(".git/index")).unwrap(), index);
+    assert_eq!(
+        std::fs::read_to_string(fixture.0.join("file.txt")).unwrap(),
+        "changed\n"
+    );
+    cx.simulate_keystrokes("escape");
+    draw(cx);
 }

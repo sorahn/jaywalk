@@ -84,6 +84,35 @@ struct Record {
 struct Windows(HashMap<WindowId, Record>);
 impl Global for Windows {}
 
+/// Candidate discovery is metadata-only; validation and canonicalization run on workers.
+pub(crate) fn repository_candidates(current: Option<&std::path::Path>, cx: &App) -> Vec<PathBuf> {
+    let mut open: Vec<_> = cx
+        .try_global::<Windows>()
+        .map(|windows| {
+            windows
+                .0
+                .values()
+                .filter_map(|record| match &record.key.subject {
+                    Subject::Repository { directory, .. } => Some(directory.clone()),
+                    _ => None,
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    open.sort();
+    let mut candidates = current
+        .map(std::path::Path::to_owned)
+        .into_iter()
+        .collect::<Vec<_>>();
+    candidates.extend(open);
+    if let Some(recents) = cx.try_global::<crate::recents::Recents>() {
+        candidates.extend(recents.repositories.iter().cloned());
+    }
+    let mut seen = std::collections::HashSet::new();
+    candidates.retain(|path| seen.insert(path.clone()));
+    candidates
+}
+
 pub(crate) fn init(cx: &mut App) {
     cx.set_global(Windows::default());
     cx.on_window_closed(|cx, id| {

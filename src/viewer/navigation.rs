@@ -197,6 +197,7 @@ impl Viewer {
     /// Observe only complete destinations. Scroll/refresh updates at the same
     /// logical location do not create visits or copy file anchors each frame.
     pub(super) fn sync_navigation(&mut self, cx: &App) {
+        self.release_inactive_checkout();
         let Some(key) = self.navigation_key() else {
             return;
         };

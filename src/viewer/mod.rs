@@ -1,4 +1,5 @@
 mod hosted;
+mod local_actions;
 mod pr_status;
 use gpui::assets::IconName;
 use gpui::component::button::{Button, ButtonVariants};
@@ -152,6 +153,7 @@ struct SelectedFile {
 
 pub(crate) fn init(arguments: &Arguments, settings: &Settings, cx: &mut App) -> Result<(), String> {
     reference_browser::init(cx);
+    local_actions::init(cx);
     commands::init(arguments, settings, cx)
 }
 
@@ -160,6 +162,7 @@ pub(crate) struct Viewer {
     home_source: review_context::HomeSource,
     review_picker: review_context::ReviewPicker,
     pr_status: pr_status::StatusState,
+    local_actions: local_actions::State,
     welcome: Option<welcome::WelcomeState>,
     page: pages::Page,
     account_page: Option<Entity<crate::account_ui::AccountPanel>>,
@@ -205,6 +208,13 @@ pub(crate) struct Viewer {
 }
 
 impl Viewer {
+    pub(super) fn hosted_changed_only(&self) -> bool {
+        self.is_hosted_review()
+            && !self
+                .comparison()
+                .and_then(Comparison::hosted)
+                .is_some_and(|contents| contents.is_local())
+    }
     fn comparison(&self) -> Option<&Comparison> {
         self.repository.ready()?.comparison.ready().map(Rc::as_ref)
     }

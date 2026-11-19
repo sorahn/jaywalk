@@ -44,6 +44,11 @@ impl Viewer {
             return format!("{error} · Clear command usage history to reset");
         }
         match kind {
+            PaletteKind::LocalRepositories | PaletteKind::CheckoutRecovery => self
+                .local_actions
+                .message
+                .clone()
+                .unwrap_or_else(|| "Choose an action · Escape closes".into()),
             PaletteKind::FileSymbols | PaletteKind::ProjectSymbols => {
                 self.symbol_picker_description()
             }
@@ -73,6 +78,9 @@ impl Viewer {
     }
     pub(super) fn picker_empty(&self, kind: PaletteKind) -> &'static str {
         match kind {
+            PaletteKind::LocalRepositories | PaletteKind::CheckoutRecovery => {
+                "No matching actions; see status above. Escape closes."
+            }
             PaletteKind::Files if !self.picker_mode_available(Mode::Files) => {
                 "Open a comparison to search its files. Type ? for available modes."
             }

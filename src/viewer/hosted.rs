@@ -7,6 +7,7 @@ impl Viewer {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        self.cancel_local_action();
         self.checkpoint_page_departure(cx);
         self.cancel_live_refresh();
         self.live.poll = None;
@@ -16,6 +17,31 @@ impl Viewer {
         self.evolution.clear();
         self.file_evolution.clear();
         let metadata = review.metadata().clone();
+        let local_notice = review.local_notice().map(|notice| {
+            if metadata.history_partial {
+                format!("{notice} · PR commit history is partial")
+            } else {
+                notice.to_owned()
+            }
+        });
+        let same_pr = self
+            .repository
+            .ready()
+            .and_then(|session| session.review.aggregate.hosted())
+            .is_some_and(|contents| {
+                contents.data.metadata.locator == metadata.locator
+                    && contents.data.metadata.id == metadata.id
+                    && contents.data.metadata.source.repository == metadata.source.repository
+            });
+        let checkout = review.checkout().cloned().or_else(|| {
+            if !same_pr {
+                return None;
+            }
+            self.local_actions.checkout.as_ref().and_then(|(_, lease)| {
+                (lease.active() && lease.expected_commit() == metadata.source.commit)
+                    .then(|| lease.clone())
+            })
+        });
         let comparison = Rc::new(review.into_comparison());
         let history = comparison.history(&self.history_query).map(Rc::new);
         self.repository = LoadState::Loaded(RepositorySession {
@@ -29,13 +55,28 @@ impl Viewer {
             comparison: LoadState::Loaded(comparison),
             revision_comparison: None,
         });
+        self.local_actions.checkout = checkout.map(|lease| {
+            (
+                self.repository
+                    .ready()
+                    .expect("installed hosted session")
+                    .review
+                    .aggregate
+                    .identity(),
+                lease,
+            )
+        });
         self.navigation.pinned = true;
         self.browser.scope = jaywalk::settings::TreeScope::Changed;
-        self.live.notice = Some(live::LiveNotice::Diagnostic(if metadata.history_partial {
-            "Published PR snapshot · commit history is limited by hosting.history_limit".into()
-        } else {
-            "Published PR snapshot · Refresh explicitly updates to the latest version".into()
-        }));
+        self.live.notice = Some(live::LiveNotice::Diagnostic(
+            if let Some(notice) = local_notice {
+                notice
+            } else if metadata.history_partial {
+                "Published PR snapshot · commit history is limited by hosting.history_limit".into()
+            } else {
+                "Published PR snapshot · Refresh explicitly updates to the latest version".into()
+            },
+        ));
         self.activate_page(pages::Page::Comparison, window, cx);
         self.rebuild_browser(cx);
         if let Some(file) = self.browser.files.first().cloned() {
@@ -49,6 +90,8 @@ impl Viewer {
         cx.notify();
     }
     pub(super) fn update_hosted_review(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.close_local_palette(window, cx);
+        self.cancel_local_action();
         let Some(comparison) = self.repository.ready().map(|s| s.review.aggregate.clone()) else {
             return;
         };

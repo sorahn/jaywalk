@@ -44,12 +44,14 @@ impl Viewer {
             }
         };
         let options = self.settings.hosting;
+        let local_options = self.settings.local_review;
         let limit =
             jaywalk::text_content::TextLimit::from_mib(self.settings.diff.max_text_file_size_mb)
                 .expect("validated text limit");
         let page = cx.new(|cx| {
             let mut page = crate::hosting_ui::PullRequestsPage::new(root, path, window, cx);
             page.configure_review(options, limit);
+            page.configure_local_review(local_options);
             if picking {
                 page.as_picker();
             }

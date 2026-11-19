@@ -12,7 +12,7 @@ impl Viewer {
             .compact()
             .icon(IconName::Search)
             .tooltip_with_action(
-                if self.is_hosted_review() {
+                if self.hosted_changed_only() {
                     "Find changed PR file"
                 } else {
                     "Find any repository file"

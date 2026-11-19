@@ -12,6 +12,9 @@ pub enum CommandId {
     UpdatePublishedReview,
     RefreshReviewStatus,
     OpenReviewInBrowser,
+    #[serde(rename = "review_pr_locally")]
+    ReviewPRLocally,
+    RestoreReviewCheckout,
     ConnectAccount,
     ReconnectAccount,
     DisconnectAccount,
@@ -155,6 +158,7 @@ impl CommandId {
             Self::OpenRepository
                 | Self::OpenPullRequest
                 | Self::BrowsePullRequests
+                | Self::RestoreReviewCheckout
                 | Self::Accounts
                 | Self::ManageAccounts
                 | Self::ConnectAccount
@@ -200,6 +204,8 @@ impl CommandId {
         Self::UpdatePublishedReview,
         Self::RefreshReviewStatus,
         Self::OpenReviewInBrowser,
+        Self::ReviewPRLocally,
+        Self::RestoreReviewCheckout,
         Self::ConnectAccount,
         Self::ReconnectAccount,
         Self::DisconnectAccount,
@@ -380,6 +386,8 @@ impl CommandId {
             Self::ClearRecent => "Clear recent repositories",
             Self::FindFile => "Find any repository file",
             Self::ShowCommands => "Command palette",
+            Self::ReviewPRLocally => "Review PR locally…",
+            Self::RestoreReviewCheckout => "Restore review checkout…",
             Self::GoToLine => "Go to line…",
             Self::GoToFileSymbol => "Go to symbol in file…",
             Self::GoToProjectSymbol => "Go to symbol in project…",
