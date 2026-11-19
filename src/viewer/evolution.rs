@@ -776,6 +776,15 @@ impl Viewer {
                 .bg(gpui::component::Theme::global(cx).sidebar)
                 .child(self.render_navigation_buttons(cx))
                 .child(
+                    div()
+                        .h_flex()
+                        .items_center()
+                        .h_full()
+                        .pl_1()
+                        .flex_shrink_0()
+                        .child(self.render_overview_button(cx)),
+                )
+                .child(
                     // Let the selector use its intrinsic width, capped by the
                     // slot, so its hover target follows the visible caption.
                     div()
