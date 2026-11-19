@@ -21,6 +21,7 @@ mod chrome;
 pub(crate) mod commands;
 mod comparison;
 mod context_menu;
+mod diff_preferences;
 mod editor_presentation;
 mod evolution;
 mod history_menu;
@@ -188,6 +189,8 @@ pub(crate) struct Viewer {
     code_font_size: f32,
     line_numbers: bool,
     collapse_unchanged: bool,
+    diff_preferences: jaywalk::settings::DiffPreferences,
+    ignored_whitespace_mode: jaywalk::diff_options::Whitespace,
     wrapping: Wrapping,
     horizontal_position: f32,
     reveal_after_layout: bool,
@@ -277,6 +280,13 @@ impl Viewer {
     }
 
     fn scope_label(&self) -> String {
+        let label = self.scope_label_base();
+        match self.diff_preferences.comparison.label() {
+            Some(options) => format!("{label} · {options}"),
+            None => label,
+        }
+    }
+    fn scope_label_base(&self) -> String {
         if self
             .repository
             .ready()

@@ -12,10 +12,14 @@ mod selection;
 mod state;
 mod sticky;
 mod sticky_geometry;
+mod visibility;
+pub use visibility::{DiffDisplayOptions, whitespace_error_ranges};
 
 pub use conflict::{DiffConflict, DiffConflictResolution};
 pub use decoration::{DiffDecoration, DiffGutterMarker};
-pub use document::{DiffFile, DiffFileStatus, DiffLinePosition, DiffLineRange, DiffSide};
+pub use document::{
+    DiffFile, DiffFileStatus, DiffLineAlignment, DiffLinePosition, DiffLineRange, DiffSide,
+};
 pub use parser::{DiffParseError, DiffParseOptions};
 pub use presentation::DiffInlineUnit;
 pub use state::{DiffEvent, DiffState};
@@ -231,6 +235,7 @@ pub struct DiffColors {
     pub word_added: Hsla,
     pub word_removed: Hsla,
     pub conflict_base: Hsla,
+    pub whitespace_error: Hsla,
 }
 impl DiffColors {
     fn from_theme(cx: &App) -> Self {
@@ -244,6 +249,7 @@ impl DiffColors {
             word_added: cx.theme().success,
             word_removed: cx.theme().danger,
             conflict_base: cx.theme().muted_foreground,
+            whitespace_error: cx.theme().warning,
         }
     }
 }
@@ -264,6 +270,7 @@ pub struct Diff {
     font_features: gpui::FontFeatures,
     line_number: bool,
     syntax_highlight: bool,
+    display_options: DiffDisplayOptions,
     header_visible: bool,
     sticky_headers: bool,
     preamble: Option<OverviewRenderer>,
@@ -294,6 +301,10 @@ where
 }
 
 impl Diff {
+    pub fn display_options(mut self, options: DiffDisplayOptions) -> Self {
+        self.display_options = options;
+        self
+    }
     pub fn new(state: &Entity<DiffState>) -> Self {
         Self {
             state: state.clone(),
@@ -302,6 +313,7 @@ impl Diff {
             font_features: gpui::FontFeatures::default(),
             line_number: true,
             syntax_highlight: true,
+            display_options: Default::default(),
             header_visible: true,
             sticky_headers: false,
             preamble: None,
@@ -668,6 +680,7 @@ fn render_diff(
         soft_wrap,
         side_wrap,
         props.split_ratio,
+        props.display_options.line_endings,
     );
     if state.update_layout(layout, row_height) {
         // Wrapped rows take the viewport width instead of their longest line.
@@ -750,6 +763,7 @@ fn render_diff(
         font_features: props.font_features.clone(),
         line_number: props.line_number,
         syntax_highlight: props.syntax_highlight,
+        display_options: props.display_options,
         header_visible: props.header_visible,
         hover_highlight: props.hover_highlight,
         hunk_separator: props.hunk_separator,
@@ -1038,6 +1052,7 @@ struct CodePresentation {
     font_features: gpui::FontFeatures,
     line_number: bool,
     syntax_highlight: bool,
+    display_options: DiffDisplayOptions,
     header_visible: bool,
     hover_highlight: DiffHoverHighlight,
     hunk_separator: DiffHunkSeparator,
@@ -1865,7 +1880,10 @@ fn line_highlights(
         }
         _ => Vec::new(),
     };
-    if changed && let Some(presentation) = presentation {
+    if changed
+        && code.display_options.word_highlight
+        && let Some(presentation) = presentation
+    {
         highlights.extend(presentation.inline_changes(line, side, ix).map(|range| {
             (
                 range,
@@ -1881,6 +1899,17 @@ fn line_highlights(
                         }
                         .opacity(0.3),
                     ),
+                    ..Default::default()
+                },
+            )
+        }));
+    }
+    if code.display_options.whitespace_errors {
+        highlights.extend(line.whitespace_errors().iter().cloned().map(|r| {
+            (
+                line.display_range(r),
+                HighlightStyle {
+                    background_color: Some(code.colors.whitespace_error.opacity(0.35)),
                     ..Default::default()
                 },
             )
@@ -2037,6 +2066,9 @@ fn code_line(
                 highlights.clone(),
                 code.selection.clone(),
                 code.geometry.clone(),
+                code.display_options,
+                code.font_size,
+                code.row_height,
             )
         }));
     let gutters_width = if code.line_number {

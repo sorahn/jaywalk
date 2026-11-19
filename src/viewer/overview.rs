@@ -17,6 +17,7 @@ struct Request {
     tab_size: usize,
     series: bool,
     algorithm: jaywalk::diff_model::Algorithm,
+    options: jaywalk::diff_options::ComparisonOptions,
 }
 struct FileSummary {
     file: ChangedFile,
@@ -35,8 +36,9 @@ impl PreparedOverview {
         tab_size: usize,
         whole_branch: bool,
         algorithm: jaywalk::diff_model::Algorithm,
+        options: jaywalk::diff_options::ComparisonOptions,
     ) -> Result<Self, String> {
-        let mut snapshot = comparison.overview_with_algorithm(algorithm);
+        let mut snapshot = comparison.overview_with_options(algorithm, options);
         let series = if whole_branch {
             match comparison.overview_series() {
                 Ok(series) => series.map(Arc::new),
@@ -63,7 +65,18 @@ impl PreparedOverview {
                     file.file.after_path()
                 ));
             }
-            let document = parsed.remove(0);
+            let mut document = parsed.remove(0);
+            if let Some(rows) = file.alignment {
+                document = document.with_alignment(
+                    rows.into_iter()
+                        .map(|r| gpui::component::diff::DiffLineAlignment {
+                            original: r.before,
+                            modified: r.after,
+                            changed: r.changed,
+                        })
+                        .collect(),
+                )?;
+            }
             if document.path().as_ref() != file.file.after_path() {
                 return Err(format!(
                     "Overview path did not match {}",
@@ -245,6 +258,7 @@ impl Viewer {
             source: comparison.identity(),
             tab_size: self.settings.editor.tab_size,
             algorithm: self.settings.diff.algorithm,
+            options: self.diff_preferences.comparison,
             series: matches!(
                 self.repository.ready().map(|session| &session.scope),
                 Some(ComparisonScope::Aggregate)
@@ -270,6 +284,7 @@ impl Viewer {
                         request.tab_size,
                         request.series,
                         request.algorithm,
+                        request.options,
                     )
                 })
                 .await;
@@ -282,6 +297,7 @@ impl Viewer {
                     .comparison()
                     .is_none_or(|comparison| comparison.identity() != request.source)
                     || viewer.settings.editor.tab_size != request.tab_size
+                    || viewer.diff_preferences.comparison != request.options
                     || viewer.settings.diff.algorithm != request.algorithm
                     || request.series
                         != matches!(
@@ -582,6 +598,7 @@ impl Viewer {
         let repository = self.arguments.diff.is_none()
             && self.comparison().is_some_and(|c| c.hosted().is_none());
         let diff = Diff::new(&loaded.state)
+            .display_options(self.diff_render_options())
             .colors(crate::appearance::diff_colors(cx))
             .header_context_menu(move |file, menu, _, _| {
                 let target = context_menu::FileTarget::new(
@@ -943,5 +960,74 @@ impl Viewer {
             _ => {}
         });
         cx.notify();
+    }
+}
+
+#[cfg(test)]
+mod option_tests {
+    use super::super::interaction_tests::{Fixture, draw, setup};
+    use gpui_test::TestAppContext;
+    #[gpui_test::test]
+    fn overview_filters_keep_files_and_exact_source_selection(cx: &mut TestAppContext) {
+        use gpui_kit::component::diff::{DiffLineRange, DiffSide};
+        use jaywalk::commands::CommandId;
+        let f = Fixture::new();
+        let before = "let value = 1; \r\n\n";
+        let after = "letvalue=1;\n";
+        f.replace(before, after);
+        std::fs::write(
+            f.0.join(".git/info/exclude"),
+            "settings.toml\nkeybindings/\n",
+        )
+        .unwrap();
+        let (viewer, cx) = setup(&f, cx);
+        let identity = cx.update(|_, app| viewer.read(app).comparison().unwrap().identity());
+        for command in [
+            CommandId::WhitespaceAll,
+            CommandId::ToggleIgnoreLineEndings,
+            CommandId::ToggleIgnoreBlankLines,
+            CommandId::Overview,
+        ] {
+            cx.update(|w, app| viewer.update(app, |v, cx| v.execute_command(command, w, cx)));
+            draw(cx);
+        }
+        let state = cx.update(|_, app| {
+            let v = viewer.read(app);
+            let loaded = v.overview.current.as_ref().unwrap();
+            assert_eq!(loaded.request.source, identity);
+            assert_eq!(loaded.files.len(), 1);
+            assert_eq!((loaded.additions, loaded.deletions), (0, 0));
+            assert!(
+                loaded.files["file.txt"]
+                    .notice
+                    .as_ref()
+                    .unwrap()
+                    .contains("ignored differences")
+            );
+            loaded.state.clone()
+        });
+        cx.update(|_, app| {
+            state.update(app, |s, cx| {
+                for (side, text) in [(DiffSide::Original, before), (DiffSide::Modified, after)] {
+                    s.set_selected_lines(
+                        Some(DiffLineRange::new("file.txt", side, 1, usize::MAX)),
+                        cx,
+                    );
+                    assert_eq!(s.selected_text(cx), text);
+                }
+            })
+        });
+        cx.update(|w, app| {
+            viewer.update(app, |v, cx| {
+                v.execute_command(CommandId::WhitespaceExact, w, cx)
+            })
+        });
+        draw(cx);
+        cx.update(|_, app| {
+            let v = viewer.read(app);
+            let loaded = v.overview.current.as_ref().unwrap();
+            assert_eq!(loaded.request.source, identity);
+            assert!(loaded.additions + loaded.deletions > 0);
+        });
     }
 }

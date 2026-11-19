@@ -126,6 +126,7 @@ pub(crate) struct SourceLine {
     display: SharedString,
     chunks: SmallVec<[DisplayChunk; 1]>,
     counterpart: Option<usize>,
+    whitespace_errors: Vec<Range<usize>>,
     // Only expanded tabs need an entry; ordinary UTF-8 bytes map by identity
     // plus the cumulative expansion of earlier tabs.
     display_tabs: Vec<DisplayTab>,
@@ -147,6 +148,9 @@ struct DisplayTab {
 }
 
 impl SourceLine {
+    pub(crate) fn whitespace_errors(&self) -> &[Range<usize>] {
+        &self.whitespace_errors
+    }
     /// The one-based line number in the source file.
     pub(crate) fn line_number(&self) -> usize {
         self.line_number
@@ -389,6 +393,15 @@ struct DocumentInner {
     conflicts: Vec<DiffConflict>,
 }
 
+/// Display alignment for complete source texts. Ignored rows retain source
+/// addresses and can contain different text without being marked as changes.
+#[derive(Clone, Copy, Debug)]
+pub struct DiffLineAlignment {
+    pub original: Option<usize>,
+    pub modified: Option<usize>,
+    pub changed: bool,
+}
+
 /// One changed file parsed from a unified or Git diff.
 ///
 /// Only source fragments present in the patch are retained; unavailable
@@ -400,6 +413,69 @@ pub struct DiffFile {
 }
 
 impl DiffFile {
+    /// Replace complete-source alignment without changing either source text.
+    /// All indices must cover each side once, in source order. Sparse patches
+    /// and conflict documents are rejected rather than inventing missing text.
+    pub fn with_alignment(self, rows: Vec<DiffLineAlignment>) -> Result<Self, String> {
+        let original = &self.inner.original;
+        let modified = &self.inner.modified;
+        if self.inner.status == DiffFileStatus::Conflicted
+            || self.inner.hunks.len() > 1
+            || [original, modified].iter().any(|s| {
+                s.lines
+                    .iter()
+                    .enumerate()
+                    .any(|(i, l)| l.line_number() != i + 1)
+            })
+        {
+            return Err("Display alignment requires complete non-conflict source texts".into());
+        }
+        let (mut a, mut b) = (0, 0);
+        let mut pairs = Vec::with_capacity(rows.len());
+        for row in rows {
+            if row.original.is_none() && row.modified.is_none() {
+                return Err("Empty alignment row".into());
+            }
+            if let Some(i) = row.original {
+                if i != a || i >= original.lines.len() {
+                    return Err("Invalid original alignment index".into());
+                }
+                a += 1;
+            }
+            if let Some(i) = row.modified {
+                if i != b || i >= modified.lines.len() {
+                    return Err("Invalid modified alignment index".into());
+                }
+                b += 1;
+            }
+            pairs.push(LinePair::new(row.original, row.modified, row.changed));
+        }
+        if a != original.lines.len() || b != modified.lines.len() {
+            return Err("Incomplete display alignment".into());
+        }
+        let inner = Arc::unwrap_or_clone(self.inner);
+        let (mut original, mut modified) = (inner.original, inner.modified);
+        for side in [&mut original, &mut modified] {
+            for line in &mut side.lines {
+                line.counterpart = None;
+            }
+        }
+        let mut hunks = inner.hunks;
+        if let Some(hunk) = hunks.first_mut() {
+            hunk.pairs = 0..pairs.len();
+        }
+        let mut result = Self::new(
+            inner.status,
+            original,
+            modified,
+            pairs,
+            hunks,
+            inner.extended_headers,
+            inner.binary,
+        );
+        result.language = self.language;
+        Ok(result)
+    }
     /// Change display tab stops without modifying source text or byte mappings.
     pub fn with_tab_size(mut self, tab_size: usize) -> Self {
         let inner = Arc::make_mut(&mut self.inner);
@@ -749,6 +825,7 @@ fn source_line_with_tab_size(
         })
         .collect();
     SourceLine {
+        whitespace_errors: super::visibility::whitespace_error_ranges(content),
         line_number,
         text,
         display,

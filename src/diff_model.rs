@@ -14,7 +14,7 @@ impl Algorithm {
         }
     }
 }
-use similar::{DiffTag, TextDiff};
+use similar::TextDiff;
 use std::ops::Range;
 
 #[derive(Clone, Debug)]
@@ -51,20 +51,54 @@ impl FileDiff {
         Self::with_algorithm(before, after, Algorithm::default())
     }
     pub fn with_algorithm(before: &str, after: &str, algorithm: Algorithm) -> Self {
+        Self::with_options(before, after, algorithm, Default::default())
+    }
+    pub fn with_options(
+        before: &str,
+        after: &str,
+        algorithm: Algorithm,
+        options: crate::diff_options::ComparisonOptions,
+    ) -> Self {
         let old = source_lines(before);
         let new = source_lines(after);
-        let diff = line_diff(&old, &new, algorithm);
         let before_offsets = line_offsets(&old);
         let after_offsets = line_offsets(&new);
-        let blocks: Vec<Correspondence> = diff
-            .ops()
-            .iter()
-            .map(|operation| Correspondence {
-                before: operation.old_range(),
-                after: operation.new_range(),
-                changed: operation.tag() != DiffTag::Equal,
-            })
-            .collect();
+        let blocks = if options == Default::default() {
+            line_diff(&old, &new, algorithm)
+                .ops()
+                .iter()
+                .map(|op| Correspondence {
+                    before: op.old_range(),
+                    after: op.new_range(),
+                    changed: op.tag() != similar::DiffTag::Equal,
+                })
+                .collect()
+        } else {
+            let rows = options.alignment(before, after, algorithm);
+            let mut blocks: Vec<Correspondence> = Vec::new();
+            let (mut a, mut b) = (0, 0);
+            for row in rows {
+                let next = Correspondence {
+                    before: a..a + usize::from(row.before.is_some()),
+                    after: b..b + usize::from(row.after.is_some()),
+                    changed: row.changed,
+                };
+                a = next.before.end;
+                b = next.after.end;
+                if let Some(last) = blocks.last_mut()
+                    && last.changed == next.changed
+                    && (next.changed
+                        || (last.before.is_empty() == next.before.is_empty()
+                            && last.after.is_empty() == next.after.is_empty()))
+                {
+                    last.before.end = next.before.end;
+                    last.after.end = next.after.end;
+                } else {
+                    blocks.push(next);
+                }
+            }
+            blocks
+        };
         let (before_words, after_words) =
             changed_words(before, after, &blocks, &before_offsets, &after_offsets);
         Self {
@@ -76,6 +110,20 @@ impl FileDiff {
         }
     }
 
+    pub fn line_alignment(&self) -> Vec<crate::diff_options::LineAlignment> {
+        self.blocks
+            .iter()
+            .flat_map(|b| {
+                (0..b.before.len().max(b.after.len())).map(move |n| {
+                    crate::diff_options::LineAlignment {
+                        before: (n < b.before.len()).then_some(b.before.start + n),
+                        after: (n < b.after.len()).then_some(b.after.start + n),
+                        changed: b.changed,
+                    }
+                })
+            })
+            .collect()
+    }
     /// Map a source line to its counterpart, without treating insertions as padding.
     pub fn corresponding_line(&self, line: usize, before: bool) -> usize {
         for block in &self.blocks {
@@ -85,7 +133,7 @@ impl FileDiff {
                 (&block.after, &block.before)
             };
             if source.contains(&line) {
-                return if !block.changed {
+                return if !block.changed && source.len() == target.len() {
                     target.start + line - source.start
                 } else if target.is_empty() {
                     target.start

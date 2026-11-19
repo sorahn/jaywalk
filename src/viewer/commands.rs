@@ -367,6 +367,17 @@ impl Viewer {
             CommandId::NextRevision => self.navigate_revision(1, window, cx),
             CommandId::PreviousRevision => self.navigate_revision(-1, window, cx),
             CommandId::ToggleUnchangedLines => self.toggle_unchanged_lines(cx),
+            CommandId::ToggleWhitespaceDifferences
+            | CommandId::WhitespaceExact
+            | CommandId::WhitespaceTrailing
+            | CommandId::WhitespaceChanges
+            | CommandId::WhitespaceAll
+            | CommandId::ToggleIgnoreLineEndings
+            | CommandId::ToggleIgnoreBlankLines
+            | CommandId::ToggleWordHighlight
+            | CommandId::ToggleShowWhitespace
+            | CommandId::ToggleShowLineEndings
+            | CommandId::ToggleWhitespaceErrors => self.diff_option_command(command, window, cx),
             CommandId::ToggleLineNumbers => {
                 let position = self.prepare_display_reflow(cx);
                 if self.view.effective() != ViewMode::Fluid {

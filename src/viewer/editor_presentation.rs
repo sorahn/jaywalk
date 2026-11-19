@@ -16,8 +16,10 @@ pub(super) struct CodeComparison {
     pub(super) before: Entity<EditorState>,
     pub(super) after: Entity<EditorState>,
     pub(super) model: Rc<FileDiff>,
+    pub(super) text_equal: bool,
     pub(super) decorations: [gpui::base::input::TextDecorationCollection; 2],
     pub(super) standard: Result<Option<Entity<DiffState>>, String>,
+    pub(super) endings: [diff_preferences::EndingMarkers; 2],
 }
 
 pub(super) struct PreparedFile {
@@ -29,26 +31,65 @@ pub(super) struct PreparedFile {
 }
 
 impl PreparedFile {
+    #[cfg(test)]
     pub(super) fn load(
         comparison: &Comparison,
         file: &jaywalk::repository_file::FileEntry,
         tab_size: usize,
         algorithm: jaywalk::diff_model::Algorithm,
     ) -> Result<Self, String> {
+        Self::load_with_preferences(
+            comparison,
+            file,
+            tab_size,
+            algorithm,
+            jaywalk::settings::Config::default().diff.preferences(),
+        )
+    }
+    pub(super) fn load_with_preferences(
+        comparison: &Comparison,
+        file: &jaywalk::repository_file::FileEntry,
+        tab_size: usize,
+        algorithm: jaywalk::diff_model::Algorithm,
+        preferences: jaywalk::settings::DiffPreferences,
+    ) -> Result<Self, String> {
         let (before, after) = comparison.read_file(file)?;
-        let model = FileDiff::with_algorithm(&before, &after, algorithm);
+        let model = FileDiff::with_options(&before, &after, algorithm, preferences.comparison);
         let language = file_language(file.path());
         let syntax = [&before, &after].map(|text| {
             gpui::component::highlighter::PreparedInputHighlighter::new(language, text)
         });
+        let alignment: Option<Vec<_>> = (preferences.comparison != Default::default()).then(|| {
+            model
+                .line_alignment()
+                .into_iter()
+                .map(|r| gpui::component::diff::DiffLineAlignment {
+                    original: r.before,
+                    modified: r.after,
+                    changed: r.changed,
+                })
+                .collect()
+        });
         let standard = DiffFile::parse(&standard_patch_with_algorithm(&before, &after, algorithm))
-            .map(|files| {
+            .map_err(|e| e.to_string())
+            .and_then(|files| {
+                if files.is_empty() {
+                    return Ok(vec![
+                        DiffFile::unchanged(file.path(), &after).with_tab_size(tab_size),
+                    ]);
+                }
                 files
                     .into_iter()
-                    .map(|file| file.with_tab_size(tab_size))
+                    .map(|f| {
+                        let f = if let Some(rows) = &alignment {
+                            f.with_alignment(rows.clone())
+                        } else {
+                            Ok(f)
+                        };
+                        f.map(|f| f.with_tab_size(tab_size))
+                    })
                     .collect()
-            })
-            .map_err(|error| error.to_string());
+            });
         Ok(Self {
             before,
             after,
@@ -84,19 +125,32 @@ impl Viewer {
             return;
         };
         let colors = crate::appearance::diff_colors(cx);
-        for (collection, ranges, color) in [
+        for (collection, state, ranges, color) in [
             (
                 &code.decorations[0],
+                &code.before,
                 &code.model.before_words,
                 colors.word_removed,
             ),
             (
                 &code.decorations[1],
+                &code.after,
                 &code.model.after_words,
                 colors.word_added,
             ),
         ] {
-            collection.set(word_decorations(ranges, color.opacity(85. / 255.)), cx);
+            let mut decorations = if self.diff_preferences.word_highlight {
+                word_decorations(ranges, color.opacity(85. / 255.))
+            } else {
+                Vec::new()
+            };
+            if self.diff_preferences.highlight_whitespace_errors {
+                decorations.extend(word_decorations(
+                    &gpui::component::diff::whitespace_error_ranges(&state.read(cx).value()),
+                    colors.whitespace_error.opacity(0.35),
+                ));
+            }
+            collection.set(decorations, cx);
         }
     }
 
@@ -107,6 +161,12 @@ impl Viewer {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> CodeComparison {
+        let text_equal = prepared.before == prepared.after;
+        let endings = if self.diff_preferences.show_line_endings {
+            [&prepared.before, &prepared.after].map(|s| diff_preferences::ending_markers(s))
+        } else {
+            Default::default()
+        };
         let standard = self.make_standard_diff(prepared.standard, language.into(), cx);
         let [before_wrap, after_wrap] = self.editor_wraps();
         let mut make_editor = |text, wrap, cx: &mut Context<Self>| {
@@ -120,6 +180,7 @@ impl Viewer {
                     })
                     .soft_wrap(wrap)
                     .folding(false)
+                    .show_whitespaces(self.diff_preferences.show_whitespace)
                     .default_value(text)
             })
         };
@@ -158,8 +219,10 @@ impl Viewer {
             before,
             after,
             model: Rc::new(prepared.model),
+            text_equal,
             decorations,
             standard,
+            endings,
         }
     }
     pub(super) fn update_followed_file(
@@ -168,6 +231,7 @@ impl Viewer {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        let text_equal = prepared.before == prepared.after;
         let path = self.selected_path().expect("a followed file has a path");
         let code = self.code().expect("a followed file has mounted editors");
         let before = code.before.clone();
@@ -260,9 +324,18 @@ impl Viewer {
         }) = &mut self.selected_file
         {
             code.model = Rc::new(prepared.model);
+            code.text_equal = text_equal;
             code.standard = standard.clone();
+            code.endings = [&code.before, &code.after].map(|s| {
+                if self.diff_preferences.show_line_endings {
+                    diff_preferences::ending_markers(&s.read(cx).value())
+                } else {
+                    Default::default()
+                }
+            });
         }
         self.observe_standard_diff(&standard, cx);
+        self.refresh_word_colors(cx);
         self.active_change = None;
         self.navigation_target = None;
     }

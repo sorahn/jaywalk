@@ -30,6 +30,7 @@ impl Viewer {
         let file_width = settings.panels.files.default_width;
         let file_mode = settings.files.default_view;
         let file_scope = settings.files.tree_scope;
+        let diff_preferences = settings.diff.preferences();
         let focus = cx.focus_handle();
         window.focus(&focus, cx);
         let evolution = evolution::EvolutionPanel::new(
@@ -60,6 +61,14 @@ impl Viewer {
             recent_recorded: false,
             code_font_size: settings.editor.font_size,
             line_numbers: settings.editor.line_numbers,
+            ignored_whitespace_mode: if diff_preferences.comparison.whitespace
+                == jaywalk::diff_options::Whitespace::Exact
+            {
+                jaywalk::diff_options::Whitespace::IgnoreAll
+            } else {
+                diff_preferences.comparison.whitespace
+            },
+            diff_preferences,
             collapse_unchanged: settings.diff.collapse_unchanged,
             config: settings::ConfigState::new(),
             live: live::LiveState::new(),
@@ -327,10 +336,17 @@ impl Viewer {
         self.reveal_after_layout = false;
         let tab_size = self.settings.editor.tab_size;
         let algorithm = self.settings.diff.algorithm;
+        let preferences = self.diff_preferences;
         self.requests.file_task = Some(cx.spawn_in(window, async move |this, cx| {
             let result = cx
                 .background_spawn(async move {
-                    PreparedFile::load(&comparison, &file, tab_size, algorithm)
+                    PreparedFile::load_with_preferences(
+                        &comparison,
+                        &file,
+                        tab_size,
+                        algorithm,
+                        preferences,
+                    )
                 })
                 .await;
             let _ = this.update_in(cx, |viewer, window, cx| {
@@ -547,6 +563,7 @@ impl Viewer {
             source,
             content,
         });
+        self.refresh_word_colors(cx);
         self.rebuild_browser(cx);
         cx.notify();
     }
