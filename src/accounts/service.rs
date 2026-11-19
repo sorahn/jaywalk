@@ -444,7 +444,11 @@ impl Service {
         control.check()?;
         let contents = crate::hosting::review::Contents::new(data, access, options, limit);
         let comparison = contents.comparison().map_err(|_| Error::InvalidResponse)?;
-        Ok(crate::hosting::review::Review { comparison })
+        Ok(crate::hosting::review::Review {
+            comparison,
+            checkout: None,
+            local_notice: None,
+        })
     }
     pub fn accounts_snapshot(&self) -> Snapshot {
         snapshot(&self.state.lock().expect("account state mutex poisoned"))

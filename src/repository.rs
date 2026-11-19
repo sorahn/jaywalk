@@ -578,8 +578,8 @@ impl Comparison {
         }
         let (before, after) = match &self.content {
             ContentSource::Hosted(contents) => (
-                contents.paths(FileSide::Before),
-                contents.paths(FileSide::After),
+                contents.paths(FileSide::Before)?,
+                contents.paths(FileSide::After)?,
             ),
             ContentSource::Git(contents) => (
                 contents.paths(FileSide::Before),

@@ -1,5 +1,5 @@
-//! Immutable, account-bound hosted review snapshots. Only GET requests are
-//! available here; content and prepared comparisons remain in memory.
+//! Immutable, account-bound hosted review snapshots. Provider API requests are
+//! read-only; optional Git acquisition/checkout is owned by `local_review`.
 mod bitbucket;
 mod contents;
 mod github;
@@ -103,8 +103,75 @@ pub struct Data {
 #[derive(Clone)]
 pub struct Review {
     pub(crate) comparison: Comparison,
+    pub(crate) checkout: Option<Arc<crate::local_review::checkout::Lease>>,
+    pub(crate) local_notice: Option<String>,
 }
 impl Review {
+    pub fn retained(comparison: &Comparison) -> Option<Self> {
+        comparison.hosted().map(|_| Self {
+            comparison: comparison.clone(),
+            checkout: None,
+            local_notice: None,
+        })
+    }
+    pub fn checkout(&self) -> Option<&Arc<crate::local_review::checkout::Lease>> {
+        self.checkout.as_ref()
+    }
+    pub fn local_notice(&self) -> Option<&str> {
+        self.local_notice.as_deref()
+    }
+    pub fn with_notice(mut self, notice: String) -> Self {
+        self.local_notice = Some(notice);
+        self
+    }
+    pub fn locally(
+        &self,
+        known: &std::path::Path,
+        options: crate::local_review::Options,
+        receipts: &std::path::Path,
+        control: &Control,
+    ) -> Result<Self, String> {
+        let checkout_snapshot = if options.mode == crate::local_review::Mode::CheckoutIfClean {
+            Some(crate::local_review::checkout::preflight(known, control)?)
+        } else {
+            None
+        };
+        let workspace =
+            crate::local_review::Workspace::prepare(known, self.metadata(), options, control)?;
+        let contents = self
+            .comparison
+            .hosted()
+            .expect("a review has hosted contents");
+        let comparison = contents.with_local(workspace.clone())?.comparison()?;
+        let checkout = if options.mode == crate::local_review::Mode::CheckoutIfClean {
+            Some(crate::local_review::checkout::start(
+                &workspace,
+                receipts,
+                checkout_snapshot
+                    .as_ref()
+                    .expect("checkout policy has a preflight snapshot"),
+                control,
+            )?)
+        } else {
+            None
+        };
+        control.check().map_err(|error| error.to_string())?;
+        let checkout_changed = checkout.as_ref().is_some_and(|lease| lease.active());
+        Ok(Self {
+            comparison,
+            checkout,
+            local_notice: Some(
+                if options.mode == crate::local_review::Mode::CheckoutIfClean && !checkout_changed {
+                    "Local PR objects · existing clean checkout already matches; nothing switched"
+                        .into()
+                } else if options.mode == crate::local_review::Mode::CheckoutIfClean {
+                    "Local PR objects · clean-only checkout enabled · use Restore review checkout to finish".into()
+                } else {
+                    "Local PR objects · known repository checkout unchanged".into()
+                },
+            ),
+        })
+    }
     pub fn comparison(&self) -> &Comparison {
         &self.comparison
     }

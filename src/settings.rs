@@ -94,6 +94,7 @@ pub struct LiveSettings {
 #[serde(deny_unknown_fields)]
 pub struct Config {
     pub hosting: crate::hosting::review::Options,
+    pub local_review: crate::local_review::Options,
     pub application: ApplicationSettings,
     pub navigation: NavigationSettings,
     pub comparison: ComparisonSettings,
@@ -524,6 +525,7 @@ impl Config {
 
     fn validate(&self) -> Result<(), String> {
         self.hosting.validate()?;
+        self.local_review.validate()?;
         crate::keybinding_profiles::validate_reference(&self.keyboard.profile)?;
         for directory in &self.keyboard.additional_directories {
             if directory.as_os_str().is_empty() || directory.to_string_lossy().contains('\0') {
