@@ -392,3 +392,63 @@ fn git_series_includes_merged_commits_and_retains_the_captured_head() {
         series.commits[0].details.message
     );
 }
+
+#[cfg(unix)]
+#[test]
+fn ignored_trailing_whitespace_keeps_the_executable_mode_notice() {
+    use jaywalk::{
+        diff_model::Algorithm,
+        diff_options::{ComparisonOptions, Whitespace},
+        external::ExternalContents,
+    };
+    use std::os::unix::fs::PermissionsExt;
+    let fixture = Fixture::new();
+    let before = fixture.0.join("before");
+    let after = fixture.0.join("after");
+    std::fs::create_dir_all(&before).unwrap();
+    std::fs::create_dir_all(&after).unwrap();
+    std::fs::write(before.join("script.sh"), "#!/bin/sh\necho ready\n").unwrap();
+    std::fs::write(after.join("script.sh"), "#!/bin/sh\necho ready  \n").unwrap();
+    std::fs::set_permissions(
+        before.join("script.sh"),
+        std::fs::Permissions::from_mode(0o644),
+    )
+    .unwrap();
+    std::fs::set_permissions(
+        after.join("script.sh"),
+        std::fs::Permissions::from_mode(0o755),
+    )
+    .unwrap();
+    let comparison = ExternalContents::comparison(&before, &after).unwrap();
+    assert_eq!(
+        comparison
+            .catalog()
+            .find("script.sh")
+            .unwrap()
+            .metadata_change_notice()
+            .as_deref(),
+        Some("File mode changed: 100644 → 100755")
+    );
+    let options = ComparisonOptions {
+        whitespace: Whitespace::IgnoreTrailing,
+        ..Default::default()
+    };
+    for algorithm in [Algorithm::Myers, Algorithm::Patience] {
+        let overview = comparison.overview_with_options(algorithm, options);
+        let file = &overview.files[0];
+        let notice = file.notice.as_deref().unwrap();
+        assert!(
+            notice.contains("100644") && notice.contains("100755"),
+            "{notice}"
+        );
+        assert!(notice.contains("Text changes are ignored"), "{notice}");
+        assert!(
+            file.alignment
+                .as_ref()
+                .unwrap()
+                .iter()
+                .all(|row| !row.changed)
+        );
+        assert!(file.patch.contains("echo ready  "));
+    }
+}
