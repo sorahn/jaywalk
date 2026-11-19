@@ -2287,3 +2287,222 @@ fn dismissing_a_cold_branch_picker_rejects_its_late_results(test_cx: &mut TestAp
         identity
     );
 }
+
+#[gpui_test::test]
+fn account_picker_confirms_disconnect_and_preserves_the_view(test_cx: &mut TestAppContext) {
+    use jaywalk::{accounts::application::Accounts, commands::CommandId as C};
+    crate::account_ui::tests::setup(test_cx);
+    let fixture = Fixture::new();
+    let (viewer, cx) = setup(&fixture, test_cx);
+    let identity = cx.update(|_, app| viewer.read(app).comparison().unwrap().identity());
+    cx.dispatch_action(super::commands::ExecuteCommand {
+        command: C::DisconnectAccount,
+    });
+    draw(cx);
+    assert!(cx.debug_bounds("account-palette-picker").is_some());
+    assert!(cx.debug_bounds("accounts-page").is_none());
+    cx.simulate_input("synthetic-user");
+    draw(cx);
+    cx.simulate_keystrokes("enter");
+    draw(cx);
+    assert_eq!(
+        cx.update(|_, app| app
+            .global::<Accounts>()
+            .state
+            .read(app)
+            .snapshot
+            .accounts
+            .len()),
+        1
+    );
+    cx.simulate_keystrokes("escape");
+    draw(cx);
+    assert_eq!(
+        cx.update(|_, app| viewer.read(app).palette_test_state(app).1),
+        "synthetic-user"
+    );
+    cx.simulate_keystrokes("enter");
+    draw(cx);
+    cx.simulate_input("confirm local");
+    draw(cx);
+    cx.simulate_keystrokes("enter");
+    draw(cx);
+    assert!(cx.update(|_, app| {
+        app.global::<Accounts>()
+            .state
+            .read(app)
+            .snapshot
+            .accounts
+            .is_empty()
+    }));
+    assert_eq!(
+        cx.update(|_, app| viewer.read(app).comparison().unwrap().identity()),
+        identity
+    );
+    cx.simulate_keystrokes("escape");
+    draw(cx);
+    cx.simulate_keystrokes("escape");
+    draw(cx);
+    assert!(cx.update(|_, app| viewer.read(app).palette_test_state(app).0.is_none()));
+}
+
+#[gpui_test::test]
+fn account_picker_connection_errors_and_mode_switches_stay_in_the_picker(
+    test_cx: &mut TestAppContext,
+) {
+    use jaywalk::{accounts::application::Accounts, commands::CommandId as C};
+    crate::account_ui::tests::setup(test_cx);
+    let fixture = Fixture::new();
+    let (viewer, cx) = setup(&fixture, test_cx);
+    cx.dispatch_action(super::commands::ExecuteCommand {
+        command: C::ConnectAccount,
+    });
+    draw(cx);
+    cx.simulate_input("github");
+    draw(cx);
+    cx.simulate_keystrokes("enter");
+    draw(cx);
+    // The synthetic store has no client registration; no browser or OS store is touched.
+    assert!(cx.update(|_, app| {
+        app.global::<Accounts>()
+            .state
+            .read(app)
+            .notice
+            .as_ref()
+            .unwrap()
+            .error
+    }));
+    assert!(cx.debug_bounds("account-palette-picker").is_some());
+    assert!(cx.debug_bounds("accounts-page").is_none());
+    cx.update(|window, app| viewer.update(app, |v, cx| v.palette_test_set_query("?", window, cx)));
+    draw(cx);
+    assert_eq!(
+        cx.update(|_, app| viewer.read(app).palette_test_state(app).0),
+        Some(palette::PaletteKind::Help)
+    );
+    cx.simulate_keystrokes("escape");
+    draw(cx);
+    cx.dispatch_action(super::commands::ExecuteCommand {
+        command: C::Accounts,
+    });
+    draw(cx);
+    assert!(cx.debug_bounds("accounts-page").is_some());
+}
+
+#[gpui_test::test]
+fn manage_account_picker_retains_parent_query_after_connection_check(test_cx: &mut TestAppContext) {
+    use jaywalk::{
+        accounts::{ConnectionState, application::Accounts},
+        commands::CommandId as C,
+    };
+    crate::account_ui::tests::setup(test_cx);
+    let fixture = Fixture::new();
+    let (viewer, cx) = setup(&fixture, test_cx);
+    cx.dispatch_action(super::commands::ExecuteCommand {
+        command: C::ManageAccounts,
+    });
+    draw(cx);
+    cx.simulate_input("synthetic-user");
+    draw(cx);
+    cx.simulate_keystrokes("enter");
+    draw(cx);
+    cx.simulate_input("check");
+    draw(cx);
+    cx.simulate_keystrokes("enter");
+    draw(cx);
+    assert!(cx.update(|_, app| matches!(
+        app.global::<Accounts>().state.read(app).snapshot.accounts[0].state,
+        ConnectionState::Connected
+    )));
+    cx.simulate_keystrokes("escape");
+    draw(cx);
+    assert_eq!(
+        cx.update(|_, app| viewer.read(app).palette_test_state(app).1),
+        "synthetic-user"
+    );
+    cx.update(|window, app| viewer.update(app, |v, cx| v.palette_test_set_query("~", window, cx)));
+    draw(cx);
+    assert_eq!(
+        cx.update(|_, app| viewer.read(app).palette_test_state(app).0),
+        Some(palette::PaletteKind::Repositories)
+    );
+}
+
+#[gpui_test::test]
+fn dismissing_an_account_picker_does_not_cancel_another_owners_operation(
+    test_cx: &mut TestAppContext,
+) {
+    use jaywalk::{
+        accounts::{application::Accounts, controller::AccountAction},
+        commands::CommandId as C,
+    };
+    crate::account_ui::tests::setup(test_cx);
+    let fixture = Fixture::new();
+    let (viewer, cx) = setup(&fixture, test_cx);
+    let owner = cx.update(|window, app| {
+        let state = app.global::<Accounts>().state.clone();
+        let owner = state
+            .update(app, |state, cx| state.start(AccountAction::Load, cx))
+            .unwrap();
+        viewer.update(app, |v, cx| {
+            v.execute_command(C::ManageAccounts, window, cx);
+            v.close_palette(window, cx);
+        });
+        owner
+    });
+    draw(cx);
+    assert_eq!(
+        cx.update(|_, app| app
+            .global::<Accounts>()
+            .state
+            .read(app)
+            .last_finished
+            .unwrap()
+            .id),
+        owner.id
+    );
+    assert!(cx.update(|_, app| viewer.read(app).palette_test_state(app).0.is_none()));
+}
+
+#[gpui_test::test]
+fn manage_accounts_disconnect_returns_to_the_valid_parent_and_keeps_its_query(
+    test_cx: &mut TestAppContext,
+) {
+    use jaywalk::{accounts::application::Accounts, commands::CommandId as C};
+    crate::account_ui::tests::setup(test_cx);
+    let fixture = Fixture::new();
+    let (viewer, cx) = setup(&fixture, test_cx);
+    cx.dispatch_action(super::commands::ExecuteCommand {
+        command: C::ManageAccounts,
+    });
+    draw(cx);
+    cx.simulate_input("synthetic-user");
+    draw(cx);
+    cx.simulate_keystrokes("enter");
+    draw(cx);
+    cx.simulate_input("disconnect");
+    draw(cx);
+    cx.simulate_keystrokes("enter");
+    draw(cx);
+    cx.simulate_input("confirm local");
+    draw(cx);
+    cx.simulate_keystrokes("enter");
+    draw(cx);
+    assert!(cx.update(|_, app| {
+        app.global::<Accounts>()
+            .state
+            .read(app)
+            .snapshot
+            .accounts
+            .is_empty()
+    }));
+    assert_eq!(
+        cx.update(|_, app| viewer.read(app).palette_test_state(app).1),
+        "synthetic-user"
+    );
+    assert!(cx.debug_bounds("account-palette-picker").is_some());
+    // Home is a valid empty filtered list, and a single Escape dismisses it.
+    cx.simulate_keystrokes("escape");
+    draw(cx);
+    assert!(cx.update(|_, app| viewer.read(app).palette_test_state(app).0.is_none()));
+}

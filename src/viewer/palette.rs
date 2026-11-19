@@ -16,6 +16,7 @@ pub(super) enum PaletteKind {
     Profiles,
     Reviews,
     PullRequests,
+    Accounts,
     Line,
     Help,
     FileSymbols,
@@ -32,7 +33,7 @@ impl PaletteKind {
             Self::Help => Mode::Help,
             Self::FileSymbols => Mode::FileSymbols,
             Self::ProjectSymbols => Mode::ProjectSymbols,
-            Self::Reviews | Self::Profiles => return None,
+            Self::Reviews | Self::Profiles | Self::Accounts => return None,
         })
     }
     fn from_mode(mode: Mode) -> Self {
@@ -73,6 +74,7 @@ enum Choice {
 pub(super) struct PaletteState {
     state: Entity<CommandState>,
     pull_requests: Option<Entity<crate::hosting_ui::PullRequestsPage>>,
+    accounts: Option<Entity<crate::account_picker::AccountPicker>>,
     open: Option<PaletteKind>,
     return_focus: Option<FocusHandle>,
     usage: CommandUsage,
@@ -88,6 +90,7 @@ impl PaletteState {
         Self {
             state: cx.new(|cx| CommandState::new(window, cx)),
             pull_requests: None,
+            accounts: None,
             open: None,
             return_focus: None,
             usage: CommandUsage::default(),
@@ -323,6 +326,9 @@ impl Viewer {
         cx.notify();
     }
     fn retire_pr_picker(&mut self, cx: &mut Context<Self>) {
+        if let Some(picker) = self.palette.accounts.take() {
+            picker.update(cx, |picker, cx| picker.cancel(cx));
+        }
         if let Some(page) = self.palette.pull_requests.take() {
             page.update(cx, |page, cx| page.cancel_picker(cx));
         }
@@ -422,8 +428,16 @@ impl Viewer {
     }
     pub(super) fn render_palette(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
         let kind = self.palette.open?;
-        if matches!(kind, PaletteKind::PullRequests) {
-            let picker = self.palette.pull_requests.as_ref()?.clone();
+        if matches!(kind, PaletteKind::PullRequests | PaletteKind::Accounts) {
+            let picker = if kind == PaletteKind::PullRequests {
+                self.palette
+                    .pull_requests
+                    .as_ref()?
+                    .clone()
+                    .into_any_element()
+            } else {
+                self.palette.accounts.as_ref()?.clone().into_any_element()
+            };
             return Some(
                 div()
                     .id("palette-overlay")
@@ -456,7 +470,9 @@ impl Viewer {
             raw_query.as_ref()
         };
         let choices: Vec<(String, Choice)> = match kind {
-            PaletteKind::PullRequests => unreachable!("PR discovery renders its own palette step"),
+            PaletteKind::PullRequests | PaletteKind::Accounts => {
+                unreachable!("specialized picker renders its own rows")
+            }
             PaletteKind::Help => Mode::ALL
                 .into_iter()
                 .map(|mode| {
@@ -637,8 +653,8 @@ impl Viewer {
                 .bordered(false)
                 .filterable(false)
                 .placeholder(match kind {
-                    PaletteKind::PullRequests => {
-                        unreachable!("PR discovery renders its own palette step")
+                    PaletteKind::PullRequests | PaletteKind::Accounts => {
+                        unreachable!("specialized picker renders its own rows")
                     }
                     PaletteKind::Help => "Search picker modes…",
                     PaletteKind::Line => "Go to source line…",
@@ -1010,5 +1026,46 @@ impl Viewer {
         self.palette.state.update(cx, |state, cx| {
             state.set_query(query.to_owned(), window, cx)
         });
+    }
+}
+
+impl Viewer {
+    pub(super) fn open_account_palette(
+        &mut self,
+        command: jaywalk::commands::CommandId,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if !cx.has_global::<jaywalk::accounts::application::Accounts>() {
+            jaywalk::accounts::application::init(cx);
+        }
+        self.open_palette(PaletteKind::Accounts, window, cx);
+        let input = self.palette.state.clone();
+        let delay = self.settings.ui.loading_delay_ms;
+        let picker = cx
+            .new(|cx| crate::account_picker::AccountPicker::new(command, input, delay, window, cx));
+        cx.subscribe_in(&picker, window, |viewer, picker, event, window, cx| {
+            if viewer.palette.open != Some(PaletteKind::Accounts)
+                || viewer.palette.accounts.as_ref() != Some(picker)
+            {
+                return;
+            }
+            match event {
+                crate::account_picker::Event::Leave => viewer.close_palette(window, cx),
+                crate::account_picker::Event::Input(input) => {
+                    viewer.palette.state = input.clone();
+                }
+                crate::account_picker::Event::Query(input, query) => {
+                    viewer.palette.state = input.clone();
+                    viewer.palette_query_changed(query, window, cx);
+                }
+                crate::account_picker::Event::Browse => {
+                    viewer.close_palette(window, cx);
+                    viewer.show_accounts(jaywalk::commands::CommandId::Accounts, window, cx);
+                }
+            }
+        })
+        .detach();
+        self.palette.accounts = Some(picker);
     }
 }

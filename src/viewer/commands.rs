@@ -210,13 +210,14 @@ impl Viewer {
             CommandId::RevealComparisonLeft | CommandId::RevealComparisonRight => {
                 self.reveal_pair_endpoint(command == CommandId::RevealComparisonRight, window, cx)
             }
-            CommandId::Accounts
+            CommandId::Accounts => self.show_accounts(command, window, cx),
+            CommandId::ManageAccounts
             | CommandId::ConnectAccount
             | CommandId::ReconnectAccount
             | CommandId::DisconnectAccount
             | CommandId::ChooseHostingWorkspace
             | CommandId::ImportHostingSetup
-            | CommandId::CheckAccount => self.show_accounts(command, window, cx),
+            | CommandId::CheckAccount => self.open_account_palette(command, window, cx),
             CommandId::CancelAccountSignIn => crate::account_ui::cancel_sign_in(cx),
             CommandId::SwapComparison => self.swap_comparison(window, cx),
             CommandId::CompareRevision | CommandId::DiffFromBranchPoint => {

@@ -5,6 +5,7 @@ use gpui::*;
 use jaywalk::settings_reload::SettingsSource;
 
 mod about;
+mod account_picker;
 mod account_ui;
 mod appearance;
 mod cli;

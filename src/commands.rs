@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 pub enum CommandId {
     About,
     Accounts,
+    ManageAccounts,
     OpenPullRequest,
     BrowsePullRequests,
     UpdatePublishedReview,
@@ -153,6 +154,7 @@ impl CommandId {
                 | Self::OpenPullRequest
                 | Self::BrowsePullRequests
                 | Self::Accounts
+                | Self::ManageAccounts
                 | Self::ConnectAccount
                 | Self::ReconnectAccount
                 | Self::DisconnectAccount
@@ -188,6 +190,7 @@ impl CommandId {
     pub const ALL: &[Self] = &[
         Self::About,
         Self::Accounts,
+        Self::ManageAccounts,
         Self::OpenPullRequest,
         Self::BrowsePullRequests,
         Self::UpdatePublishedReview,
@@ -354,6 +357,7 @@ impl CommandId {
             Self::OpenPullRequest => "Open pull request…",
             Self::BrowsePullRequests => "Browse pull requests…",
             Self::Accounts => "Accounts…",
+            Self::ManageAccounts => "Manage accounts in picker…",
             Self::ConnectAccount => "Connect account…",
             Self::ReconnectAccount => "Reconnect account…",
             Self::DisconnectAccount => "Disconnect account…",
