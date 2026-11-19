@@ -37,7 +37,9 @@ height = 950
 [ui]
 # Application-wide active icons, control fills, selections and focus accents.
 appearance = "system"
-accent_color = { light = "#0066b8", dark = "#3794ff" }
+accent_color = "system"
+# Used when a native system accent is unavailable. Explicit accent_color colors override it.
+accent_color_fallback = { light = "#0066b8", dark = "#3794ff" }
 # Suppress transient loading indicators; 0 shows them immediately.
 loading_delay_ms = 200
 # Shared minimum for history, flat files and directory-tree rows.

@@ -3696,6 +3696,7 @@ version = "0.1.1"
 dependencies = [
  "async-channel",
  "base64 0.22.1",
+ "block2 0.6.2",
  "clap",
  "core-foundation 0.10.1",
  "core-foundation-sys",
@@ -3704,6 +3705,9 @@ dependencies = [
  "keyring",
  "libc",
  "notify",
+ "objc2 0.6.5",
+ "objc2-app-kit 0.3.2",
+ "objc2-foundation 0.3.2",
  "rand 0.8.8",
  "reqwest",
  "serde",

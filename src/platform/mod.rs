@@ -1,5 +1,6 @@
 //! Native integration stays outside the portable viewer.
 use gpui::*;
+pub(crate) mod accent;
 mod opener;
 mod scrollbar;
 pub(crate) use opener::open_text_file;

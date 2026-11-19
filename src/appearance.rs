@@ -24,6 +24,7 @@ pub(crate) fn init(settings: &Settings, cx: &mut App) {
         mode: None,
     });
     apply(settings, cx);
+    crate::platform::accent::observe(cx);
 }
 
 pub(crate) fn apply(settings: &Settings, cx: &mut App) {
@@ -52,6 +53,18 @@ pub(crate) fn watch_window(window: &mut Window, cx: &mut App) {
     }
 }
 
+#[cfg(all(target_os = "macos", not(test)))]
+pub(crate) fn system_colors_changed(cx: &mut App) {
+    if cx.try_global::<AppAppearance>().is_some_and(|state| {
+        matches!(
+            state.ui.accent_color,
+            jaywalk::settings::AccentColorSetting::System(_)
+        )
+    }) {
+        refresh(None, true, cx);
+    }
+}
+
 fn refresh(system: Option<WindowAppearance>, force: bool, cx: &mut App) {
     let state = cx.global::<AppAppearance>().clone();
     let system_mode = ThemeMode::from(system.unwrap_or_else(|| cx.window_appearance()));
@@ -73,7 +86,19 @@ fn refresh(system: Option<WindowAppearance>, force: bool, cx: &mut App) {
         if changed {
             theme.highlight_theme = code_theme(dark);
         }
-        apply_accent(theme, state.ui.accent_color.resolve(dark));
+        let system = matches!(
+            state.ui.accent_color,
+            jaywalk::settings::AccentColorSetting::System(_)
+        )
+        .then(|| crate::platform::accent::read(dark))
+        .flatten();
+        apply_accent(
+            theme,
+            state
+                .ui
+                .accent_color
+                .resolve(dark, system, state.ui.accent_color_fallback),
+        );
         theme.font_size = px(state.ui.font_size);
         theme.mono_font_size = px(state.editor.font_size);
         theme.font_family = state

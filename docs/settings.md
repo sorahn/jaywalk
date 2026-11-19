@@ -139,7 +139,8 @@ Appearance and accent share the existing application-wide, last-successfully-app
 | Setting | Default | Meaning and allowed values |
 | --- | --- | --- |
 | `ui.appearance` | `"system"` | `"light"`, `"dark"` or `"system"`. Updates all windows, editor syntax and diff palettes live. System follows OS appearance changes; explicit modes override this app’s native window appearance where supported, without changing system preferences. |
-| `ui.accent_color` | `{ light = "#0066b8", dark = "#3794ff" }` | Application-wide accent: a shared `#RRGGBB` string or a light/dark pair (see below), case-insensitive hex. Updates active icons, primary controls (including checkboxes/switches), focus rings, links and selection tints live in all windows; filled controls choose a light/dark foreground. Git statuses, diff colors and graph lanes stay semantic. Invalid edits retain the last valid config. |
+| `ui.accent_color` | `"system"` | Application-wide accent: `"system"`, a shared `#RRGGBB` string or a light/dark pair (see below), case-insensitive hex. On macOS, system reads AppKit’s user accent preference for the app’s selected light/dark appearance and follows system-color notifications. Explicit hex/pair values override the system. Updates active icons, primary controls (including checkboxes/switches), focus rings, links and selection tints live in all windows; filled controls choose a light/dark foreground. Git statuses, diff colors and graph lanes stay semantic. Invalid edits retain the last valid config. |
+| `ui.accent_color_fallback` | `{ light = "#0066b8", dark = "#3794ff" }` | Color used by `"system"` when native accent lookup is unavailable, including unsupported platforms. Accepts one shared hex color or a light/dark pair and applies live. |
 | `ui.loading_delay_ms` | `200` | Delay before showing loading feedback; 0–5000. `0` shows it immediately; fast operations never expose a loading label. |
 | `ui.row_height` | `26` | Shared minimum for history, tree and list rows; 12–160. Per-view overrides below take precedence; fonts establish a readable minimum. |
 | `ui.panel_header_height` | `30` | Minimum panel-header height; 24–120. |
@@ -152,14 +153,15 @@ Appearance and accent share the existing application-wide, last-successfully-app
 | `ui.ligatures` | `true` | Enable ligatures and contextual alternates for application text. |
 | `ui.font_family` | omitted | Installed family name; defaults to the theme/system UI font. Must be nonempty when supplied. |
 
-All configurable colors use the same format. A string applies in both modes;
+All configurable colors accept the same hex formats; `ui.accent_color` additionally accepts `"system"`. A hex string applies in both modes;
 a table selects a color for the active appearance. Omitted table members inherit
 their shipped defaults. These examples are alternatives:
 
 ```toml
 [ui]
 appearance = "system"
-accent_color = { light = "#0066b8", dark = "#3794ff" }
+accent_color = "system"
+accent_color_fallback = { light = "#0066b8", dark = "#3794ff" }
 ```
 
 ```toml
@@ -167,7 +169,7 @@ accent_color = { light = "#0066b8", dark = "#3794ff" }
 accent_color = "#8b5cf6"
 ```
 
-Configurable colors include `ui.accent_color` and every entry in `diff.colors`. Opacity settings remain
+Configurable colors include `ui.accent_color`, `ui.accent_color_fallback` and every entry in `diff.colors`. Opacity settings remain
 numbers and apply to their theme-derived colors. Invalid colors or appearance
 values retain the last valid settings and report a configuration error.
 
