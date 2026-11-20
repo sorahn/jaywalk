@@ -3633,3 +3633,40 @@ fn setup_is_optional_preserves_the_comparison_and_only_saves_explicit_choices(
         before
     );
 }
+
+#[gpui_test::test]
+fn setup_fits_one_normal_viewport_and_stacks_in_narrow_windows(cx: &mut TestAppContext) {
+    use jaywalk::commands::CommandId;
+    let fixture = Fixture::new();
+    let (viewer, cx) = setup(&fixture, cx);
+    cx.simulate_resize(size(px(1500.), px(800.)));
+    cx.update(|w, app| viewer.update(app, |v, c| v.execute_command(CommandId::ShowSetup, w, c)));
+    draw(cx);
+    let page = cx.debug_bounds("setup-page").unwrap();
+    let content = cx.debug_bounds("setup-content").unwrap();
+    let local = cx.debug_bounds("setup-local").unwrap();
+    let updates = cx.debug_bounds("setup-updates").unwrap();
+    assert!(
+        content.bottom() <= page.bottom(),
+        "normal setup should fit: {content:?} in {page:?}"
+    );
+    assert_eq!(local.top(), updates.top());
+    assert!(local.right() < updates.left());
+    assert!(cx.debug_bounds("setup-cli-complete").is_some());
+    assert!(cx.debug_bounds("setup-save").unwrap().bottom() <= page.bottom());
+    cx.simulate_resize(size(px(560.), px(800.)));
+    draw(cx);
+    let local = cx.debug_bounds("setup-local").unwrap();
+    let updates = cx.debug_bounds("setup-updates").unwrap();
+    assert_eq!(local.left(), updates.left());
+    assert!(local.bottom() < updates.top());
+    let page = cx.debug_bounds("setup-page").unwrap();
+    let content = cx.debug_bounds("setup-content").unwrap();
+    assert!(content.right() <= page.right());
+    cx.simulate_resize(size(px(1000.), px(350.)));
+    draw(cx);
+    assert!(
+        cx.debug_bounds("setup-content").unwrap().bottom()
+            > cx.debug_bounds("setup-page").unwrap().bottom()
+    );
+}

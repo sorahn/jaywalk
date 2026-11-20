@@ -4,7 +4,7 @@ The release pipeline is being prepared. No official notarized download or Homebr
 
 ## Drag-and-drop installation
 
-Open the release DMG and drag Jaywalk to Applications (or a permanent user-owned applications folder). Eject the DMG and launch the installed copy. First-open setup offers CLI integration, update preferences, appearance and optional getting-started actions. You can skip it and reopen **Set up Jaywalk…** from the palette or Jaywalk menu. Local viewing requires no hosting account.
+Open the release DMG and drag Jaywalk to Applications (or a permanent user-owned applications folder). Eject the DMG and launch the installed copy. First-open setup checks for an existing executable `jw` in the background before showing a compact two-column form. Its command-line checkbox is checked when a launcher is found; the path is shown, with a terminal-PATH reminder for common folders missing from Finder's PATH. Existing commands are inspected without executing them, and the first executable on PATH takes precedence. Setup offers CLI integration, update preferences, appearance and optional getting-started actions. At normal window sizes the choices fit without scrolling; narrow windows stack and short windows scroll. You can skip it and reopen **Set up Jaywalk…** from the palette or Jaywalk menu. Local viewing requires no hosting account.
 
 ## Install the jw command
 

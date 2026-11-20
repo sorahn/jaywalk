@@ -129,7 +129,10 @@ impl Viewer {
         }
         viewer.observe_review(window, cx);
         viewer.start_settings_reload(window, cx);
-        if !viewer.is_welcome() {
+        if viewer.page == pages::Page::Setup {
+            viewer.check_setup_cli(window, cx);
+        }
+        if !viewer.arguments.welcome {
             viewer.initialize_browser(window, cx);
             viewer.load_repository(preferred_path, window, cx);
         }

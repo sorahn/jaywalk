@@ -118,6 +118,80 @@ pub fn candidate_directories(home: &Path, path: Option<&std::ffi::OsStr>) -> Vec
     directories
 }
 
+/// The first executable wins, matching PATH lookup. Known installation folders
+/// are checked separately because Finder may omit the user's terminal PATH.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Discovery {
+    Missing,
+    Available {
+        path: PathBuf,
+        on_path: bool,
+        current_app: bool,
+    },
+}
+impl Discovery {
+    pub fn available(&self) -> bool {
+        matches!(self, Self::Available { .. })
+    }
+}
+pub fn discover(
+    home: &Path,
+    path: Option<&std::ffi::OsStr>,
+    directory: &Path,
+    source: Option<&Path>,
+) -> Result<Discovery, String> {
+    let source = source
+        .map(std::fs::canonicalize)
+        .transpose()
+        .map_err(|error| format!("Could not resolve bundled jw: {error}"))?;
+    let mut candidates = path
+        .map(std::env::split_paths)
+        .into_iter()
+        .flatten()
+        .map(|p| {
+            (
+                if p.is_absolute() {
+                    p
+                } else {
+                    directory.join(p)
+                },
+                true,
+            )
+        })
+        .collect::<Vec<_>>();
+    for fallback in candidate_directories(home, None) {
+        if !candidates.iter().any(|(p, _)| p == &fallback) {
+            candidates.push((fallback, false));
+        }
+    }
+    for (directory, on_path) in candidates {
+        let candidate = directory.join("jw");
+        let metadata = match std::fs::metadata(&candidate) {
+            Ok(metadata) => metadata,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(error) => return Err(format!("Could not check {}: {error}", candidate.display())),
+        };
+        if !metadata.is_file() {
+            continue;
+        }
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            if metadata.permissions().mode() & 0o111 == 0 {
+                continue;
+            }
+        }
+        let target = std::fs::canonicalize(&candidate)
+            .map_err(|error| format!("Could not resolve {}: {error}", candidate.display()))?;
+        return Ok(Discovery::Available {
+            path: candidate,
+            on_path,
+            current_app: source.as_ref() == Some(&target),
+        });
+    }
+    Ok(Discovery::Missing)
+}
+
 /// Literal POSIX shell examples, suitable for pasting into zsh/bash/fish.
 pub fn manual_instructions(source: &Path) -> String {
     let literal = format!("'{}'", source.to_string_lossy().replace('\'', "'\\''"));
@@ -129,6 +203,70 @@ fish: fish_add_path \"$HOME/.local/bin\"\nzsh/bash: add export PATH=\"$HOME/.loc
 mod tests {
     use super::*;
     use std::os::unix::fs::symlink;
+    #[test]
+    fn discovery_respects_path_precedence_and_checks_chained_links_without_running_commands() {
+        use std::os::unix::fs::PermissionsExt;
+        let fixture = tempfile::tempdir().unwrap();
+        let home = fixture.path().join("home");
+        let early = fixture.path().join("early");
+        let later = fixture.path().join("later");
+        std::fs::create_dir_all(&early).unwrap();
+        std::fs::create_dir_all(&later).unwrap();
+        let source = fixture.path().join("bundled-jw");
+        std::fs::write(&source, "fixture").unwrap();
+        std::fs::set_permissions(&source, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let first = early.join("jw");
+        std::fs::write(&first, "#!/bin/sh\ntouch should-not-run\n").unwrap();
+        std::fs::set_permissions(&first, std::fs::Permissions::from_mode(0o755)).unwrap();
+        symlink(&source, later.join("link")).unwrap();
+        symlink("link", later.join("jw")).unwrap();
+        let path = std::env::join_paths([&early, &later]).unwrap();
+        assert_eq!(
+            discover(&home, Some(&path), fixture.path(), Some(&source)).unwrap(),
+            Discovery::Available {
+                path: first.clone(),
+                on_path: true,
+                current_app: false
+            }
+        );
+        assert!(!fixture.path().join("should-not-run").exists());
+        std::fs::remove_file(&first).unwrap();
+        symlink("missing", &first).unwrap();
+        assert_eq!(
+            discover(&home, Some(&path), fixture.path(), Some(&source)).unwrap(),
+            Discovery::Available {
+                path: later.join("jw"),
+                on_path: true,
+                current_app: true
+            }
+        );
+        let relative = std::ffi::OsStr::new("later");
+        assert!(matches!(
+            discover(&home, Some(relative), fixture.path(), Some(&source)).unwrap(),
+            Discovery::Available {
+                on_path: true,
+                current_app: true,
+                ..
+            }
+        ));
+        let local = home.join(".local/bin");
+        std::fs::create_dir_all(&local).unwrap();
+        symlink(&source, local.join("jw")).unwrap();
+        assert!(matches!(
+            discover(
+                &home,
+                Some(std::ffi::OsStr::new("")),
+                fixture.path(),
+                Some(&source)
+            )
+            .unwrap(),
+            Discovery::Available {
+                on_path: false,
+                current_app: true,
+                ..
+            }
+        ));
+    }
     #[test]
     fn copied_commands_preserve_literal_paths_and_never_execute_path_content() {
         let fixture = tempfile::tempdir().unwrap();
