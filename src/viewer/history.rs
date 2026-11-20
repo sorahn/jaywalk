@@ -327,7 +327,6 @@ impl Viewer {
                     ),
             ),
             div().bg(surface),
-            &self.panels.outlines,
         );
         let session =
             match &self.repository {

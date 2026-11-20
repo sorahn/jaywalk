@@ -3,7 +3,6 @@ use gpui::component::tooltip::Tooltip;
 
 impl Render for Viewer {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        self.panels.outlines.borrow_mut().clear();
         if self.page == pages::Page::Comparison {
             self.preserve_window_reflow(window, cx);
         }
@@ -76,8 +75,7 @@ impl Render for Viewer {
                     .flex_1()
                     .min_h_0()
                     .child(self.render_workbench(f32::from(window.bounds().size.width), cx))
-                    .child(self.sidebar_bounds_marker(cx))
-                    .child(self.render_panel_outlines()),
+                    .child(self.sidebar_bounds_marker(cx)),
             )
             .child(self.render_footer(window, cx))
             .children(self.render_palette(cx))

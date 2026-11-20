@@ -2,9 +2,7 @@
 use super::*;
 use gpui::component::Theme;
 use gpui::component::menu::{ContextMenu, ContextMenuExt as _};
-use gpui::prelude::FluentBuilder;
 use jaywalk::panel_layout::PanelId;
-use std::cell::RefCell;
 
 pub(super) const PANEL_INSET: f32 = 8.;
 // Small icon buttons center a 14 px glyph in a 24 px hit target.
@@ -41,51 +39,10 @@ impl Viewer {
     }
 }
 
-/// Measured with each panel; painted once over the completed workbench, below
-/// deferred menus/popovers. The ring follows the real panel boundary.
-pub(super) struct PanelOutline {
-    bounds: Bounds<Pixels>,
-    focus: FocusHandle,
-    fallback: Option<FocusHandle>,
-}
-
-impl Viewer {
-    pub(super) fn render_panel_outlines(&self) -> impl IntoElement {
-        let outlines = self.panels.outlines.clone();
-        canvas(
-            |_, _, _| (),
-            move |_, _, window, cx| {
-                let Some(color) = crate::appearance::panel_outline(cx) else {
-                    return;
-                };
-                for panel in outlines.borrow().iter() {
-                    if panel.focus.contains_focused(window, cx)
-                        || panel
-                            .fallback
-                            .as_ref()
-                            .is_some_and(|focus| focus.is_focused(window))
-                    {
-                        let mut quad = outline(panel.bounds, color, BorderStyle::Solid);
-                        quad.corner_radii = px(crate::appearance::panel_outline_radius(cx)).into();
-                        window.paint_quad(quad);
-                    }
-                }
-            },
-        )
-        .absolute()
-        .inset_0()
-        .size_full()
-    }
-}
-
 /// Presentation only: each body keeps its existing scroll/virtualization owner.
 #[derive(IntoElement)]
 pub(super) struct Panel {
-    id: ElementId,
-    focus: Option<FocusHandle>,
-    fallback_focus: Option<FocusHandle>,
     frame: gpui::Stateful<gpui::Div>,
-    outlines: Rc<RefCell<Vec<PanelOutline>>>,
     header: AnyElement,
     children: Vec<AnyElement>,
     footer: Option<AnyElement>,
@@ -95,27 +52,13 @@ impl Panel {
         id: impl Into<ElementId>,
         header: impl IntoElement,
         frame: gpui::Div,
-        outlines: &Rc<RefCell<Vec<PanelOutline>>>,
     ) -> Self {
-        let id = id.into();
         Self {
-            id: id.clone(),
-            focus: None,
-            fallback_focus: None,
             frame: frame.id(id),
-            outlines: outlines.clone(),
             header: header.into_any_element(),
             children: Vec::new(),
             footer: None,
         }
-    }
-    pub(super) fn focus_handle(mut self, focus: &FocusHandle) -> Self {
-        self.focus = Some(focus.clone());
-        self
-    }
-    pub(super) fn fallback_focus(mut self, focus: &FocusHandle) -> Self {
-        self.fallback_focus = Some(focus.clone());
-        self
     }
     pub(super) fn footer(mut self, footer: impl IntoElement) -> Self {
         self.footer = Some(footer.into_any_element());
@@ -128,29 +71,8 @@ impl ParentElement for Panel {
     }
 }
 impl RenderOnce for Panel {
-    fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
-        let focus = self.focus.unwrap_or_else(|| {
-            window
-                .use_keyed_state(self.id, cx, |_, cx| cx.focus_handle())
-                .read(cx)
-                .clone()
-        });
-        let pointer_focus = focus.clone();
-        let fallback = self.fallback_focus;
-        let accented = crate::appearance::panel_outline(cx).is_some();
-        let outlines = self.outlines;
+    fn render(self, _: &mut Window, _: &mut App) -> impl IntoElement {
         self.frame
-            .relative()
-            .track_focus(&focus)
-            .when(accented, |frame| {
-                frame.capture_any_mouse_down(move |event, window, cx| {
-                    // Capture before editors handle the press so their own focus
-                    // can take over. Never steal focus back from an editor.
-                    if event.button == MouseButton::Left {
-                        window.focus(&pointer_focus, cx);
-                    }
-                })
-            })
             .v_flex()
             .size_full()
             .min_w_0()
@@ -168,23 +90,6 @@ impl RenderOnce for Panel {
             .children(
                 self.footer
                     .map(|footer| div().flex_shrink_0().child(footer)),
-            )
-            .child(
-                canvas(
-                    move |bounds, _, _| {
-                        let mut records = outlines.borrow_mut();
-                        records.retain(|record| record.focus != focus);
-                        records.push(PanelOutline {
-                            bounds,
-                            focus,
-                            fallback,
-                        });
-                    },
-                    |_, _, _, _| {},
-                )
-                .absolute()
-                .inset_0()
-                .size_full(),
             )
     }
 }

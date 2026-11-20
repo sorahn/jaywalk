@@ -2990,7 +2990,7 @@ fn branch_palette_opens_hidden_remote_targets_and_reviews_local_branches(cx: &mu
 }
 
 #[gpui_test::test]
-fn accent_outlines_preserve_editor_focus_and_panel_geometry(cx: &mut TestAppContext) {
+fn floating_outlines_preserve_editor_focus_and_panel_geometry(cx: &mut TestAppContext) {
     let fixture = Fixture::new();
     let (viewer, cx) = setup(&fixture, cx);
     let (before, after) = cx.update(|_, app| {
@@ -3011,7 +3011,6 @@ fn accent_outlines_preserve_editor_focus_and_panel_geometry(cx: &mut TestAppCont
     for enabled in [false, true] {
         cx.update(|_, app| {
             let mut settings = viewer.read(app).settings.clone();
-            settings.ui.accent_panel_outlines = enabled;
             settings.ui.accent_floating_outlines = enabled;
             crate::appearance::apply(&settings, app);
             viewer.update(app, |v, cx| {
@@ -3448,91 +3447,4 @@ fn welcome_uses_two_columns_without_scrolling_and_stacks_on_small_windows(cx: &m
         cx.debug_bounds("welcome-content").unwrap().bottom()
             > cx.debug_bounds("welcome-page").unwrap().bottom()
     );
-}
-
-#[gpui_test::test]
-fn rounded_panel_outlines_keep_all_edges_clear_of_resize_seams(cx: &mut TestAppContext) {
-    use jaywalk::commands::CommandId;
-    let fixture = Fixture::new();
-    let (viewer, cx) = setup(&fixture, cx);
-    for radius in [0., 4., 8.] {
-        cx.update(|window, app| {
-            let mut settings = viewer.read(app).settings.clone();
-            settings.ui.panel_outline_radius = radius;
-            crate::appearance::apply(&settings, app);
-            viewer.update(app, |v, cx| {
-                v.apply_settings(settings, window, cx);
-                window.focus(&v.focus, cx);
-            });
-        });
-        draw(cx);
-        let painted = cx.update(|window, app| assert_panel_ink(window, app, radius));
-        let header = cx.debug_bounds("file-header").unwrap();
-        let workbench = cx.debug_bounds("workbench").unwrap();
-        let scale = cx.update(|window, _| window.scale_factor());
-        assert_eq!(painted.left().0 / scale, f32::from(header.left()));
-        assert_eq!(painted.right().0 / scale, f32::from(header.right()));
-        assert_eq!(
-            painted.bottom().0 / scale,
-            f32::from(workbench.bottom()),
-            "the focus outline must reach the content boundary, not leave content below it"
-        );
-    }
-    cx.update(|window, app| {
-        viewer.update(app, |v, cx| {
-            v.execute_command(CommandId::HistoryRight, window, cx);
-        })
-    });
-    draw(cx);
-    let row = cx.debug_bounds("history-row-0").unwrap();
-    cx.simulate_click(
-        point(row.left() + px(6.), row.center().y),
-        Default::default(),
-    );
-    draw(cx);
-    cx.update(|window, app| assert_panel_ink(window, app, 8.));
-}
-
-fn assert_panel_ink(
-    window: &mut gpui_test::Window,
-    app: &gpui_test::App,
-    radius: f32,
-) -> gpui_test::Bounds<gpui_test::ScaledPixels> {
-    let scale = window.scale_factor();
-    let accent = gpui_kit::component::Theme::global(app).primary;
-    let quads = window.painted_quads();
-    let outline = quads
-        .iter()
-        .find(|q| {
-            q.border_color == accent
-                && q.bounds.size.width.0 / scale > 200.
-                && q.bounds.size.height.0 / scale > 200.
-        })
-        .expect("the focused panel must paint its outline");
-    assert_eq!(outline.corner_radii.top_left.0 / scale, radius);
-    let b = outline.bounds;
-    let half = gpui_test::ScaledPixels(0.5 * scale);
-    for position in [
-        point(b.left() + half, b.center().y),
-        point(b.right() - half, b.center().y),
-        point(b.center().x, b.top() + half),
-        point(b.center().x, b.bottom() - half),
-    ] {
-        let edge = quads
-            .iter()
-            .find(|q| {
-                q.border_color == accent
-                    && q.bounds == b
-                    && q.content_mask.bounds.contains(&position)
-            })
-            .expect("all four edge midpoints must survive clipping");
-        assert!(
-            !quads.iter().any(|q| q.order > edge.order
-                && !q.background.is_transparent()
-                && q.bounds.contains(&position)
-                && q.content_mask.bounds.contains(&position)),
-            "a later resize seam must not cover the focused outline at {position:?}"
-        );
-    }
-    b
 }

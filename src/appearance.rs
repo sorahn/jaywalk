@@ -176,16 +176,6 @@ pub(crate) fn floating_outline(cx: &App) -> Hsla {
     theme.popup_outline.unwrap_or(theme.border)
 }
 
-pub(crate) fn panel_outline(cx: &App) -> Option<Hsla> {
-    cx.try_global::<AppAppearance>()
-        .filter(|state| state.ui.accent_panel_outlines)
-        .map(|_| Theme::global(cx).primary)
-}
-
-pub(crate) fn panel_outline_radius(cx: &App) -> f32 {
-    cx.global::<AppAppearance>().ui.panel_outline_radius
-}
-
 pub(crate) fn active_icon(icon: impl Into<Icon>, active: bool, cx: &App) -> Icon {
     Icon::new(icon).when(active, |icon| icon.text_color(Theme::global(cx).primary))
 }
@@ -352,28 +342,24 @@ mod outline_tests {
     use super::*;
 
     #[gpui_test::test]
-    fn outline_settings_apply_independently_and_follow_live_accent(
+    fn floating_outlines_follow_live_accent_and_can_be_disabled(
         cx: &mut gpui_test::TestAppContext,
     ) {
         cx.update(|cx| {
             gpui_kit::init(cx);
             let mut settings = Settings::parse("[ui]\naccent_color='#aabbcc'").unwrap();
             assert!(settings.ui.accent_floating_outlines);
-            assert!(settings.ui.accent_panel_outlines);
             init(&settings, cx);
             let neutral = Theme::global(cx).border;
             let accent: Hsla = rgb(0xaabbcc).into();
             assert_eq!(Theme::global(cx).popup_outline, Some(accent));
             assert_eq!(floating_outline(cx), accent);
-            assert_eq!(panel_outline(cx), Some(accent));
 
             settings.ui.accent_floating_outlines = false;
             apply(&settings, cx);
             assert_eq!(Theme::global(cx).popup_outline, None);
             assert_eq!(floating_outline(cx), neutral);
-            assert_eq!(panel_outline(cx), Some(accent));
 
-            settings.ui.accent_panel_outlines = false;
             settings.ui.accent_floating_outlines = true;
             settings.ui.accent_color = jaywalk::settings::AccentColorSetting::Custom(
                 jaywalk::settings::ColorSetting::Shared(
@@ -381,7 +367,6 @@ mod outline_tests {
                 ),
             );
             apply(&settings, cx);
-            assert_eq!(panel_outline(cx), None);
             assert_eq!(floating_outline(cx), Hsla::from(rgb(0x123456)));
             assert_eq!(Theme::global(cx).border, neutral);
         });

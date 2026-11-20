@@ -228,8 +228,6 @@ pub struct UiSettings {
     pub accent_color: AccentColorSetting,
     pub accent_color_fallback: ColorSetting,
     pub accent_floating_outlines: bool,
-    pub accent_panel_outlines: bool,
-    pub panel_outline_radius: f32,
     pub loading_delay_ms: u64,
     pub row_height: f32,
     pub panel_header_height: f32,
@@ -637,12 +635,6 @@ impl Config {
             24.,
             120.,
         )?;
-        bounded(
-            "ui.panel_outline_radius",
-            self.ui.panel_outline_radius,
-            0.,
-            8.,
-        )?;
         bounded("ui.font_size", self.ui.font_size, 8., 48.)?;
         bounded("editor.font_size", self.editor.font_size, 8., 48.)?;
         if !(1..=16).contains(&self.editor.tab_size) {
@@ -921,23 +913,6 @@ mod tests {
                 Settings::parse(&format!("[diff]\nmax_text_file_size_mb={value}")).is_err(),
                 "{value}"
             );
-        }
-    }
-
-    #[test]
-    fn panel_outline_radius_accepts_square_through_eight_pixel_corners() {
-        assert_eq!(Settings::parse("").unwrap().ui.panel_outline_radius, 4.);
-        for radius in [0., 4., 8.] {
-            assert_eq!(
-                Settings::parse(&format!("[ui]\npanel_outline_radius={radius}"))
-                    .unwrap()
-                    .ui
-                    .panel_outline_radius,
-                radius
-            );
-        }
-        for value in ["-1", "8.1", "nan", "inf"] {
-            assert!(Settings::parse(&format!("[ui]\npanel_outline_radius={value}")).is_err());
         }
     }
 
