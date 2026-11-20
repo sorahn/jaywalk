@@ -314,6 +314,7 @@ impl Comparison {
             .revisions
             .into_iter()
             .next()
+            .map(Arc::unwrap_or_clone)
             .ok_or_else(|| "Selected change is unavailable".into())
     }
 
@@ -383,7 +384,7 @@ impl Comparison {
         let mut revisions = crate::history::History::parse(&output)?.revisions;
         match revisions.len() {
             0 => Ok(None),
-            1 => Ok(revisions.pop()),
+            1 => Ok(revisions.pop().map(Arc::unwrap_or_clone)),
             _ => Err("The selected change has divergent visible versions; select a specific history row.".into()),
         }
     }
@@ -505,57 +506,50 @@ impl Comparison {
         &self,
         history: &crate::history::HistoryQuery,
     ) -> Result<crate::history::History, String> {
+        self.history_with_control(
+            history,
+            &crate::accounts::Control::new(std::time::Duration::from_secs(30)),
+        )
+    }
+    pub fn history_with_control(
+        &self,
+        history: &crate::history::HistoryQuery,
+        control: &crate::accounts::Control,
+    ) -> Result<crate::history::History, String> {
+        crate::history::check_control(control)?;
         if let Some(contents) = self.hosted() {
             return Ok(contents.history());
         }
-        if self.has_git_context() {
-            return crate::git::history(&self.root, history);
-        }
-        let references = self.reference_snapshot()?;
-        let revset = history.jj_revset(&self.tip, &references);
-        let limit = history.limit().to_string();
-        let output = query(
-            &self.root,
-            &self.operation,
-            &[
-                "log",
-                "--no-graph",
-                "-n",
-                &limit,
-                "-r",
-                &revset,
-                "-T",
-                crate::history::TEMPLATE,
-            ],
-        )?;
-        Ok(crate::history::History::parse(&output)?.with_references(references))
+        let source = if self.has_git_context() {
+            crate::history::HistorySource::git(self.root(), history)?
+        } else {
+            crate::history::HistorySource::recorded(self, history, false)?
+        };
+        std::sync::Arc::new(source).first_page(history.limit(), control)
     }
-
+    /// Refresh metadata at one explicit jj operation without snapshotting the working copy.
     pub fn current_history(
         &self,
         history: &crate::history::HistoryQuery,
     ) -> Result<crate::history::History, String> {
+        self.current_history_with_control(
+            history,
+            &crate::accounts::Control::new(std::time::Duration::from_secs(30)),
+        )
+    }
+    pub fn current_history_with_control(
+        &self,
+        history: &crate::history::HistoryQuery,
+        control: &crate::accounts::Control,
+    ) -> Result<crate::history::History, String> {
+        crate::history::check_control(control)?;
         if !self.supports_evolution() {
-            return self.history(history);
+            return self.history_with_control(history, control);
         }
-        let operation = Self::current_operation(&self.root)?;
-        let references = crate::references::recorded(&self.root, &operation)?;
-        let revset = history.jj_revset(&self.tip, &references);
-        let output = query(
-            &self.root,
-            &operation,
-            &[
-                "log",
-                "--no-graph",
-                "-n",
-                &history.limit().to_string(),
-                "-r",
-                &revset,
-                "-T",
-                crate::history::TEMPLATE,
-            ],
-        )?;
-        Ok(crate::history::History::parse(&output)?.with_references(references))
+        std::sync::Arc::new(crate::history::HistorySource::recorded(
+            self, history, true,
+        )?)
+        .first_page(history.limit(), control)
     }
 
     fn with_catalog(mut self) -> Result<Self, String> {

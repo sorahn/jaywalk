@@ -13,6 +13,8 @@ libc = "0.2"
 async-channel = "2.5"
 clap = { version = "4", features = ["derive"] }
 serde_json = "1"
+# Reuse the locked date parser for history search dates and backend timestamps.
+chrono = { version = "=0.4.45", default-features = false, features = ["std"] }
 serde = { version = "1", features = ["derive"] }
 toml = "1.2"
 # Preserve comments when the palette changes keyboard.profile.
@@ -38,6 +40,12 @@ gpui-component = { path = "vendor/gpui-component" }
 gpui-test = { package = "gpui-pre", version = "=0.3.12", default-features = false, features = ["test-support"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
+# Reuse the platform backend's pinned bindings for native accent resolution/notifications.
+objc2 = "=0.6.5"
+block2 = "=0.6.2"
+objc2-app-kit = { version = "=0.3.2", default-features = false, features = ["std", "NSColor", "NSColorSpace", "NSAppearance", "block2"] }
+objc2-foundation = { version = "=0.3.2", default-features = false, features = ["std", "NSNotification", "NSOperation", "NSString", "NSObject", "block2"] }
+
 core-foundation = "=0.10.1"
 core-foundation-sys = "=0.8.7"
 keyring = { version = "=3.6.3", features = ["apple-native"] }

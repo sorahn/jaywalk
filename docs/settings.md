@@ -117,7 +117,7 @@ Usage is shared across application windows and saved beside the default user con
 
 | Setting | Default | Meaning and allowed values |
 | --- | --- | --- |
-| `welcome.recent_count` | `5` | Number of recent repositories shown on the welcome page; 1–50. Applies live. This changes only the preview count, not the saved repository history. |
+| `welcome.recent_count` | `10` | Number of recent repositories shown on the welcome page; 1–50. Applies live. This changes only the preview count, not the saved repository history. |
 
 ### `navigation`
 
@@ -139,7 +139,9 @@ Appearance and accent share the existing application-wide, last-successfully-app
 | Setting | Default | Meaning and allowed values |
 | --- | --- | --- |
 | `ui.appearance` | `"system"` | `"light"`, `"dark"` or `"system"`. Updates all windows, editor syntax and diff palettes live. System follows OS appearance changes; explicit modes override this app’s native window appearance where supported, without changing system preferences. |
-| `ui.accent_color` | `{ light = "#0066b8", dark = "#3794ff" }` | Application-wide accent: a shared `#RRGGBB` string or a light/dark pair (see below), case-insensitive hex. Updates active icons, primary controls (including checkboxes/switches), focus rings, links and selection tints live in all windows; filled controls choose a light/dark foreground. Git statuses, diff colors and graph lanes stay semantic. Invalid edits retain the last valid config. |
+| `ui.accent_color` | `"system"` | Application-wide accent: `"system"`, a shared `#RRGGBB` string or a light/dark pair (see below), case-insensitive hex. On macOS, system reads AppKit’s user accent preference for the app’s selected light/dark appearance and follows system-color notifications. Explicit hex/pair values override the system. Updates active icons, primary controls (including checkboxes/switches), focus rings, links and selection tints live in all windows; filled controls choose a light/dark foreground. Git statuses, diff colors and graph lanes stay semantic. Invalid edits retain the last valid config. |
+| `ui.accent_color_fallback` | `{ light = "#0066b8", dark = "#3794ff" }` | Color used by `"system"` when native accent lookup is unavailable, including unsupported platforms. Accepts one shared hex color or a light/dark pair and applies live. |
+| `ui.accent_floating_outlines` | `true` | Use the resolved accent for palette, popover, menu and tooltip edges. Applies live; `false` restores neutral theme edges. Does not change layout dimensions. |
 | `ui.loading_delay_ms` | `200` | Delay before showing loading feedback; 0–5000. `0` shows it immediately; fast operations never expose a loading label. |
 | `ui.row_height` | `26` | Shared minimum for history, tree and list rows; 12–160. Per-view overrides below take precedence; fonts establish a readable minimum. |
 | `ui.panel_header_height` | `30` | Minimum panel-header height; 24–120. |
@@ -152,14 +154,15 @@ Appearance and accent share the existing application-wide, last-successfully-app
 | `ui.ligatures` | `true` | Enable ligatures and contextual alternates for application text. |
 | `ui.font_family` | omitted | Installed family name; defaults to the theme/system UI font. Must be nonempty when supplied. |
 
-All configurable colors use the same format. A string applies in both modes;
+All configurable colors accept the same hex formats; `ui.accent_color` additionally accepts `"system"`. A hex string applies in both modes;
 a table selects a color for the active appearance. Omitted table members inherit
 their shipped defaults. These examples are alternatives:
 
 ```toml
 [ui]
 appearance = "system"
-accent_color = { light = "#0066b8", dark = "#3794ff" }
+accent_color = "system"
+accent_color_fallback = { light = "#0066b8", dark = "#3794ff" }
 ```
 
 ```toml
@@ -167,7 +170,7 @@ accent_color = { light = "#0066b8", dark = "#3794ff" }
 accent_color = "#8b5cf6"
 ```
 
-Configurable colors include `ui.accent_color` and every entry in `diff.colors`. Opacity settings remain
+Configurable colors include `ui.accent_color`, `ui.accent_color_fallback` and every entry in `diff.colors`. Opacity settings remain
 numbers and apply to their theme-derived colors. Invalid colors or appearance
 values retain the last valid settings and report a configuration error.
 
@@ -235,11 +238,42 @@ preferences use `jump`; session-only toolkit overrides are not queried.
 
 | Setting | Default | Meaning and allowed values |
 | --- | --- | --- |
+| `history.page_size` | `5000` | Target initial graph rows and rows per Load older action; 1–50000. Includes Git's virtual working-copy row on the first page. Applies live by starting a fresh history snapshot; already loaded pages remain visible until replacement succeeds. |
+| `history.initial_batch_size` | `100` | First rows published when opening a local repository; 1–50000, clamped to `page_size`. The rest of the initial page fills in the background. Changes apply on the next repository open; they do not discard already loaded rows. |
+| `history.page_on_scroll` | `false` | Automatically load the next page when its footer row becomes visible. Applies live. Otherwise use Load older history or the graph's bottom row. Errors pause automatic loading until an explicit retry. |
+| `history.search_page_size` | `100` | Matches per `/` history-search request; 1–1000. Applies to the next query/page request. Searches older commits beyond the graph's loaded pages; hosted reviews search their available acquired commits. |
 | `history.stripe_opacity` | `0.08` | Alternate-row text-tint opacity; 0–0.2. `0` disables zebra stripes. |
 | `history.lane_spacing` | `8` | Distance between graph lanes; 4–48. The graph column adapts to visible lane sprawl. |
 | `history.show_reference_labels` | `true` | Show compact bookmark/branch badges. Does not hide history from any remote. |
 | `history.reference_badge_width` | `110` | Maximum compact reference-badge width; 40–300. Full names remain available in reference details. |
 | `history.row_height` | omitted | Override ui.row_height for graph rows; 12–200. Font size can raise the effective minimum. |
+
+On opening a local repository, the viewer publishes `initial_batch_size` rows
+(100 by default, or fewer when `page_size` is smaller) first, then
+fills the configured initial page in the background even when `page_on_scroll`
+is off. The first rows remain usable during filling; cancellation/source changes
+invalidate the fill and errors retain those rows for retry. Source discovery and
+reference capture still precede the first batch; this is not a zero-latency
+startup guarantee. Later refreshes retain the old graph while preparing its
+replacement.
+
+History pages share a captured reference/root snapshot; jj reads stay at one explicit
+operation and never snapshot the working copy. Loading more retains the current
+comparison and reading position. Refresh, a remote-source change, or **Show latest
+history** starts a fresh snapshot. Search result selection reveals an older commit
+with a bounded ancestor context; the upward-arrow header action returns to latest
+history without changing the inspected diff. Loading further pages retains more
+metadata in memory; page size controls each request, not the eventual total.
+
+Start with the default 5,000; 10,000 is a suggested upper starting point for
+larger repositories. The allowed maximum of 50,000 is an explicit override,
+not a recommended default. Cost depends on graph fanout as well as row count:
+a branch-heavy 92,000-commit repository's backend harness peaked around 27 MiB
+at 5,000 rows, 47 MiB at 10,000, 106 MiB at 20,000 and 874 MiB at 50,000.
+These figures exclude full application/rendering memory and Git child processes.
+Lower the page size if opening or refreshing history feels slow. Search can find
+older commits without loading their entire graph first. Existing explicit
+`page_size` values stay in effect; remove the override to follow the new default.
 
 ### `history.remotes`
 

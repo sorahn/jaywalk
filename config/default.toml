@@ -28,7 +28,7 @@ adaptive_command_order = true
 history_limit = 100
 
 [welcome]
-recent_count = 5
+recent_count = 10
 
 [window]
 width = 1500
@@ -37,7 +37,11 @@ height = 950
 [ui]
 # Application-wide active icons, control fills, selections and focus accents.
 appearance = "system"
-accent_color = { light = "#0066b8", dark = "#3794ff" }
+accent_color = "system"
+# Used when a native system accent is unavailable. Explicit accent_color colors override it.
+accent_color_fallback = { light = "#0066b8", dark = "#3794ff" }
+# Floating accent edges do not reserve layout space. Applies live.
+accent_floating_outlines = true
 # Suppress transient loading indicators; 0 shows them immediately.
 loading_delay_ms = 200
 # Shared minimum for history, flat files and directory-tree rows.
@@ -94,6 +98,13 @@ min_code_width = 100
 # The before/after panes default to an even split of the remaining width.
 
 [history]
+# Page sizes count history rows, including the Git working-copy row.
+# Suggested upper starting point: 10000. Larger graphs can use much more memory.
+page_size = 5000
+# Publish this first, then fill page_size in the background. Clamped to page_size.
+initial_batch_size = 100
+page_on_scroll = false
+search_page_size = 100
 # Alternate row tint; 0 disables stripes. Updates live.
 stripe_opacity = 0.08
 # Minimum row height; larger UI fonts can require more space.

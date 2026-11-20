@@ -13,9 +13,18 @@ pub(super) struct ReferenceState {
     pub(super) labels: bool,
     pub(super) open: bool,
     pub(super) inspected: Option<jaywalk::history::Reference>,
-    generation: u64,
-    task: Option<Task<()>>,
+    pub(super) generation: u64,
+    pub(super) task: Option<Task<()>>,
     pub(super) error: Option<String>,
+    pub(super) loading_more: bool,
+    pub(super) page_control: Option<jaywalk::accounts::Control>,
+}
+impl Drop for ReferenceState {
+    fn drop(&mut self) {
+        if let Some(control) = &self.page_control {
+            control.cancel();
+        }
+    }
 }
 impl ReferenceState {
     pub(super) fn new(settings: &jaywalk::settings::HistorySettings) -> Self {
@@ -27,6 +36,8 @@ impl ReferenceState {
             generation: 0,
             task: None,
             error: None,
+            loading_more: false,
+            page_control: None,
         }
     }
 }
@@ -56,7 +67,9 @@ impl Viewer {
             self.references.visibility = RemoteVisibility::all(visible);
         }
         self.history_query = HistoryQuery::sources(self.references.visibility.clone(), None)
-            .expect("no reveal target");
+            .expect("no reveal target")
+            .with_limit(self.settings.history.page_size)
+            .expect("validated page size");
         self.reload_history(None, window, cx);
         self.save_layout(cx);
     }
@@ -93,7 +106,9 @@ impl Viewer {
         }
         match HistoryQuery::sources(self.references.visibility.clone(), Some(commit.clone())) {
             Ok(query) => {
-                self.history_query = query;
+                self.history_query = query
+                    .with_limit(self.settings.history.page_size)
+                    .expect("validated page size");
                 self.reload_history(Some((commit, select)), window, cx);
             }
             Err(error) => {
@@ -103,6 +118,10 @@ impl Viewer {
         }
     }
     pub(super) fn invalidate_history_reload(&mut self) {
+        if let Some(control) = self.references.page_control.take() {
+            control.cancel();
+        }
+        self.references.loading_more = false;
         self.references.generation += 1;
         self.references.task = None;
     }
@@ -130,17 +149,36 @@ impl Viewer {
             .and_then(|history| history.revisions.get(top))
             .map(|r| r.commit_id.clone());
         let query = self.history_query.clone();
-        self.references.generation += 1;
+        self.invalidate_history_reload();
         let generation = self.references.generation;
         let selection_generation = self.requests.comparison();
+        let page_size = self.settings.history.page_size;
+        let control = jaywalk::accounts::Control::new(std::time::Duration::from_secs(30));
+        self.references.page_control = Some(control.clone());
+        self.references.loading_more = true;
+        let reveal = target.as_ref().map(|(commit, _)| commit.clone());
         self.references.task = Some(cx.spawn_in(window, async move |this, cx| {
             let result = cx
-                .background_spawn(async move { branch.current_history(&query) })
+                .background_spawn(async move {
+                    let history = branch.current_history_with_control(&query, &control)?;
+                    if let Some(commit) = reveal
+                        && !history
+                            .revisions
+                            .iter()
+                            .any(|revision| revision.commit_id == commit)
+                        && let Some(source) = history.source()
+                    {
+                        return source.around(&commit, page_size, &control);
+                    }
+                    Ok(history)
+                })
                 .await;
             let _ = this.update_in(cx, |viewer, window, cx| {
                 if generation != viewer.references.generation {
                     return;
                 }
+                viewer.references.page_control = None;
+                viewer.references.loading_more = false;
                 match result {
                     Ok(history) => {
                         let scroll_target = target
@@ -154,7 +192,7 @@ impl Viewer {
                                 .position(|r| &r.commit_id == commit)
                         });
                         if let LoadState::Loaded(session) = &mut viewer.repository {
-                            session.history = Ok(Rc::new(history));
+                            session.history = Ok(Arc::new(history));
                         }
                         viewer.references.error = None;
                         if let Some(index) = index {
@@ -199,15 +237,28 @@ impl Viewer {
                     .ghost()
                     .small()
                     .compact()
-                    .icon(IconName::ListFilter)
+                    .icon(
+                        gpui::component::Icon::default()
+                            .data(include_bytes!("../../assets/icons/globe-code.svg")),
+                    )
                     .tooltip("Choose remote history sources"),
             )
-            .content(move |_, _, _| {
+            .content(move |_, window, cx| {
+                let width = reference_popup_width(
+                    remotes
+                        .iter()
+                        .map(|remote| format!("☑ {remote}"))
+                        .chain(["Reveal inspected revision".to_owned()]),
+                    window,
+                    cx,
+                );
                 let mut content = div()
                     .v_flex()
                     .gap_1()
                     .p_2()
-                    .w(px(320.))
+                    .w(width)
+                    .max_w(window.viewport_size().width - px(24.))
+                    .text_left()
                     .max_h(px(450.))
                     .id("remote-sources-list")
                     .overflow_y_scroll()
@@ -230,7 +281,8 @@ impl Viewer {
                         Button::new(SharedString::from(label.clone()))
                             .ghost()
                             .small()
-                            .label(label)
+                            .accessibility_label(label.clone())
+                            .child(div().w_full().min_w_0().text_left().truncate().child(label))
                             .on_click(move |_, window, cx| {
                                 let _ = viewer.update(cx, |viewer, cx| {
                                     viewer.set_remote_visibility(
@@ -248,11 +300,16 @@ impl Viewer {
                     Button::new("toggle-reference-labels")
                         .ghost()
                         .small()
-                        .label(if labels {
+                        .accessibility_label(if labels {
                             "Hide reference labels"
                         } else {
                             "Show reference labels"
                         })
+                        .child(div().w_full().text_left().child(if labels {
+                            "Hide reference labels"
+                        } else {
+                            "Show reference labels"
+                        }))
                         .on_click(move |_, _, cx| {
                             let _ = toggle_viewer
                                 .update(cx, |viewer, cx| viewer.toggle_reference_labels(cx));
@@ -263,7 +320,14 @@ impl Viewer {
                     Button::new("reveal-selected")
                         .ghost()
                         .small()
-                        .label("Reveal inspected revision")
+                        .accessibility_label("Reveal inspected revision")
+                        .child(
+                            div()
+                                .w_full()
+                                .text_left()
+                                .truncate()
+                                .child("Reveal inspected revision"),
+                        )
                         .on_click(move |_, window, cx| {
                             let _ = viewer.update(cx, |viewer, cx| {
                                 viewer.reveal_history_selection(window, cx)
@@ -418,7 +482,8 @@ pub(super) fn reference_row(
                 .selected(selected)
                 .flex_1()
                 .min_w_0()
-                .label(label)
+                .accessibility_label(label.clone())
+                .child(div().w_full().min_w_0().text_left().truncate().child(label))
                 .tooltip(detail)
                 .on_click(move |_, window, cx| {
                     let _ = popup.update(cx, |popup, cx| popup.dismiss(window, cx));
@@ -433,7 +498,8 @@ pub(super) fn reference_row(
                 .ghost()
                 .small()
                 .compact()
-                .label("Copy")
+                .icon(IconName::Copy)
+                .accessibility_label("Copy qualified reference name")
                 .tooltip("Copy qualified reference name")
                 .on_click(move |_, _, cx| {
                     cx.write_to_clipboard(ClipboardItem::new_string(copy.clone()))
@@ -443,7 +509,7 @@ pub(super) fn reference_row(
 }
 
 pub(super) fn reference_badge(
-    history: &Rc<jaywalk::history::History>,
+    history: &Arc<jaywalk::history::History>,
     index: usize,
     visibility: &RemoteVisibility,
     viewer: WeakEntity<Viewer>,
@@ -565,4 +631,36 @@ pub(super) fn reference_badge(
             })
             .into_any_element(),
     )
+}
+
+/// Measure popup labels with the UI font and reserve room for padding and Copy.
+/// Virtual lists cannot derive their width from rows that are not rendered yet.
+pub(super) fn reference_popup_width(
+    labels: impl Iterator<Item = String>,
+    window: &Window,
+    cx: &App,
+) -> Pixels {
+    let font = Font {
+        family: gpui::component::Theme::global(cx).font_family.clone(),
+        ..Default::default()
+    };
+    let size = window.rem_size() * 0.875;
+    let mut width = px(240.);
+    for label in labels {
+        let run = TextRun {
+            len: label.len(),
+            font: font.clone(),
+            ..Default::default()
+        };
+        let measured = window
+            .text_system()
+            .shape_line(label.into(), size, &[run], None)
+            .width
+            + px(64.);
+        width = width.max(measured);
+        if width >= px(640.) {
+            return px(640.);
+        }
+    }
+    width
 }

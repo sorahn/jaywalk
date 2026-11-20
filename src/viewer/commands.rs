@@ -128,6 +128,7 @@ fn configured_bindings(settings: &Settings, cx: &App) -> Vec<KeyBinding> {
     for (command, bindings) in &settings.keybindings {
         let context = match command {
             CommandId::OpenInNewWindow => Some("JaywalkRecent"),
+            CommandId::ReviewSelectedReference => Some("JaywalkReferencePicker"),
             CommandId::OpenPullRequest
             | CommandId::BrowsePullRequests
             | CommandId::Accounts
@@ -358,7 +359,20 @@ impl Viewer {
                 self.refresh(window, cx);
             }
             CommandId::ToggleWrap => self.toggle_wrap(window, cx),
+            CommandId::SearchHistory => {
+                self.open_palette(palette::PaletteKind::History, window, cx)
+            }
+            CommandId::LoadMoreHistory => self.load_more_history(window, cx),
+            CommandId::LatestHistory => self.latest_history(window, cx),
             CommandId::ShowReferences => self.show_references(cx),
+            CommandId::GoToReference => {
+                self.open_palette(palette::PaletteKind::References, window, cx)
+            }
+            CommandId::RemoteHistorySources => {
+                self.open_palette(palette::PaletteKind::Remotes, window, cx)
+            }
+            // The reference picker captures this with its rendered row snapshot.
+            CommandId::ReviewSelectedReference => {}
             CommandId::ToggleReferenceLabels => self.toggle_reference_labels(cx),
             CommandId::ShowAllRemotes => self.set_remote_visibility(None, true, window, cx),
             CommandId::HideAllRemotes => self.set_remote_visibility(None, false, window, cx),
@@ -438,7 +452,9 @@ impl Viewer {
                     self.references.visibility.clone(),
                     None,
                 )
-                .expect("default visibility has no commit expression");
+                .expect("default visibility has no commit expression")
+                .with_limit(self.settings.history.page_size)
+                .expect("validated page size");
                 self.reload_history(None, window, cx);
                 self.set_view_mode(self.settings.diff.default_view, cx);
                 self.wrapping = Wrapping::from_settings(&self.settings.diff);

@@ -128,6 +128,7 @@ pub(super) struct OverviewState {
     pub(super) error: Option<String>,
     restore_offset: Option<ListOffset>,
     restore_collapsed: HashSet<String>,
+    pending_file: Option<(ComparisonIdentity, String)>,
 }
 #[derive(Clone)]
 pub(super) struct OverviewCheckpoint {
@@ -136,6 +137,37 @@ pub(super) struct OverviewCheckpoint {
     horizontal: Pixels,
 }
 impl Viewer {
+    pub(super) fn navigate_overview_file(&mut self, path: &str, cx: &mut Context<Self>) -> bool {
+        if self.selected_file.is_some() || matches!(self.comparison_state(), LoadState::Loading) {
+            return false;
+        }
+        let Some(comparison) = self.comparison() else {
+            return false;
+        };
+        if !comparison
+            .files()
+            .iter()
+            .any(|file| file.after_path() == path)
+        {
+            return false;
+        }
+        let identity = comparison.identity();
+        if let Some(loaded) = self
+            .overview
+            .current
+            .as_ref()
+            .filter(|loaded| loaded.request.source == identity)
+        {
+            loaded
+                .state
+                .update(cx, |state, cx| state.scroll_to_file(path, cx));
+        } else {
+            self.overview.pending_file = Some((identity, path.to_owned()));
+        }
+        self.track_overview_file(Some(path.to_owned()), cx);
+        true
+    }
+
     pub(super) fn capture_overview_identity(&self) -> Option<ComparisonIdentity> {
         self.overview
             .current
@@ -345,6 +377,11 @@ impl Viewer {
                             additions,
                             deletions,
                         });
+                        if let Some((identity, path)) = viewer.overview.pending_file.take()
+                            && identity == request.source
+                        {
+                            viewer.navigate_overview_file(&path, cx);
+                        }
                         viewer.overview.error = prepared
                             .warning
                             .map(|error| format!("Commit metadata unavailable: {error}"));
@@ -967,6 +1004,109 @@ impl Viewer {
 mod option_tests {
     use super::super::interaction_tests::{Fixture, draw, setup};
     use gpui_test::TestAppContext;
+    #[gpui_test::test]
+    fn file_panel_navigates_overview_and_double_click_opens(cx: &mut TestAppContext) {
+        use gpui_test::{MouseButton, MouseDownEvent, MouseUpEvent};
+        use jaywalk::{commands::CommandId, settings::FileView};
+        let fixture = Fixture::new();
+        let lines: String = (0..100).map(|i| format!("line {i}\n")).collect();
+        fixture.replace(&lines, &lines.replace("line 50", "changed 50"));
+        std::fs::write(fixture.0.join("z-last.txt"), &lines).unwrap();
+        let (viewer, cx) = setup(&fixture, cx);
+        cx.update(|window, app| {
+            viewer.update(app, |v, cx| {
+                v.execute_command(CommandId::Overview, window, cx)
+            })
+        });
+        draw(cx);
+        for mode in [FileView::List, FileView::Tree] {
+            cx.update(|_, app| viewer.update(app, |v, cx| v.set_file_mode(mode, cx)));
+            draw(cx);
+            let selector = match mode {
+                FileView::List => "browser-file:z-last.txt",
+                FileView::Tree => "browser-tree:file:z-last.txt",
+            };
+            let position = cx.debug_bounds(selector).unwrap().center();
+            cx.simulate_click(position, Default::default());
+            draw(cx);
+            cx.update(|_, app| {
+                let v = viewer.read(app);
+                assert!(v.selected_file.is_none());
+                assert_eq!(v.browser.reading.as_deref(), Some("z-last.txt"));
+                assert_eq!(
+                    v.overview
+                        .current
+                        .as_ref()
+                        .unwrap()
+                        .state
+                        .read(app)
+                        .viewport_file()
+                        .map(|p| p.as_ref()),
+                    Some("z-last.txt")
+                );
+            });
+            // Scroll away while the tree retains its selected item. Notifications
+            // must not pull the overview back to that selection.
+            cx.update(|_, app| {
+                viewer.update(app, |v, cx| {
+                    v.navigate_overview_file("file.txt", cx);
+                })
+            });
+            draw(cx);
+            assert_eq!(
+                cx.update(|_, app| viewer.read(app).browser.reading.clone())
+                    .as_deref(),
+                Some("file.txt")
+            );
+            let position = cx.debug_bounds(selector).unwrap().center();
+            cx.simulate_click(position, Default::default());
+            draw(cx);
+            assert_eq!(
+                cx.update(|_, app| viewer.read(app).browser.reading.clone())
+                    .as_deref(),
+                Some("z-last.txt")
+            );
+            cx.simulate_event(MouseDownEvent {
+                position,
+                button: MouseButton::Left,
+                click_count: 2,
+                modifiers: Default::default(),
+                first_mouse: false,
+            });
+            cx.simulate_event(MouseUpEvent {
+                position,
+                button: MouseButton::Left,
+                click_count: 2,
+                modifiers: Default::default(),
+            });
+            draw(cx);
+            assert_eq!(
+                cx.update(|_, app| viewer.read(app).selected_path())
+                    .as_deref(),
+                Some("z-last.txt")
+            );
+            // Once a file is open, a single click still opens another file.
+            let selector = match mode {
+                FileView::List => "browser-file:file.txt",
+                FileView::Tree => "browser-tree:file:file.txt",
+            };
+            let position = cx.debug_bounds(selector).unwrap().center();
+            cx.simulate_click(position, Default::default());
+            draw(cx);
+            assert_eq!(
+                cx.update(|_, app| viewer.read(app).selected_path())
+                    .as_deref(),
+                Some("file.txt")
+            );
+            cx.update(|window, app| {
+                viewer.update(app, |v, cx| {
+                    v.execute_command(CommandId::Overview, window, cx)
+                })
+            });
+            draw(cx);
+        }
+    }
+
     #[gpui_test::test]
     fn overview_filters_keep_files_and_exact_source_selection(cx: &mut TestAppContext) {
         use gpui_kit::component::diff::{DiffLineRange, DiffSide};

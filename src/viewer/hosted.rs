@@ -43,7 +43,7 @@ impl Viewer {
             })
         });
         let comparison = Rc::new(review.into_comparison());
-        let history = comparison.history(&self.history_query).map(Rc::new);
+        let history = comparison.history(&self.history_query).map(Arc::new);
         self.repository = LoadState::Loaded(RepositorySession {
             home: comparison.clone(),
             review: review_context::ReviewContext {

@@ -121,7 +121,7 @@ impl Render for Tooltip {
                 .text_color(cx.theme().popover_foreground)
                 .bg(cx.theme().tokens.popover)
                 .border_1()
-                .border_color(cx.theme().border)
+                .border_color(cx.theme().popup_outline.unwrap_or(cx.theme().border))
                 .shadow_md()
                 .rounded(cx.theme().radius)
                 .justify_between()

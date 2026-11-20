@@ -11,17 +11,19 @@ pub enum Mode {
     Repositories,
     PullRequests,
     Help,
+    History,
     FileSymbols,
     ProjectSymbols,
 }
 impl Mode {
-    pub const ALL: [Self; 8] = [
+    pub const ALL: [Self; 9] = [
         Self::Files,
         Self::Commands,
         Self::Line,
         Self::Repositories,
         Self::PullRequests,
         Self::Help,
+        Self::History,
         Self::FileSymbols,
         Self::ProjectSymbols,
     ];
@@ -33,6 +35,7 @@ impl Mode {
             Self::Repositories => "~",
             Self::PullRequests => "!",
             Self::Help => "?",
+            Self::History => "/",
             Self::FileSymbols => "@",
             Self::ProjectSymbols => "#",
         }
@@ -45,6 +48,7 @@ impl Mode {
             Self::Repositories => "Recent repositories",
             Self::PullRequests => "Pull requests",
             Self::Help => "Modes and prefixes",
+            Self::History => "Find in history",
             Self::FileSymbols => "File symbols",
             Self::ProjectSymbols => "Project symbols",
         }

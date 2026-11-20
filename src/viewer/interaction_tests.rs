@@ -66,15 +66,24 @@ pub(super) fn setup<'a>(
 
 fn setup_arguments<'a>(
     fixture: &Fixture,
+    args: Arguments,
+    cx: &'a mut TestAppContext,
+) -> (Entity<Viewer>, &'a mut VisualTestContext) {
+    setup_arguments_with_settings(fixture, args, "", cx)
+}
+fn setup_arguments_with_settings<'a>(
+    fixture: &Fixture,
     mut args: Arguments,
+    extra: &str,
     cx: &'a mut TestAppContext,
 ) -> (Entity<Viewer>, &'a mut VisualTestContext) {
     let config = fixture.0.join("settings.toml");
     let contents = "[local_review]\nfetch_missing=false\n[live]\nenabled=false\n[layout]\nremember_per_repository=false\n[layout.placement]\nhistory_side='left'\nfiles_side='left'\n";
-    std::fs::write(&config, contents).unwrap();
+    let contents = format!("{contents}{extra}");
+    std::fs::write(&config, &contents).unwrap();
     args.config = Some(config);
     args.normalize().unwrap();
-    let settings = Settings::parse(contents).unwrap();
+    let settings = Settings::parse(&contents).unwrap();
     cx.update(|app| {
         gpui_kit::init(app);
         crate::windows::init(app);
@@ -841,11 +850,12 @@ fn reference_browser_bounds_work_and_supports_search_keyboard_and_reopen(cx: &mu
                     .collect(),
                 ..Default::default()
             };
-            session.history = Ok(std::rc::Rc::new(History {
+            session.history = Ok(std::sync::Arc::new(History {
                 revisions: old.revisions.clone(),
                 graph: old.graph.clone(),
                 lane_count: old.lane_count,
                 references: std::sync::Arc::new(snapshot),
+                pagination: None,
             }));
             v.references.open = true;
             cx.notify();
@@ -2839,5 +2849,602 @@ fn account_metadata_is_added_lazily_and_config_order_reloads_across_the_app(
     assert_eq!(
         cx.update(|_, app| viewer.read(app).settings.accounts[0].id.clone()),
         "2"
+    );
+}
+
+fn reference_picker_fixture() -> Fixture {
+    let fixture = Fixture::new();
+    fixture.git(&["checkout", "-b", "topic"]);
+    fixture.git(&["add", "file.txt"]);
+    fixture.git(&["commit", "-m", "topic change"]);
+    let topic = std::fs::read_to_string(fixture.0.join(".git/refs/heads/topic")).unwrap();
+    fixture.git(&["checkout", "main"]);
+    fixture.git(&[
+        "config",
+        "remote.origin.url",
+        "/nonexistent/synthetic-remote",
+    ]);
+    fixture.git(&["update-ref", "refs/remotes/origin/review", topic.trim()]);
+    fixture
+}
+
+#[gpui_test::test]
+fn remote_palette_toggles_keep_query_selection_and_comparison(cx: &mut TestAppContext) {
+    use jaywalk::commands::CommandId;
+    let fixture = reference_picker_fixture();
+    let (viewer, cx) = setup(&fixture, cx);
+    let original = cx.update(|_, app| viewer.read(app).comparison().unwrap().identity());
+    cx.simulate_keystrokes("secondary-shift-p");
+    draw(cx);
+    cx.simulate_input("Remote history sources");
+    draw(cx);
+    cx.simulate_keystrokes("enter");
+    draw(cx);
+    assert_eq!(
+        cx.update(|_, app| viewer.read(app).palette_test_state(app).0),
+        Some(palette::PaletteKind::Remotes)
+    );
+    cx.simulate_input("origin");
+    draw(cx);
+    for expected in [false, true] {
+        cx.simulate_keystrokes("enter");
+        draw(cx);
+        cx.update(|_, app| {
+            let v = viewer.read(app);
+            assert_eq!(
+                v.palette_test_state(app),
+                (
+                    Some(palette::PaletteKind::Remotes),
+                    "origin".into(),
+                    Some(0)
+                )
+            );
+            assert_eq!(v.references.visibility.includes("origin"), expected);
+            assert_eq!(v.comparison().unwrap().identity(), original);
+            assert_eq!(v.selected_path().as_deref(), Some("file.txt"));
+        });
+    }
+    // Scoped review bindings do nothing in the remote picker.
+    cx.simulate_keystrokes("shift-enter");
+    draw(cx);
+    assert_eq!(
+        cx.update(|_, app| viewer.read(app).palette_test_state(app).0),
+        Some(palette::PaletteKind::Remotes)
+    );
+    cx.simulate_keystrokes("escape");
+    draw(cx);
+    cx.update(|window, app| {
+        viewer.update(app, |v, cx| {
+            v.execute_command(CommandId::HideAllRemotes, window, cx)
+        })
+    });
+    draw(cx);
+    assert!(!cx.update(|_, app| viewer.read(app).references.visibility.includes("origin")));
+}
+
+#[gpui_test::test]
+fn branch_palette_opens_hidden_remote_targets_and_reviews_local_branches(cx: &mut TestAppContext) {
+    use jaywalk::commands::CommandId;
+    let fixture = reference_picker_fixture();
+    let (viewer, cx) = setup(&fixture, cx);
+    cx.update(|window, app| {
+        viewer.update(app, |v, cx| {
+            v.execute_command(CommandId::HideAllRemotes, window, cx);
+            v.execute_command(CommandId::GoToReference, window, cx);
+        })
+    });
+    draw(cx);
+    let original = cx.update(|_, app| viewer.read(app).comparison().unwrap().identity());
+    cx.simulate_input("origin");
+    draw(cx);
+    assert_eq!(
+        cx.update(|_, app| viewer.read(app).comparison().unwrap().identity()),
+        original
+    );
+    cx.simulate_keystrokes("enter");
+    draw(cx);
+    cx.update(|_, app| {
+        let v = viewer.read(app);
+        assert!(v.palette_test_state(app).0.is_none());
+        assert_eq!(
+            v.references.inspected.as_ref().unwrap().remote(),
+            Some("origin")
+        );
+        assert!(!v.references.visibility.includes("origin"));
+        assert_eq!(
+            v.comparison().unwrap().recorded_tip(),
+            std::fs::read_to_string(fixture.0.join(".git/refs/heads/topic"))
+                .unwrap()
+                .trim()
+        );
+    });
+    cx.update(|window, app| {
+        viewer.update(app, |v, cx| {
+            v.execute_command(CommandId::GoToReference, window, cx)
+        })
+    });
+    draw(cx);
+    cx.simulate_input("topic");
+    draw(cx);
+    cx.simulate_keystrokes("shift-enter");
+    draw(cx);
+    if cx.update(|_, app| viewer.read(app).palette_test_state(app).0)
+        == Some(palette::PaletteKind::Reviews)
+    {
+        cx.simulate_input("main");
+        draw(cx);
+        cx.simulate_keystrokes("enter");
+        draw(cx);
+    }
+    assert!(cx.update(|_, app| matches!(
+        &viewer.read(app).repository.ready().unwrap().review.source,
+        super::review_context::ReviewSource::Target(jaywalk::branch_review::Target::Branch { .. })
+    )));
+    // Neither opening nor reviewing a reference checks out its branch.
+    assert_eq!(
+        std::fs::read_to_string(fixture.0.join(".git/HEAD"))
+            .unwrap()
+            .trim(),
+        "ref: refs/heads/main"
+    );
+}
+
+#[gpui_test::test]
+fn floating_outlines_preserve_editor_focus_and_panel_geometry(cx: &mut TestAppContext) {
+    let fixture = Fixture::new();
+    let (viewer, cx) = setup(&fixture, cx);
+    let (before, after) = cx.update(|_, app| {
+        let code = viewer.read(app).code().unwrap();
+        (code.before.clone(), code.after.clone())
+    });
+    let dimensions = cx.update(|_, app| {
+        (
+            before.read(app).input_bounds(),
+            after.read(app).input_bounds(),
+        )
+    });
+    let header = cx.debug_bounds("file-header").unwrap();
+    let gutter = cx.debug_bounds("fluid-gutter").unwrap();
+    cx.simulate_click(dimensions.0.center(), Default::default());
+    draw(cx);
+    assert!(cx.update(|window, app| before.focus_handle(app).is_focused(window)));
+    for enabled in [false, true] {
+        cx.update(|_, app| {
+            let mut settings = viewer.read(app).settings.clone();
+            settings.ui.accent_floating_outlines = enabled;
+            crate::appearance::apply(&settings, app);
+            viewer.update(app, |v, cx| {
+                v.settings = settings;
+                cx.notify();
+            });
+        });
+        draw(cx);
+        assert_eq!(
+            cx.update(|_, app| (
+                before.read(app).input_bounds(),
+                after.read(app).input_bounds()
+            )),
+            dimensions
+        );
+        assert_eq!(cx.debug_bounds("file-header").unwrap(), header);
+        assert_eq!(cx.debug_bounds("fluid-gutter").unwrap(), gutter);
+        assert!(cx.update(|window, app| before.focus_handle(app).is_focused(window)));
+    }
+}
+
+fn paged_history_fixture() -> (Fixture, String, String) {
+    let fixture = Fixture::new();
+    std::fs::write(
+        fixture.0.join(".git/info/exclude"),
+        "settings.toml\nkeybindings/\n",
+    )
+    .unwrap();
+    let mut oldest = String::new();
+    let mut newest = String::new();
+    for index in 0..14 {
+        std::fs::write(fixture.0.join("file.txt"), format!("revision {index}\n")).unwrap();
+        fixture.git(&["add", "file.txt"]);
+        let message = if index == 0 {
+            "older café needle".into()
+        } else if index == 13 {
+            "newest unique result".into()
+        } else {
+            format!("ordinary revision {index}")
+        };
+        fixture.git(&["commit", "-m", &message]);
+        newest = std::fs::read_to_string(fixture.0.join(".git/refs/heads/main"))
+            .unwrap()
+            .trim()
+            .to_owned();
+        if index == 0 {
+            oldest = newest.clone();
+        }
+    }
+    std::fs::write(fixture.0.join("file.txt"), "working edit\n").unwrap();
+    (fixture, oldest, newest)
+}
+fn setup_paged<'a>(
+    fixture: &Fixture,
+    cx: &'a mut TestAppContext,
+) -> (Entity<Viewer>, &'a mut VisualTestContext) {
+    let args =
+        Arguments::parse_from(["jaywalk", fixture.0.to_str().unwrap(), "--file", "file.txt"]);
+    setup_arguments_with_settings(
+        fixture,
+        args,
+        "[history]\npage_size=4\nsearch_page_size=2\npage_on_scroll=false\n",
+        cx,
+    )
+}
+#[gpui_test::test]
+fn opening_history_fills_a_small_configured_batch_without_scroll_paging(cx: &mut TestAppContext) {
+    let (fixture, _, _) = paged_history_fixture();
+    let args =
+        Arguments::parse_from(["jaywalk", fixture.0.to_str().unwrap(), "--file", "file.txt"]);
+    let (viewer, cx) = setup_arguments_with_settings(
+        &fixture,
+        args,
+        "[history]\npage_size=12\ninitial_batch_size=3\npage_on_scroll=false\n",
+        cx,
+    );
+    cx.update(|_, app| {
+        let v = viewer.read(app);
+        let history = v.repository.ready().unwrap().history.as_ref().unwrap();
+        assert_eq!(history.revisions.len(), 12);
+        assert!(history.has_more());
+        assert_eq!(v.history_query.limit(), 12);
+        assert!(!v.references.loading_more);
+        assert!(!v.settings.history.page_on_scroll);
+        let ids = history
+            .revisions
+            .iter()
+            .map(|r| r.commit_id.as_str())
+            .collect::<std::collections::HashSet<_>>();
+        assert_eq!(ids.len(), history.revisions.len());
+        assert_eq!(v.selected_path().as_deref(), Some("file.txt"));
+    });
+}
+
+#[gpui_test::test]
+fn initial_history_fill_keeps_the_first_batch_usable_and_respects_cancellation(
+    cx: &mut TestAppContext,
+) {
+    let (fixture, _, _) = paged_history_fixture();
+    let (viewer, cx) = setup_paged(&fixture, cx);
+    let identity = cx.update(|_, app| viewer.read(app).comparison().unwrap().identity());
+    let first = cx.update(|window, app| {
+        viewer.update(app, |v, cx| {
+            let first = v
+                .repository
+                .ready()
+                .unwrap()
+                .history
+                .as_ref()
+                .unwrap()
+                .clone();
+            v.settings.history.page_size = 12;
+            v.fill_initial_history(window, cx);
+            assert!(v.references.loading_more);
+            assert!(std::sync::Arc::ptr_eq(
+                &first,
+                v.repository.ready().unwrap().history.as_ref().unwrap()
+            ));
+            assert_eq!(first.revisions.len(), 4);
+            assert_eq!(v.comparison().unwrap().identity(), identity);
+            first
+        })
+    });
+    draw(cx);
+    cx.update(|_, app| {
+        let v = viewer.read(app);
+        let filled = v.repository.ready().unwrap().history.as_ref().unwrap();
+        assert_eq!(filled.revisions.len(), 12);
+        assert!(!v.references.loading_more);
+        assert_eq!(v.comparison().unwrap().identity(), identity);
+        assert_eq!(v.selected_path().as_deref(), Some("file.txt"));
+        for (old, new) in first.revisions.iter().zip(&filled.revisions) {
+            assert!(std::sync::Arc::ptr_eq(old, new));
+        }
+    });
+    // A source/query change cancels filling; its completion must not replace
+    // the newly installed graph, even if the worker was already scheduled.
+    cx.update(|window, app| {
+        viewer.update(app, |v, cx| {
+            if let super::LoadState::Loaded(session) = &mut v.repository {
+                session.history = Ok(first.clone());
+            }
+            v.fill_initial_history(window, cx);
+            v.invalidate_history_reload();
+            assert!(!v.references.loading_more);
+        })
+    });
+    draw(cx);
+    assert!(cx.update(|_, app| {
+        std::sync::Arc::ptr_eq(
+            &first,
+            viewer
+                .read(app)
+                .repository
+                .ready()
+                .unwrap()
+                .history
+                .as_ref()
+                .unwrap(),
+        )
+    }));
+}
+
+#[gpui_test::test]
+fn history_pages_preserve_inspection_and_retry_then_support_automatic_loading(
+    cx: &mut TestAppContext,
+) {
+    use jaywalk::commands::CommandId;
+    let (fixture, _, _) = paged_history_fixture();
+    let (viewer, cx) = setup_paged(&fixture, cx);
+    let identity = cx.update(|_, app| viewer.read(app).comparison().unwrap().identity());
+    let initial = cx.update(|_, app| {
+        viewer
+            .read(app)
+            .repository
+            .ready()
+            .unwrap()
+            .history
+            .as_ref()
+            .unwrap()
+            .clone()
+    });
+    assert_eq!(initial.revisions.len(), 4);
+    assert!(initial.has_more());
+    draw(cx);
+    assert_eq!(
+        cx.update(|_, app| viewer
+            .read(app)
+            .repository
+            .ready()
+            .unwrap()
+            .history
+            .as_ref()
+            .unwrap()
+            .revisions
+            .len()),
+        4
+    );
+    // A failed page retains the exact old snapshot and offers retry.
+    std::fs::rename(
+        fixture.0.join(".git/objects"),
+        fixture.0.join(".git/saved-objects"),
+    )
+    .unwrap();
+    let row = cx.debug_bounds("history-load-more").unwrap();
+    cx.simulate_click(row.center(), Default::default());
+    draw(cx);
+    assert!(cx.update(|_, app| viewer.read(app).references.error.is_some()));
+    assert!(cx.update(|_, app| {
+        std::sync::Arc::ptr_eq(
+            viewer
+                .read(app)
+                .repository
+                .ready()
+                .unwrap()
+                .history
+                .as_ref()
+                .unwrap(),
+            &initial,
+        )
+    }));
+    std::fs::rename(
+        fixture.0.join(".git/saved-objects"),
+        fixture.0.join(".git/objects"),
+    )
+    .unwrap();
+    let row = cx.debug_bounds("history-load-more").unwrap();
+    cx.simulate_click(row.center(), Default::default());
+    draw(cx);
+    cx.update(|_, app| {
+        let v = viewer.read(app);
+        assert!(v.references.error.is_none());
+        assert_eq!(
+            v.repository
+                .ready()
+                .unwrap()
+                .history
+                .as_ref()
+                .unwrap()
+                .revisions
+                .len(),
+            8
+        );
+        assert_eq!(v.comparison().unwrap().identity(), identity);
+        assert_eq!(v.selected_path().as_deref(), Some("file.txt"));
+    });
+    cx.update(|window, app| {
+        viewer.update(app, |v, cx| {
+            v.execute_command(CommandId::LatestHistory, window, cx);
+        })
+    });
+    draw(cx);
+    assert_eq!(
+        cx.update(|_, app| viewer
+            .read(app)
+            .repository
+            .ready()
+            .unwrap()
+            .history
+            .as_ref()
+            .unwrap()
+            .revisions
+            .len()),
+        4
+    );
+    cx.update(|window, app| {
+        viewer.update(app, |v, cx| {
+            let mut settings = v.settings.clone();
+            settings.history.page_on_scroll = true;
+            v.apply_settings(settings, window, cx);
+        })
+    });
+    draw(cx);
+    assert!(
+        cx.update(|_, app| viewer
+            .read(app)
+            .repository
+            .ready()
+            .unwrap()
+            .history
+            .as_ref()
+            .unwrap()
+            .revisions
+            .len())
+            > 4
+    );
+    assert_eq!(
+        cx.update(|_, app| viewer.read(app).comparison().unwrap().identity()),
+        identity
+    );
+}
+#[gpui_test::test]
+fn slash_history_search_finds_older_commits_and_keeps_repository_scope_after_reveal(
+    cx: &mut TestAppContext,
+) {
+    let (fixture, oldest, newest) = paged_history_fixture();
+    let (viewer, cx) = setup_paged(&fixture, cx);
+    let identity = cx.update(|_, app| viewer.read(app).comparison().unwrap().identity());
+    cx.simulate_keystrokes("secondary-p");
+    draw(cx);
+    cx.simulate_input("/needle");
+    draw(cx);
+    assert_eq!(
+        cx.update(|_, app| viewer.read(app).palette_test_state(app).0),
+        Some(palette::PaletteKind::History)
+    );
+    assert_eq!(
+        cx.update(|_, app| viewer.read(app).palette_test_count(app)),
+        1
+    );
+    assert_eq!(
+        cx.update(|_, app| viewer.read(app).comparison().unwrap().identity()),
+        identity
+    );
+    cx.simulate_keystrokes("enter");
+    draw(cx);
+    cx.update(|_, app| {
+        let v = viewer.read(app);
+        assert_eq!(
+            v.selected_history_commit().as_deref(),
+            Some(oldest.as_str())
+        );
+        let history = v.repository.ready().unwrap().history.as_ref().unwrap();
+        assert_eq!(history.revisions[0].commit_id, oldest);
+        assert!(history.source().unwrap().context().is_some());
+    });
+    // The graph now shows an older context; / must still search its original source.
+    cx.simulate_keystrokes("secondary-p");
+    draw(cx);
+    cx.simulate_input("/newest unique");
+    draw(cx);
+    assert_eq!(
+        cx.update(|_, app| viewer.read(app).palette_test_count(app)),
+        1
+    );
+    cx.simulate_keystrokes("enter");
+    draw(cx);
+    assert_eq!(
+        cx.update(|_, app| viewer.read(app).selected_history_commit())
+            .as_deref(),
+        Some(newest.as_str())
+    );
+    let row = cx.debug_bounds("history-row-0").unwrap();
+    assert!(row.size.height > px(0.));
+    cx.update(|window, app| {
+        viewer.update(app, |v, cx| {
+            v.execute_command(jaywalk::commands::CommandId::SearchHistory, window, cx)
+        })
+    });
+    draw(cx);
+    assert_eq!(
+        cx.update(|_, app| viewer.read(app).palette_test_count(app)),
+        3
+    ); // two results plus Load more
+    // Cached context results can keep selection by key when the repository
+    // results insert an earlier row. Navigate to the explicit Load more row.
+    for _ in 0..3 {
+        if cx.update(|_, app| viewer.read(app).palette_test_state(app).2) == Some(2) {
+            break;
+        }
+        cx.simulate_keystrokes("down");
+        draw(cx);
+    }
+    assert_eq!(
+        cx.update(|_, app| viewer.read(app).palette_test_state(app).2),
+        Some(2)
+    );
+    cx.simulate_keystrokes("enter");
+    draw(cx);
+    assert_eq!(
+        cx.update(|_, app| viewer.read(app).palette_test_count(app)),
+        5
+    );
+    assert_eq!(
+        cx.update(|_, app| viewer.read(app).palette_test_state(app).1),
+        "/"
+    );
+    cx.simulate_keystrokes("secondary-a");
+    cx.simulate_input("/after:invalid");
+    draw(cx);
+    assert_eq!(
+        cx.update(|_, app| viewer.read(app).palette_test_count(app)),
+        0
+    );
+    cx.simulate_keystrokes("escape");
+    draw(cx);
+    assert!(cx.update(|_, app| viewer.read(app).palette_test_state(app).0.is_none()));
+}
+
+#[gpui_test::test]
+fn welcome_uses_two_columns_without_scrolling_and_stacks_on_small_windows(cx: &mut TestAppContext) {
+    use jaywalk::commands::CommandId;
+    let fixture = Fixture::new();
+    let (viewer, cx) = setup(&fixture, cx);
+    cx.update(|window, app| {
+        app.global_mut::<crate::recents::Recents>().repositories = (0..10)
+            .map(|index| {
+                PathBuf::from(format!(
+                    "/a/long/parent/path/with/many/components/repository-{index}"
+                ))
+            })
+            .collect();
+        viewer.update(app, |v, cx| {
+            v.execute_command(CommandId::ShowWelcome, window, cx)
+        });
+    });
+    draw(cx);
+    assert!(cx.debug_bounds("welcome-file-shortcut").is_some());
+    let page = cx.debug_bounds("welcome-page").unwrap();
+    let content = cx.debug_bounds("welcome-content").unwrap();
+    let header = cx.debug_bounds("welcome-header").unwrap();
+    let start = cx.debug_bounds("welcome-start").unwrap();
+    let recents = cx.debug_bounds("welcome-recents").unwrap();
+    assert!(header.bottom() < start.top());
+    assert_eq!(start.top(), recents.top());
+    assert!(start.right() < recents.left());
+    assert!(
+        content.bottom() <= page.bottom(),
+        "default welcome content should fit: {content:?} in {page:?}"
+    );
+    assert!(cx.debug_bounds("welcome-recent-9").unwrap().bottom() < page.bottom());
+    cx.simulate_resize(size(px(560.), px(800.)));
+    draw(cx);
+    let page = cx.debug_bounds("welcome-page").unwrap();
+    let content = cx.debug_bounds("welcome-content").unwrap();
+    let start = cx.debug_bounds("welcome-start").unwrap();
+    let recents = cx.debug_bounds("welcome-recents").unwrap();
+    assert_eq!(start.left(), recents.left());
+    assert!(start.bottom() < recents.top());
+    assert!(content.right() <= page.right());
+    cx.simulate_resize(size(px(1000.), px(400.)));
+    draw(cx);
+    assert!(
+        cx.debug_bounds("welcome-content").unwrap().bottom()
+            > cx.debug_bounds("welcome-page").unwrap().bottom()
     );
 }

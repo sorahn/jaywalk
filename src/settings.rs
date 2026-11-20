@@ -50,6 +50,28 @@ impl ColorSetting {
         }
     }
 }
+/// Only the application accent can follow the platform. Semantic diff colors
+/// retain the shared/light-dark ColorSetting format.
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq)]
+#[serde(untagged)]
+pub enum AccentColorSetting {
+    Custom(ColorSetting),
+    System(SystemAccent),
+}
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum SystemAccent {
+    System,
+}
+impl AccentColorSetting {
+    pub fn resolve(self, dark: bool, system: Option<RgbColor>, fallback: ColorSetting) -> RgbColor {
+        match self {
+            Self::Custom(color) => color.resolve(dark),
+            Self::System(_) => system.unwrap_or_else(|| fallback.resolve(dark)),
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum Appearance {
@@ -203,7 +225,9 @@ pub struct WindowSettings {
 #[serde(deny_unknown_fields)]
 pub struct UiSettings {
     pub appearance: Appearance,
-    pub accent_color: ColorSetting,
+    pub accent_color: AccentColorSetting,
+    pub accent_color_fallback: ColorSetting,
+    pub accent_floating_outlines: bool,
     pub loading_delay_ms: u64,
     pub row_height: f32,
     pub panel_header_height: f32,
@@ -286,6 +310,10 @@ pub struct OverviewSettings {
 #[derive(Clone, Debug, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct HistorySettings {
+    pub page_size: usize,
+    pub initial_batch_size: usize,
+    pub page_on_scroll: bool,
+    pub search_page_size: usize,
     pub stripe_opacity: f32,
     pub show_reference_labels: bool,
     pub reference_badge_width: f32,
@@ -516,6 +544,13 @@ impl Config {
         if overrides.get("keybindings").is_some() || overrides.get("keymap").is_some() {
             return Err("Put [keybindings] and [[keymap]] in the selected keybindings profile, not config.toml".into());
         }
+        if overrides
+            .get("ui")
+            .and_then(|ui| ui.get("accent_color"))
+            .is_some_and(toml::Value::is_table)
+        {
+            defaults["ui"]["accent_color"] = defaults["ui"]["accent_color_fallback"].clone();
+        }
         merge_defaults(&mut defaults, overrides);
         let settings: Self = defaults
             .try_into()
@@ -574,6 +609,15 @@ impl Config {
         )?;
         if !(1..=50).contains(&self.welcome.recent_count) {
             return Err("welcome.recent_count must be between 1 and 50".into());
+        }
+        if !(1..=50_000).contains(&self.history.page_size)
+            || !(1..=50_000).contains(&self.history.initial_batch_size)
+            || !(1..=1000).contains(&self.history.search_page_size)
+        {
+            return Err(
+                "history.page_size and history.initial_batch_size must be 1..50000; history.search_page_size must be 1..1000"
+                    .into(),
+            );
         }
         if !(1..=1000).contains(&self.navigation.history_limit) {
             return Err("navigation.history_limit must be between 1 and 1000".into());
@@ -874,7 +918,7 @@ mod tests {
 
     #[test]
     fn welcome_recent_count_is_live_configurable_and_bounded() {
-        assert_eq!(Settings::parse("").unwrap().welcome.recent_count, 5);
+        assert_eq!(Settings::parse("").unwrap().welcome.recent_count, 10);
         assert_eq!(
             Settings::parse("[welcome]\nrecent_count=12")
                 .unwrap()
@@ -897,6 +941,32 @@ mod tests {
         );
         assert!(Settings::parse("[navigation]\nhistory_limit=0").is_err());
         assert!(Settings::parse("[navigation]\nhistory_limit=1001").is_err());
+    }
+
+    #[test]
+    fn history_pages_default_to_five_thousand_and_allow_explicit_large_pages() {
+        let defaults = Settings::parse("").unwrap();
+        assert_eq!(
+            defaults.history.page_size,
+            crate::history::DEFAULT_HISTORY_LIMIT
+        );
+        assert_eq!(defaults.history.page_size, 5000);
+        assert_eq!(defaults.history.initial_batch_size, 100);
+        assert!(!defaults.history.page_on_scroll);
+        for size in [1, 500, 10_000, 50_000] {
+            assert_eq!(
+                Settings::parse(&format!("[history]\npage_size={size}"))
+                    .unwrap()
+                    .history
+                    .page_size,
+                size
+            );
+        }
+        for size in [0, 50_001] {
+            for field in ["page_size", "initial_batch_size"] {
+                assert!(Settings::parse(&format!("[history]\n{field}={size}")).is_err());
+            }
+        }
     }
 
     #[test]
@@ -1137,7 +1207,7 @@ mod color_tests {
                 .unwrap()
                 .ui
                 .accent_color
-                .resolve(true)
+                .resolve(true, None, Settings::default().ui.accent_color_fallback)
                 .value(),
             0x3794ff
         );
@@ -1148,7 +1218,7 @@ mod color_tests {
                     .unwrap()
                     .ui
                     .accent_color
-                    .resolve(true)
+                    .resolve(true, None, Settings::default().ui.accent_color_fallback)
                     .value(),
                 0xa1b2c3
             );
@@ -1163,6 +1233,55 @@ mod color_tests {
 #[cfg(test)]
 mod appearance_tests {
     use super::{Appearance, Settings};
+    #[test]
+    fn native_accent_is_default_custom_colors_win_and_fallbacks_remain_configurable() {
+        let defaults = Settings::parse("").unwrap();
+        assert!(matches!(
+            defaults.ui.accent_color,
+            super::AccentColorSetting::System(_)
+        ));
+        let native = super::RgbColor::try_from("#cc4488".to_owned()).unwrap();
+        for dark in [false, true] {
+            assert_eq!(
+                defaults.ui.accent_color.resolve(
+                    dark,
+                    Some(native),
+                    defaults.ui.accent_color_fallback
+                ),
+                native
+            );
+            let custom = Settings::parse("[ui]\naccent_color='#abcdef'").unwrap();
+            assert_eq!(
+                custom
+                    .ui
+                    .accent_color
+                    .resolve(dark, Some(native), custom.ui.accent_color_fallback)
+                    .value(),
+                0xabcdef
+            );
+        }
+        let fallback = Settings::parse(
+            "[ui]\naccent_color='system'\naccent_color_fallback={light='#123456',dark='#654321'}",
+        )
+        .unwrap();
+        assert_eq!(
+            fallback
+                .ui
+                .accent_color
+                .resolve(false, None, fallback.ui.accent_color_fallback)
+                .value(),
+            0x123456
+        );
+        assert_eq!(
+            fallback
+                .ui
+                .accent_color
+                .resolve(true, None, fallback.ui.accent_color_fallback)
+                .value(),
+            0x654321
+        );
+        assert!(Settings::parse("[ui]\naccent_color='native'").is_err());
+    }
     #[test]
     fn appearance_resolves_system_or_forced_modes() {
         for system in [false, true] {
@@ -1179,19 +1298,67 @@ mod appearance_tests {
     #[test]
     fn colors_support_shared_values_pairs_and_partial_default_overrides() {
         let defaults = Settings::parse("").unwrap();
-        assert_eq!(defaults.ui.accent_color.resolve(false).value(), 0x0066b8);
-        assert_eq!(defaults.ui.accent_color.resolve(true).value(), 0x3794ff);
+        assert_eq!(
+            defaults
+                .ui
+                .accent_color
+                .resolve(false, None, Settings::default().ui.accent_color_fallback)
+                .value(),
+            0x0066b8
+        );
+        assert_eq!(
+            defaults
+                .ui
+                .accent_color
+                .resolve(true, None, Settings::default().ui.accent_color_fallback)
+                .value(),
+            0x3794ff
+        );
         let shared = Settings::parse("[ui]\naccent_color='#abcdef'").unwrap();
         assert_eq!(
-            shared.ui.accent_color.resolve(false),
-            shared.ui.accent_color.resolve(true)
+            shared.ui.accent_color.resolve(
+                false,
+                None,
+                Settings::default().ui.accent_color_fallback
+            ),
+            shared.ui.accent_color.resolve(
+                true,
+                None,
+                Settings::default().ui.accent_color_fallback
+            )
         );
         let pair = Settings::parse("[ui]\naccent_color={light='#123456',dark='#654321'}").unwrap();
-        assert_eq!(pair.ui.accent_color.resolve(false).value(), 0x123456);
-        assert_eq!(pair.ui.accent_color.resolve(true).value(), 0x654321);
+        assert_eq!(
+            pair.ui
+                .accent_color
+                .resolve(false, None, Settings::default().ui.accent_color_fallback)
+                .value(),
+            0x123456
+        );
+        assert_eq!(
+            pair.ui
+                .accent_color
+                .resolve(true, None, Settings::default().ui.accent_color_fallback)
+                .value(),
+            0x654321
+        );
         let partial = Settings::parse("[ui.accent_color]\ndark='#ff9f43'").unwrap();
-        assert_eq!(partial.ui.accent_color.resolve(false).value(), 0x0066b8);
-        assert_eq!(partial.ui.accent_color.resolve(true).value(), 0xff9f43);
+        assert_eq!(
+            partial
+                .ui
+                .accent_color
+                .resolve(false, None, Settings::default().ui.accent_color_fallback)
+                .value(),
+            0x0066b8
+        );
+        assert_eq!(
+            partial
+                .ui
+                .accent_color
+                .resolve(true, None, Settings::default().ui.accent_color_fallback)
+                .value(),
+            0xff9f43
+        );
         for source in [
             "[ui.accent_color]\nlight='#zzzzzz'",
             "[ui.accent_color]\nligth='#123456'",

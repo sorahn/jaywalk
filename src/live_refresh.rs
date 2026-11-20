@@ -110,7 +110,7 @@ impl GitRefresh {
                     .revisions
                     .iter()
                     .find(|revision| revision.is_virtual_working_copy())
-                    .cloned()
+                    .map(|revision| revision.as_ref().clone())
                     .ok_or("Working copy is outside the current history query")?,
             )
         } else {

@@ -24,6 +24,7 @@ pub(crate) fn init(settings: &Settings, cx: &mut App) {
         mode: None,
     });
     apply(settings, cx);
+    crate::platform::accent::observe(cx);
 }
 
 pub(crate) fn apply(settings: &Settings, cx: &mut App) {
@@ -52,6 +53,18 @@ pub(crate) fn watch_window(window: &mut Window, cx: &mut App) {
     }
 }
 
+#[cfg(all(target_os = "macos", not(test)))]
+pub(crate) fn system_colors_changed(cx: &mut App) {
+    if cx.try_global::<AppAppearance>().is_some_and(|state| {
+        matches!(
+            state.ui.accent_color,
+            jaywalk::settings::AccentColorSetting::System(_)
+        )
+    }) {
+        refresh(None, true, cx);
+    }
+}
+
 fn refresh(system: Option<WindowAppearance>, force: bool, cx: &mut App) {
     let state = cx.global::<AppAppearance>().clone();
     let system_mode = ThemeMode::from(system.unwrap_or_else(|| cx.window_appearance()));
@@ -73,7 +86,20 @@ fn refresh(system: Option<WindowAppearance>, force: bool, cx: &mut App) {
         if changed {
             theme.highlight_theme = code_theme(dark);
         }
-        apply_accent(theme, state.ui.accent_color.resolve(dark));
+        let system = matches!(
+            state.ui.accent_color,
+            jaywalk::settings::AccentColorSetting::System(_)
+        )
+        .then(|| crate::platform::accent::read(dark))
+        .flatten();
+        apply_accent(
+            theme,
+            state
+                .ui
+                .accent_color
+                .resolve(dark, system, state.ui.accent_color_fallback),
+        );
+        theme.popup_outline = state.ui.accent_floating_outlines.then_some(theme.primary);
         theme.font_size = px(state.ui.font_size);
         theme.mono_font_size = px(state.editor.font_size);
         theme.font_family = state
@@ -143,6 +169,11 @@ fn resolve_diff_colors(colors: DiffColorSettings, dark: bool) -> gpui::component
         conflict_base: resolve(colors.conflict_base),
         whitespace_error: resolve(colors.whitespace_error),
     }
+}
+
+pub(crate) fn floating_outline(cx: &App) -> Hsla {
+    let theme = Theme::global(cx);
+    theme.popup_outline.unwrap_or(theme.border)
 }
 
 pub(crate) fn active_icon(icon: impl Into<Icon>, active: bool, cx: &App) -> Icon {
@@ -303,5 +334,41 @@ light = "#990055"
         }
         assert!(Settings::parse("[diff.colors]\nadded='red'").is_err());
         assert!(Settings::parse("[diff.colors]\naddded='#ffffff'").is_err());
+    }
+}
+
+#[cfg(test)]
+mod outline_tests {
+    use super::*;
+
+    #[gpui_test::test]
+    fn floating_outlines_follow_live_accent_and_can_be_disabled(
+        cx: &mut gpui_test::TestAppContext,
+    ) {
+        cx.update(|cx| {
+            gpui_kit::init(cx);
+            let mut settings = Settings::parse("[ui]\naccent_color='#aabbcc'").unwrap();
+            assert!(settings.ui.accent_floating_outlines);
+            init(&settings, cx);
+            let neutral = Theme::global(cx).border;
+            let accent: Hsla = rgb(0xaabbcc).into();
+            assert_eq!(Theme::global(cx).popup_outline, Some(accent));
+            assert_eq!(floating_outline(cx), accent);
+
+            settings.ui.accent_floating_outlines = false;
+            apply(&settings, cx);
+            assert_eq!(Theme::global(cx).popup_outline, None);
+            assert_eq!(floating_outline(cx), neutral);
+
+            settings.ui.accent_floating_outlines = true;
+            settings.ui.accent_color = jaywalk::settings::AccentColorSetting::Custom(
+                jaywalk::settings::ColorSetting::Shared(
+                    RgbColor::try_from("#123456".to_owned()).unwrap(),
+                ),
+            );
+            apply(&settings, cx);
+            assert_eq!(floating_outline(cx), Hsla::from(rgb(0x123456)));
+            assert_eq!(Theme::global(cx).border, neutral);
+        });
     }
 }

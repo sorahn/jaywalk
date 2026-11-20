@@ -1,6 +1,9 @@
+mod paging;
 use super::*;
+use gpui::component::Sizable;
 use gpui::component::menu::ContextMenuExt as _;
 use gpui::component::tooltip::{ManagedTooltipExt as _, Tooltip};
+use gpui::prelude::FluentBuilder;
 use jaywalk::history::History;
 
 const GRAPH_MARGIN: f32 = 10.;
@@ -22,7 +25,7 @@ struct RowColors {
 }
 
 fn history_row(
-    history: Rc<History>,
+    history: Arc<History>,
     index: usize,
     metrics: RowMetrics,
     selected: bool,
@@ -188,6 +191,7 @@ fn revision_hover(revision: &jaywalk::history::Revision, cx: &App) -> AnyElement
     };
     div()
         .debug_selector(|| "commit-hover".into())
+        .text_left()
         .v_flex()
         .gap_2()
         .min_w_0()
@@ -206,6 +210,9 @@ fn revision_hover(revision: &jaywalk::history::Revision, cx: &App) -> AnyElement
 
 impl Viewer {
     pub(super) fn history_footer_status(&self) -> String {
+        if self.references.loading_more {
+            return "Loading history…".into();
+        }
         if let Some(error) = &self.references.error {
             error.clone()
         } else if let Some(history) = self
@@ -222,20 +229,29 @@ impl Viewer {
                 .iter()
                 .filter(|revision| !revision.is_virtual_working_copy())
                 .count();
+            let mut status = if virtual_working_copy {
+                format!("{count} commits loaded · working copy")
+            } else {
+                format!("{count} recorded revisions loaded")
+            };
+            if history.has_more() {
+                status.push_str(" · more available");
+            }
+            if history
+                .source()
+                .is_some_and(|source| source.context().is_some())
+            {
+                status.push_str(" · selected history context");
+            }
             if self.selected_history_commit().is_some_and(|commit| {
                 !history
                     .revisions
                     .iter()
                     .any(|revision| revision.commit_id == commit)
             }) {
-                format!("{count} revisions · inspected revision outside graph")
-            } else {
-                if virtual_working_copy {
-                    format!("{count} commits · working copy")
-                } else {
-                    format!("{count} recorded revisions")
-                }
+                status.push_str(" · inspected revision outside graph");
             }
+            status
         } else {
             String::new()
         }
@@ -276,8 +292,39 @@ impl Viewer {
                     .items_center()
                     .gap_1()
                     .child(self.panel_menu(jaywalk::panel_layout::PanelId::History))
+                    .child(
+                        Button::new("search-history")
+                            .ghost()
+                            .small()
+                            .compact()
+                            .icon(IconName::Search)
+                            .tooltip("Find in history")
+                            .on_click(cx.listener(|viewer, _, window, cx| {
+                                viewer.open_palette(palette::PaletteKind::History, window, cx)
+                            })),
+                    )
                     .child(self.reference_controls(cx))
-                    .child(self.remote_controls(cx)),
+                    .child(self.remote_controls(cx))
+                    .when(
+                        self.repository
+                            .ready()
+                            .and_then(|s| s.history.as_ref().ok())
+                            .and_then(|h| h.source())
+                            .is_some_and(|source| source.context().is_some()),
+                        |row| {
+                            row.child(
+                                Button::new("latest-history")
+                                    .ghost()
+                                    .small()
+                                    .compact()
+                                    .icon(IconName::ArrowUp)
+                                    .tooltip("Show latest history")
+                                    .on_click(cx.listener(|viewer, _, window, cx| {
+                                        viewer.latest_history(window, cx)
+                                    })),
+                            )
+                        },
+                    ),
             ),
             div().bg(surface),
         );
@@ -322,7 +369,17 @@ impl Viewer {
             ComparisonScope::Revision { commit_id, .. } => Some(commit_id.clone()),
             ComparisonScope::Evolution { anchor, .. } => Some(anchor.clone()),
         };
-        let count = history.revisions.len();
+        let commit_count = history.revisions.len();
+        let count = commit_count + usize::from(history.has_more());
+        let automatic = self.settings.history.page_on_scroll && self.references.error.is_none();
+        let loading = self.references.loading_more;
+        let load_label = if loading {
+            "Loading older commits…".to_owned()
+        } else if self.references.error.is_some() {
+            "Retry loading older commits".to_owned()
+        } else {
+            format!("Load {} older commits", self.next_history_page_size())
+        };
         let viewer = cx.entity().downgrade();
         let height = self.settings.row_height(
             self.settings.history.row_height,
@@ -340,11 +397,49 @@ impl Viewer {
             }) => Some((left.clone(), right.clone())),
             _ => None,
         };
-        let rows = uniform_list("history-rows", count, move |visible, _, cx| {
+        let rows = uniform_list("history-rows", count, move |visible, window, cx| {
+            if automatic && history.has_more() && visible.end >= commit_count && !loading {
+                let owner = viewer.clone();
+                let snapshot = history.clone();
+                window.defer(cx, move |window, cx| {
+                    let _ = owner.update(cx, |viewer, cx| {
+                        if viewer.settings.history.page_on_scroll
+                            && viewer.references.error.is_none()
+                            && viewer
+                                .repository
+                                .ready()
+                                .and_then(|s| s.history.as_ref().ok())
+                                .is_some_and(|h| Arc::ptr_eq(h, &snapshot))
+                        {
+                            viewer.load_more_history(window, cx);
+                        }
+                    });
+                });
+            }
             let width = GRAPH_MARGIN * 2.
                 + (history.visible_lane_count(visible.clone()) - 1) as f32 * spacing;
             visible
                 .map(|index| {
+                    if index == commit_count {
+                        let owner = viewer.clone();
+                        return div()
+                            .debug_selector(|| "history-load-more".into())
+                            .h(px(height))
+                            .w_full()
+                            .child(
+                                Button::new("load-older-history")
+                                    .ghost()
+                                    .small()
+                                    .w_full()
+                                    .label(load_label.clone())
+                                    .disabled(loading)
+                                    .on_click(move |_, window, cx| {
+                                        let _ = owner
+                                            .update(cx, |v, cx| v.load_more_history(window, cx));
+                                    }),
+                            )
+                            .into_any_element();
+                    }
                     let selected =
                         selected_commit.as_ref() == Some(&history.revisions[index].commit_id);
                     history_row(

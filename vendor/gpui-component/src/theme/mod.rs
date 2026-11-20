@@ -212,6 +212,10 @@ pub struct Theme {
     /// space or can be clipped.
     #[serde(default = "default_true")]
     pub focus_ring: bool,
+    /// Optional host override for floating-surface edges. None preserves the
+    /// toolkit's neutral popup ring and tooltip border.
+    #[serde(skip)]
+    pub popup_outline: Option<Hsla>,
     pub transparent: Hsla,
     /// Show the scrollbar mode, default: Scrolling
     #[serde(alias = "scrollbar_show")]
@@ -802,6 +806,7 @@ impl From<&ThemeColor> for Theme {
             window_radius: px(0.),
             shadow: true,
             focus_ring: true,
+            popup_outline: None,
             scrollbar_mode: ScrollbarMode::default(),
             notification: NotificationSettings::default(),
             list: ListSettings::default(),

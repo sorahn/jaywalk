@@ -52,6 +52,11 @@ impl Viewer {
         } else {
             pages::Page::Comparison
         };
+        let history_query =
+            jaywalk::history::HistoryQuery::sources(settings.history.remotes.clone(), None)
+                .expect("default source query has no unvalidated IDs")
+                .with_limit(settings.history.page_size)
+                .expect("validated page size");
         let mut viewer = Self {
             welcome,
             page,
@@ -86,8 +91,7 @@ impl Viewer {
             overview: overview::OverviewState::default(),
             navigation,
             history_scroll: UniformListScrollHandle::new(),
-            history_query: jaywalk::history::HistoryQuery::sources(Default::default(), None)
-                .expect("default source query has no unvalidated IDs"),
+            history_query,
             references,
             evolution,
             evolution_header: None,
@@ -151,6 +155,14 @@ impl Viewer {
         let max_text_mb = self.settings.diff.max_text_file_size_mb;
         let history_query = self.history_query.clone();
         let requested_history_query = history_query.clone();
+        let first_batch = history_query
+            .clone()
+            .with_limit(
+                history_query
+                    .limit()
+                    .min(self.settings.history.initial_batch_size),
+            )
+            .expect("history limits are positive");
         self.requests.comparison_task = Some(cx.spawn_in(window, async move |this, cx| {
             let result = cx
                 .background_spawn(async move {
@@ -160,7 +172,7 @@ impl Viewer {
                     let history = if arguments.diff.is_some() && arguments.difftool.is_none() {
                         jaywalk::history::History::parse("")
                     } else {
-                        comparison.history(&history_query)
+                        comparison.history(&first_batch)
                     };
                     Ok::<_, String>((comparison, history))
                 })
@@ -202,7 +214,7 @@ impl Viewer {
                                 },
                                 aggregate: branch.clone(),
                             },
-                            history: history.map(Rc::new),
+                            history: history.map(Arc::new),
                             scope: ComparisonScope::Aggregate,
                             comparison: LoadState::Loaded(branch),
                             revision_comparison: None,
@@ -219,6 +231,8 @@ impl Viewer {
                 };
                 if viewer.history_query != requested_history_query {
                     viewer.reload_history(None, window, cx);
+                } else {
+                    viewer.fill_initial_history(window, cx);
                 }
                 viewer.start_live(window, cx);
                 viewer.rebuild_browser(cx);
@@ -403,7 +417,7 @@ impl Viewer {
                     .revisions
                     .iter()
                     .find(|revision| revision.commit_id == commit_id)
-                    .cloned()
+                    .map(|revision| revision.as_ref().clone())
             })
             .or_else(|| {
                 overview_revision

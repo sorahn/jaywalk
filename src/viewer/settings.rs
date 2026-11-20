@@ -156,11 +156,15 @@ impl Viewer {
         if previous.history.show_reference_labels != self.settings.history.show_reference_labels {
             self.references.labels = self.settings.history.show_reference_labels;
         }
-        if previous.history.remotes != self.settings.history.remotes {
+        if previous.history.remotes != self.settings.history.remotes
+            || previous.history.page_size != self.settings.history.page_size
+        {
             self.references.visibility = self.settings.history.remotes.clone();
             self.history_query =
                 jaywalk::history::HistoryQuery::sources(self.references.visibility.clone(), None)
-                    .expect("configuration visibility has no commit expression");
+                    .expect("configuration visibility has no commit expression")
+                    .with_limit(self.settings.history.page_size)
+                    .expect("validated page size");
             self.reload_history(None, window, cx);
         }
         if previous.files.default_view != self.settings.files.default_view {

@@ -68,7 +68,9 @@ impl Viewer {
         }
         self.history_query =
             jaywalk::history::HistoryQuery::sources(self.references.visibility.clone(), None)
-                .expect("saved visibility has no commit expression");
+                .expect("saved visibility has no commit expression")
+                .with_limit(self.settings.history.page_size)
+                .expect("validated page size");
         if let Some(visible) = self.layout.saved.change_evolution {
             self.evolution.visible = visible;
         }

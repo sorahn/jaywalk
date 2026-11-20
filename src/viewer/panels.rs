@@ -217,7 +217,7 @@ impl Viewer {
         let workspace = super::chrome::Panel::new(
             "comparison-panel",
             self.render_comparison_header(cx),
-            // The caption reads scroll geometry published by the body this frame.
+            // Read body geometry before choosing the caption.
             div().with_dynamic_prepaint_order(|_, _| [1, 0].into_iter().collect()),
         )
         .child(self.render_comparison(cx));

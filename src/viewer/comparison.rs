@@ -84,9 +84,27 @@ impl Viewer {
             .into_any_element()
     }
 
+    pub(super) fn render_overview_button(&self, cx: &Context<Self>) -> Button {
+        let command = jaywalk::commands::CommandId::Overview;
+        let active = self.selected_file.is_none();
+        Button::new("overview")
+            .ghost()
+            .small()
+            .compact()
+            .icon(crate::appearance::active_icon(
+                IconName::LayoutList,
+                active,
+                cx,
+            ))
+            .toggled(active)
+            .tooltip_with_action(command.label(), &commands::ExecuteCommand { command }, None)
+            .on_click(
+                cx.listener(move |this, _, window, cx| this.execute_command(command, window, cx)),
+            )
+    }
+
     pub(super) fn render_review_actions(&self, cx: &Context<Self>) -> AnyElement {
         use jaywalk::commands::CommandId;
-        let overview = self.selected_file.is_none();
         let mut actions = div()
             .h_flex()
             .items_center()
@@ -126,36 +144,26 @@ impl Viewer {
         if self.layout.saved.files_hidden {
             actions = actions.child(self.render_find_file_button(cx));
         }
-        for (id, icon, command, active) in [
-            (
-                "overview",
-                IconName::LayoutDashboard,
-                CommandId::Overview,
-                overview,
-            ),
-            ("refresh", IconName::RefreshCw, CommandId::Refresh, false),
-        ] {
-            actions = actions.child(
-                Button::new(id)
-                    .ghost()
-                    .small()
-                    .compact()
-                    .icon(crate::appearance::active_icon(icon, active, cx))
-                    .toggled(active)
-                    .tooltip_with_action(
-                        if command == CommandId::Refresh && self.is_hosted_review() {
-                            "Update published PR comparison"
-                        } else {
-                            command.label()
-                        },
-                        &commands::ExecuteCommand { command },
-                        None,
-                    )
-                    .on_click(cx.listener(move |this, _, window, cx| {
-                        this.execute_command(command, window, cx)
-                    })),
-            );
-        }
+        let command = CommandId::Refresh;
+        actions = actions.child(
+            Button::new("refresh")
+                .ghost()
+                .small()
+                .compact()
+                .icon(IconName::RefreshCw)
+                .tooltip_with_action(
+                    if self.is_hosted_review() {
+                        "Update published PR comparison"
+                    } else {
+                        command.label()
+                    },
+                    &commands::ExecuteCommand { command },
+                    None,
+                )
+                .on_click(cx.listener(move |this, _, window, cx| {
+                    this.execute_command(command, window, cx)
+                })),
+        );
         actions.into_any_element()
     }
 

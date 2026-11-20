@@ -29,7 +29,7 @@ pub(super) struct ViewVisit {
     review: review_context::ReviewContext,
     home_source: review_context::HomeSource,
     home: Rc<Comparison>,
-    history: Result<Rc<jaywalk::history::History>, String>,
+    history: Result<Arc<jaywalk::history::History>, String>,
     comparison: Rc<Comparison>,
     file: Option<FileVisit>,
     overview: Option<overview::OverviewCheckpoint>,
@@ -131,7 +131,7 @@ impl Viewer {
                         .revisions
                         .iter()
                         .find(|revision| &revision.commit_id == commit_id)
-                        .cloned()
+                        .map(|revision| revision.as_ref().clone())
                 })
                 .or_else(|| {
                     self.overview_revision(commit_id)

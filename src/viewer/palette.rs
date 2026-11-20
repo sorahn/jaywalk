@@ -1,4 +1,6 @@
 //! Toolkit command UI; actions and file results preserve their original subject.
+mod history;
+mod references;
 mod support;
 mod symbols;
 use super::*;
@@ -18,10 +20,13 @@ pub(super) enum PaletteKind {
     LocalRepositories,
     CheckoutRecovery,
     Reviews,
+    References,
+    Remotes,
     PullRequests,
     Accounts,
     Line,
     Help,
+    History,
     FileSymbols,
     ProjectSymbols,
 }
@@ -34,9 +39,12 @@ impl PaletteKind {
             Self::PullRequests => Mode::PullRequests,
             Self::Line => Mode::Line,
             Self::Help => Mode::Help,
+            Self::History => Mode::History,
             Self::FileSymbols => Mode::FileSymbols,
             Self::ProjectSymbols => Mode::ProjectSymbols,
-            Self::Reviews
+            Self::References
+            | Self::Remotes
+            | Self::Reviews
             | Self::Profiles
             | Self::Accounts
             | Self::LocalRepositories
@@ -51,6 +59,7 @@ impl PaletteKind {
             Mode::PullRequests => Self::PullRequests,
             Mode::Line => Self::Line,
             Mode::Help => Self::Help,
+            Mode::History => Self::History,
             Mode::FileSymbols => Self::FileSymbols,
             Mode::ProjectSymbols => Self::ProjectSymbols,
         }
@@ -61,6 +70,21 @@ enum Choice {
     File {
         path: String,
         status: Option<String>,
+        source: Rc<jaywalk::repository::ComparisonIdentity>,
+    },
+    History {
+        revision: jaywalk::history::Revision,
+        source: Option<std::sync::Arc<jaywalk::history::HistorySource>>,
+        identity: Rc<jaywalk::repository::ComparisonIdentity>,
+    },
+    HistoryMore,
+    Reference {
+        reference: jaywalk::history::Reference,
+        source: Rc<jaywalk::repository::ComparisonIdentity>,
+    },
+    Remote {
+        remote: Option<String>,
+        visible: bool,
         source: Rc<jaywalk::repository::ComparisonIdentity>,
     },
     Command(jaywalk::commands::CommandId),
@@ -92,6 +116,7 @@ pub(super) struct PaletteState {
     return_focus: Option<FocusHandle>,
     usage: CommandUsage,
     symbols: symbols::SymbolPicker,
+    history: history::HistorySearch,
     line_before: bool,
     pub(super) generation: u64,
     pub(super) review_loading: bool,
@@ -109,6 +134,7 @@ impl PaletteState {
             return_focus: None,
             usage: CommandUsage::default(),
             symbols: symbols::SymbolPicker::default(),
+            history: history::HistorySearch::default(),
             line_before: false,
             generation: 0,
             review_loading: false,
@@ -227,11 +253,17 @@ fn rank_choices(
                 {
                     Some((5, 0, false))
                 }
-                Choice::Line { .. } => Some((0, 0, false)),
+                Choice::Line { .. } | Choice::History { .. } => Some((0, 0, false)),
+                Choice::HistoryMore => Some((1, 0, false)),
                 Choice::LocalRepository(_) | Choice::RestoreCheckout(_) => {
                     fuzzy_score(query, &label).map(|score| (0, score, false))
                 }
-                Choice::Command(_)
+                Choice::Remote { remote: None, .. } => {
+                    fuzzy_score(query, &label).map(|score| (1, score, false))
+                }
+                Choice::Reference { .. }
+                | Choice::Remote { .. }
+                | Choice::Command(_)
                 | Choice::Mode(_)
                 | Choice::Profile(_)
                 | Choice::Review(_)
@@ -303,6 +335,10 @@ impl Viewer {
             state.selected_index().map(|index| index.row),
         )
     }
+    #[cfg(test)]
+    pub(super) fn palette_test_count(&self, cx: &App) -> usize {
+        self.palette.state.read(cx).matched_count()
+    }
     pub(super) fn configure_picker_local_review(&mut self, cx: &mut Context<Self>) {
         if let Some(page) = &self.palette.pull_requests {
             page.update(cx, |page, _| {
@@ -363,6 +399,7 @@ impl Viewer {
             });
         }
         self.palette.symbols.cancel();
+        self.palette.history.cancel();
         self.palette.generation += 1;
         self.palette.review_loading = false;
         self.palette.review_error = None;
@@ -378,6 +415,7 @@ impl Viewer {
             self.create_pr_picker(window, cx);
         }
         self.start_symbol_picker(window, cx);
+        self.sync_history_picker(window, cx);
         cx.notify();
     }
     fn retire_pr_picker(&mut self, cx: &mut Context<Self>) {
@@ -427,6 +465,7 @@ impl Viewer {
                 self.cancel_local_action();
             }
             self.palette.symbols.cancel();
+            self.palette.history.cancel();
             self.palette.generation += 1;
             self.palette.review_loading = false;
             self.palette.review_error = None;
@@ -440,11 +479,13 @@ impl Viewer {
             }
         }
         self.start_symbol_picker(window, cx);
+        self.sync_history_picker(window, cx);
         cx.notify();
     }
     pub(super) fn close_palette(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.cancel_local_action();
         self.palette.symbols.cancel();
+        self.palette.history.cancel();
         self.palette.generation += 1;
         self.palette.review_loading = false;
         self.palette.open = None;
@@ -609,6 +650,8 @@ impl Viewer {
                 .iter()
                 .map(|name| (name.clone(), Choice::Profile(name.clone())))
                 .collect(),
+            PaletteKind::History => self.history_choices(),
+            PaletteKind::References | PaletteKind::Remotes => self.reference_choices(kind),
             PaletteKind::Reviews => {
                 let mut choices: Vec<_> = self
                     .review_picker
@@ -627,9 +670,12 @@ impl Viewer {
             PaletteKind::Commands => jaywalk::commands::CommandId::ALL
                 .iter()
                 .filter(|command| {
-                    !matches!(command, jaywalk::commands::CommandId::OpenInNewWindow)
-                        && (!self.hosted_changed_only()
-                            || **command != jaywalk::commands::CommandId::TreeAll)
+                    !matches!(
+                        command,
+                        jaywalk::commands::CommandId::OpenInNewWindow
+                            | jaywalk::commands::CommandId::ReviewSelectedReference
+                    ) && (!self.hosted_changed_only()
+                        || **command != jaywalk::commands::CommandId::TreeAll)
                         && (self.is_hosted_review()
                             || !matches!(
                                 command,
@@ -653,6 +699,8 @@ impl Viewer {
                                     | jaywalk::commands::CommandId::SwapComparison
                                     | jaywalk::commands::CommandId::RevealComparisonLeft
                                     | jaywalk::commands::CommandId::RevealComparisonRight
+                                    | jaywalk::commands::CommandId::GoToReference
+                                    | jaywalk::commands::CommandId::RemoteHistorySources
                                     | jaywalk::commands::CommandId::ShowReferences
                             ))
                         && (self.page == pages::Page::Comparison
@@ -678,13 +726,22 @@ impl Viewer {
                     .adaptive_command_order
                     .then_some(&self.palette.usage),
             )
-        } else if matches!(kind, PaletteKind::FileSymbols | PaletteKind::ProjectSymbols) {
+        } else if matches!(
+            kind,
+            PaletteKind::FileSymbols | PaletteKind::ProjectSymbols | PaletteKind::History
+        ) {
             choices // Symbol rows are ranked once, before cloning the visible results.
         } else {
             rank_choices(kind, query, choices)
         };
         // Search the complete index, but mount a bounded set of picker rows.
-        let choices = if matches!(kind, PaletteKind::FileSymbols | PaletteKind::ProjectSymbols) {
+        let choices = if matches!(
+            kind,
+            PaletteKind::FileSymbols
+                | PaletteKind::ProjectSymbols
+                | PaletteKind::References
+                | PaletteKind::Remotes
+        ) {
             choices.into_iter().take(200).collect()
         } else {
             choices
@@ -702,8 +759,31 @@ impl Viewer {
                     this.open_palette(PaletteKind::from_mode(mode), window, cx);
                     return;
                 }
+                if let Choice::Remote {
+                    remote,
+                    visible,
+                    source,
+                } = choice
+                {
+                    this.apply_remote_choice(remote, visible, &source, window, cx);
+                    return;
+                }
+                if matches!(choice, Choice::HistoryMore) {
+                    this.load_more_history_matches(window, cx);
+                    return;
+                }
                 this.close_palette(window, cx);
                 match choice {
+                    Choice::HistoryMore => unreachable!("search pagination keeps the picker open"),
+                    Choice::History {
+                        revision,
+                        source,
+                        identity,
+                    } => this.open_history_result(revision, source, &identity, window, cx),
+                    Choice::Remote { .. } => unreachable!("remote toggles keep the picker open"),
+                    Choice::Reference { reference, source } => {
+                        this.apply_reference_choice(reference, &source, false, window, cx);
+                    }
                     Choice::File { path, source, .. } => {
                         if this
                             .comparison()
@@ -761,6 +841,7 @@ impl Viewer {
                     PaletteKind::LocalRepositories => "Choose a local repository…",
                     PaletteKind::CheckoutRecovery => "Choose a checkout to restore…",
                     PaletteKind::Help => "Search picker modes…",
+                    PaletteKind::History => "Find SHA, change ID, message, author or reference…",
                     PaletteKind::Line => "Go to source line…",
                     PaletteKind::FileSymbols | PaletteKind::ProjectSymbols => "Search symbols…",
                     PaletteKind::Files => {
@@ -774,6 +855,8 @@ impl Viewer {
                     PaletteKind::Repositories => "Search recent repositories…",
                     PaletteKind::Profiles => "Select keybindings profile…",
                     PaletteKind::Reviews => "Choose review branch or comparison base…",
+                    PaletteKind::References => "Search branches and bookmarks…",
+                    PaletteKind::Remotes => "Search remote history sources…",
                 })
                 .items(choices.iter().enumerate().map(|(index, (label, choice))| {
                     let query = query.to_owned();
@@ -789,9 +872,25 @@ impl Viewer {
                         _ => None,
                     };
                     let disabled =
-                        matches!(choice, Choice::Mode(mode) if !self.picker_mode_available(*mode));
+                        matches!(choice, Choice::Mode(mode) if !self.picker_mode_available(*mode))
+                            || matches!(choice, Choice::HistoryMore) && self.palette.history.loading;
                     let status = match choice {
                         Choice::File { status, .. } => status.clone(),
+                        Choice::History { revision, .. } => Some(format!("{} · {}", revision.author, revision.timestamp.get(..10).unwrap_or(""))),
+                        Choice::Reference { reference, .. } => {
+                            Some(self.reference_choice_status(reference))
+                        }
+                        Choice::Remote {
+                            remote: Some(remote),
+                            ..
+                        } => Some(
+                            if self.references.visibility.includes(remote) {
+                                "Visible"
+                            } else {
+                                "Hidden"
+                            }
+                            .into(),
+                        ),
                         Choice::Command(command) => self.command_state_hint(*command),
                         Choice::Mode(mode) => Some(
                             if self.picker_mode_available(*mode) {
@@ -807,7 +906,7 @@ impl Viewer {
                         _ => None,
                     };
                     CommandItem::new()
-                        .key(format!("{kind:?}:{label}"))
+                        .key(match choice { Choice::History { revision, .. } => format!("history:{}", revision.commit_id), Choice::HistoryMore => "history:more".into(), _ => format!("{kind:?}:{label}") })
                         .disabled(disabled)
                         .label(label.clone())
                         .child(move |window, cx| {
@@ -900,6 +999,39 @@ impl Viewer {
                         this.close_palette(window, cx);
                     }),
                 )
+                .when(matches!(kind, PaletteKind::References), |panel| {
+                    let choices = choices.clone();
+                    panel
+                        .key_context("JaywalkReferencePicker")
+                        .capture_action(cx.listener(
+                            move |this, action: &commands::ExecuteCommand, window, cx| {
+                                if action.command
+                                    != jaywalk::commands::CommandId::ReviewSelectedReference
+                                {
+                                    cx.propagate();
+                                    return;
+                                }
+                                cx.stop_propagation();
+                                let Some(index) = this
+                                    .palette
+                                    .state
+                                    .read(cx)
+                                    .selected_index()
+                                    .map(|index| index.row)
+                                else {
+                                    return;
+                                };
+                                let Some((_, Choice::Reference { reference, source })) =
+                                    choices.get(index)
+                                else {
+                                    return;
+                                };
+                                let (reference, source) = (reference.clone(), source.clone());
+                                this.close_palette(window, cx);
+                                this.apply_reference_choice(reference, &source, true, window, cx);
+                            },
+                        ))
+                })
                 .when(matches!(kind, PaletteKind::Repositories), |panel| {
                     panel.key_context("JaywalkRecent")
                 })
