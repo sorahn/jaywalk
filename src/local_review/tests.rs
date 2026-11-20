@@ -116,6 +116,7 @@ fn isolated_objects_keep_full_trees_and_survive_the_source_repository_disappeari
             mode: Mode::Isolated,
             max_repository_mb: 16,
             fetch_missing: false,
+            ..Default::default()
         },
         &control(),
     )
@@ -281,4 +282,27 @@ fn bitbucket_ssh_clones_match_acquire_checkout_and_restore_without_remote_access
         assert_eq!(git(root, &["rev-parse", "HEAD"]), fixture.base);
         assert_eq!(git(root, &["remote", "get-url", "origin"]), remote);
     }
+}
+
+#[test]
+fn checkout_branch_settings_validate_and_preserve_default_policy() {
+    let defaults = crate::settings::Config::default().local_review;
+    assert_eq!(defaults.checkout_branch, CheckoutBranch::CreateFromRemote);
+    assert!(!defaults.cleanup_created_branch);
+    for (name, expected) in [
+        ("detached", CheckoutBranch::Detached),
+        ("existing", CheckoutBranch::Existing),
+        ("create_from_remote", CheckoutBranch::CreateFromRemote),
+    ] {
+        let settings = crate::settings::Settings::parse(&format!(
+            "[local_review]\ncheckout_branch='{name}'\ncleanup_created_branch=true"
+        ))
+        .unwrap();
+        assert_eq!(settings.local_review.checkout_branch, expected);
+        assert!(settings.local_review.cleanup_created_branch);
+    }
+    assert!(crate::settings::Settings::parse("[local_review]\ncheckout_branch='force'").is_err());
+    assert!(
+        crate::settings::Settings::parse("[local_review]\ncleanup_created_branch='true'").is_err()
+    );
 }

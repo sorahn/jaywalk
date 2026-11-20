@@ -371,6 +371,7 @@ mod local_tests {
                     mode: crate::local_review::Mode::Isolated,
                     max_repository_mb: 16,
                     fetch_missing: false,
+                    ..Default::default()
                 },
                 receipts.path(),
                 &control(),
@@ -405,6 +406,7 @@ mod local_tests {
                     mode: crate::local_review::Mode::CheckoutIfClean,
                     max_repository_mb: 16,
                     fetch_missing: false,
+                    ..Default::default()
                 },
                 receipts.path(),
                 &control(),

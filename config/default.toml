@@ -252,3 +252,8 @@ max_content_mb = 128
 mode = "hosted"
 max_repository_mb = 512
 fetch_missing = true
+# Prefer an existing local PR branch, or create one from a matching remote ref.
+# Other choices: "existing" (never create), "detached".
+checkout_branch = "create_from_remote"
+# Remove only Jaywalk-created, unchanged, unused branches on guarded restoration.
+cleanup_created_branch = false

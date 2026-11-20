@@ -163,17 +163,26 @@ impl Review {
         let checkout_changed = checkout.as_ref().is_some_and(|lease| lease.active());
         Ok(Self {
             comparison,
-            checkout,
             local_notice: Some(
                 if options.mode == crate::local_review::Mode::CheckoutIfClean && !checkout_changed {
                     "Local PR objects · existing clean checkout already matches; nothing switched"
                         .into()
                 } else if options.mode == crate::local_review::Mode::CheckoutIfClean {
-                    "Local PR objects · clean-only checkout enabled · use Restore review checkout to finish".into()
+                    format!(
+                        "Local PR objects · {} · use Restore review checkout to finish",
+                        checkout
+                            .as_ref()
+                            .and_then(|lease| lease.branch_name())
+                            .map_or_else(
+                                || "detached PR commit".to_owned(),
+                                |branch| format!("branch {branch}")
+                            )
+                    )
                 } else {
                     "Local PR objects · known repository checkout unchanged".into()
                 },
             ),
+            checkout,
         })
     }
     pub fn comparison(&self) -> &Comparison {

@@ -26,11 +26,20 @@ pub enum Mode {
     CheckoutIfClean,
 }
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum CheckoutBranch {
+    Detached,
+    Existing,
+    CreateFromRemote,
+}
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct Options {
     pub mode: Mode,
     pub max_repository_mb: u64,
     pub fetch_missing: bool,
+    pub checkout_branch: CheckoutBranch,
+    pub cleanup_created_branch: bool,
 }
 impl Default for Options {
     fn default() -> Self {
@@ -52,6 +61,8 @@ pub struct Workspace {
     metadata: Metadata,
     max_bytes: u64,
     fetch_missing: bool,
+    checkout_branch: CheckoutBranch,
+    cleanup_created_branch: bool,
     trees: Mutex<BTreeMap<String, BTreeMap<String, FileKind>>>,
 }
 impl Workspace {
@@ -111,6 +122,8 @@ impl Workspace {
             metadata,
             max_bytes: options.max_repository_mb * 1024 * 1024,
             fetch_missing: options.fetch_missing,
+            checkout_branch: options.checkout_branch,
+            cleanup_created_branch: options.cleanup_created_branch,
             trees: Mutex::default(),
         });
         workspace.ensure(&workspace.metadata.base, control)?;
