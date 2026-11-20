@@ -225,6 +225,9 @@ layout/reset/remote-management command merely to fill the table.
 | `keybindings.refresh` | `["secondary-r"]` | Refresh recorded changes |
 | `keybindings.all_changes` | `["secondary-shift-b"]` | All changes |
 | `keybindings.overview` | `["secondary-k o"]` | Changeset overview |
+| `keybindings.go_to_reference` | `[]` | Go to branch or bookmark in the command palette |
+| `keybindings.remote_history_sources` | `[]` | Toggle individual remote history sources in the command palette |
+| `keybindings.review_selected_reference` | `["shift-enter"]` | Review selected branch changes (branch/bookmark picker only) |
 | `keybindings.show_references` | `["secondary-k r"]` | Browse references |
 | `keybindings.toggle_reference_labels` | `[]` | Toggle reference labels |
 | `keybindings.show_all_remotes` | `[]` | Show all remote history |
@@ -522,3 +525,12 @@ In the overview, single-click a changed file in the file list or tree to scroll
 to its section; double-click to open its individual diff. In an individual diff,
 a single click opens the selected file. Files without an overview section open
 directly. The file panel highlights the file currently being read in the overview.
+
+The command palette offers **Go to branch or bookmark…**, with fuzzy search of
+the same captured local and remote references as the branch browser. Enter opens
+the selected history target; Shift+Enter reviews the branch changes using the
+existing comparison-base flow. Both actions preserve local checkout state.
+**Remote history sources…** lists each remote with its visible/hidden state, plus
+Show all / Hide all actions. Enter toggles a source without closing the picker or
+clearing its query. Hidden references remain searchable and can be opened.
+These pickers use the loaded reference snapshot and do not fetch from remotes.

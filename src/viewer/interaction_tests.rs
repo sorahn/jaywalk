@@ -2841,3 +2841,140 @@ fn account_metadata_is_added_lazily_and_config_order_reloads_across_the_app(
         "2"
     );
 }
+
+fn reference_picker_fixture() -> Fixture {
+    let fixture = Fixture::new();
+    fixture.git(&["checkout", "-b", "topic"]);
+    fixture.git(&["add", "file.txt"]);
+    fixture.git(&["commit", "-m", "topic change"]);
+    let topic = std::fs::read_to_string(fixture.0.join(".git/refs/heads/topic")).unwrap();
+    fixture.git(&["checkout", "main"]);
+    fixture.git(&[
+        "config",
+        "remote.origin.url",
+        "/nonexistent/synthetic-remote",
+    ]);
+    fixture.git(&["update-ref", "refs/remotes/origin/review", topic.trim()]);
+    fixture
+}
+
+#[gpui_test::test]
+fn remote_palette_toggles_keep_query_selection_and_comparison(cx: &mut TestAppContext) {
+    use jaywalk::commands::CommandId;
+    let fixture = reference_picker_fixture();
+    let (viewer, cx) = setup(&fixture, cx);
+    let original = cx.update(|_, app| viewer.read(app).comparison().unwrap().identity());
+    cx.simulate_keystrokes("secondary-shift-p");
+    draw(cx);
+    cx.simulate_input("Remote history sources");
+    draw(cx);
+    cx.simulate_keystrokes("enter");
+    draw(cx);
+    assert_eq!(
+        cx.update(|_, app| viewer.read(app).palette_test_state(app).0),
+        Some(palette::PaletteKind::Remotes)
+    );
+    cx.simulate_input("origin");
+    draw(cx);
+    for expected in [false, true] {
+        cx.simulate_keystrokes("enter");
+        draw(cx);
+        cx.update(|_, app| {
+            let v = viewer.read(app);
+            assert_eq!(
+                v.palette_test_state(app),
+                (
+                    Some(palette::PaletteKind::Remotes),
+                    "origin".into(),
+                    Some(0)
+                )
+            );
+            assert_eq!(v.references.visibility.includes("origin"), expected);
+            assert_eq!(v.comparison().unwrap().identity(), original);
+            assert_eq!(v.selected_path().as_deref(), Some("file.txt"));
+        });
+    }
+    // Scoped review bindings do nothing in the remote picker.
+    cx.simulate_keystrokes("shift-enter");
+    draw(cx);
+    assert_eq!(
+        cx.update(|_, app| viewer.read(app).palette_test_state(app).0),
+        Some(palette::PaletteKind::Remotes)
+    );
+    cx.simulate_keystrokes("escape");
+    draw(cx);
+    cx.update(|window, app| {
+        viewer.update(app, |v, cx| {
+            v.execute_command(CommandId::HideAllRemotes, window, cx)
+        })
+    });
+    draw(cx);
+    assert!(!cx.update(|_, app| viewer.read(app).references.visibility.includes("origin")));
+}
+
+#[gpui_test::test]
+fn branch_palette_opens_hidden_remote_targets_and_reviews_local_branches(cx: &mut TestAppContext) {
+    use jaywalk::commands::CommandId;
+    let fixture = reference_picker_fixture();
+    let (viewer, cx) = setup(&fixture, cx);
+    cx.update(|window, app| {
+        viewer.update(app, |v, cx| {
+            v.execute_command(CommandId::HideAllRemotes, window, cx);
+            v.execute_command(CommandId::GoToReference, window, cx);
+        })
+    });
+    draw(cx);
+    let original = cx.update(|_, app| viewer.read(app).comparison().unwrap().identity());
+    cx.simulate_input("origin");
+    draw(cx);
+    assert_eq!(
+        cx.update(|_, app| viewer.read(app).comparison().unwrap().identity()),
+        original
+    );
+    cx.simulate_keystrokes("enter");
+    draw(cx);
+    cx.update(|_, app| {
+        let v = viewer.read(app);
+        assert!(v.palette_test_state(app).0.is_none());
+        assert_eq!(
+            v.references.inspected.as_ref().unwrap().remote(),
+            Some("origin")
+        );
+        assert!(!v.references.visibility.includes("origin"));
+        assert_eq!(
+            v.comparison().unwrap().recorded_tip(),
+            std::fs::read_to_string(fixture.0.join(".git/refs/heads/topic"))
+                .unwrap()
+                .trim()
+        );
+    });
+    cx.update(|window, app| {
+        viewer.update(app, |v, cx| {
+            v.execute_command(CommandId::GoToReference, window, cx)
+        })
+    });
+    draw(cx);
+    cx.simulate_input("topic");
+    draw(cx);
+    cx.simulate_keystrokes("shift-enter");
+    draw(cx);
+    if cx.update(|_, app| viewer.read(app).palette_test_state(app).0)
+        == Some(palette::PaletteKind::Reviews)
+    {
+        cx.simulate_input("main");
+        draw(cx);
+        cx.simulate_keystrokes("enter");
+        draw(cx);
+    }
+    assert!(cx.update(|_, app| matches!(
+        &viewer.read(app).repository.ready().unwrap().review.source,
+        super::review_context::ReviewSource::Target(jaywalk::branch_review::Target::Branch { .. })
+    )));
+    // Neither opening nor reviewing a reference checks out its branch.
+    assert_eq!(
+        std::fs::read_to_string(fixture.0.join(".git/HEAD"))
+            .unwrap()
+            .trim(),
+        "ref: refs/heads/main"
+    );
+}

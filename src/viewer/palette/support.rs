@@ -59,6 +59,8 @@ impl Viewer {
                     "Choose a branch/range · Escape closes · ? lists picker modes".into()
                 }
             }),
+            PaletteKind::References => "Enter opens history target · Review selected branch changes uses Shift+Enter by default · Escape closes".into(),
+            PaletteKind::Remotes => "Enter toggles a remote · Search and selection stay in place · Escape closes".into(),
             PaletteKind::Profiles => {
                 "Choose a keybinding profile · Escape closes · ? lists picker modes".into()
             }
@@ -88,6 +90,8 @@ impl Viewer {
                 "Open a file first to go to a source line. Type ? for available modes."
             }
             PaletteKind::Line => "Enter a line number within this file, starting at 1.",
+            PaletteKind::References => "No matching branches or bookmarks in this repository.",
+            PaletteKind::Remotes => "No matching remotes in this repository.",
             PaletteKind::FileSymbols | PaletteKind::ProjectSymbols => {
                 "No symbols here. Open a comparison/file with a supported language; type ? for modes."
             }
