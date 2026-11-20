@@ -3653,6 +3653,18 @@ fn setup_fits_one_normal_viewport_and_stacks_in_narrow_windows(cx: &mut TestAppC
     assert_eq!(local.top(), updates.top());
     assert!(local.right() < updates.left());
     assert!(cx.debug_bounds("setup-cli-complete").is_some());
+    let cli = cx.debug_bounds("setup-cli-action").unwrap();
+    assert_eq!(cli.left(), local.left());
+    assert!(cli.size.width < local.size.width / 2.);
+    assert_eq!(
+        cx.debug_bounds("setup-later").unwrap().left(),
+        content.left()
+    );
+    assert_eq!(
+        cx.debug_bounds("setup-save").unwrap().right(),
+        content.right()
+    );
+
     assert!(cx.debug_bounds("setup-save").unwrap().bottom() <= page.bottom());
     cx.simulate_resize(size(px(560.), px(800.)));
     draw(cx);

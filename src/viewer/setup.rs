@@ -171,6 +171,8 @@ impl Viewer {
             .child(div().text_sm().text_color(muted).child(detail))
             .child(
                 Button::new("setup-cli")
+                    .debug_selector(|| "setup-cli-action".into())
+                    .self_start()
                     .small()
                     .label(if installed {
                         "CLI options…"
@@ -208,6 +210,7 @@ impl Viewer {
         ] {
             local = local.child(
                 Button::new(SharedString::from(format!("setup-{}", command.key())))
+                    .self_start()
                     .small()
                     .ghost()
                     .label(command.label())
@@ -217,6 +220,7 @@ impl Viewer {
         local = local
             .child(
                 Button::new("setup-tools")
+                    .self_start()
                     .small()
                     .ghost()
                     .label("Check Git and jj")
@@ -301,22 +305,16 @@ impl Viewer {
         body = body.child(
             div()
                 .h_flex()
+                .justify_between()
                 .gap_2()
                 .pt_3()
                 .border_t_1()
                 .border_color(theme.border)
                 .child(
-                    Button::new("setup-save")
-                        .debug_selector(|| "setup-save".into())
-                        .label("Save and continue")
-                        .disabled(self.setup.busy)
-                        .on_click(cx.listener(|v, _, w, c| v.finish_setup(w, c))),
-                )
-                .child(
                     Button::new("setup-later")
                         .debug_selector(|| "setup-later".into())
                         .ghost()
-                        .label("Set up later")
+                        .label("Skip for now")
                         .disabled(self.setup.busy)
                         .on_click(cx.listener(|v, _, w, c| {
                             let page = if v.arguments.welcome {
@@ -326,6 +324,13 @@ impl Viewer {
                             };
                             v.show_page(page, w, c);
                         })),
+                )
+                .child(
+                    Button::new("setup-save")
+                        .debug_selector(|| "setup-save".into())
+                        .label("Save and continue")
+                        .disabled(self.setup.busy)
+                        .on_click(cx.listener(|v, _, w, c| v.finish_setup(w, c))),
                 ),
         );
         div()
