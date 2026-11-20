@@ -15,12 +15,14 @@ struct Args {
     repo: PathBuf,
     #[arg(long, default_value = "repository")]
     label: String,
-    #[arg(long, default_value_t = 500)]
+    #[arg(long, default_value_t = jaywalk::history::DEFAULT_HISTORY_LIMIT)]
     page_size: usize,
     #[arg(long, default_value_t = 3)]
     pages: usize,
     #[arg(long)]
     retain_snapshots: bool,
+    #[arg(long)]
+    initial_batch_size: Option<usize>,
     #[arg(long, default_value = "fix")]
     search: String,
 }
@@ -71,8 +73,17 @@ fn main() -> Result<(), String> {
     report(&args.label, "capture", start, None);
     let control = || Control::new(Duration::from_secs(60));
     let start = Instant::now();
-    let mut history = source.first_page(args.page_size, &control())?;
+    let initial_size = args
+        .initial_batch_size
+        .unwrap_or(args.page_size)
+        .min(args.page_size);
+    let mut history = source.first_page(initial_size, &control())?;
     report(&args.label, "initial-page", start, Some(&history));
+    if history.has_more() && history.revisions.len() < args.page_size {
+        let start = Instant::now();
+        history = history.load_more(args.page_size - history.revisions.len(), &control())?;
+        report(&args.label, "fill-initial-page", start, Some(&history));
+    }
     let mut retained = Vec::new();
     for _ in 1..args.pages {
         if !history.has_more() {

@@ -402,7 +402,8 @@ release `history-profile` example. It reads Git metadata, including working-copy
 status with optional index locks, fsmonitor and status hooks disabled. It never
 checks out, fetches, snapshots jj, or changes the repository. Run each case in a
 fresh process; `--page-size 500 --pages 10 --retain-snapshots` additionally models
-Back/Forward retaining older page snapshots. `--search` changes the query. Output
+Back/Forward retaining older page snapshots. `--initial-batch-size 100` measures a small first batch followed by background-equivalent
+filling of the configured page; `--search` changes the query. Output
 contains counts/timings rather than private commit messages, authors or paths.
 
 Capture/reference discovery, initial page, subsequent pages and full-source

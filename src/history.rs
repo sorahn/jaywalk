@@ -7,7 +7,7 @@ pub(crate) fn check_control(control: &crate::accounts::Control) -> Result<(), St
         other => other.to_string(),
     })
 }
-pub const DEFAULT_HISTORY_LIMIT: usize = 500;
+pub const DEFAULT_HISTORY_LIMIT: usize = 5000;
 mod process;
 mod search;
 mod source;
@@ -427,7 +427,7 @@ mod query_tests {
     #[test]
     fn query_scope_and_reference_identity_are_independent_of_graph_geometry() {
         let query = HistoryQuery::default();
-        assert_eq!(query.limit(), 500);
+        assert_eq!(query.limit(), 5000);
         assert_eq!(
             query.jj_revset("abc", &Default::default()),
             "ancestors(visible_heads() | abc)"

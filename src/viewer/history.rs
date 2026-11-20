@@ -378,7 +378,7 @@ impl Viewer {
         } else if self.references.error.is_some() {
             "Retry loading older commits".to_owned()
         } else {
-            format!("Load {} older commits", self.settings.history.page_size)
+            format!("Load {} older commits", self.next_history_page_size())
         };
         let viewer = cx.entity().downgrade();
         let height = self.settings.row_height(

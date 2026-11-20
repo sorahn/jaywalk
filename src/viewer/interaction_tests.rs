@@ -3078,6 +3078,104 @@ fn setup_paged<'a>(
     )
 }
 #[gpui_test::test]
+fn opening_history_fills_a_small_configured_batch_without_scroll_paging(cx: &mut TestAppContext) {
+    let (fixture, _, _) = paged_history_fixture();
+    let args =
+        Arguments::parse_from(["jaywalk", fixture.0.to_str().unwrap(), "--file", "file.txt"]);
+    let (viewer, cx) = setup_arguments_with_settings(
+        &fixture,
+        args,
+        "[history]\npage_size=12\ninitial_batch_size=3\npage_on_scroll=false\n",
+        cx,
+    );
+    cx.update(|_, app| {
+        let v = viewer.read(app);
+        let history = v.repository.ready().unwrap().history.as_ref().unwrap();
+        assert_eq!(history.revisions.len(), 12);
+        assert!(history.has_more());
+        assert_eq!(v.history_query.limit(), 12);
+        assert!(!v.references.loading_more);
+        assert!(!v.settings.history.page_on_scroll);
+        let ids = history
+            .revisions
+            .iter()
+            .map(|r| r.commit_id.as_str())
+            .collect::<std::collections::HashSet<_>>();
+        assert_eq!(ids.len(), history.revisions.len());
+        assert_eq!(v.selected_path().as_deref(), Some("file.txt"));
+    });
+}
+
+#[gpui_test::test]
+fn initial_history_fill_keeps_the_first_batch_usable_and_respects_cancellation(
+    cx: &mut TestAppContext,
+) {
+    let (fixture, _, _) = paged_history_fixture();
+    let (viewer, cx) = setup_paged(&fixture, cx);
+    let identity = cx.update(|_, app| viewer.read(app).comparison().unwrap().identity());
+    let first = cx.update(|window, app| {
+        viewer.update(app, |v, cx| {
+            let first = v
+                .repository
+                .ready()
+                .unwrap()
+                .history
+                .as_ref()
+                .unwrap()
+                .clone();
+            v.settings.history.page_size = 12;
+            v.fill_initial_history(window, cx);
+            assert!(v.references.loading_more);
+            assert!(std::sync::Arc::ptr_eq(
+                &first,
+                v.repository.ready().unwrap().history.as_ref().unwrap()
+            ));
+            assert_eq!(first.revisions.len(), 4);
+            assert_eq!(v.comparison().unwrap().identity(), identity);
+            first
+        })
+    });
+    draw(cx);
+    cx.update(|_, app| {
+        let v = viewer.read(app);
+        let filled = v.repository.ready().unwrap().history.as_ref().unwrap();
+        assert_eq!(filled.revisions.len(), 12);
+        assert!(!v.references.loading_more);
+        assert_eq!(v.comparison().unwrap().identity(), identity);
+        assert_eq!(v.selected_path().as_deref(), Some("file.txt"));
+        for (old, new) in first.revisions.iter().zip(&filled.revisions) {
+            assert!(std::sync::Arc::ptr_eq(old, new));
+        }
+    });
+    // A source/query change cancels filling; its completion must not replace
+    // the newly installed graph, even if the worker was already scheduled.
+    cx.update(|window, app| {
+        viewer.update(app, |v, cx| {
+            if let super::LoadState::Loaded(session) = &mut v.repository {
+                session.history = Ok(first.clone());
+            }
+            v.fill_initial_history(window, cx);
+            v.invalidate_history_reload();
+            assert!(!v.references.loading_more);
+        })
+    });
+    draw(cx);
+    assert!(cx.update(|_, app| {
+        std::sync::Arc::ptr_eq(
+            &first,
+            viewer
+                .read(app)
+                .repository
+                .ready()
+                .unwrap()
+                .history
+                .as_ref()
+                .unwrap(),
+        )
+    }));
+}
+
+#[gpui_test::test]
 fn history_pages_preserve_inspection_and_retry_then_support_automatic_loading(
     cx: &mut TestAppContext,
 ) {

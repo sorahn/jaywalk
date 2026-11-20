@@ -155,6 +155,14 @@ impl Viewer {
         let max_text_mb = self.settings.diff.max_text_file_size_mb;
         let history_query = self.history_query.clone();
         let requested_history_query = history_query.clone();
+        let first_batch = history_query
+            .clone()
+            .with_limit(
+                history_query
+                    .limit()
+                    .min(self.settings.history.initial_batch_size),
+            )
+            .expect("history limits are positive");
         self.requests.comparison_task = Some(cx.spawn_in(window, async move |this, cx| {
             let result = cx
                 .background_spawn(async move {
@@ -164,7 +172,7 @@ impl Viewer {
                     let history = if arguments.diff.is_some() && arguments.difftool.is_none() {
                         jaywalk::history::History::parse("")
                     } else {
-                        comparison.history(&history_query)
+                        comparison.history(&first_batch)
                     };
                     Ok::<_, String>((comparison, history))
                 })
@@ -223,6 +231,8 @@ impl Viewer {
                 };
                 if viewer.history_query != requested_history_query {
                     viewer.reload_history(None, window, cx);
+                } else {
+                    viewer.fill_initial_history(window, cx);
                 }
                 viewer.start_live(window, cx);
                 viewer.rebuild_browser(cx);

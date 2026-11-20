@@ -19,6 +19,43 @@ impl Viewer {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        self.load_history_rows(self.next_history_page_size(), window, cx);
+    }
+    pub(in crate::viewer) fn next_history_page_size(&self) -> usize {
+        let loaded = self
+            .repository
+            .ready()
+            .and_then(|s| s.history.as_ref().ok())
+            .map_or(0, |h| h.revisions.len());
+        let remaining = self.settings.history.page_size.saturating_sub(loaded);
+        if remaining > 0 {
+            remaining
+        } else {
+            self.settings.history.page_size
+        }
+    }
+    pub(in crate::viewer) fn fill_initial_history(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(history) = self
+            .repository
+            .ready()
+            .and_then(|s| s.history.as_ref().ok())
+        else {
+            return;
+        };
+        let remaining = self
+            .settings
+            .history
+            .page_size
+            .saturating_sub(history.revisions.len());
+        if remaining > 0 {
+            self.load_history_rows(remaining, window, cx);
+        }
+    }
+    fn load_history_rows(&mut self, page_size: usize, window: &mut Window, cx: &mut Context<Self>) {
         if self.references.loading_more {
             return;
         }
@@ -37,7 +74,6 @@ impl Viewer {
         self.references.page_control = Some(control.clone());
         self.references.loading_more = true;
         self.references.error = None;
-        let page_size = self.settings.history.page_size;
         self.references.task = Some(cx.spawn_in(window, async move |this, cx| {
             let source = history.clone();
             let result = cx

@@ -312,6 +312,7 @@ pub struct OverviewSettings {
 #[serde(deny_unknown_fields)]
 pub struct HistorySettings {
     pub page_size: usize,
+    pub initial_batch_size: usize,
     pub page_on_scroll: bool,
     pub search_page_size: usize,
     pub stripe_opacity: f32,
@@ -610,11 +611,12 @@ impl Config {
         if !(1..=50).contains(&self.welcome.recent_count) {
             return Err("welcome.recent_count must be between 1 and 50".into());
         }
-        if !(1..=5000).contains(&self.history.page_size)
+        if !(1..=50_000).contains(&self.history.page_size)
+            || !(1..=50_000).contains(&self.history.initial_batch_size)
             || !(1..=1000).contains(&self.history.search_page_size)
         {
             return Err(
-                "history.page_size must be 1..5000 and history.search_page_size must be 1..1000"
+                "history.page_size and history.initial_batch_size must be 1..50000; history.search_page_size must be 1..1000"
                     .into(),
             );
         }
@@ -940,6 +942,32 @@ mod tests {
         );
         assert!(Settings::parse("[navigation]\nhistory_limit=0").is_err());
         assert!(Settings::parse("[navigation]\nhistory_limit=1001").is_err());
+    }
+
+    #[test]
+    fn history_pages_default_to_five_thousand_and_allow_explicit_large_pages() {
+        let defaults = Settings::parse("").unwrap();
+        assert_eq!(
+            defaults.history.page_size,
+            crate::history::DEFAULT_HISTORY_LIMIT
+        );
+        assert_eq!(defaults.history.page_size, 5000);
+        assert_eq!(defaults.history.initial_batch_size, 100);
+        assert!(!defaults.history.page_on_scroll);
+        for size in [1, 500, 10_000, 50_000] {
+            assert_eq!(
+                Settings::parse(&format!("[history]\npage_size={size}"))
+                    .unwrap()
+                    .history
+                    .page_size,
+                size
+            );
+        }
+        for size in [0, 50_001] {
+            for field in ["page_size", "initial_batch_size"] {
+                assert!(Settings::parse(&format!("[history]\n{field}={size}")).is_err());
+            }
+        }
     }
 
     #[test]
