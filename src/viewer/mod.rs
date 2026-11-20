@@ -637,8 +637,8 @@ impl Viewer {
         let target = geometry::change_target(self.active_change, direction, count, visible)
             .expect("a nonempty change list has a navigation target");
         let viewport = f32::from(before.read(cx).input_bounds().size.height);
-        let position = geometry.change_position(model, target);
-        let delta = position - viewport / 2. - self.fluid.position;
+        let position = geometry.change_scroll_position(model, target, viewport);
+        let delta = position - self.fluid.position;
         self.navigation_target = Some(target);
         self.active_change = Some(target);
         self.scroll_comparison(delta, cx);

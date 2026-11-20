@@ -3448,3 +3448,23 @@ fn welcome_uses_two_columns_without_scrolling_and_stacks_on_small_windows(cx: &m
             > cx.debug_bounds("welcome-page").unwrap().bottom()
     );
 }
+
+#[gpui_test::test]
+fn opening_a_large_new_file_keeps_its_first_line_visible(cx: &mut TestAppContext) {
+    let fixture = Fixture::new();
+    fixture.git(&["rm", "-f", "file.txt"]);
+    fixture.git(&["commit", "-m", "remove fixture file"]);
+    let source = (1..=200)
+        .map(|line| format!("new line {line}\n"))
+        .collect::<String>();
+    std::fs::write(fixture.0.join("file.txt"), source).unwrap();
+    let (viewer, cx) = setup(&fixture, cx);
+    assert!(cx.update(|_, app| viewer.read(app).code().is_some()));
+    cx.update(|_, app| {
+        let viewer = viewer.read(app);
+        let code = viewer.code().unwrap();
+        assert_eq!(viewer.fluid.position, 0.);
+        assert_eq!(code.after.read(app).scroll_offset().y, px(0.));
+        assert_eq!(code.after.read(app).visible_row_range().unwrap().start, 0);
+    });
+}
