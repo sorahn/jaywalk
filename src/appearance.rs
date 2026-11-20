@@ -182,6 +182,10 @@ pub(crate) fn panel_outline(cx: &App) -> Option<Hsla> {
         .map(|_| Theme::global(cx).primary)
 }
 
+pub(crate) fn panel_outline_radius(cx: &App) -> f32 {
+    cx.global::<AppAppearance>().ui.panel_outline_radius
+}
+
 pub(crate) fn active_icon(icon: impl Into<Icon>, active: bool, cx: &App) -> Icon {
     Icon::new(icon).when(active, |icon| icon.text_color(Theme::global(cx).primary))
 }

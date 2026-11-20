@@ -43,6 +43,8 @@ accent_color_fallback = { light = "#0066b8", dark = "#3794ff" }
 # Accent edges do not reserve layout space. Both switches apply live.
 accent_floating_outlines = true
 accent_panel_outlines = true
+# Active panel outline corners, 0 (square) through 8 px. Applies live.
+panel_outline_radius = 4
 # Suppress transient loading indicators; 0 shows them immediately.
 loading_delay_ms = 200
 # Shared minimum for history, flat files and directory-tree rows.

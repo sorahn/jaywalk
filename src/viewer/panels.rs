@@ -7,6 +7,7 @@ use gpui::component::resizable::{ResizablePanelGroup, resize_handle_appearance, 
 use gpui::prelude::FluentBuilder;
 use jaywalk::commands::CommandId;
 use jaywalk::panel_layout::{EvolutionDock, PanelId, Placement, Side, SidebarOrder};
+use std::cell::RefCell;
 
 // Match the native handle's four-pixel padding around its one-pixel line.
 const HANDLE_PADDING: Pixels = px(4.);
@@ -22,6 +23,7 @@ enum PanelGroup {
 }
 
 pub(super) struct PanelLayout {
+    pub(super) outlines: Rc<RefCell<Vec<super::chrome::PanelOutline>>>,
     sidebars: Entity<ResizableState>,
     diff: Entity<ResizableState>,
     before_width: Rc<Cell<Option<Pixels>>>,
@@ -64,6 +66,7 @@ impl PanelLayout {
     }
     pub(super) fn new(cx: &mut App) -> Self {
         Self {
+            outlines: Default::default(),
             sidebars: cx.new(|_| ResizableState::default()),
             diff: cx.new(|_| ResizableState::default()),
             before_width: Rc::new(Cell::new(None)),
@@ -217,8 +220,9 @@ impl Viewer {
         let workspace = super::chrome::Panel::new(
             "comparison-panel",
             self.render_comparison_header(cx),
-            // Read body geometry before the caption, then prepaint the outline.
+            // Read body geometry before the caption, then record the panel bounds.
             div().with_dynamic_prepaint_order(|_, _| [1, 0, 2].into_iter().collect()),
+            &self.panels.outlines,
         )
         .fallback_focus(&self.focus)
         .child(self.render_comparison(cx));

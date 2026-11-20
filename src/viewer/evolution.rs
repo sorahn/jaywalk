@@ -941,6 +941,7 @@ impl Viewer {
             ("evolution-panel", kind.id()),
             div().v_flex().child(header).child(filters),
             div().bg(surface),
+            &self.panels.outlines,
         );
         let (evolution, file_path, scroll) = match &state.state {
             TimelineState::Unselected => {

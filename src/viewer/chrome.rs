@@ -4,6 +4,7 @@ use gpui::component::Theme;
 use gpui::component::menu::{ContextMenu, ContextMenuExt as _};
 use gpui::prelude::FluentBuilder;
 use jaywalk::panel_layout::PanelId;
+use std::cell::RefCell;
 
 pub(super) const PANEL_INSET: f32 = 8.;
 // Small icon buttons center a 14 px glyph in a 24 px hit target.
@@ -40,6 +41,43 @@ impl Viewer {
     }
 }
 
+/// Measured with each panel; painted once over the completed workbench, below
+/// deferred menus/popovers. The ring follows the real panel boundary.
+pub(super) struct PanelOutline {
+    bounds: Bounds<Pixels>,
+    focus: FocusHandle,
+    fallback: Option<FocusHandle>,
+}
+
+impl Viewer {
+    pub(super) fn render_panel_outlines(&self) -> impl IntoElement {
+        let outlines = self.panels.outlines.clone();
+        canvas(
+            |_, _, _| (),
+            move |_, _, window, cx| {
+                let Some(color) = crate::appearance::panel_outline(cx) else {
+                    return;
+                };
+                for panel in outlines.borrow().iter() {
+                    if panel.focus.contains_focused(window, cx)
+                        || panel
+                            .fallback
+                            .as_ref()
+                            .is_some_and(|focus| focus.is_focused(window))
+                    {
+                        let mut quad = outline(panel.bounds, color, BorderStyle::Solid);
+                        quad.corner_radii = px(crate::appearance::panel_outline_radius(cx)).into();
+                        window.paint_quad(quad);
+                    }
+                }
+            },
+        )
+        .absolute()
+        .inset_0()
+        .size_full()
+    }
+}
+
 /// Presentation only: each body keeps its existing scroll/virtualization owner.
 #[derive(IntoElement)]
 pub(super) struct Panel {
@@ -47,6 +85,7 @@ pub(super) struct Panel {
     focus: Option<FocusHandle>,
     fallback_focus: Option<FocusHandle>,
     frame: gpui::Stateful<gpui::Div>,
+    outlines: Rc<RefCell<Vec<PanelOutline>>>,
     header: AnyElement,
     children: Vec<AnyElement>,
     footer: Option<AnyElement>,
@@ -56,6 +95,7 @@ impl Panel {
         id: impl Into<ElementId>,
         header: impl IntoElement,
         frame: gpui::Div,
+        outlines: &Rc<RefCell<Vec<PanelOutline>>>,
     ) -> Self {
         let id = id.into();
         Self {
@@ -63,6 +103,7 @@ impl Panel {
             focus: None,
             fallback_focus: None,
             frame: frame.id(id),
+            outlines: outlines.clone(),
             header: header.into_any_element(),
             children: Vec::new(),
             footer: None,
@@ -97,6 +138,7 @@ impl RenderOnce for Panel {
         let pointer_focus = focus.clone();
         let fallback = self.fallback_focus;
         let accented = crate::appearance::panel_outline(cx).is_some();
+        let outlines = self.outlines;
         self.frame
             .relative()
             .track_focus(&focus)
@@ -129,17 +171,16 @@ impl RenderOnce for Panel {
             )
             .child(
                 canvas(
-                    |_, _, _| (),
-                    move |bounds, _, window, cx| {
-                        if (focus.contains_focused(window, cx)
-                            || fallback
-                                .as_ref()
-                                .is_some_and(|focus| focus.is_focused(window)))
-                            && let Some(color) = crate::appearance::panel_outline(cx)
-                        {
-                            window.paint_quad(outline(bounds, color, BorderStyle::Solid));
-                        }
+                    move |bounds, _, _| {
+                        let mut records = outlines.borrow_mut();
+                        records.retain(|record| record.focus != focus);
+                        records.push(PanelOutline {
+                            bounds,
+                            focus,
+                            fallback,
+                        });
                     },
+                    |_, _, _, _| {},
                 )
                 .absolute()
                 .inset_0()
