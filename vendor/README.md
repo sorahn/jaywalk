@@ -116,3 +116,8 @@ alignment. `Diff::display_options` controls word highlights, painted space/tab
 markers, row-ending labels and cached whitespace-error spans. Marker painting uses
 original-to-display mappings (including expanded tabs) and does not mutate source
 or clipboard text. Configurable whitespace-error color is part of `DiffColors`.
+
+`Theme::popup_outline` is an optional runtime color override for floating surfaces.
+Popover/menu shadow rings and existing tooltip edges use it without changing
+layout metrics; `None` retains the upstream neutral edges. Jaywalk resolves this
+from its live accent setting and `ui.accent_floating_outlines`.

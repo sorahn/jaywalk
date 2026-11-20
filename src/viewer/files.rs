@@ -709,7 +709,8 @@ impl Viewer {
                 .key_context("JaywalkFiles")
                 .relative()
                 .bg(gpui::component::Theme::global(cx).sidebar),
-        );
+        )
+        .focus_handle(&self.browser.focus);
         match self.comparison_state() {
             LoadState::Failed(error) => {
                 panel = panel.child(

@@ -217,9 +217,10 @@ impl Viewer {
         let workspace = super::chrome::Panel::new(
             "comparison-panel",
             self.render_comparison_header(cx),
-            // The caption reads scroll geometry published by the body this frame.
-            div().with_dynamic_prepaint_order(|_, _| [1, 0].into_iter().collect()),
+            // Read body geometry before the caption, then prepaint the outline.
+            div().with_dynamic_prepaint_order(|_, _| [1, 0, 2].into_iter().collect()),
         )
+        .fallback_focus(&self.focus)
         .child(self.render_comparison(cx));
         if !self.bottom_visible(false) && !self.bottom_visible(true) {
             return workspace.into_any_element();

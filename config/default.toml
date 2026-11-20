@@ -40,6 +40,9 @@ appearance = "system"
 accent_color = "system"
 # Used when a native system accent is unavailable. Explicit accent_color colors override it.
 accent_color_fallback = { light = "#0066b8", dark = "#3794ff" }
+# Accent edges do not reserve layout space. Both switches apply live.
+accent_floating_outlines = true
+accent_panel_outlines = true
 # Suppress transient loading indicators; 0 shows them immediately.
 loading_delay_ms = 200
 # Shared minimum for history, flat files and directory-tree rows.

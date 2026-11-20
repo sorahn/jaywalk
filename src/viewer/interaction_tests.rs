@@ -2978,3 +2978,47 @@ fn branch_palette_opens_hidden_remote_targets_and_reviews_local_branches(cx: &mu
         "ref: refs/heads/main"
     );
 }
+
+#[gpui_test::test]
+fn accent_outlines_preserve_editor_focus_and_panel_geometry(cx: &mut TestAppContext) {
+    let fixture = Fixture::new();
+    let (viewer, cx) = setup(&fixture, cx);
+    let (before, after) = cx.update(|_, app| {
+        let code = viewer.read(app).code().unwrap();
+        (code.before.clone(), code.after.clone())
+    });
+    let dimensions = cx.update(|_, app| {
+        (
+            before.read(app).input_bounds(),
+            after.read(app).input_bounds(),
+        )
+    });
+    let header = cx.debug_bounds("file-header").unwrap();
+    let gutter = cx.debug_bounds("fluid-gutter").unwrap();
+    cx.simulate_click(dimensions.0.center(), Default::default());
+    draw(cx);
+    assert!(cx.update(|window, app| before.focus_handle(app).is_focused(window)));
+    for enabled in [false, true] {
+        cx.update(|_, app| {
+            let mut settings = viewer.read(app).settings.clone();
+            settings.ui.accent_panel_outlines = enabled;
+            settings.ui.accent_floating_outlines = enabled;
+            crate::appearance::apply(&settings, app);
+            viewer.update(app, |v, cx| {
+                v.settings = settings;
+                cx.notify();
+            });
+        });
+        draw(cx);
+        assert_eq!(
+            cx.update(|_, app| (
+                before.read(app).input_bounds(),
+                after.read(app).input_bounds()
+            )),
+            dimensions
+        );
+        assert_eq!(cx.debug_bounds("file-header").unwrap(), header);
+        assert_eq!(cx.debug_bounds("fluid-gutter").unwrap(), gutter);
+        assert!(cx.update(|window, app| before.focus_handle(app).is_focused(window)));
+    }
+}

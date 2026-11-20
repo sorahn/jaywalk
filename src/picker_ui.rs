@@ -9,7 +9,7 @@ pub(crate) fn frame(cx: &App) -> Div {
         .min_w_0()
         .bg(theme.background)
         .border_1()
-        .border_color(theme.border)
+        .border_color(crate::appearance::floating_outline(cx))
         .rounded_lg()
 }
 pub(crate) fn context(lines: impl IntoIterator<Item = String>, cx: &App) -> Div {

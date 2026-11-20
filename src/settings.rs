@@ -227,6 +227,8 @@ pub struct UiSettings {
     pub appearance: Appearance,
     pub accent_color: AccentColorSetting,
     pub accent_color_fallback: ColorSetting,
+    pub accent_floating_outlines: bool,
+    pub accent_panel_outlines: bool,
     pub loading_delay_ms: u64,
     pub row_height: f32,
     pub panel_header_height: f32,

@@ -99,6 +99,7 @@ fn refresh(system: Option<WindowAppearance>, force: bool, cx: &mut App) {
                 .accent_color
                 .resolve(dark, system, state.ui.accent_color_fallback),
         );
+        theme.popup_outline = state.ui.accent_floating_outlines.then_some(theme.primary);
         theme.font_size = px(state.ui.font_size);
         theme.mono_font_size = px(state.editor.font_size);
         theme.font_family = state
@@ -168,6 +169,17 @@ fn resolve_diff_colors(colors: DiffColorSettings, dark: bool) -> gpui::component
         conflict_base: resolve(colors.conflict_base),
         whitespace_error: resolve(colors.whitespace_error),
     }
+}
+
+pub(crate) fn floating_outline(cx: &App) -> Hsla {
+    let theme = Theme::global(cx);
+    theme.popup_outline.unwrap_or(theme.border)
+}
+
+pub(crate) fn panel_outline(cx: &App) -> Option<Hsla> {
+    cx.try_global::<AppAppearance>()
+        .filter(|state| state.ui.accent_panel_outlines)
+        .map(|_| Theme::global(cx).primary)
 }
 
 pub(crate) fn active_icon(icon: impl Into<Icon>, active: bool, cx: &App) -> Icon {
@@ -328,5 +340,46 @@ light = "#990055"
         }
         assert!(Settings::parse("[diff.colors]\nadded='red'").is_err());
         assert!(Settings::parse("[diff.colors]\naddded='#ffffff'").is_err());
+    }
+}
+
+#[cfg(test)]
+mod outline_tests {
+    use super::*;
+
+    #[gpui_test::test]
+    fn outline_settings_apply_independently_and_follow_live_accent(
+        cx: &mut gpui_test::TestAppContext,
+    ) {
+        cx.update(|cx| {
+            gpui_kit::init(cx);
+            let mut settings = Settings::parse("[ui]\naccent_color='#aabbcc'").unwrap();
+            assert!(settings.ui.accent_floating_outlines);
+            assert!(settings.ui.accent_panel_outlines);
+            init(&settings, cx);
+            let neutral = Theme::global(cx).border;
+            let accent: Hsla = rgb(0xaabbcc).into();
+            assert_eq!(Theme::global(cx).popup_outline, Some(accent));
+            assert_eq!(floating_outline(cx), accent);
+            assert_eq!(panel_outline(cx), Some(accent));
+
+            settings.ui.accent_floating_outlines = false;
+            apply(&settings, cx);
+            assert_eq!(Theme::global(cx).popup_outline, None);
+            assert_eq!(floating_outline(cx), neutral);
+            assert_eq!(panel_outline(cx), Some(accent));
+
+            settings.ui.accent_panel_outlines = false;
+            settings.ui.accent_floating_outlines = true;
+            settings.ui.accent_color = jaywalk::settings::AccentColorSetting::Custom(
+                jaywalk::settings::ColorSetting::Shared(
+                    RgbColor::try_from("#123456".to_owned()).unwrap(),
+                ),
+            );
+            apply(&settings, cx);
+            assert_eq!(panel_outline(cx), None);
+            assert_eq!(floating_outline(cx), Hsla::from(rgb(0x123456)));
+            assert_eq!(Theme::global(cx).border, neutral);
+        });
     }
 }

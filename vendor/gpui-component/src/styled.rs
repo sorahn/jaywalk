@@ -34,7 +34,7 @@ const POPOVER_RING_INK: f32 = 0.1;
 /// token: a fixed black ring would all but vanish on a dark surface.
 ///
 pub(crate) fn popover_ring(cx: &App) -> Hsla {
-    cx.theme().foreground.alpha(POPOVER_RING_INK)
+    cx.theme().popup_outline.unwrap_or_else(|| cx.theme().foreground.alpha(POPOVER_RING_INK))
 }
 
 /// shadcn/ui's popup surface shadow — a hairline `ring` plus `shadow-md` — at
