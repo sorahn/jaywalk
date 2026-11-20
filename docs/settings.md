@@ -42,8 +42,12 @@ Toolbar choices and manual resizing do not rewrite your configuration. With
 `layout.remember_per_repository = true`, Jaywalk stores repository interface
 choices separately in `interface.toml` next to the default config. An explicit
 `--config /path/custom.toml` uses `/path/custom.interface.toml`. Repositories
-are keyed by canonical root; external path-to-path comparisons do not restore
-repository state. This file is managed by Jaywalk, not a second settings file.
+are keyed by canonical root. Git difftool uses the root recorded in the capture,
+so its windows share choices with `jw .`, the recent-repository picker, and other
+difftool invocations for that repository. Difftool continues to display the
+supplied diff bytes and comparison endpoints. Anonymous path-to-path comparisons
+start with the configured defaults and keep interface changes in the window.
+Jaywalk manages the interface state file automatically.
 
 Remembered choices can override startup defaults, including panel visibility,
 placement, dimensions, file-list/tree choices and reference/remote visibility.

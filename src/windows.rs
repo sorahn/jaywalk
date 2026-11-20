@@ -198,9 +198,7 @@ pub(crate) fn open_with_disposition(
         settings,
         mut layout,
     } = prepared;
-    if !arguments.welcome && arguments.diff.is_none() {
-        layout.use_latest(&settings, cx);
-    }
+    layout.use_latest(&settings, cx);
     let source = SettingsSource::resolve(arguments.config.as_deref())?;
     let state = crate::settings_service::source(source.clone(), &settings, cx)?;
     crate::settings_service::publish(source, settings.clone(), cx)?;

@@ -50,6 +50,17 @@ impl Arguments {
     pub(crate) fn directory(&self) -> &Path {
         self.directory.as_deref().unwrap_or(Path::new("."))
     }
+    /// A captured Git producer has a repository identity even though its diff
+    /// bytes live in temporary directories. Anonymous external inputs do not.
+    pub(crate) fn interface_repository(&self) -> Option<&Path> {
+        if self.welcome {
+            return None;
+        }
+        if let Some(capture) = &self.difftool {
+            return Some(&capture.repository);
+        }
+        self.diff.is_none().then(|| self.directory())
+    }
     pub(crate) fn comparison_with_limit(
         &self,
         limit: jaywalk::text_content::TextLimit,

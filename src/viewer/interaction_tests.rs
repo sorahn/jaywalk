@@ -73,20 +73,31 @@ fn setup_arguments<'a>(
 }
 fn setup_arguments_with_settings<'a>(
     fixture: &Fixture,
-    mut args: Arguments,
+    args: Arguments,
     extra: &str,
     cx: &'a mut TestAppContext,
 ) -> (Entity<Viewer>, &'a mut VisualTestContext) {
-    let config = fixture.0.join("settings.toml");
     let contents = "[local_review]\nfetch_missing=false\n[live]\nenabled=false\n[layout]\nremember_per_repository=false\n[layout.placement]\nhistory_side='left'\nfiles_side='left'\n";
     let contents = format!("{contents}{extra}");
-    std::fs::write(&config, &contents).unwrap();
+    setup_arguments_with_config(fixture, args, &contents, cx)
+}
+fn setup_arguments_with_config<'a>(
+    fixture: &Fixture,
+    mut args: Arguments,
+    contents: &str,
+    cx: &'a mut TestAppContext,
+) -> (Entity<Viewer>, &'a mut VisualTestContext) {
+    let config = fixture.0.join("settings.toml");
+    std::fs::write(&config, contents).unwrap();
     args.config = Some(config);
     args.normalize().unwrap();
-    let settings = Settings::parse(&contents).unwrap();
+    let settings = Settings::parse(contents).unwrap();
     cx.update(|app| {
         gpui_kit::init(app);
         crate::windows::init(app);
+        if settings.layout.remember_per_repository {
+            crate::interface_state::init_for_test(app);
+        }
         crate::settings_service::init(app);
         crate::recents::init_without_storage(app);
         crate::appearance::init(&settings, app);
@@ -3466,5 +3477,112 @@ fn opening_a_large_new_file_keeps_its_first_line_visible(cx: &mut TestAppContext
         assert_eq!(viewer.fluid.position, 0.);
         assert_eq!(code.after.read(app).scroll_offset().y, px(0.));
         assert_eq!(code.after.read(app).visible_row_range().unwrap().start, 0);
+    });
+}
+
+#[gpui_test::test]
+fn difftool_and_normal_opens_share_remembered_controls_without_replacing_supplied_bytes(
+    test_cx: &mut TestAppContext,
+) {
+    use jaywalk::{
+        difftool::{Capture, File, Identity},
+        layout_state::{LayoutState, RepositoryLayoutStore},
+        settings::DiffView,
+    };
+    let fixture = Fixture::new();
+    let inputs = tempfile::tempdir().unwrap();
+    let left = inputs.path().join("left");
+    let right = inputs.path().join("right");
+    std::fs::create_dir(&left).unwrap();
+    std::fs::create_dir(&right).unwrap();
+    std::fs::write(left.join("file.txt"), "supplied before\n").unwrap();
+    std::fs::write(right.join("file.txt"), "supplied after\n").unwrap();
+    let root = fixture.0.canonicalize().unwrap();
+    let state_path = root.join("settings.interface.toml");
+    RepositoryLayoutStore::new(state_path.clone(), &root)
+        .unwrap()
+        .save(&LayoutState {
+            view: Some(DiffView::Inline),
+            wrap_before: Some(false),
+            wrap_after: Some(false),
+            wrap_inline: Some(false),
+            collapse_unchanged: Some(true),
+            ..Default::default()
+        })
+        .unwrap();
+    let mut args = Arguments::parse_from([
+        "jaywalk",
+        inputs.path().to_str().unwrap(),
+        "--diff",
+        left.to_str().unwrap(),
+        right.to_str().unwrap(),
+        "--file",
+        "file.txt",
+    ]);
+    args.difftool = Some(Capture {
+        identity: Identity {
+            pid: 999999,
+            started: 1,
+            boot: [0, 0],
+        },
+        grouped: true,
+        directory: true,
+        repository: fixture.0.join("."),
+        working_head: None,
+        received: 1,
+        total: 1,
+        files: vec![File {
+            before: "file.txt".into(),
+            after: "file.txt".into(),
+            kind: "modified".into(),
+            before_object: None,
+            after_object: None,
+        }],
+        intent: None,
+    });
+    let contents = "[local_review]\nfetch_missing=false\n[live]\nenabled=false\n[layout]\nremember_per_repository=true\n";
+    let (viewer, cx) = setup_arguments_with_config(&fixture, args, contents, test_cx);
+    cx.update(|_, app| {
+        let v = viewer.read(app);
+        assert_eq!(v.view.preferred(), DiffView::Inline);
+        assert!(!v.wrapping.inline);
+        assert!(v.collapse_unchanged);
+        assert_eq!(
+            v.code().unwrap().after.read(app).value().as_ref(),
+            "supplied after\n"
+        );
+    });
+    std::fs::write(fixture.0.join("file.txt"), "later worktree contents\n").unwrap();
+    cx.update(|window, app| {
+        viewer.update(app, |v, cx| {
+            v.set_view_mode(DiffView::SideBySide, cx);
+            v.toggle_wrap(window, cx);
+            v.toggle_unchanged_lines(cx);
+        })
+    });
+    draw(cx);
+    cx.update(|_, app| {
+        let v = viewer.read(app);
+        assert_eq!(
+            v.code().unwrap().after.read(app).value().as_ref(),
+            "supplied after\n"
+        );
+        let latest = crate::interface_state::latest(&state_path, &root, app)
+            .expect("difftool controls save under the producer repository, not temporary inputs");
+        assert_eq!(latest.view, Some(DiffView::SideBySide));
+        assert_eq!(latest.wrap_before, Some(true));
+        assert_eq!(latest.collapse_unchanged, Some(false));
+        let normal = v.arguments.for_repository(root.clone());
+        let settings = Settings::parse(contents).unwrap();
+        let mut layout = SessionLayout::load(&normal, &settings);
+        layout.use_latest(&settings, app);
+        assert_eq!(layout.saved.view, Some(DiffView::SideBySide));
+        assert_eq!(layout.saved.wrap_before, Some(true));
+        assert_eq!(layout.saved.collapse_unchanged, Some(false));
+        crate::interface_state::flush_for_test(app);
+        let reopened = SessionLayout::load(&normal, &settings);
+        assert_eq!(reopened.saved.view, Some(DiffView::SideBySide));
+        assert_eq!(reopened.saved.wrap_before, Some(true));
+        assert_eq!(reopened.saved.collapse_unchanged, Some(false));
     });
 }
