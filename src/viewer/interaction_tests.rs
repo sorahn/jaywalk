@@ -3400,3 +3400,51 @@ fn slash_history_search_finds_older_commits_and_keeps_repository_scope_after_rev
     draw(cx);
     assert!(cx.update(|_, app| viewer.read(app).palette_test_state(app).0.is_none()));
 }
+
+#[gpui_test::test]
+fn welcome_uses_two_columns_without_scrolling_and_stacks_on_small_windows(cx: &mut TestAppContext) {
+    use jaywalk::commands::CommandId;
+    let fixture = Fixture::new();
+    let (viewer, cx) = setup(&fixture, cx);
+    cx.update(|window, app| {
+        app.global_mut::<crate::recents::Recents>().repositories = (0..5)
+            .map(|index| {
+                PathBuf::from(format!(
+                    "/a/long/parent/path/with/many/components/repository-{index}"
+                ))
+            })
+            .collect();
+        viewer.update(app, |v, cx| {
+            v.execute_command(CommandId::ShowWelcome, window, cx)
+        });
+    });
+    draw(cx);
+    let page = cx.debug_bounds("welcome-page").unwrap();
+    let content = cx.debug_bounds("welcome-content").unwrap();
+    let header = cx.debug_bounds("welcome-header").unwrap();
+    let start = cx.debug_bounds("welcome-start").unwrap();
+    let recents = cx.debug_bounds("welcome-recents").unwrap();
+    assert!(header.bottom() < start.top());
+    assert_eq!(start.top(), recents.top());
+    assert!(start.right() < recents.left());
+    assert!(
+        content.bottom() <= page.bottom(),
+        "default welcome content should fit: {content:?} in {page:?}"
+    );
+    assert!(cx.debug_bounds("welcome-recent-4").unwrap().bottom() < page.bottom());
+    cx.simulate_resize(size(px(560.), px(800.)));
+    draw(cx);
+    let page = cx.debug_bounds("welcome-page").unwrap();
+    let content = cx.debug_bounds("welcome-content").unwrap();
+    let start = cx.debug_bounds("welcome-start").unwrap();
+    let recents = cx.debug_bounds("welcome-recents").unwrap();
+    assert_eq!(start.left(), recents.left());
+    assert!(start.bottom() < recents.top());
+    assert!(content.right() <= page.right());
+    cx.simulate_resize(size(px(1000.), px(400.)));
+    draw(cx);
+    assert!(
+        cx.debug_bounds("welcome-content").unwrap().bottom()
+            > cx.debug_bounds("welcome-page").unwrap().bottom()
+    );
+}

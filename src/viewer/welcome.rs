@@ -1,6 +1,7 @@
 //! Repository-free workspace. Panel preferences remain untouched underneath it.
 use super::*;
 use gpui::component::menu::ContextMenuExt as _;
+use gpui::prelude::FluentBuilder as _;
 
 #[derive(Default)]
 pub(super) struct WelcomeState {
@@ -59,91 +60,114 @@ impl Viewer {
         }
         cx.notify();
     }
-    pub(super) fn render_welcome(&self, cx: &mut Context<Self>) -> AnyElement {
+    pub(super) fn render_welcome(&self, width: f32, cx: &mut Context<Self>) -> AnyElement {
+        use jaywalk::commands::CommandId;
         let theme = gpui::component::Theme::global(cx);
         let muted = theme.muted_foreground;
+        // Leave enough room for readable action labels and repository paths,
+        // including when the user increases the application font size.
+        let wide = width >= self.settings.ui.font_size * 54.;
         let recent = cx.global::<crate::recents::Recents>();
-        let mut start = div()
-            .v_flex()
-            .gap_3()
-            .child(div().text_2xl().font_medium().child("Jaywalk"))
+        let header = div()
+            .id("welcome-header")
+            .debug_selector(|| "welcome-header".into())
+            .h_flex()
+            .items_center()
+            .gap_4()
+            .pb_6()
+            .border_b_1()
+            .border_color(theme.border)
+            .child(
+                gpui::component::Icon::new(IconName::GitCompareArrows)
+                    .size(px(36.))
+                    .text_color(theme.primary)
+                    .flex_shrink_0(),
+            )
             .child(
                 div()
-                    .text_color(muted)
-                    .child("Browse Git and Jujutsu changes"),
-            )
-            .child(div().mt_4().text_lg().font_medium().child("Start"));
-        for (id, command, icon) in [
+                    .v_flex()
+                    .min_w_0()
+                    .gap_2()
+                    .child(div().text_2xl().font_medium().child("Welcome to Jaywalk"))
+                    .child(div().text_color(muted).child(
+                        "Explore Git and Jujutsu history, compare files, and review pull requests.",
+                    )),
+            );
+        let mut start = div()
+            .id("welcome-start")
+            .debug_selector(|| "welcome-start".into())
+            .v_flex()
+            .min_w_0()
+            .gap_3()
+            .when(wide, |el| el.flex_1())
+            .child(div().text_lg().font_medium().child("Getting started"));
+        for (id, command, description) in [
             (
                 "welcome-open",
-                jaywalk::commands::CommandId::OpenRepository,
-                IconName::FolderOpen,
+                CommandId::OpenRepository,
+                "Browse a local repository’s history and working changes.",
             ),
             (
                 "welcome-compare",
-                jaywalk::commands::CommandId::ComparePaths,
-                IconName::GitCompareArrows,
+                CommandId::ComparePaths,
+                "Compare two files or folders without opening a repository.",
+            ),
+            (
+                "welcome-pull-requests",
+                CommandId::OpenPullRequest,
+                "Find a pull request and open it in the diff viewer.",
+            ),
+            (
+                "welcome-accounts",
+                CommandId::Accounts,
+                "Connect GitHub or Bitbucket to find your pull requests.",
             ),
         ] {
             start = start.child(
-                div().h_flex().child(
-                    Button::new(id)
-                        .ghost()
-                        .icon(icon)
-                        .label(command.label())
-                        .tooltip_with_action(
-                            command.label(),
-                            &commands::ExecuteCommand { command },
-                            None,
-                        )
-                        .on_click(cx.listener(move |viewer, _, window, cx| {
-                            viewer.execute_command(command, window, cx)
-                        })),
-                ),
+                div()
+                    .v_flex()
+                    .gap_1()
+                    .child(
+                        div()
+                            .h_flex()
+                            .items_center()
+                            .gap_2()
+                            .child(
+                                Button::new(id)
+                                    .ghost()
+                                    .label(command.label())
+                                    .tooltip_with_action(
+                                        command.label(),
+                                        &commands::ExecuteCommand { command },
+                                        None,
+                                    )
+                                    .on_click(cx.listener(move |viewer, _, window, cx| {
+                                        viewer.execute_command(command, window, cx)
+                                    })),
+                            )
+                            .child(super::palette::ShortcutHint(command)),
+                    )
+                    .child(div().px_2().text_sm().text_color(muted).child(description)),
             );
         }
         start = start.child(
-            div().h_flex().child(
-                Button::new("welcome-pull-requests")
-                    .ghost()
-                    .label("Open pull request…")
-                    .on_click(cx.listener(|viewer, _, window, cx| {
-                        viewer.execute_command(
-                            jaywalk::commands::CommandId::OpenPullRequest,
-                            window,
-                            cx,
-                        )
-                    })),
-            ),
-        );
-        start = start.child(
-            div().h_flex().child(
-                Button::new("welcome-accounts")
-                    .ghost()
-                    .label("Accounts…")
-                    .on_click(cx.listener(|viewer, _, window, cx| {
-                        viewer.execute_command(jaywalk::commands::CommandId::Accounts, window, cx)
-                    })),
-            ),
-        );
-        start = start.child(
             div()
-                .mt_4()
-                .text_lg()
-                .font_medium()
-                .child("Find and navigate"),
+                .mt_2()
+                .pt_4()
+                .border_t_1()
+                .border_color(theme.border)
+                .v_flex()
+                .gap_2()
+                .child(
+                    div()
+                        .text_sm()
+                        .text_color(muted)
+                        .child("From your terminal, run jw . to open the current repository."),
+                ),
         );
         for (label, command) in [
-            ("Files", jaywalk::commands::CommandId::FindFile),
-            ("Commands", jaywalk::commands::CommandId::ShowCommands),
-            (
-                "Recent repositories",
-                jaywalk::commands::CommandId::OpenRecent,
-            ),
-            (
-                "Picker modes and prefixes (?)",
-                jaywalk::commands::CommandId::PickerHelp,
-            ),
+            ("Find a command", CommandId::ShowCommands),
+            ("Explore picker modes (?)", CommandId::PickerHelp),
         ] {
             start = start.child(
                 div()
@@ -161,18 +185,26 @@ impl Viewer {
                     .child(super::palette::ShortcutHint(command)),
             );
         }
-        start = start.child(
-            div()
-                .mt_4()
-                .text_lg()
-                .font_medium()
-                .child("Recent repositories"),
-        );
-        if recent.repositories.is_empty() {
-            start = start.child(
+        let mut recents = div()
+            .id("welcome-recents")
+            .debug_selector(|| "welcome-recents".into())
+            .v_flex()
+            .min_w_0()
+            .gap_2()
+            .when(wide, |el| el.flex_1())
+            .child(
                 div()
+                    .mb_1()
+                    .text_lg()
+                    .font_medium()
+                    .child("Recent repositories"),
+            );
+        if recent.repositories.is_empty() {
+            recents = recents.child(
+                div()
+                    .py_3()
                     .text_color(muted)
-                    .child("Open a repository to find it here next time."),
+                    .child("Your recently opened repositories will appear here."),
             );
         }
         for (index, directory) in recent
@@ -182,6 +214,7 @@ impl Viewer {
             .enumerate()
         {
             let path = directory.clone();
+            let full_path = crate::recents::display_path(directory);
             let name = directory
                 .file_name()
                 .unwrap_or(directory.as_os_str())
@@ -191,25 +224,37 @@ impl Viewer {
                 .parent()
                 .map(crate::recents::display_path)
                 .unwrap_or_default();
-            start = start.child(
+            recents = recents.child(
                 div()
                     .id(("welcome-recent", index))
+                    .debug_selector(move || format!("welcome-recent-{index}"))
                     .h_flex()
+                    .items_center()
                     .min_w_0()
                     .gap_3()
                     .cursor_pointer()
-                    .p_1()
+                    .px_2()
+                    .py_2()
                     .rounded_md()
                     .hover(|style| style.bg(theme.secondary_hover))
-                    .child(div().font_medium().child(name))
+                    .child(
+                        gpui::component::Icon::new(IconName::FolderOpen)
+                            .size(px(18.))
+                            .text_color(muted)
+                            .flex_shrink_0(),
+                    )
                     .child(
                         div()
+                            .v_flex()
                             .flex_1()
                             .min_w_0()
-                            .truncate()
-                            .text_color(muted)
-                            .child(parent),
+                            .gap_1()
+                            .child(div().truncate().font_medium().child(name))
+                            .child(div().truncate().text_sm().text_color(muted).child(parent)),
                     )
+                    .tooltip(move |window, cx| {
+                        gpui::component::tooltip::Tooltip::new(full_path.clone()).build(window, cx)
+                    })
                     .on_click(cx.listener(move |viewer, event: &ClickEvent, _, cx| {
                         let disposition = if event.modifiers().secondary(cx) {
                             crate::windows::OpenDisposition::NewWindow
@@ -221,61 +266,67 @@ impl Viewer {
             );
         }
         if !recent.repositories.is_empty() {
-            start = start.child(
-                div().h_flex().child(
-                    Button::new("welcome-more")
-                        .ghost()
-                        .label(
-                            if recent.repositories.len() > self.settings.welcome.recent_count {
-                                "More…"
-                            } else {
-                                "Search recent repositories…"
-                            },
-                        )
-                        .tooltip_with_action(
-                            "Open recent repository",
-                            &commands::ExecuteCommand {
-                                command: jaywalk::commands::CommandId::OpenRecent,
-                            },
-                            None,
-                        )
-                        .on_click(cx.listener(|viewer, _, window, cx| {
-                            viewer.execute_command(
-                                jaywalk::commands::CommandId::OpenRecent,
-                                window,
-                                cx,
+            recents = recents.child(
+                div()
+                    .mt_1()
+                    .h_flex()
+                    .items_center()
+                    .gap_2()
+                    .child(
+                        Button::new("welcome-more")
+                            .ghost()
+                            .label(
+                                if recent.repositories.len() > self.settings.welcome.recent_count {
+                                    "More repositories…"
+                                } else {
+                                    "Search recent repositories…"
+                                },
                             )
-                        })),
-                ),
+                            .on_click(cx.listener(|viewer, _, window, cx| {
+                                viewer.execute_command(CommandId::OpenRecent, window, cx)
+                            })),
+                    )
+                    .child(super::palette::ShortcutHint(CommandId::OpenRecent)),
             );
         }
-        let error = self
+        let columns = div()
+            .id("welcome-columns")
+            .flex()
+            .gap_6()
+            .when(wide, |el| el.flex_row().gap_8())
+            .when(!wide, |el| el.flex_col())
+            .child(start)
+            .child(recents);
+        let mut content = div()
+            .id("welcome-content")
+            .debug_selector(|| "welcome-content".into())
+            .w_full()
+            .max_w(rems(68.))
+            .flex_shrink_0()
+            .v_flex()
+            .gap_6()
+            .child(header)
+            .child(columns);
+        if let Some(error) = self
             .welcome
             .as_ref()
-            .and_then(|welcome| welcome.error.as_ref());
-        if let Some(error) = error {
-            start = start
-                .child(
-                    div()
-                        .mt_4()
-                        .font_medium()
-                        .child("Could not open that location"),
-                )
-                .child(feedback::error_message("welcome-open-error", error));
-        }
-        if let Some(error) = &self.config.error {
-            start = start.child(
+            .and_then(|welcome| welcome.error.as_ref())
+        {
+            content = content.child(
                 div()
-                    .mt_4()
-                    .child(feedback::error_message("welcome-settings-error", error)),
+                    .v_flex()
+                    .gap_2()
+                    .child(div().font_medium().child("Could not open that location"))
+                    .child(feedback::error_message("welcome-open-error", error)),
             );
         }
-        if let Some(error) = &recent.error {
-            start = start.child(
-                div()
-                    .mt_4()
-                    .child(feedback::error_message("welcome-recent-error", error)),
-            );
+        for (id, error) in [
+            ("welcome-settings-error", self.config.error.as_ref()),
+            ("welcome-recent-error", recent.error.as_ref()),
+        ] {
+            if let Some(error) = error {
+                content = content.child(feedback::error_message(id, error));
+            }
         }
         let focus = self.focus.clone();
         div()
@@ -285,17 +336,18 @@ impl Viewer {
             .v_flex()
             .overflow_y_scroll()
             .items_center()
-            .p_8()
-            .child(div().w_full().max_w(rems(48.)).py_8().child(start))
+            .p_4()
+            .when(wide, |el| el.p_8())
+            .child(content)
             .context_menu(move |menu, _, _| {
                 context_menu::command_entries(
                     menu.action_context(focus.clone()),
                     &[
-                        (jaywalk::commands::CommandId::OpenRepository, false),
-                        (jaywalk::commands::CommandId::OpenRecent, false),
-                        (jaywalk::commands::CommandId::ComparePaths, false),
-                        (jaywalk::commands::CommandId::OpenSettings, false),
-                        (jaywalk::commands::CommandId::OpenKeybindings, false),
+                        (CommandId::OpenRepository, false),
+                        (CommandId::OpenRecent, false),
+                        (CommandId::ComparePaths, false),
+                        (CommandId::OpenSettings, false),
+                        (CommandId::OpenKeybindings, false),
                     ],
                 )
             })
