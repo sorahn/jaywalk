@@ -7,6 +7,8 @@ default-run = "jaywalk"
 
 [features]
 profiling = ["gpui-kit/profiler"]
+# Release packaging supplies the checksum-pinned Sparkle SDK.
+macos-updater = []
 
 [dependencies]
 libc = "0.2"

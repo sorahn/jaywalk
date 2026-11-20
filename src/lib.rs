@@ -51,3 +51,6 @@ pub mod quick_picker;
 pub mod symbols;
 
 pub mod local_review;
+
+pub mod cli_install;
+pub mod setup;

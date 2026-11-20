@@ -18,6 +18,59 @@ fn git(arguments: &[&str]) -> Option<String> {
 }
 
 fn main() {
+    println!("cargo::rerun-if-env-changed=JAYWALK_SPARKLE_DIR");
+    if env::var_os("CARGO_FEATURE_MACOS_UPDATER").is_some()
+        && env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("macos")
+    {
+        let sdk = PathBuf::from(
+            env::var_os("JAYWALK_SPARKLE_DIR")
+                .expect("macos-updater requires JAYWALK_SPARKLE_DIR; run scripts/fetch-sparkle.py"),
+        );
+        let out = PathBuf::from(env::var_os("OUT_DIR").expect("Cargo output directory"));
+        let object = out.join("updater.o");
+        let status = Command::new("xcrun")
+            .args([
+                "clang",
+                "-fobjc-arc",
+                "-fmodules",
+                "-Wall",
+                "-Wextra",
+                "-Werror",
+                "-Wno-unused-parameter",
+                "-mmacosx-version-min=15.0",
+                "-c",
+                "packaging/macos/updater.m",
+                "-F",
+            ])
+            .arg(&sdk)
+            .arg("-o")
+            .arg(&object)
+            .status()
+            .expect("compile updater bridge");
+        assert!(status.success(), "could not compile Sparkle bridge");
+        assert!(
+            Command::new("ar")
+                .arg("crs")
+                .arg(out.join("libjaywalk_updater.a"))
+                .arg(object)
+                .status()
+                .expect("archive updater bridge")
+                .success()
+        );
+        println!("cargo::rustc-link-search=native={}", out.display());
+        println!("cargo::rustc-link-lib=static=jaywalk_updater");
+        println!("cargo::rustc-link-search=framework={}", sdk.display());
+        println!("cargo::rustc-link-lib=framework=Sparkle");
+        println!("cargo::rustc-link-lib=framework=AppKit");
+        println!("cargo::rustc-link-arg=-Wl,-rpath,@executable_path/../Frameworks");
+        // /bin/sh and system Git can strip DYLD_* during integration tests.
+        // Keep a build-machine SDK fallback only in development executables;
+        // distributable release binaries resolve their embedded framework only.
+        if env::var("PROFILE").as_deref() != Ok("release") {
+            println!("cargo::rustc-link-arg=-Wl,-rpath,{}", sdk.display());
+        }
+    }
+
     for path in [
         "build.rs",
         "Cargo.toml",

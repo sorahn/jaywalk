@@ -43,6 +43,7 @@ impl Render for Viewer {
             .text_color(gpui::component::Theme::global(cx).foreground);
         if self.page != pages::Page::Comparison {
             let body = match self.page {
+                pages::Page::Setup => self.render_setup(cx),
                 pages::Page::Welcome => {
                     self.render_welcome(f32::from(window.viewport_size().width), cx)
                 }

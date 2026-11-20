@@ -3586,3 +3586,50 @@ fn difftool_and_normal_opens_share_remembered_controls_without_replacing_supplie
         assert_eq!(reopened.saved.collapse_unchanged, Some(false));
     });
 }
+
+#[gpui_test::test]
+fn setup_is_optional_preserves_the_comparison_and_only_saves_explicit_choices(
+    cx: &mut TestAppContext,
+) {
+    use jaywalk::commands::CommandId;
+    let fixture = Fixture::new();
+    let (viewer, cx) = setup(&fixture, cx);
+    let before = cx.update(|_, app| viewer.read(app).comparison().unwrap().identity());
+    cx.simulate_resize(size(px(1500.), px(1400.)));
+    cx.update(|w, app| viewer.update(app, |v, c| v.execute_command(CommandId::ShowSetup, w, c)));
+    draw(cx);
+    assert!(cx.debug_bounds("setup-page").is_some());
+    let button = cx.debug_bounds("setup-update-0").unwrap();
+    cx.simulate_click(button.center(), Default::default());
+    draw(cx);
+    // Skipping is not consent, even after editing an unsaved checkbox.
+    let later = cx.debug_bounds("setup-later").unwrap();
+    cx.simulate_click(later.center(), Default::default());
+    draw(cx);
+    assert_eq!(
+        cx.update(|_, app| viewer.read(app).comparison().unwrap().identity()),
+        before
+    );
+    let path = fixture.0.join("settings.toml");
+    assert!(
+        !Settings::parse(&std::fs::read_to_string(&path).unwrap())
+            .unwrap()
+            .setup
+            .completed
+    );
+    cx.update(|w, app| viewer.update(app, |v, c| v.execute_command(CommandId::ShowSetup, w, c)));
+    draw(cx);
+    let checks = cx.debug_bounds("setup-update-0").unwrap();
+    cx.simulate_click(checks.center(), Default::default());
+    draw(cx);
+    let save = cx.debug_bounds("setup-save").unwrap();
+    cx.simulate_click(save.center(), Default::default());
+    draw(cx);
+    let saved = Settings::parse(&std::fs::read_to_string(&path).unwrap()).unwrap();
+    assert!(saved.setup.completed && saved.updates.automatic_checks);
+    assert!(!saved.updates.automatic_downloads && !saved.updates.automatic_installation);
+    assert_eq!(
+        cx.update(|_, app| viewer.read(app).comparison().unwrap().identity()),
+        before
+    );
+}

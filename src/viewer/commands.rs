@@ -12,7 +12,10 @@ pub(crate) fn init(arguments: &Arguments, settings: &Settings, cx: &mut App) -> 
     install_bindings(settings, cx)?;
     let arguments = arguments.clone();
     cx.on_action(move |action: &ExecuteCommand, cx| match action.command {
-        CommandId::OpenPullRequest
+        CommandId::ShowSetup
+        | CommandId::InstallCli
+        | CommandId::CheckUpdates
+        | CommandId::OpenPullRequest
         | CommandId::BrowsePullRequests
         | CommandId::Accounts
         | CommandId::ConnectAccount
@@ -129,7 +132,10 @@ fn configured_bindings(settings: &Settings, cx: &App) -> Vec<KeyBinding> {
         let context = match command {
             CommandId::OpenInNewWindow => Some("JaywalkRecent"),
             CommandId::ReviewSelectedReference => Some("JaywalkReferencePicker"),
-            CommandId::OpenPullRequest
+            CommandId::ShowSetup
+            | CommandId::InstallCli
+            | CommandId::CheckUpdates
+            | CommandId::OpenPullRequest
             | CommandId::BrowsePullRequests
             | CommandId::Accounts
             | CommandId::ConnectAccount
@@ -336,6 +342,9 @@ impl Viewer {
             CommandId::SincePrevious => {
                 self.select_evolution_mode(evolution::ReviewMode::SincePrevious, window, cx)
             }
+            CommandId::ShowSetup => self.show_setup(window, cx),
+            CommandId::InstallCli => self.install_cli(window, cx),
+            CommandId::CheckUpdates => crate::updater::check(window, cx),
             CommandId::OpenSettings => {
                 self.edit_configuration_file(keyboard::ConfigurationFile::Settings, window, cx)
             }

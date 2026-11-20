@@ -31,6 +31,10 @@ pub(crate) struct Arguments {
     #[arg(long, hide = true)]
     #[serde(default)]
     pub(crate) package_version: bool,
+    /// Source identity for release-manifest verification.
+    #[arg(long, hide = true)]
+    #[serde(default)]
+    pub(crate) build_revision: bool,
     /// Keep the GUI attached to this terminal (useful for debugging).
     #[arg(long)]
     pub(crate) foreground: bool,

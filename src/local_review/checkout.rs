@@ -937,6 +937,11 @@ pub fn recoveries(directory: &Path) -> Result<Vec<Recovery>, String> {
     Ok(result)
 }
 /// Explicit quit waits for best-effort guarded restoration. Failed receipts stay.
+pub fn has_active_checkouts() -> bool {
+    leases()
+        .try_lock()
+        .map_or(true, |leases| !leases.is_empty())
+}
 pub async fn restore_on_quit() {
     QUITTING.store(true, Ordering::Release);
     if QUEUE.get().is_none() {
