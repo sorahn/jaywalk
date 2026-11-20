@@ -14,9 +14,9 @@ pub struct RemoteRepository {
 impl RemoteRepository {
     pub fn parse(value: &str) -> Option<Self> {
         let value = value.trim();
-        let (host, path) = if let Some(value) = value.strip_prefix("git@") {
+        let (host, path, ssh) = if let Some(value) = value.strip_prefix("git@") {
             let (host, path) = value.split_once(':')?;
-            (host.to_owned(), path.to_owned())
+            (host.to_owned(), path.to_owned(), true)
         } else {
             let url = reqwest::Url::parse(value).ok()?;
             if !matches!(url.scheme(), "https" | "ssh") {
@@ -25,11 +25,15 @@ impl RemoteRepository {
             (
                 url.host_str()?.to_owned(),
                 url.path().trim_start_matches('/').to_owned(),
+                url.scheme() == "ssh",
             )
         };
         let provider = match host.as_str() {
             "github.com" => Provider::Github,
             "bitbucket.org" => Provider::Bitbucket,
+            // Bitbucket separates its current and alternate SSH transport hosts
+            // from the web/API repository identity.
+            "ssh.bitbucket.org" | "altssh.bitbucket.org" if ssh => Provider::Bitbucket,
             _ => return None,
         };
         let path = path.trim_end_matches('/');
@@ -133,6 +137,30 @@ pub fn associate(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn bitbucket_ssh_hosts_share_the_web_repository_identity() {
+        let expected = RemoteRepository::parse("https://bitbucket.org/team/repo").unwrap();
+        for url in [
+            "git@bitbucket.org:team/repo.git",
+            "git@ssh.bitbucket.org:team/repo",
+            "ssh://git@ssh.bitbucket.org/team/repo.git",
+            "ssh://git@altssh.bitbucket.org:443/team/repo.git",
+        ] {
+            assert_eq!(
+                RemoteRepository::parse(url),
+                Some(expected.clone()),
+                "{url}"
+            );
+        }
+        for url in [
+            "git@ssh.bitbucket.org.evil:team/repo",
+            "ssh://git@altssh.bitbucket.org.evil:443/team/repo",
+            "https://ssh.bitbucket.org/team/repo",
+        ] {
+            assert!(RemoteRepository::parse(url).is_none(), "{url}");
+        }
+    }
+
     #[test]
     fn remote_recognition_uses_exact_hosts_and_does_not_retain_credentials() {
         for value in [

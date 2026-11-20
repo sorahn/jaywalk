@@ -288,7 +288,11 @@ fn transport(
         crate::accounts::Provider::Bitbucket => "bitbucket.org",
     };
     Ok(if ssh {
-        format!("git@{host}:{repository}.git")
+        let ssh_host = match provider {
+            crate::accounts::Provider::Github => "github.com",
+            crate::accounts::Provider::Bitbucket => "ssh.bitbucket.org",
+        };
+        format!("git@{ssh_host}:{repository}.git")
     } else {
         format!("https://{host}/{repository}.git")
     })
