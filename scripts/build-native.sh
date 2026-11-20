@@ -17,9 +17,11 @@ case "$output" in
     /*) ;;
     *) output="$(pwd)/$output" ;;
 esac
+set --
+if [ "${JAYWALK_MACOS_UPDATER:-0}" = 1 ]; then set -- --features macos-updater; fi
 if [ "$profile" = release ]; then
-    cargo build --locked --bins --release --target "$host" --target-dir "$output" >&2
+    cargo build --locked --bins "$@" --release --target "$host" --target-dir "$output" >&2
 else
-    cargo build --locked --bins --target "$host" --target-dir "$output" >&2
+    cargo build --locked --bins "$@" --target "$host" --target-dir "$output" >&2
 fi
 printf '%s\n' "$output/$host/$profile"

@@ -69,3 +69,16 @@ profile-ui:
 # Read-only resource measurements against an explicitly supplied repository.
 profile-history *args:
     scripts/profile-history.sh "$@"
+
+# Offline native updater consent/configuration probe; requires the pinned SDK.
+[macos]
+test-updater:
+    scripts/test-updater-macos.sh
+    scripts/test-sparkle-feed.sh
+
+# Produce an ad hoc, feed-free bundle without replacing the development app.
+[macos]
+rehearse-macos:
+    python3 scripts/fetch-sparkle.py target/sparkle
+    JAYWALK_MACOS_UPDATER=1 JAYWALK_SIGNING_IDENTITY=- JAYWALK_SPARKLE_DIR="$PWD/target/sparkle" JAYWALK_BUNDLE_OUTPUT="$PWD/target/rehearsal/Jaywalk.app" JAYWALK_REGISTER_BUNDLE=0 scripts/bundle-macos.sh release
+    python3 scripts/release-macos.py package target/rehearsal/Jaywalk.app target/rehearsal-assets
