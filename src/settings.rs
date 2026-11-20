@@ -919,7 +919,7 @@ mod tests {
 
     #[test]
     fn welcome_recent_count_is_live_configurable_and_bounded() {
-        assert_eq!(Settings::parse("").unwrap().welcome.recent_count, 5);
+        assert_eq!(Settings::parse("").unwrap().welcome.recent_count, 10);
         assert_eq!(
             Settings::parse("[welcome]\nrecent_count=12")
                 .unwrap()

@@ -3407,7 +3407,7 @@ fn welcome_uses_two_columns_without_scrolling_and_stacks_on_small_windows(cx: &m
     let fixture = Fixture::new();
     let (viewer, cx) = setup(&fixture, cx);
     cx.update(|window, app| {
-        app.global_mut::<crate::recents::Recents>().repositories = (0..5)
+        app.global_mut::<crate::recents::Recents>().repositories = (0..10)
             .map(|index| {
                 PathBuf::from(format!(
                     "/a/long/parent/path/with/many/components/repository-{index}"
@@ -3419,6 +3419,7 @@ fn welcome_uses_two_columns_without_scrolling_and_stacks_on_small_windows(cx: &m
         });
     });
     draw(cx);
+    assert!(cx.debug_bounds("welcome-file-shortcut").is_some());
     let page = cx.debug_bounds("welcome-page").unwrap();
     let content = cx.debug_bounds("welcome-content").unwrap();
     let header = cx.debug_bounds("welcome-header").unwrap();
@@ -3431,7 +3432,7 @@ fn welcome_uses_two_columns_without_scrolling_and_stacks_on_small_windows(cx: &m
         content.bottom() <= page.bottom(),
         "default welcome content should fit: {content:?} in {page:?}"
     );
-    assert!(cx.debug_bounds("welcome-recent-4").unwrap().bottom() < page.bottom());
+    assert!(cx.debug_bounds("welcome-recent-9").unwrap().bottom() < page.bottom());
     cx.simulate_resize(size(px(560.), px(800.)));
     draw(cx);
     let page = cx.debug_bounds("welcome-page").unwrap();

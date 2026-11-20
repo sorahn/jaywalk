@@ -74,7 +74,7 @@ impl Viewer {
             .h_flex()
             .items_center()
             .gap_4()
-            .pb_6()
+            .pb_4()
             .border_b_1()
             .border_color(theme.border)
             .child(
@@ -98,7 +98,7 @@ impl Viewer {
             .debug_selector(|| "welcome-start".into())
             .v_flex()
             .min_w_0()
-            .gap_3()
+            .gap_2()
             .when(wide, |el| el.flex_1())
             .child(div().text_lg().font_medium().child("Getting started"));
         for (id, command, description) in [
@@ -185,12 +185,28 @@ impl Viewer {
                     .child(super::palette::ShortcutHint(command)),
             );
         }
+        start = start.child(
+            div()
+                .id("welcome-file-shortcut")
+                .debug_selector(|| "welcome-file-shortcut".into())
+                .h_flex()
+                .items_center()
+                .flex_wrap()
+                .gap_2()
+                .px_2()
+                .child(
+                    div()
+                        .text_color(muted)
+                        .child("Find files in an open repository"),
+                )
+                .child(super::palette::ShortcutHint(CommandId::FindFile)),
+        );
         let mut recents = div()
             .id("welcome-recents")
             .debug_selector(|| "welcome-recents".into())
             .v_flex()
             .min_w_0()
-            .gap_2()
+            .gap_1()
             .when(wide, |el| el.flex_1())
             .child(
                 div()
@@ -234,7 +250,7 @@ impl Viewer {
                     .gap_3()
                     .cursor_pointer()
                     .px_2()
-                    .py_2()
+                    .py_1()
                     .rounded_md()
                     .hover(|style| style.bg(theme.secondary_hover))
                     .child(
@@ -245,12 +261,28 @@ impl Viewer {
                     )
                     .child(
                         div()
-                            .v_flex()
+                            .h_flex()
+                            .items_center()
                             .flex_1()
                             .min_w_0()
-                            .gap_1()
-                            .child(div().truncate().font_medium().child(name))
-                            .child(div().truncate().text_sm().text_color(muted).child(parent)),
+                            .gap_2()
+                            .child(
+                                div()
+                                    .max_w(rems(16.))
+                                    .min_w_0()
+                                    .truncate()
+                                    .font_medium()
+                                    .child(name),
+                            )
+                            .child(
+                                div()
+                                    .flex_1()
+                                    .min_w_0()
+                                    .truncate()
+                                    .text_sm()
+                                    .text_color(muted)
+                                    .child(parent),
+                            ),
                     )
                     .tooltip(move |window, cx| {
                         gpui::component::tooltip::Tooltip::new(full_path.clone()).build(window, cx)
@@ -293,7 +325,7 @@ impl Viewer {
             .id("welcome-columns")
             .flex()
             .gap_6()
-            .when(wide, |el| el.flex_row().gap_8())
+            .when(wide, |el| el.flex_row().gap_6())
             .when(!wide, |el| el.flex_col())
             .child(start)
             .child(recents);
@@ -304,7 +336,7 @@ impl Viewer {
             .max_w(rems(68.))
             .flex_shrink_0()
             .v_flex()
-            .gap_6()
+            .gap_4()
             .child(header)
             .child(columns);
         if let Some(error) = self
@@ -337,7 +369,7 @@ impl Viewer {
             .overflow_y_scroll()
             .items_center()
             .p_4()
-            .when(wide, |el| el.p_8())
+            .when(wide, |el| el.p_6())
             .child(content)
             .context_menu(move |menu, _, _| {
                 context_menu::command_entries(

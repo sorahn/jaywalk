@@ -28,7 +28,7 @@ adaptive_command_order = true
 history_limit = 100
 
 [welcome]
-recent_count = 5
+recent_count = 10
 
 [window]
 width = 1500

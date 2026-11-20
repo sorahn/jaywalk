@@ -117,7 +117,7 @@ Usage is shared across application windows and saved beside the default user con
 
 | Setting | Default | Meaning and allowed values |
 | --- | --- | --- |
-| `welcome.recent_count` | `5` | Number of recent repositories shown on the welcome page; 1–50. Applies live. This changes only the preview count, not the saved repository history. |
+| `welcome.recent_count` | `10` | Number of recent repositories shown on the welcome page; 1–50. Applies live. This changes only the preview count, not the saved repository history. |
 
 ### `navigation`
 
