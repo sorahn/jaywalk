@@ -160,9 +160,13 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer scripts/bundle-macos.sh
 Output is `target/debug/Jaywalk.app` or `target/release/Jaywalk.app`. The script
 compiles `packaging/macos/jaywalk.icon` with Xcode's `actool`, includes modern
 and legacy icon resources, merges icon metadata, and signs the helper and app.
-It uses the single available Apple Development identity, or ad hoc signing if
-none is available. If several development identities are installed, choose one
-explicitly. `JAYWALK_SIGNING_IDENTITY` accepts a certificate fingerprint or name;
+It uses the single valid Apple Development identity, or ad hoc signing when no
+Apple Development identity is installed. If identities are installed but none
+is usable (for example, an expired certificate), bundling stops rather than
+silently changing the app’s Keychain identity. Renew/repair the certificate, or
+explicitly select `JAYWALK_SIGNING_IDENTITY=-` for an intentional ad hoc build.
+If several valid development identities are installed, choose one explicitly.
+`JAYWALK_SIGNING_IDENTITY` accepts a certificate fingerprint or name;
 `-` explicitly requests ad hoc signing. No certificates are created or trusted
 by the scripts.
 
