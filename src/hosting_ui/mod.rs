@@ -994,29 +994,47 @@ impl PullRequestsPage {
         let limit = self.text_limit;
         let expected = control.clone();
         let locator = item.locator.clone();
+        let (updates, receiver) = async_channel::bounded::<hosting::review::OpenStage>(16);
+        let progress_owner = control.clone();
+        cx.spawn_in(window, async move |this, cx| {
+            while let Ok(stage) = receiver.recv().await {
+                if progress_owner.check().is_err() {
+                    break;
+                }
+                let _ = this.update(cx, |page, cx| {
+                    if page.opening {
+                        page.notice = Some(format!("{} · Escape: cancel", stage.message()));
+                        cx.notify();
+                    }
+                });
+            }
+        })
+        .detach();
         cx.spawn_in(window, async move |this, cx| {
             let result = cx
                 .background_spawn(async move {
+                    let progress = |stage| {
+                        let _ = updates.try_send(stage);
+                    };
                     backend
                         .and_then(|backend| {
-                            backend.open_review(
+                            backend.open_review_with_options(
                                 &account.identity.key,
                                 &locator,
-                                options,
-                                limit,
+                                hosting::review::OpenOptions {
+                                    hosting: options,
+                                    limit,
+                                    local: Some(hosting::review::LocalRequest {
+                                        candidates: &candidates,
+                                        options: local_options,
+                                        receipts: &receipts,
+                                    }),
+                                    progress: &progress,
+                                },
                                 &control,
                             )
                         })
                         .map_err(|error| error.to_string())
-                        .and_then(|review| {
-                            jaywalk::local_review::apply(
-                                review,
-                                &candidates,
-                                local_options,
-                                &receipts,
-                                &control,
-                            )
-                        })
                         .map(|review| (account, review))
                 })
                 .await;

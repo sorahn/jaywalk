@@ -567,7 +567,31 @@ impl Service {
         limit: crate::text_content::TextLimit,
         control: &Control,
     ) -> Result<crate::hosting::review::Review, Error> {
-        options.validate().map_err(|_| Error::InvalidResponse)?;
+        self.open_review_with_options(
+            key,
+            locator,
+            crate::hosting::review::OpenOptions {
+                hosting: options,
+                limit,
+                local: None,
+                progress: &|_| {},
+            },
+            control,
+        )
+    }
+    pub fn open_review_with_options(
+        self: &Arc<Self>,
+        key: &AccountKey,
+        locator: &crate::hosting::Locator,
+        options: crate::hosting::review::OpenOptions<'_>,
+        control: &Control,
+    ) -> Result<crate::hosting::review::Review, Error> {
+        options
+            .hosting
+            .validate()
+            .map_err(|_| Error::InvalidResponse)?;
+        (options.progress)(crate::hosting::review::OpenStage::Account);
+        let started = std::time::Instant::now();
         self.restore()?;
         if key.provider != locator.provider {
             return Err(Error::Unsupported);
@@ -580,22 +604,13 @@ impl Service {
             .get(key)
             .ok_or(Error::NotConnected)?
             .epoch;
+        eprintln!("PR open: account_ms={}", started.elapsed().as_millis());
         let access = crate::hosting::review::Access {
             service: Arc::downgrade(self),
             account: key.clone(),
             generation: epoch,
         };
-        let data = crate::hosting::review::resolve(locator, options, control, |request| {
-            access.request(request, control)
-        })?;
-        control.check()?;
-        let contents = crate::hosting::review::Contents::new(data, access, options, limit);
-        let comparison = contents.comparison().map_err(|_| Error::InvalidResponse)?;
-        Ok(crate::hosting::review::Review {
-            comparison,
-            checkout: None,
-            local_notice: None,
-        })
+        crate::hosting::review::open(access, locator, options, control)
     }
     pub fn accounts_snapshot(&self) -> Snapshot {
         snapshot(&self.state.lock().expect("account state mutex poisoned"))

@@ -4,8 +4,9 @@ pub(super) fn resolve(
     locator: &Locator,
     options: Options,
     control: &Control,
-    mut request: impl FnMut(Request) -> Result<Reply, Error>,
-) -> Result<Data, Error> {
+    request: impl FnMut(Request) -> Result<Reply, Error>,
+) -> Result<Manifest, Error> {
+    let mut request = cache_commit_requests(request);
     let pr_url = url(
         Provider::Bitbucket,
         &locator.repository,
@@ -82,7 +83,7 @@ pub(super) fn resolve(
         }
         value = json(request(Request::Json(next))?)?;
     }
-    let (files, base) = files(rows, &source, &target, &mut request)?;
+    let (files, base) = file_specs(rows, &source, &target, &mut request)?;
     let base = match base {
         Some(base) => base,
         None => {
@@ -159,18 +160,18 @@ pub(super) fn resolve(
         }
         endpoint = next;
     }
-    let verify = json(request(Request::Json(pr_url))?)?;
-    for pointer in [
-        "/source/commit/hash",
-        "/destination/commit/hash",
-        "/source/repository/uuid",
-        "/destination/repository/uuid",
-    ] {
-        if verify.pointer(pointer) != detail.pointer(pointer) {
-            return Err(Error::Superseded);
-        }
-    }
-    Ok(Data {
+    let verification = Verification::new(
+        pr_url,
+        &detail,
+        &[
+            "/id",
+            "/source/commit/hash",
+            "/destination/commit/hash",
+            "/source/repository/uuid",
+            "/destination/repository/uuid",
+        ],
+    );
+    Ok(Manifest {
         metadata: Metadata {
             locator: locator.clone(),
             id: format!("{}:{}", target.repository.id, locator.number),
@@ -196,6 +197,7 @@ pub(super) fn resolve(
         },
         files,
         commits,
+        verification,
     })
 }
 fn full_commit(
@@ -278,7 +280,7 @@ fn entry_endpoint(
         repository: repo,
     })
 }
-fn raw_url(repo: &RepositoryName, commit: &str, path: &str) -> Result<Url, Error> {
+pub(super) fn raw_url(repo: &RepositoryName, commit: &str, path: &str) -> Result<Url, Error> {
     let mut value = url(Provider::Bitbucket, repo, &["src", commit])?;
     value
         .path_segments_mut()
@@ -312,12 +314,12 @@ fn blob(
     })
 }
 
-fn files(
+fn file_specs(
     rows: Vec<Value>,
     source: &Endpoint,
     target: &Endpoint,
     request: &mut impl FnMut(Request) -> Result<Reply, Error>,
-) -> Result<(Vec<File>, Option<Endpoint>), Error> {
+) -> Result<(Vec<FileSpec>, Option<Endpoint>), Error> {
     let mut files = Vec::new();
     let mut base = None;
     let mut paths = std::collections::HashSet::new();
@@ -359,7 +361,7 @@ fn files(
                 return Err(Error::InvalidResponse);
             }
             base = Some(endpoint.clone());
-            Some(blob(&endpoint, &before_path, request)?)
+            Some(endpoint)
         } else {
             None
         };
@@ -368,7 +370,7 @@ fn files(
             if endpoint.commit != source.commit {
                 return Err(Error::Superseded);
             }
-            Some(blob(&endpoint, &after_path, request)?)
+            Some(endpoint)
         } else {
             None
         };
@@ -377,13 +379,75 @@ fn files(
         {
             return Err(Error::InvalidResponse);
         }
-        files.push(File {
+        files.push(FileSpec {
             change: ChangedFile::new(kind, before_path, after_path),
             before,
             after,
         });
     }
     Ok((files, base))
+}
+fn files(
+    rows: Vec<Value>,
+    source: &Endpoint,
+    target: &Endpoint,
+    request: &mut impl FnMut(Request) -> Result<Reply, Error>,
+) -> Result<(Vec<File>, Option<Endpoint>), Error> {
+    let (specs, base) = file_specs(rows, source, target, request)?;
+    Ok((hydrate_specs(&specs, request)?, base))
+}
+pub(super) fn hydrate_specs(
+    specs: &[FileSpec],
+    request: &mut impl FnMut(Request) -> Result<Reply, Error>,
+) -> Result<Vec<File>, Error> {
+    specs
+        .iter()
+        .map(|spec| {
+            Ok(File {
+                change: spec.change.clone(),
+                before: spec
+                    .before
+                    .as_ref()
+                    .map(|endpoint| blob(endpoint, spec.change.before_path(), request))
+                    .transpose()?,
+                after: spec
+                    .after
+                    .as_ref()
+                    .map(|endpoint| blob(endpoint, spec.change.after_path(), request))
+                    .transpose()?,
+            })
+        })
+        .collect()
+}
+// Diffstat repeats abbreviated commit IDs for every file. Resolve each immutable
+// commit URL once per operation; never cache moving PR details or file contents.
+fn cache_commit_requests(
+    mut request: impl FnMut(Request) -> Result<Reply, Error>,
+) -> impl FnMut(Request) -> Result<Reply, Error> {
+    let mut cache = BTreeMap::<String, Value>::new();
+    let mut bytes = 0usize;
+    move |r| {
+        let key = match &r {
+            Request::Json(url) if url.path().contains("/commit/") && url.query().is_none() => {
+                Some(url.to_string())
+            }
+            _ => None,
+        };
+        if let Some(value) = key.as_ref().and_then(|key| cache.get(key)) {
+            return Ok(Reply::Json(value.clone()));
+        }
+        let reply = request(r)?;
+        if let (Some(key), Reply::Json(value)) = (key, &reply) {
+            let size = serde_json::to_vec(value)
+                .map_err(|_| Error::InvalidResponse)?
+                .len();
+            if cache.len() < 1024 && bytes.saturating_add(size) <= 32 * 1_048_576 {
+                bytes += size;
+                cache.insert(key, value.clone());
+            }
+        }
+        Ok(reply)
+    }
 }
 
 pub(super) fn for_revision(

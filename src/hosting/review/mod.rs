@@ -3,6 +3,8 @@
 mod bitbucket;
 mod contents;
 mod github;
+mod manifest;
+mod open;
 use super::{Locator, RepositoryName};
 use crate::{
     accounts::{AccountKey, Control, Error, Service},
@@ -12,6 +14,9 @@ use crate::{
     text_content::TextLimit,
 };
 pub use contents::Contents;
+use manifest::{FileSpec, Manifest, Verification};
+pub(crate) use open::open;
+pub use open::{LocalRequest, OpenOptions, OpenStage};
 use reqwest::Url;
 use serde_json::Value;
 use std::{
@@ -160,29 +165,11 @@ impl Review {
             None
         };
         control.check().map_err(|error| error.to_string())?;
-        let checkout_changed = checkout.as_ref().is_some_and(|lease| lease.active());
+        let notice = local_notice(options.mode, checkout.as_deref());
         Ok(Self {
             comparison,
-            local_notice: Some(
-                if options.mode == crate::local_review::Mode::CheckoutIfClean && !checkout_changed {
-                    "Local PR objects · existing clean checkout already matches; nothing switched"
-                        .into()
-                } else if options.mode == crate::local_review::Mode::CheckoutIfClean {
-                    format!(
-                        "Local PR objects · {} · use Restore review checkout to finish",
-                        checkout
-                            .as_ref()
-                            .and_then(|lease| lease.branch_name())
-                            .map_or_else(
-                                || "detached PR commit".to_owned(),
-                                |branch| format!("branch {branch}")
-                            )
-                    )
-                } else {
-                    "Local PR objects · known repository checkout unchanged".into()
-                },
-            ),
             checkout,
+            local_notice: Some(notice),
         })
     }
     pub fn comparison(&self) -> &Comparison {
@@ -199,6 +186,25 @@ impl Review {
             .data
             .metadata
     }
+}
+fn local_notice(
+    mode: crate::local_review::Mode,
+    checkout: Option<&crate::local_review::checkout::Lease>,
+) -> String {
+    if mode != crate::local_review::Mode::CheckoutIfClean {
+        return "Local PR objects · known repository checkout unchanged".into();
+    }
+    if checkout.is_some_and(|lease| !lease.active()) {
+        return "Local PR objects · existing clean checkout already matches; nothing switched"
+            .into();
+    }
+    format!(
+        "Local PR objects · {} · use Restore review checkout to finish",
+        checkout.and_then(|lease| lease.branch_name()).map_or_else(
+            || "detached PR commit".to_owned(),
+            |branch| format!("branch {branch}")
+        )
+    )
 }
 #[derive(Clone, Debug)]
 pub enum Request {
@@ -229,12 +235,24 @@ impl Access {
             .review_request(&self.account, self.generation, request, control)
     }
 }
+#[cfg(test)]
 pub(crate) fn resolve(
     locator: &Locator,
     options: Options,
     control: &Control,
-    request: impl FnMut(Request) -> Result<Reply, Error>,
+    mut request: impl FnMut(Request) -> Result<Reply, Error>,
 ) -> Result<Data, Error> {
+    let manifest = resolve_manifest(locator, options, control, &mut request)?;
+    let data = manifest.hosted(control, &mut request)?;
+    manifest.verify(control, &mut request)?;
+    Ok(data)
+}
+fn resolve_manifest(
+    locator: &Locator,
+    options: Options,
+    control: &Control,
+    request: impl FnMut(Request) -> Result<Reply, Error>,
+) -> Result<Manifest, Error> {
     control.check()?;
     match locator.provider {
         crate::accounts::Provider::Github => github::resolve(locator, options, control, request),
@@ -359,3 +377,6 @@ pub(crate) fn for_revision(
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod open_tests;
