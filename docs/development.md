@@ -46,6 +46,18 @@ remain usable directly. The justfile delegates bundling and launcher installatio
 to those scripts rather than duplicating them. Recipe arguments use quoted shell
 positional parameters, preserving paths with spaces and literal special characters.
 
+## Profile PR opening
+
+Normal PR opens and updates emit `PR open:` timing lines to stderr (`jaywalk.log` in the default config directory for normal detached launches; an explicit `--config` uses that config path with a `.log` extension). They report account-loading time, manifest resolution, repository matching, Git acquisition, file metadata, verification and optional checkout, plus a logical review-API request count. Token refresh, identity validation and HTTP retries are not separate entries in that request count. The diagnostics omit account/repository identifiers, URLs, paths, commits and tokens. Cancellation and failures also record completed stages.
+
+A deterministic synthetic profile is available without a desktop, credentials or network access:
+
+```sh
+just test --lib profile_bitbucket_open_with_simulated_network_latency -- --ignored --nocapture
+```
+
+It uses a 44-file Bitbucket PR and a simulated 100 ms latency per API request. On the development Mac it reduced 52 review requests (46 file-metadata reads) and roughly 5.4 seconds in hosted mode to six requests (zero file-metadata reads) and roughly 1.1 seconds in local isolated mode. These are harness measurements, not a live-service guarantee; checkout, authentication, Git transport and repository size add their own costs.
+
 ## Build directly with Cargo
 
 ```sh
@@ -148,9 +160,13 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer scripts/bundle-macos.sh
 Output is `target/debug/Jaywalk.app` or `target/release/Jaywalk.app`. The script
 compiles `packaging/macos/jaywalk.icon` with Xcode's `actool`, includes modern
 and legacy icon resources, merges icon metadata, and signs the helper and app.
-It uses the single available Apple Development identity, or ad hoc signing if
-none is available. If several development identities are installed, choose one
-explicitly. `JAYWALK_SIGNING_IDENTITY` accepts a certificate fingerprint or name;
+It uses the single valid Apple Development identity, or ad hoc signing when no
+Apple Development identity is installed. If identities are installed but none
+is usable (for example, an expired certificate), bundling stops rather than
+silently changing the app’s Keychain identity. Renew/repair the certificate, or
+explicitly select `JAYWALK_SIGNING_IDENTITY=-` for an intentional ad hoc build.
+If several valid development identities are installed, choose one explicitly.
+`JAYWALK_SIGNING_IDENTITY` accepts a certificate fingerprint or name;
 `-` explicitly requests ad hoc signing. No certificates are created or trusted
 by the scripts.
 

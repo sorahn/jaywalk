@@ -70,6 +70,27 @@ pub(crate) fn latest(path: &Path, repository: &Path, cx: &App) -> Option<LayoutS
         })
         .cloned()
 }
+/// Exercise the actual file writer without waking GPUI's deterministic test
+/// executor from an OS thread. Tests inspect the shared cache and flush to disk.
+#[cfg(test)]
+pub(crate) fn init_for_test(cx: &mut App) {
+    let (sender, receiver) = mpsc::channel();
+    let (results, _responses) = async_channel::unbounded();
+    cx.set_global(InterfaceState {
+        sender,
+        latest: HashMap::new(),
+    });
+    std::thread::spawn(move || write_layouts(receiver, results));
+}
+#[cfg(test)]
+pub(crate) fn flush_for_test(cx: &App) {
+    let (ack, done) = async_channel::bounded(1);
+    cx.global::<InterfaceState>()
+        .sender
+        .send(Change::Flush(ack))
+        .unwrap();
+    done.recv_blocking().unwrap();
+}
 fn write_layouts(
     receiver: Receiver<Change>,
     results: async_channel::Sender<(StoreKey, Result<(), String>)>,

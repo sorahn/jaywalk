@@ -5,7 +5,7 @@ pub(super) fn resolve(
     options: Options,
     control: &Control,
     mut request: impl FnMut(Request) -> Result<Reply, Error>,
-) -> Result<Data, Error> {
+) -> Result<Manifest, Error> {
     let pr_url = url(
         Provider::Github,
         &locator.repository,
@@ -78,7 +78,7 @@ pub(super) fn resolve(
             return Err(Error::Superseded);
         }
     }
-    let files = files(rows, &base, &source, control, &mut request)?;
+    let files = file_specs(rows, &base, &source)?;
     let mut commits = Vec::new();
     let commit_count = detail["commits"].as_u64().ok_or(Error::InvalidResponse)? as usize;
     let available = commit_count.min(250);
@@ -130,16 +130,18 @@ pub(super) fn resolve(
         skip = 0;
     }
     commits.reverse();
-    let verify = json(request(Request::Json(pr_url))?)?;
-    if verify.pointer("/head/sha") != detail.pointer("/head/sha")
-        || verify.pointer("/base/sha") != detail.pointer("/base/sha")
-        || verify["id"] != detail["id"]
-        || verify.pointer("/head/repo/node_id") != detail.pointer("/head/repo/node_id")
-        || verify.pointer("/base/repo/node_id") != detail.pointer("/base/repo/node_id")
-    {
-        return Err(Error::Superseded);
-    }
-    Ok(Data {
+    let verification = Verification::new(
+        pr_url,
+        &detail,
+        &[
+            "/head/sha",
+            "/base/sha",
+            "/id",
+            "/head/repo/node_id",
+            "/base/repo/node_id",
+        ],
+    );
+    Ok(Manifest {
         metadata: Metadata {
             locator: locator.clone(),
             id: text(&detail, "/node_id", 512)?,
@@ -169,6 +171,7 @@ pub(super) fn resolve(
         },
         files,
         commits,
+        verification,
     })
 }
 fn tree_blob(
@@ -239,17 +242,13 @@ fn tree_blob(
     Err(Error::InvalidResponse)
 }
 
-fn files(
+fn file_specs(
     rows: Vec<Value>,
     base: &Endpoint,
     source: &Endpoint,
-    control: &Control,
-    request: &mut impl FnMut(Request) -> Result<Reply, Error>,
-) -> Result<Vec<File>, Error> {
-    let mut trees = TreeCache::default();
+) -> Result<Vec<FileSpec>, Error> {
     let mut files = Vec::new();
     for value in rows {
-        control.check()?;
         let after = path(&text(&value, "/filename", 4096)?)?;
         let kind = match text(&value, "/status", 32)?.as_str() {
             "added" => ChangeKind::Added,
@@ -264,23 +263,64 @@ fn files(
         } else {
             after.clone()
         };
-        let before_blob = if kind == ChangeKind::Added {
-            None
-        } else {
-            Some(tree_blob(base, &before, &mut trees, request, control)?)
-        };
-        let after_blob = if kind == ChangeKind::Removed {
-            None
-        } else {
-            Some(tree_blob(source, &after, &mut trees, request, control)?)
-        };
-        files.push(File {
+        files.push(FileSpec {
+            before: (kind != ChangeKind::Added).then(|| base.clone()),
+            after: (kind != ChangeKind::Removed).then(|| source.clone()),
             change: ChangedFile::new(kind, before, after),
-            before: before_blob,
-            after: after_blob,
         });
     }
     Ok(files)
+}
+fn files(
+    rows: Vec<Value>,
+    base: &Endpoint,
+    source: &Endpoint,
+    control: &Control,
+    request: &mut impl FnMut(Request) -> Result<Reply, Error>,
+) -> Result<Vec<File>, Error> {
+    hydrate_specs(&file_specs(rows, base, source)?, control, request)
+}
+pub(super) fn hydrate_specs(
+    specs: &[FileSpec],
+    control: &Control,
+    request: &mut impl FnMut(Request) -> Result<Reply, Error>,
+) -> Result<Vec<File>, Error> {
+    let mut trees = TreeCache::default();
+    specs
+        .iter()
+        .map(|spec| {
+            control.check()?;
+            Ok(File {
+                change: spec.change.clone(),
+                before: spec
+                    .before
+                    .as_ref()
+                    .map(|endpoint| {
+                        tree_blob(
+                            endpoint,
+                            spec.change.before_path(),
+                            &mut trees,
+                            request,
+                            control,
+                        )
+                    })
+                    .transpose()?,
+                after: spec
+                    .after
+                    .as_ref()
+                    .map(|endpoint| {
+                        tree_blob(
+                            endpoint,
+                            spec.change.after_path(),
+                            &mut trees,
+                            request,
+                            control,
+                        )
+                    })
+                    .transpose()?,
+            })
+        })
+        .collect()
 }
 
 pub(super) fn for_revision(

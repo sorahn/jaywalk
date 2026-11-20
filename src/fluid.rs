@@ -97,7 +97,9 @@ impl DiffGeometry {
             if block.changed {
                 let height = (self.before[block.before.end] - self.before[block.before.start])
                     .max(self.after[block.after.end] - self.after[block.after.start]);
-                if range.contains(&line) {
+                // An empty side still owns its insertion/deletion boundary.
+                // Skipping it maps line zero in a new file to the file end.
+                if range.contains(&line) || (range.is_empty() && line == range.start) {
                     return position
                         + height * (line - range.start) as f32 / range.len().max(1) as f32;
                 }
@@ -144,6 +146,14 @@ impl DiffGeometry {
             let start = position;
             position += self.block_height(block);
             block.changed.then_some((block, start..position))
+        })
+    }
+
+    /// Center changes that fit; reveal the start of taller changes so opening a
+    /// new file or navigating to a large block never hides its first lines.
+    pub fn change_scroll_position(&self, diff: &FileDiff, target: usize, viewport: f32) -> f32 {
+        self.change_spans(diff).nth(target).map_or(0., |(_, span)| {
+            (span.start - (viewport - (span.end - span.start)).max(0.) / 2.).max(0.)
         })
     }
 
@@ -201,7 +211,7 @@ impl FluidScroll {
 mod tests {
     use super::*;
 
-    fn geometry(diff: &FileDiff) -> DiffGeometry {
+    pub(super) fn geometry(diff: &FileDiff) -> DiffGeometry {
         DiffGeometry {
             before_height: (diff.before_offsets.len() - 1) as f32 * 20.,
             after_height: (diff.after_offsets.len() - 1) as f32 * 20.,
@@ -560,6 +570,47 @@ mod shared_scroll_tests {
 mod change_map_tests {
     use super::{DiffGeometry, SharedScrollTrack};
     use crate::diff_model::FileDiff;
+
+    #[test]
+    fn navigation_reveals_tall_change_starts_and_centers_short_changes() {
+        let prefix = (0..30)
+            .map(|line| format!("keep {line}\n"))
+            .collect::<String>();
+        let suffix = (0..30)
+            .map(|line| format!("tail {line}\n"))
+            .collect::<String>();
+        for (before, after) in [
+            (String::new(), "added\n".repeat(100)),
+            ("deleted\n".repeat(100), String::new()),
+            (
+                format!("{prefix}old\n{suffix}"),
+                format!("{prefix}{}{suffix}", "new\n".repeat(100)),
+            ),
+            (
+                format!("{prefix}old\n{suffix}"),
+                format!("{prefix}new\n{suffix}"),
+            ),
+        ] {
+            let diff = FileDiff::new(&before, &after);
+            let geometry = super::tests::geometry(&diff);
+            let (_, span) = geometry.change_spans(&diff).next().unwrap();
+            if before.is_empty() {
+                assert_eq!(geometry.position_for_line(&diff, 0, true), 0.);
+            }
+            if after.is_empty() {
+                assert_eq!(geometry.position_for_line(&diff, 0, false), 0.);
+            }
+            for viewport in [200., 600., span.end - span.start] {
+                let position = geometry.change_scroll_position(&diff, 0, viewport);
+                assert!(position <= span.start, "navigation must not skip the start");
+                if span.end - span.start >= viewport {
+                    assert_eq!(position, span.start);
+                } else {
+                    assert_eq!(position, ((span.start + span.end - viewport) / 2.).max(0.));
+                }
+            }
+        }
+    }
 
     #[test]
     fn marks_use_shared_wrapped_geometry_and_the_navigation_coordinate() {

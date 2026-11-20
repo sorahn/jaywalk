@@ -35,6 +35,22 @@ impl Contents {
             local: None,
         })
     }
+    pub(super) fn new_local(
+        data: Data,
+        access: Access,
+        options: Options,
+        limit: TextLimit,
+        local: Arc<crate::local_review::Workspace>,
+    ) -> Arc<Self> {
+        Arc::new(Self {
+            data,
+            access,
+            options,
+            limit,
+            cache: Arc::default(),
+            local: Some(local),
+        })
+    }
     pub fn is_local(&self) -> bool {
         self.local.is_some()
     }
@@ -266,36 +282,37 @@ impl Contents {
         control: &Control,
     ) -> Result<Review, Error> {
         let service = self.access.service.upgrade().ok_or(Error::NotConnected)?;
-        let mut review = service.open_review(
+        let candidates = self
+            .local
+            .as_ref()
+            .map(|local| vec![local.known_repository().to_owned()])
+            .unwrap_or_default();
+        let local = self.local.as_ref().map(|local| super::LocalRequest {
+            candidates: &candidates,
+            options: local.isolated_options(),
+            // Isolated updates never checkout or write receipts.
+            receipts: local.directory(),
+        });
+        let mut review = service.open_review_with_options(
             &self.access.account,
             &self.data.metadata.locator,
-            options,
-            limit,
+            super::OpenOptions {
+                hosting: options,
+                limit,
+                local,
+                progress: &|_| {},
+            },
             control,
         )?;
-        if let Some(local) = &self.local {
-            let contents = review
-                .comparison
-                .hosted()
-                .expect("a published review has hosted contents");
-            match contents
-                .with_local(local.clone())
-                .and_then(|contents| contents.comparison())
-            {
-                Ok(comparison) => {
-                    review.comparison = comparison;
-                    review.local_notice = Some(
-                        "Published PR updated with local objects · checkout was not switched"
-                            .into(),
-                    );
-                }
-                Err(error) => {
-                    review.local_notice = Some(format!(
-                        "Local update unavailable: {error} · Updated hosted snapshot retained"
-                    ));
-                }
-            }
+        if review
+            .comparison
+            .hosted()
+            .is_some_and(|contents| contents.is_local())
+        {
+            review.local_notice =
+                Some("Published PR updated with local objects · checkout was not switched".into());
         }
+
         Ok(review)
     }
 }
@@ -371,6 +388,7 @@ mod local_tests {
                     mode: crate::local_review::Mode::Isolated,
                     max_repository_mb: 16,
                     fetch_missing: false,
+                    ..Default::default()
                 },
                 receipts.path(),
                 &control(),
@@ -405,6 +423,7 @@ mod local_tests {
                     mode: crate::local_review::Mode::CheckoutIfClean,
                     max_repository_mb: 16,
                     fetch_missing: false,
+                    ..Default::default()
                 },
                 receipts.path(),
                 &control(),

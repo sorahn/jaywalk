@@ -25,6 +25,14 @@ struct Receipt {
     original_commit: String,
     original_ref: Option<String>,
     expected_commit: String,
+    #[serde(default)]
+    expected_ref: Option<String>,
+    #[serde(default)]
+    created_branch: bool,
+    #[serde(default)]
+    cleanup_created_branch: bool,
+    #[serde(default)]
+    creation_token: Option<String>,
 }
 #[derive(Clone, Debug)]
 pub struct Snapshot {
@@ -59,6 +67,7 @@ pub struct Lease {
     receipt: PathBuf,
     root: PathBuf,
     expected: String,
+    expected_ref: Option<String>,
     active: Arc<AtomicBool>,
 }
 impl Lease {
@@ -67,6 +76,11 @@ impl Lease {
     }
     pub fn expected_commit(&self) -> &str {
         &self.expected
+    }
+    pub fn branch_name(&self) -> Option<&str> {
+        self.expected_ref
+            .as_deref()
+            .and_then(|r| r.strip_prefix("refs/heads/"))
     }
     pub fn active(&self) -> bool {
         self.active.load(Ordering::Acquire)
@@ -277,7 +291,17 @@ fn read(path: &Path) -> Result<Receipt, String> {
         .map_err(|_| "Invalid checkout recovery receipt; left unchanged")?;
     validate_commit(&receipt.original_commit)?;
     validate_commit(&receipt.expected_commit)?;
-    if receipt.version != 1
+    if !matches!(receipt.version, 1 | 2)
+        || (receipt.version == 1
+            && (receipt.expected_ref.is_some()
+                || receipt.created_branch
+                || receipt.cleanup_created_branch
+                || receipt.creation_token.is_some()))
+        || (receipt.created_branch && receipt.expected_ref.is_none())
+        || receipt
+            .expected_ref
+            .as_ref()
+            .is_some_and(|r| !r.starts_with("refs/heads/"))
         || !receipt.root.is_absolute()
         || !receipt.git_dir.is_absolute()
         || receipt
@@ -347,16 +371,18 @@ pub fn start(
             control,
         )?
     };
-    start_at(
+    start_checkout(
         workspace.known_repository(),
         &source,
         &workspace.metadata.source.commit,
         receipt_directory,
         Some(snapshot),
         control,
+        Some(workspace),
     )
 }
 
+#[cfg(test)]
 fn start_at(
     root: &Path,
     object_source: &str,
@@ -364,6 +390,134 @@ fn start_at(
     receipt_directory: &Path,
     expected: Option<&Snapshot>,
     control: &Control,
+) -> Result<Arc<Lease>, String> {
+    start_checkout(
+        root,
+        object_source,
+        target,
+        receipt_directory,
+        expected,
+        control,
+        None,
+    )
+}
+
+/// Only exact refs count: a prefix match from for-each-ref must not select a
+/// similarly named branch. Missing refs are distinct from command failures.
+fn ref_commit(root: &Path, reference: &str, control: &Control) -> Result<Option<String>, String> {
+    let refs = text(
+        root,
+        &[
+            "for-each-ref",
+            "--format=%(objectname) %(refname)",
+            "--",
+            reference,
+        ],
+        control,
+    )?;
+    Ok(refs
+        .lines()
+        .filter_map(|line| line.split_once(' '))
+        .find(|(_, name)| *name == reference)
+        .map(|(commit, _)| commit.to_owned()))
+}
+
+enum BranchChoice {
+    Detached,
+    Existing(String),
+    Create(String),
+}
+impl BranchChoice {
+    fn reference(&self) -> Option<&str> {
+        match self {
+            Self::Detached => None,
+            Self::Existing(reference) | Self::Create(reference) => Some(reference),
+        }
+    }
+    fn creates_branch(&self) -> bool {
+        matches!(self, Self::Create(_))
+    }
+}
+fn choose_branch(
+    root: &Path,
+    target: &str,
+    workspace: Option<&Workspace>,
+    control: &Control,
+) -> Result<BranchChoice, String> {
+    let detached = || BranchChoice::Detached;
+    let Some(workspace) = workspace else {
+        return Ok(detached());
+    };
+    if workspace.checkout_branch == super::CheckoutBranch::Detached {
+        return Ok(detached());
+    }
+    let Some(name) = workspace.metadata.source_branch.as_deref() else {
+        return Ok(detached());
+    };
+    let reference = format!("refs/heads/{name}");
+    if process::git(root, &["check-ref-format", &reference], control, None).is_err()
+        || text(root, &["check-ref-format", "--branch", name], control)? != name
+    {
+        return Ok(detached());
+    }
+    if let Some(commit) = ref_commit(root, &reference, control)? {
+        return Ok(if commit == target {
+            BranchChoice::Existing(reference)
+        } else {
+            detached()
+        });
+    }
+    if workspace.checkout_branch != super::CheckoutBranch::CreateFromRemote {
+        return Ok(detached());
+    }
+    let remotes = text(
+        root,
+        &[
+            "config",
+            "--local",
+            "--no-includes",
+            "--get-regexp",
+            r"^remote\..*\.url$",
+        ],
+        control,
+    )?;
+    for line in remotes.lines() {
+        let Some((key, url)) = line.split_once(' ') else {
+            continue;
+        };
+        let Some(remote) = key
+            .strip_prefix("remote.")
+            .and_then(|key| key.strip_suffix(".url"))
+        else {
+            continue;
+        };
+        let Some(identity) = crate::hosting::RemoteRepository::parse(url) else {
+            continue;
+        };
+        if identity.provider != workspace.metadata.locator.provider
+            || !identity
+                .repository
+                .to_string()
+                .eq_ignore_ascii_case(&workspace.metadata.source.repository.name.to_string())
+        {
+            continue;
+        }
+        let tracking = format!("refs/remotes/{remote}/{name}");
+        if ref_commit(root, &tracking, control)?.as_deref() == Some(target) {
+            return Ok(BranchChoice::Create(reference));
+        }
+    }
+    Ok(detached())
+}
+
+fn start_checkout(
+    root: &Path,
+    object_source: &str,
+    target: &str,
+    receipt_directory: &Path,
+    expected: Option<&Snapshot>,
+    control: &Control,
+    workspace: Option<&Workspace>,
 ) -> Result<Arc<Lease>, String> {
     if QUITTING.load(Ordering::Acquire) {
         return Err("Application is closing; checkout refused".into());
@@ -394,7 +548,7 @@ fn start_at(
     {
         if lease.expected == target
             && text(&root, &["rev-parse", "HEAD"], control)? == target
-            && symbolic(&root, control)?.is_none()
+            && symbolic(&root, control)? == lease.expected_ref
         {
             return Ok(lease);
         }
@@ -455,17 +609,26 @@ fn start_at(
             receipt: path,
             root,
             expected: target.into(),
+            expected_ref: original_ref.clone(),
             active: Arc::new(AtomicBool::new(false)),
         }));
     }
+    let branch = choose_branch(&root, target, workspace, control)?;
     let receipt = Receipt {
-        version: 1,
+        version: 2,
         root: root.clone(),
         git_identity: identity(&git_dir)?,
         git_dir,
         original_commit,
         original_ref,
         expected_commit: target.into(),
+        expected_ref: branch.reference().map(str::to_owned),
+        created_branch: branch.creates_branch(),
+        cleanup_created_branch: branch.creates_branch()
+            && workspace.is_some_and(|w| w.cleanup_created_branch),
+        creation_token: branch
+            .creates_branch()
+            .then(|| format!("{:032x}", rand::random::<u128>())),
     };
     // Import a connected graph without moving refs/FETCH_HEAD or changing repository depth.
     let object = format!("{target}^{{commit}}");
@@ -524,19 +687,69 @@ fn start_at(
     save(&path, &receipt)?;
     // Once the receipt is durable, cancellation cannot strand an unrecorded switch.
     let switching = Control::new(Duration::from_secs(30));
-    if process::git(
-        &root,
-        &[
-            "checkout",
-            "--detach",
-            "--no-overwrite-ignore",
-            target,
-            "--",
-        ],
-        &switching,
-        None,
-    )
-    .is_err()
+    let switched = if let Some(reference) = branch.reference() {
+        let name = reference
+            .strip_prefix("refs/heads/")
+            .expect("a local branch ref was constructed");
+        if branch.creates_branch() {
+            let marker = format!(
+                "jaywalk review {}",
+                receipt
+                    .creation_token
+                    .as_deref()
+                    .expect("new branches have an ownership token")
+            );
+            // Compare-and-create cannot reset an existing branch. The reflog marker
+            // proves ownership if Git completes but the app exits before recording a lease.
+            process::git(
+                &root,
+                &[
+                    "update-ref",
+                    "--create-reflog",
+                    "-m",
+                    &marker,
+                    reference,
+                    target,
+                    &"0".repeat(target.len()),
+                ],
+                &switching,
+                None,
+            )
+            .and_then(|_| {
+                process::git(
+                    &root,
+                    &["switch", "--no-overwrite-ignore", "--", name],
+                    &switching,
+                    None,
+                )
+            })
+        } else if ref_commit(&root, reference, &switching)?.as_deref() != Some(target) {
+            Err("Review branch moved before checkout".into())
+        } else {
+            process::git(
+                &root,
+                &["switch", "--no-overwrite-ignore", "--", name],
+                &switching,
+                None,
+            )
+        }
+    } else {
+        process::git(
+            &root,
+            &[
+                "checkout",
+                "--detach",
+                "--no-overwrite-ignore",
+                target,
+                "--",
+            ],
+            &switching,
+            None,
+        )
+    };
+    if switched.is_err()
+        || text(&root, &["rev-parse", "HEAD"], &switching)? != target
+        || symbolic(&root, &switching)? != receipt.expected_ref
     {
         let _ = restore_locked(&path, &receipt);
         return Err("Checkout refused or failed; no force/stash/reset was used. Check Restore review checkout if recovery is needed".into());
@@ -545,6 +758,7 @@ fn start_at(
         receipt: path.clone(),
         root: root.clone(),
         expected: target.into(),
+        expected_ref: receipt.expected_ref.clone(),
         active: Arc::new(AtomicBool::new(true)),
     });
     leases.insert(
@@ -576,7 +790,7 @@ fn restore_locked(path: &Path, receipt: &Receipt) -> Result<String, String> {
     let reference = symbolic(&root, &control)?;
     let already_original = head == receipt.original_commit && reference == receipt.original_ref;
     if !already_original {
-        if head != receipt.expected_commit || reference.is_some() {
+        if head != receipt.expected_commit || reference != receipt.expected_ref {
             return Err(
                 "Checkout was changed externally; restoration skipped and receipt retained".into(),
             );
@@ -622,6 +836,43 @@ fn restore_locked(path: &Path, receipt: &Receipt) -> Result<String, String> {
         || symbolic(&root, &control)? != receipt.original_ref
     {
         return Err("Original checkout could not be verified; receipt retained".into());
+    }
+    if receipt.cleanup_created_branch && receipt.created_branch {
+        let reference = receipt
+            .expected_ref
+            .as_ref()
+            .expect("created branches have a validated ref");
+        if let Some(commit) = ref_commit(&root, reference, &control)? {
+            if commit != receipt.expected_commit {
+                return Err("Original checkout restored; created review branch moved, so cleanup was skipped and receipt retained".into());
+            }
+            let marker = receipt
+                .creation_token
+                .as_ref()
+                .map(|token| format!("jaywalk review {token}"));
+            let last_creation = text(
+                &root,
+                &["reflog", "show", "--format=%gs", "-1", reference],
+                &control,
+            )?;
+            if marker.as_deref() != Some(last_creation.as_str()) {
+                return Err("Original checkout restored; review branch ownership changed, so cleanup was skipped and receipt retained".into());
+            }
+            let worktrees = text(&root, &["worktree", "list", "--porcelain", "-z"], &control)?;
+            if worktrees
+                .split('\0')
+                .any(|field| field.strip_prefix("branch ") == Some(reference.as_str()))
+            {
+                return Err("Original checkout restored; review branch is in use by a worktree, so cleanup was skipped and receipt retained".into());
+            }
+            // Compare-and-delete prevents deleting a branch that moved after the check.
+            process::git(
+                &root,
+                &["update-ref", "-d", reference, &receipt.expected_commit],
+                &control,
+                None,
+            )?;
+        }
     }
     std::fs::remove_file(path).map_err(|_| "Checkout restored, but receipt cleanup failed")?;
     Ok(format!("Restored checkout in {}", root.display()))
@@ -1025,6 +1276,7 @@ mod import_tests {
                 mode: Mode::Isolated,
                 max_repository_mb: 16,
                 fetch_missing: false,
+                ..Default::default()
             },
             &control(),
         )
@@ -1103,5 +1355,242 @@ mod existing_depth_tests {
         assert_eq!(std::fs::read(root.join(".git/FETCH_HEAD")).ok(), fetch_head);
         assert_eq!(git(&root, &["rev-list", "--count", "HEAD"]), "2");
         restore(&lease.receipt).unwrap();
+    }
+}
+
+#[cfg(test)]
+mod named_branch_tests {
+    use super::*;
+    use crate::local_review::{
+        CheckoutBranch, Options,
+        tests::{Fixture, control, git},
+    };
+
+    fn workspace(fixture: &Fixture, branch: CheckoutBranch, cleanup: bool) -> Arc<Workspace> {
+        let mut metadata = fixture.metadata();
+        metadata.source_branch = Some("feature/review".into());
+        Workspace::prepare(
+            fixture.directory.path(),
+            &metadata,
+            Options {
+                checkout_branch: branch,
+                cleanup_created_branch: cleanup,
+                fetch_missing: false,
+                ..Default::default()
+            },
+            &control(),
+        )
+        .unwrap()
+    }
+    fn begin(workspace: &Workspace, receipts: &Path) -> Arc<Lease> {
+        let snapshot = preflight(workspace.known_repository(), &control()).unwrap();
+        super::start(workspace, receipts, &snapshot, &control()).unwrap()
+    }
+    fn tracking(fixture: &Fixture) {
+        git(
+            fixture.directory.path(),
+            &[
+                "update-ref",
+                "refs/remotes/origin/feature/review",
+                &fixture.head,
+            ],
+        );
+    }
+    #[test]
+    fn existing_exact_branch_is_shared_restored_and_never_cleaned_up() {
+        let fixture = Fixture::new();
+        let root = fixture.directory.path();
+        git(root, &["branch", "feature/review", &fixture.head]);
+        let workspace = workspace(&fixture, CheckoutBranch::CreateFromRemote, true);
+        let receipts = tempfile::tempdir().unwrap();
+        let lease = begin(&workspace, receipts.path());
+        assert_eq!(
+            symbolic(root, &control()).unwrap().as_deref(),
+            Some("refs/heads/feature/review")
+        );
+        assert!(Arc::ptr_eq(&lease, &begin(&workspace, receipts.path())));
+        restore(&lease.receipt).unwrap();
+        assert_eq!(git(root, &["symbolic-ref", "HEAD"]), "refs/heads/main");
+        assert_eq!(
+            ref_commit(root, "refs/heads/feature/review", &control()).unwrap(),
+            Some(fixture.head)
+        );
+    }
+    #[test]
+    fn remote_branch_creates_the_local_name_and_cleanup_is_optional() {
+        for cleanup in [false, true] {
+            let fixture = Fixture::new();
+            let root = fixture.directory.path();
+            tracking(&fixture);
+            let workspace = workspace(&fixture, CheckoutBranch::CreateFromRemote, cleanup);
+            let receipts = tempfile::tempdir().unwrap();
+            let lease = begin(&workspace, receipts.path());
+            assert_eq!(
+                git(root, &["symbolic-ref", "HEAD"]),
+                "refs/heads/feature/review"
+            );
+            assert_eq!(git(root, &["rev-parse", "HEAD"]), fixture.head);
+            assert!(read(&lease.receipt).unwrap().created_branch);
+            restore(&lease.receipt).unwrap();
+            assert_eq!(git(root, &["symbolic-ref", "HEAD"]), "refs/heads/main");
+            assert_eq!(
+                ref_commit(root, "refs/heads/feature/review", &control()).unwrap(),
+                (!cleanup).then_some(fixture.head.clone())
+            );
+            assert_eq!(
+                ref_commit(root, "refs/remotes/origin/feature/review", &control()).unwrap(),
+                Some(fixture.head)
+            );
+        }
+    }
+    #[test]
+    fn detached_and_existing_modes_never_create_a_missing_branch() {
+        for mode in [CheckoutBranch::Detached, CheckoutBranch::Existing] {
+            let fixture = Fixture::new();
+            tracking(&fixture);
+            let workspace = workspace(&fixture, mode, true);
+            let receipts = tempfile::tempdir().unwrap();
+            let lease = begin(&workspace, receipts.path());
+            assert!(
+                symbolic(fixture.directory.path(), &control())
+                    .unwrap()
+                    .is_none()
+            );
+            assert!(
+                ref_commit(
+                    fixture.directory.path(),
+                    "refs/heads/feature/review",
+                    &control()
+                )
+                .unwrap()
+                .is_none()
+            );
+            restore(&lease.receipt).unwrap();
+        }
+    }
+    #[test]
+    fn an_existing_branch_at_another_commit_is_neither_moved_nor_replaced() {
+        let fixture = Fixture::new();
+        let root = fixture.directory.path();
+        tracking(&fixture);
+        git(root, &["branch", "feature/review", &fixture.base]);
+        let workspace = workspace(&fixture, CheckoutBranch::CreateFromRemote, true);
+        let receipts = tempfile::tempdir().unwrap();
+        let lease = begin(&workspace, receipts.path());
+        assert!(symbolic(root, &control()).unwrap().is_none());
+        restore(&lease.receipt).unwrap();
+        assert_eq!(
+            ref_commit(root, "refs/heads/feature/review", &control()).unwrap(),
+            Some(fixture.base)
+        );
+    }
+    #[test]
+    fn remote_creation_requires_the_exact_commit_and_the_source_repository_identity() {
+        let fixture = Fixture::new();
+        let root = fixture.directory.path();
+        git(
+            root,
+            &[
+                "update-ref",
+                "refs/remotes/origin/feature/review",
+                &fixture.base,
+            ],
+        );
+        let mut workspace = workspace(&fixture, CheckoutBranch::CreateFromRemote, true);
+        assert!(
+            choose_branch(root, &fixture.head, Some(&workspace), &control())
+                .unwrap()
+                .reference()
+                .is_none()
+        );
+        tracking(&fixture);
+        Arc::get_mut(&mut workspace)
+            .unwrap()
+            .metadata
+            .source
+            .repository
+            .name = crate::hosting::RepositoryName::parse("another/review").unwrap();
+        assert!(
+            choose_branch(root, &fixture.head, Some(&workspace), &control())
+                .unwrap()
+                .reference()
+                .is_none()
+        );
+    }
+    #[test]
+    fn cleanup_retains_moved_branches_and_branches_used_by_another_worktree() {
+        for case in ["moved", "worktree", "recreated"] {
+            let fixture = Fixture::new();
+            let root = fixture.directory.path();
+            tracking(&fixture);
+            let workspace = workspace(&fixture, CheckoutBranch::CreateFromRemote, true);
+            let receipts = tempfile::tempdir().unwrap();
+            let lease = begin(&workspace, receipts.path());
+            git(root, &["switch", "main"]);
+            let other = tempfile::tempdir().unwrap();
+            let worktree = other.path().join("review");
+            if case == "moved" {
+                git(
+                    root,
+                    &["update-ref", "refs/heads/feature/review", &fixture.base],
+                );
+            } else if case == "recreated" {
+                git(root, &["branch", "-D", "feature/review"]);
+                git(root, &["branch", "feature/review", &fixture.head]);
+            } else {
+                git(
+                    root,
+                    &[
+                        "worktree",
+                        "add",
+                        worktree.to_str().unwrap(),
+                        "feature/review",
+                    ],
+                );
+            }
+            assert!(restore(&lease.receipt).is_err());
+            assert!(lease.receipt.exists());
+            assert!(
+                ref_commit(root, "refs/heads/feature/review", &control())
+                    .unwrap()
+                    .is_some()
+            );
+            if case != "worktree" {
+                git(root, &["branch", "-D", "feature/review"]);
+            } else {
+                git(root, &["worktree", "remove", worktree.to_str().unwrap()]);
+            }
+            restore(&lease.receipt).unwrap();
+        }
+    }
+    #[test]
+    fn old_detached_receipts_remain_restorable() {
+        let fixture = Fixture::new();
+        let receipts = tempfile::tempdir().unwrap();
+        let lease = start_at(
+            fixture.directory.path(),
+            "",
+            &fixture.head,
+            receipts.path(),
+            None,
+            &control(),
+        )
+        .unwrap();
+        let mut value = serde_json::to_value(read(&lease.receipt).unwrap()).unwrap();
+        value["version"] = 1.into();
+        for key in [
+            "expected_ref",
+            "created_branch",
+            "cleanup_created_branch",
+            "creation_token",
+        ] {
+            value.as_object_mut().unwrap().remove(key);
+        }
+        std::fs::write(&lease.receipt, serde_json::to_vec(&value).unwrap()).unwrap();
+        restore(&lease.receipt).unwrap();
+        assert_eq!(
+            git(fixture.directory.path(), &["symbolic-ref", "HEAD"]),
+            "refs/heads/main"
+        );
     }
 }

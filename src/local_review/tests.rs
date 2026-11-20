@@ -116,6 +116,7 @@ fn isolated_objects_keep_full_trees_and_survive_the_source_repository_disappeari
             mode: Mode::Isolated,
             max_repository_mb: 16,
             fetch_missing: false,
+            ..Default::default()
         },
         &control(),
     )
@@ -222,4 +223,86 @@ fn local_review_policy_is_opt_in_and_settings_are_validated() {
     );
     assert!(crate::settings::Settings::parse("[local_review]\nmode='force'").is_err());
     assert!(crate::settings::Settings::parse("[local_review]\nmax_repository_mb=0").is_err());
+}
+
+#[test]
+fn bitbucket_ssh_clones_match_acquire_checkout_and_restore_without_remote_access() {
+    for remote in [
+        "git@ssh.bitbucket.org:fixture/review.git",
+        "ssh://git@altssh.bitbucket.org:443/fixture/review.git",
+    ] {
+        let fixture = Fixture::new();
+        let root = fixture.directory.path();
+        git(root, &["remote", "set-url", "origin", remote]);
+        let mut metadata = fixture.metadata();
+        metadata.locator.provider = crate::accounts::Provider::Bitbucket;
+        let association =
+            crate::hosting::associate(&metadata.locator, &[root.to_owned()], &control()).unwrap();
+        assert_eq!(association.matches, vec![root.to_owned()]);
+        assert_eq!(
+            transport(
+                root,
+                metadata.locator.provider,
+                &metadata.source.repository.name,
+                &control()
+            )
+            .unwrap(),
+            remote
+        );
+        assert_eq!(
+            transport(
+                root,
+                metadata.locator.provider,
+                &RepositoryName::parse("fork/review").unwrap(),
+                &control()
+            )
+            .unwrap(),
+            "git@ssh.bitbucket.org:fork/review.git"
+        );
+        let snapshot = checkout::preflight(root, &control()).unwrap();
+        let workspace = Workspace::prepare(
+            root,
+            &metadata,
+            Options {
+                mode: Mode::CheckoutIfClean,
+                fetch_missing: false,
+                ..Default::default()
+            },
+            &control(),
+        )
+        .unwrap();
+        let receipts = tempfile::tempdir().unwrap();
+        let lease = checkout::start(&workspace, receipts.path(), &snapshot, &control()).unwrap();
+        assert!(lease.active());
+        assert_eq!(git(root, &["rev-parse", "HEAD"]), fixture.head);
+        assert_eq!(git(root, &["rev-parse", "--abbrev-ref", "HEAD"]), "HEAD");
+        let recovery = checkout::recoveries(receipts.path()).unwrap().remove(0);
+        checkout::restore(&recovery.path).unwrap();
+        assert_eq!(git(root, &["symbolic-ref", "HEAD"]), "refs/heads/main");
+        assert_eq!(git(root, &["rev-parse", "HEAD"]), fixture.base);
+        assert_eq!(git(root, &["remote", "get-url", "origin"]), remote);
+    }
+}
+
+#[test]
+fn checkout_branch_settings_validate_and_preserve_default_policy() {
+    let defaults = crate::settings::Config::default().local_review;
+    assert_eq!(defaults.checkout_branch, CheckoutBranch::CreateFromRemote);
+    assert!(!defaults.cleanup_created_branch);
+    for (name, expected) in [
+        ("detached", CheckoutBranch::Detached),
+        ("existing", CheckoutBranch::Existing),
+        ("create_from_remote", CheckoutBranch::CreateFromRemote),
+    ] {
+        let settings = crate::settings::Settings::parse(&format!(
+            "[local_review]\ncheckout_branch='{name}'\ncleanup_created_branch=true"
+        ))
+        .unwrap();
+        assert_eq!(settings.local_review.checkout_branch, expected);
+        assert!(settings.local_review.cleanup_created_branch);
+    }
+    assert!(crate::settings::Settings::parse("[local_review]\ncheckout_branch='force'").is_err());
+    assert!(
+        crate::settings::Settings::parse("[local_review]\ncleanup_created_branch='true'").is_err()
+    );
 }

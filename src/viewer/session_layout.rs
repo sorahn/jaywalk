@@ -6,7 +6,7 @@ use std::path::PathBuf;
 pub(crate) struct SessionLayout {
     pub(super) saved: LayoutState,
     path: Option<PathBuf>,
-    repository: PathBuf,
+    repository: Option<PathBuf>,
     pub(super) error: Option<String>,
 }
 impl SessionLayout {
@@ -27,12 +27,23 @@ impl SessionLayout {
                 None
             }
         };
+        let repository =
+            arguments
+                .interface_repository()
+                .and_then(|root| match std::fs::canonicalize(root) {
+                    Ok(root) => Some(root),
+                    Err(message) => {
+                        error = Some(format!(
+                            "Could not identify repository {} for interface choices: {message}",
+                            root.display()
+                        ));
+                        None
+                    }
+                });
         if settings.layout.remember_per_repository
-            && !arguments.welcome
-            && arguments.diff.is_none()
-            && let Some(path) = &path
+            && let (Some(path), Some(repository)) = (&path, &repository)
         {
-            match RepositoryLayoutStore::new(path.clone(), arguments.directory())
+            match RepositoryLayoutStore::new(path.clone(), repository)
                 .and_then(|store| store.read())
             {
                 Ok(Some(state)) => saved = state,
@@ -42,7 +53,7 @@ impl SessionLayout {
         }
         Self {
             path,
-            repository: arguments.directory().to_owned(),
+            repository,
             saved,
             error,
         }
@@ -51,8 +62,8 @@ impl SessionLayout {
 impl SessionLayout {
     pub(crate) fn use_latest(&mut self, settings: &Settings, cx: &App) {
         if settings.layout.remember_per_repository
-            && let Some(path) = &self.path
-            && let Some(saved) = crate::interface_state::latest(path, &self.repository, cx)
+            && let (Some(path), Some(repository)) = (&self.path, &self.repository)
+            && let Some(saved) = crate::interface_state::latest(path, repository, cx)
         {
             self.saved = saved;
         }
@@ -125,9 +136,12 @@ impl Viewer {
         if self.is_welcome() {
             return;
         }
-        if !self.settings.layout.remember_per_repository || self.arguments.diff.is_some() {
+        if !self.settings.layout.remember_per_repository {
             return;
         }
+        let Some(repository) = self.layout.repository.clone() else {
+            return;
+        };
         self.layout.saved.history_labels = Some(self.references.labels);
         self.layout.saved.history_remotes = Some(self.references.visibility.clone());
         self.layout.saved.view = Some(self.view.preferred());
@@ -147,7 +161,7 @@ impl Viewer {
         if let Some(path) = &self.layout.path {
             let key = crate::interface_state::StoreKey {
                 path: path.clone(),
-                repository: self.layout.repository.clone(),
+                repository,
             };
             if let Err(error) = crate::interface_state::save(key, self.layout.saved.clone(), cx) {
                 self.layout.error = Some(error);
@@ -161,7 +175,8 @@ impl Viewer {
         error: Option<String>,
         cx: &mut Context<Self>,
     ) {
-        if self.layout.path.as_ref() == Some(&key.path) && self.layout.repository == key.repository
+        if self.layout.path.as_ref() == Some(&key.path)
+            && self.layout.repository.as_ref() == Some(&key.repository)
         {
             self.layout.error = error;
             cx.notify();
@@ -296,5 +311,110 @@ impl Viewer {
                 }
             }))
             .into_any_element()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::SessionLayout;
+    use crate::viewer::interaction_tests::Fixture;
+    use crate::{
+        Arguments,
+        viewer::{Settings, ViewMode},
+    };
+    use clap::Parser;
+    use jaywalk::layout_state::{LayoutState, RepositoryLayoutStore};
+    fn captured(fixture: &Fixture, inputs: &std::path::Path) -> Arguments {
+        use jaywalk::difftool::{Capture, Identity};
+        let left = inputs.join("left");
+        let right = inputs.join("right");
+        std::fs::create_dir_all(&left).unwrap();
+        std::fs::create_dir_all(&right).unwrap();
+        let mut args = Arguments::parse_from([
+            "jaywalk",
+            inputs.to_str().unwrap(),
+            "--diff",
+            left.to_str().unwrap(),
+            right.to_str().unwrap(),
+        ]);
+        let config = inputs.join("custom.toml");
+        std::fs::write(&config, "").unwrap();
+        args.config = Some(config);
+        args.difftool = Some(Capture {
+            identity: Identity {
+                pid: 999999,
+                started: 1,
+                boot: [0, 0],
+            },
+            grouped: true,
+            directory: true,
+            repository: fixture.0.join("."),
+            working_head: None,
+            received: 1,
+            total: 1,
+            files: Vec::new(),
+            intent: None,
+        });
+        args.normalize().unwrap();
+        args
+    }
+    #[test]
+    fn normal_and_captured_diff_opens_restore_the_same_canonical_repository_choices() {
+        let fixture = Fixture::new();
+        let inputs = tempfile::tempdir().unwrap();
+        let diff = captured(&fixture, inputs.path());
+        let root = fixture.0.canonicalize().unwrap();
+        let path = diff
+            .config
+            .as_ref()
+            .unwrap()
+            .with_extension("interface.toml");
+        RepositoryLayoutStore::new(path, &root)
+            .unwrap()
+            .save(&LayoutState {
+                view: Some(ViewMode::Inline),
+                wrap_inline: Some(false),
+                collapse_unchanged: Some(true),
+                history_width: Some(311.),
+                ..Default::default()
+            })
+            .unwrap();
+        let settings = Settings::default();
+        for args in [&diff, &diff.for_repository(root.clone())] {
+            let layout = SessionLayout::load(args, &settings);
+            assert_eq!(layout.repository.as_deref(), Some(root.as_path()));
+            assert_eq!(layout.saved.view, Some(ViewMode::Inline));
+            assert_eq!(layout.saved.wrap_inline, Some(false));
+            assert_eq!(layout.saved.collapse_unchanged, Some(true));
+            assert_eq!(layout.saved.history_width, Some(311.));
+        }
+        let mut disabled = settings;
+        disabled.layout.remember_per_repository = false;
+        assert!(SessionLayout::load(&diff, &disabled).saved.view.is_none());
+    }
+    #[test]
+    fn anonymous_external_inputs_and_welcome_do_not_borrow_the_launch_directory_state() {
+        let fixture = Fixture::new();
+        let inputs = tempfile::tempdir().unwrap();
+        let mut args = captured(&fixture, inputs.path());
+        args.directory = Some(fixture.0.canonicalize().unwrap());
+        args.difftool = None;
+        let path = args
+            .config
+            .as_ref()
+            .unwrap()
+            .with_extension("interface.toml");
+        RepositoryLayoutStore::new(path, &fixture.0)
+            .unwrap()
+            .save(&LayoutState {
+                view: Some(ViewMode::Inline),
+                ..Default::default()
+            })
+            .unwrap();
+        for args in [&args, &args.for_welcome()] {
+            let layout = SessionLayout::load(args, &Settings::default());
+            assert!(layout.repository.is_none());
+            assert!(layout.saved.view.is_none());
+        }
     }
 }

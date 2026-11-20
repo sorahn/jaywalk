@@ -26,11 +26,20 @@ pub enum Mode {
     CheckoutIfClean,
 }
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum CheckoutBranch {
+    Detached,
+    Existing,
+    CreateFromRemote,
+}
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct Options {
     pub mode: Mode,
     pub max_repository_mb: u64,
     pub fetch_missing: bool,
+    pub checkout_branch: CheckoutBranch,
+    pub cleanup_created_branch: bool,
 }
 impl Default for Options {
     fn default() -> Self {
@@ -45,6 +54,12 @@ impl Options {
         Ok(())
     }
 }
+#[derive(Clone, Debug)]
+pub(crate) struct TreeEntry {
+    pub kind: FileKind,
+    pub executable: bool,
+    pub object: String,
+}
 #[derive(Debug)]
 pub struct Workspace {
     directory: tempfile::TempDir,
@@ -52,7 +67,9 @@ pub struct Workspace {
     metadata: Metadata,
     max_bytes: u64,
     fetch_missing: bool,
-    trees: Mutex<BTreeMap<String, BTreeMap<String, FileKind>>>,
+    checkout_branch: CheckoutBranch,
+    cleanup_created_branch: bool,
+    trees: Mutex<BTreeMap<String, Arc<BTreeMap<String, TreeEntry>>>>,
 }
 impl Workspace {
     pub fn prepare(
@@ -111,12 +128,23 @@ impl Workspace {
             metadata,
             max_bytes: options.max_repository_mb * 1024 * 1024,
             fetch_missing: options.fetch_missing,
+            checkout_branch: options.checkout_branch,
+            cleanup_created_branch: options.cleanup_created_branch,
             trees: Mutex::default(),
         });
         workspace.ensure(&workspace.metadata.base, control)?;
         workspace.ensure(&workspace.metadata.source, control)?;
         control.check().map_err(|e| e.to_string())?;
         Ok(workspace)
+    }
+    pub(crate) fn isolated_options(&self) -> Options {
+        Options {
+            mode: Mode::Isolated,
+            max_repository_mb: self.max_bytes / (1024 * 1024),
+            fetch_missing: self.fetch_missing,
+            checkout_branch: self.checkout_branch,
+            cleanup_created_branch: self.cleanup_created_branch,
+        }
     }
     pub fn directory(&self) -> &Path {
         self.directory.path()
@@ -190,6 +218,30 @@ impl Workspace {
         Ok(())
     }
     pub fn paths(&self, commit: &str) -> Result<BTreeMap<String, FileKind>, String> {
+        let control = Control::new(Duration::from_secs(30));
+        Ok(self
+            .tree(commit, &control)?
+            .iter()
+            .map(|(path, entry)| (path.clone(), entry.kind.clone()))
+            .collect())
+    }
+    pub(crate) fn entry(
+        &self,
+        commit: &str,
+        path: &str,
+        control: &Control,
+    ) -> Result<TreeEntry, String> {
+        self.tree(commit, control)?
+            .get(path)
+            .cloned()
+            .ok_or_else(|| "Published PR path is absent from the pinned local tree".into())
+    }
+    pub(crate) fn tree(
+        &self,
+        commit: &str,
+        control: &Control,
+    ) -> Result<Arc<BTreeMap<String, TreeEntry>>, String> {
+        control.check().map_err(|e| e.to_string())?;
         validate_commit(commit)?;
         if let Some(paths) = self
             .trees
@@ -199,11 +251,10 @@ impl Workspace {
         {
             return Ok(paths.clone());
         }
-        let control = Control::new(Duration::from_secs(30));
         let bytes = process::git(
             self.directory(),
             &["ls-tree", "-r", "-z", commit],
-            &control,
+            control,
             None,
         )?;
         let mut paths = BTreeMap::new();
@@ -215,16 +266,25 @@ impl Workspace {
                 .iter()
                 .position(|byte| *byte == b'\t')
                 .ok_or("Malformed Git tree entry")?;
-            let metadata =
-                std::str::from_utf8(&entry[..tab]).map_err(|_| "Invalid Git tree metadata")?;
+            let mut metadata = std::str::from_utf8(&entry[..tab])
+                .map_err(|_| "Invalid Git tree metadata")?
+                .split_whitespace();
+            let mode = metadata.next().ok_or("Missing Git tree mode")?;
+            let _kind = metadata.next().ok_or("Missing Git object type")?;
+            let object = metadata.next().ok_or("Missing Git object identity")?;
+            validate_commit(object)?;
             let path = std::str::from_utf8(&entry[tab + 1..])
                 .map_err(|_| "Non-UTF-8 paths are unavailable in local review")?;
-            let mode = metadata
-                .split_whitespace()
-                .next()
-                .ok_or("Missing Git tree mode")?;
-            paths.insert(path.to_owned(), FileKind::from(mode));
+            paths.insert(
+                path.to_owned(),
+                TreeEntry {
+                    kind: FileKind::from(mode),
+                    executable: mode == "100755",
+                    object: object.to_owned(),
+                },
+            );
         }
+        let paths = Arc::new(paths);
         let mut trees = self
             .trees
             .lock()
@@ -288,7 +348,11 @@ fn transport(
         crate::accounts::Provider::Bitbucket => "bitbucket.org",
     };
     Ok(if ssh {
-        format!("git@{host}:{repository}.git")
+        let ssh_host = match provider {
+            crate::accounts::Provider::Github => "github.com",
+            crate::accounts::Provider::Bitbucket => "ssh.bitbucket.org",
+        };
+        format!("git@{ssh_host}:{repository}.git")
     } else {
         format!("https://{host}/{repository}.git")
     })
