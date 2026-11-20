@@ -1,7 +1,6 @@
 use super::{HistorySource, Revision};
 use crate::accounts::Control;
 use chrono::NaiveDate;
-use std::collections::HashMap;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SearchQuery {
@@ -136,9 +135,9 @@ impl SearchQuery {
                     .any(|reference| reference.display_name().to_lowercase().contains(needle))
         })
     }
-    pub fn in_memory(
+    pub fn in_memory<'a>(
         &self,
-        revisions: &[Revision],
+        revisions: impl IntoIterator<Item = &'a Revision>,
         offset: usize,
         size: usize,
         control: &Control,
@@ -148,8 +147,8 @@ impl SearchQuery {
             next_offset: None,
             scanned: offset,
         };
-        for (index, revision) in revisions.iter().enumerate().skip(offset) {
-            control.check().map_err(|e| e.to_string())?;
+        for (index, revision) in revisions.into_iter().enumerate().skip(offset) {
+            super::check_control(control)?;
             if self.matches(revision) {
                 if page.matches.len() >= size {
                     page.next_offset = Some(index);
@@ -173,22 +172,13 @@ impl HistorySource {
         if !(1..=1000).contains(&size) {
             return Err("History search page size must be 1..1000".into());
         }
-        let mut labels = HashMap::<&str, Vec<_>>::new();
-        for reference in &self.references.references {
-            labels.entry(&reference.target).or_default().push(reference);
-        }
         let mut page = SearchPage {
             matches: Vec::new(),
             next_offset: None,
             scanned: offset,
         };
         self.scan(offset, None, control, |mut revision| {
-            if let Some(references) = labels.get(revision.commit_id.as_str()) {
-                revision.references = references
-                    .iter()
-                    .map(|reference| (*reference).clone())
-                    .collect();
-            }
+            self.annotate(&mut revision);
             if query.matches(&revision) {
                 if page.matches.len() >= size {
                     page.next_offset = Some(page.scanned);
@@ -207,7 +197,7 @@ impl HistorySource {
 mod tests {
     use super::*;
     fn revision() -> Revision {
-        super::super::History::parse("[\"abcd1234\",\"xyzchange\",\"fix a crash\\n\\nUnicode café details\",\"Example Author\",[],[],false,false,\"2026-11-12 16:00:00 -0500\"]").unwrap().revisions.remove(0)
+        std::sync::Arc::unwrap_or_clone(super::super::History::parse("[\"abcd1234\",\"xyzchange\",\"fix a crash\\n\\nUnicode café details\",\"Example Author\",[],[],false,false,\"2026-11-12 16:00:00 -0500\"]").unwrap().revisions.remove(0))
     }
     #[test]
     fn search_ids_messages_quoted_authors_and_calendar_dates() {

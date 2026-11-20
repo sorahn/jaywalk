@@ -6,7 +6,7 @@ pub enum GraphHalf {
     Incoming,
     Outgoing,
 }
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct GraphStroke {
     pub from: usize,
     pub to: usize,
@@ -19,7 +19,7 @@ impl GraphStroke {
         self.layer
     }
 }
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct GraphRow {
     pub lane: usize,
     pub color: usize,
@@ -32,10 +32,11 @@ struct Branch<'a> {
     origin: usize,
 }
 
-pub(crate) fn layout(revisions: &[Revision]) -> Vec<GraphRow> {
+pub(crate) fn layout<'a>(revisions: impl IntoIterator<Item = &'a Revision>) -> Vec<GraphRow> {
+    let revisions = revisions.into_iter();
     let mut lanes: Vec<Option<Branch<'_>>> = Vec::new();
     let mut next_color = 0;
-    let mut rows: Vec<GraphRow> = Vec::with_capacity(revisions.len());
+    let mut rows: Vec<GraphRow> = Vec::with_capacity(revisions.size_hint().0);
     for revision in revisions {
         let lane = lanes
             .iter()

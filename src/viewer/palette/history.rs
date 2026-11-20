@@ -104,7 +104,7 @@ impl Viewer {
         };
         // Bounded immediate feedback. The background query searches the full source.
         let cached = query.in_memory(
-            &key.loaded.revisions[..key.loaded.revisions.len().min(5000)],
+            key.loaded.revisions.iter().take(5000).map(Arc::as_ref),
             0,
             self.settings.history.search_page_size,
             &Control::new(Duration::from_secs(1)),
@@ -165,7 +165,12 @@ impl Viewer {
                 .background_spawn(async move {
                     match source {
                         Some(source) => source.search(&query, offset, size, &flag),
-                        None => query.in_memory(&available.revisions, offset, size, &flag),
+                        None => query.in_memory(
+                            available.revisions.iter().map(Arc::as_ref),
+                            offset,
+                            size,
+                            &flag,
+                        ),
                     }
                 })
                 .await;

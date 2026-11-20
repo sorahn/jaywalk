@@ -19,6 +19,7 @@ pub struct HistorySource {
     root: PathBuf,
     backend: Backend,
     roots: Vec<String>,
+    labels: Arc<std::collections::HashMap<String, Vec<super::Reference>>>,
     pub(super) references: Arc<ReferenceSnapshot>,
     working_copy: Option<Revision>,
     context: Option<String>,
@@ -69,7 +70,15 @@ impl HistorySource {
             roots.sort();
             roots.dedup();
         }
+        let mut labels = std::collections::HashMap::<String, Vec<_>>::new();
+        for reference in &references.references {
+            labels
+                .entry(reference.target.clone())
+                .or_default()
+                .push(reference.clone());
+        }
         Ok(Self {
+            labels: Arc::new(labels),
             root: root.to_owned(),
             backend: Backend::Git,
             roots,
@@ -91,7 +100,15 @@ impl HistorySource {
         };
         let references = crate::references::recorded(comparison.root(), &operation)?;
         let revset = query.jj_revset(comparison.tip(), &references);
+        let mut labels = std::collections::HashMap::<String, Vec<_>>::new();
+        for reference in &references.references {
+            labels
+                .entry(reference.target.clone())
+                .or_default()
+                .push(reference.clone());
+        }
         Ok(Self {
+            labels: Arc::new(labels),
             root: comparison.root().to_owned(),
             backend: Backend::Jj { operation, revset },
             roots: query.roots(&references),
@@ -128,16 +145,31 @@ impl HistorySource {
     }
     pub fn first_page(self: &Arc<Self>, size: usize, control: &Control) -> Result<History, String> {
         let (revisions, more) = self.page(0, size, control)?;
-        Ok(self.assemble(revisions, more))
+        Ok(self.assemble(self.shared_rows(revisions), more))
     }
-    fn assemble(self: &Arc<Self>, revisions: Vec<Revision>, more: bool) -> History {
-        let mut history = History::new(revisions).with_references(self.references.as_ref().clone());
+    fn assemble(self: &Arc<Self>, revisions: Vec<Arc<Revision>>, more: bool) -> History {
+        let mut history = History::new_shared(revisions);
         history.references = self.references.clone();
         history.pagination = Some(Arc::new(Pagination {
             source: self.clone(),
             has_more: more,
         }));
         history
+    }
+    pub(super) fn annotate(&self, revision: &mut Revision) {
+        revision.references = self
+            .labels
+            .get(&revision.commit_id)
+            .cloned()
+            .unwrap_or_default();
+    }
+    fn shared_rows(&self, rows: Vec<Revision>) -> Vec<Arc<Revision>> {
+        rows.into_iter()
+            .map(|mut revision| {
+                self.annotate(&mut revision);
+                Arc::new(revision)
+            })
+            .collect()
     }
     fn page(
         &self,
@@ -165,7 +197,7 @@ impl HistorySource {
         control: &Control,
         mut consume: impl FnMut(Revision) -> bool,
     ) -> Result<(), String> {
-        control.check().map_err(|e| e.to_string())?;
+        super::check_control(control)?;
         if skip == 0
             && let Some(revision) = &self.working_copy
             && !consume(revision.clone())
@@ -252,7 +284,15 @@ impl History {
             .ok_or("No older history available")?;
         let (next, more) = page.source.page(self.revisions.len(), size, control)?;
         let mut rows = self.revisions.clone();
-        rows.extend(next);
-        Ok(page.source.assemble(rows, more))
+        rows.extend(page.source.shared_rows(next));
+        let mut history = page.source.assemble(rows, more);
+        // Only the previous boundary row can gain a completed outgoing edge.
+        // Reuse equal rows so Back/Forward snapshots retain one copy of old ink.
+        for (new, old) in history.graph.iter_mut().zip(&self.graph) {
+            if new.as_ref() == old.as_ref() {
+                *new = old.clone();
+            }
+        }
+        Ok(history)
     }
 }

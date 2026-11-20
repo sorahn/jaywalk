@@ -1,4 +1,12 @@
 //! Recorded revisions, typed references and explicit history query scope.
+use std::sync::Arc;
+pub(crate) fn check_control(control: &crate::accounts::Control) -> Result<(), String> {
+    control.check().map_err(|error| match error {
+        crate::accounts::Error::Cancelled => "History query cancelled".into(),
+        crate::accounts::Error::TimedOut => "History query timed out; try again".into(),
+        other => other.to_string(),
+    })
+}
 pub const DEFAULT_HISTORY_LIMIT: usize = 500;
 mod process;
 mod search;
@@ -235,8 +243,8 @@ pub use crate::graph::GraphRow;
 
 #[derive(Debug)]
 pub struct History {
-    pub revisions: Vec<Revision>,
-    pub graph: Vec<GraphRow>,
+    pub revisions: Vec<Arc<Revision>>,
+    pub graph: Vec<Arc<GraphRow>>,
     pub lane_count: usize,
     pub references: std::sync::Arc<crate::references::ReferenceSnapshot>,
     pub pagination: Option<std::sync::Arc<Pagination>>,
@@ -287,30 +295,6 @@ impl History {
         Ok(Self::new(revisions))
     }
 
-    pub(crate) fn with_references(
-        mut self,
-        references: crate::references::ReferenceSnapshot,
-    ) -> Self {
-        let mut targets: std::collections::HashMap<&str, Vec<&Reference>> =
-            std::collections::HashMap::new();
-        for reference in &references.references {
-            targets
-                .entry(&reference.target)
-                .or_default()
-                .push(reference);
-        }
-        for revision in &mut self.revisions {
-            revision.references = targets
-                .get(revision.commit_id.as_str())
-                .into_iter()
-                .flatten()
-                .map(|reference| (*reference).clone())
-                .collect();
-        }
-        self.references = std::sync::Arc::new(references);
-        self
-    }
-
     /// Space only for lanes drawn in the current visible row range. Edges
     /// count as well as nodes so partially visible branch sprawl is retained.
     pub fn visible_lane_count(&self, rows: std::ops::Range<usize>) -> usize {
@@ -330,7 +314,13 @@ impl History {
     }
 
     pub(crate) fn new(revisions: Vec<Revision>) -> Self {
-        let graph = crate::graph::layout(&revisions);
+        Self::new_shared(revisions.into_iter().map(Arc::new).collect())
+    }
+    pub(crate) fn new_shared(revisions: Vec<Arc<Revision>>) -> Self {
+        let graph: Vec<_> = crate::graph::layout(revisions.iter().map(Arc::as_ref))
+            .into_iter()
+            .map(Arc::new)
+            .collect();
         let lane_count = graph
             .iter()
             .flat_map(|row| {
@@ -415,7 +405,7 @@ mod tests {
         assert_eq!(history.revisions[0].summary(), "working copy · no changes");
         assert!(history.revisions[0].description.is_empty());
         assert_eq!(history.revisions[1].summary(), "saved change");
-        let mut revision = history.revisions[0].clone();
+        let mut revision = history.revisions[0].as_ref().clone();
         revision.empty = false;
         assert_eq!(revision.summary(), "working copy · changes");
         revision.description = "in progress".into();

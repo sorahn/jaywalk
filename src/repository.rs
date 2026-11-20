@@ -314,6 +314,7 @@ impl Comparison {
             .revisions
             .into_iter()
             .next()
+            .map(Arc::unwrap_or_clone)
             .ok_or_else(|| "Selected change is unavailable".into())
     }
 
@@ -383,7 +384,7 @@ impl Comparison {
         let mut revisions = crate::history::History::parse(&output)?.revisions;
         match revisions.len() {
             0 => Ok(None),
-            1 => Ok(revisions.pop()),
+            1 => Ok(revisions.pop().map(Arc::unwrap_or_clone)),
             _ => Err("The selected change has divergent visible versions; select a specific history row.".into()),
         }
     }
@@ -515,7 +516,7 @@ impl Comparison {
         history: &crate::history::HistoryQuery,
         control: &crate::accounts::Control,
     ) -> Result<crate::history::History, String> {
-        control.check().map_err(|e| e.to_string())?;
+        crate::history::check_control(control)?;
         if let Some(contents) = self.hosted() {
             return Ok(contents.history());
         }
@@ -541,7 +542,7 @@ impl Comparison {
         history: &crate::history::HistoryQuery,
         control: &crate::accounts::Control,
     ) -> Result<crate::history::History, String> {
-        control.check().map_err(|e| e.to_string())?;
+        crate::history::check_control(control)?;
         if !self.supports_evolution() {
             return self.history_with_control(history, control);
         }

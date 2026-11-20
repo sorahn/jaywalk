@@ -369,7 +369,7 @@ impl Viewer {
                     .revisions
                     .iter()
                     .find(|revision| &revision.commit_id == commit)
-                    .cloned()
+                    .map(|revision| revision.as_ref().clone())
             });
             if let Some(revision) = revision {
                 self.load_evolution(revision, window, cx);

@@ -131,7 +131,7 @@ impl Viewer {
                         .revisions
                         .iter()
                         .find(|revision| &revision.commit_id == commit_id)
-                        .cloned()
+                        .map(|revision| revision.as_ref().clone())
                 })
                 .or_else(|| {
                     self.overview_revision(commit_id)

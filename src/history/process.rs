@@ -58,7 +58,10 @@ fn record(reader: &mut impl BufRead, format: Format) -> Result<Option<Revision>,
             let Some(line) = field(reader, b'\n')? else {
                 return Ok(None);
             };
-            Ok(super::History::parse(&line)?.revisions.pop())
+            Ok(super::History::parse(&line)?
+                .revisions
+                .pop()
+                .map(std::sync::Arc::unwrap_or_clone))
         }
     }
 }
@@ -77,7 +80,7 @@ pub(super) fn scan(
     control: &Control,
     mut consume: impl FnMut(Revision) -> bool,
 ) -> Result<(), String> {
-    control.check().map_err(|e| e.to_string())?;
+    super::check_control(control)?;
     command
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
@@ -116,7 +119,7 @@ pub(super) fn scan(
     let mut failure = None;
     let mut stopped = false;
     loop {
-        if let Err(error) = control.check() {
+        if let Err(error) = super::check_control(control) {
             failure = Some(error.to_string());
             break;
         }
@@ -149,7 +152,7 @@ pub(super) fn scan(
                 break Err(format!("Waiting for history query: {error}"));
             }
             Ok(None) => {
-                if let Err(error) = control.check() {
+                if let Err(error) = super::check_control(control) {
                     failure = Some(error.to_string());
                     terminate(&mut child);
                 }
@@ -172,4 +175,16 @@ pub(super) fn scan(
         ));
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn metadata_reads_reject_oversized_fields_and_truncated_records() {
+        let mut too_large = std::io::Cursor::new(vec![b'x'; MAX_FIELD as usize + 2]);
+        assert!(field(&mut too_large, 0).unwrap_err().contains("1 MiB"));
+        assert!(record(&mut std::io::Cursor::new(b"abcd\0parent\0"), Format::Git).is_err());
+        assert!(record(&mut std::io::Cursor::new(b"incomplete"), Format::Jj).is_err());
+    }
 }

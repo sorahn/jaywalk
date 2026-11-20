@@ -207,3 +207,23 @@ fn graph_lanes_and_completed_edges_are_stable_across_merge_pages() {
         assert_eq!(strokes(old), strokes(new));
     }
 }
+
+#[test]
+fn retained_pages_share_immutable_rows_instead_of_copying_old_metadata_and_ink() {
+    let (root, _) = fixture();
+    let source = Arc::new(HistorySource::git(root.path(), &HistoryQuery::default()).unwrap());
+    let first = source.first_page(4, &control()).unwrap();
+    let second = first.load_more(4, &control()).unwrap();
+    for (a, b) in first.revisions.iter().zip(&second.revisions) {
+        assert!(Arc::ptr_eq(a, b));
+    }
+    for (a, b) in first.graph[..first.graph.len() - 1]
+        .iter()
+        .zip(&second.graph)
+    {
+        assert!(Arc::ptr_eq(a, b));
+    }
+    assert_eq!(first.revisions.len(), 4);
+    assert_eq!(second.revisions.len(), 8);
+    assert_eq!(first.revisions[0].summary(), second.revisions[0].summary());
+}
