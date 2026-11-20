@@ -6,7 +6,7 @@ use jaywalk::{
     references::ReferenceSnapshot,
     settings::DiffView,
 };
-use std::{rc::Rc, sync::Arc, time::Instant};
+use std::{sync::Arc, time::Instant};
 
 fn record(metric: &str, elapsed: std::time::Duration) {
     eprintln!(
@@ -47,11 +47,12 @@ fn profile_reference_browser(cx: &mut TestAppContext) {
                     remotes: vec!["origin".into()],
                     ..Default::default()
                 };
-                session.history = Ok(Rc::new(History {
+                session.history = Ok(Arc::new(History {
                     revisions: old.revisions.clone(),
                     graph: old.graph.clone(),
                     lane_count: old.lane_count,
                     references: Arc::new(references),
+                    pagination: None,
                 }));
                 viewer.references.open = false;
                 cx.notify();

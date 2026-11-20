@@ -9,6 +9,7 @@ pub(super) fn mode_command(mode: Mode) -> Option<jaywalk::commands::CommandId> {
         Mode::Repositories => CommandId::OpenRecent,
         Mode::PullRequests => CommandId::OpenPullRequest,
         Mode::Help => CommandId::PickerHelp,
+        Mode::History => CommandId::SearchHistory,
         Mode::FileSymbols => CommandId::GoToFileSymbol,
         Mode::ProjectSymbols => CommandId::GoToProjectSymbol,
     })
@@ -21,6 +22,7 @@ pub(super) fn mode_description(mode: Mode) -> &'static str {
         Mode::Repositories => "Open a recent repository",
         Mode::PullRequests => "Search PRs; Tab changes filters",
         Mode::Help => "Choose a mode to fill its prefix",
+        Mode::History => "Commit IDs, messages, authors, references and date filters",
         Mode::FileSymbols => "Symbols on the focused source side",
         Mode::ProjectSymbols => "Symbols across available snapshot files",
     }
@@ -28,6 +30,14 @@ pub(super) fn mode_description(mode: Mode) -> &'static str {
 impl Viewer {
     pub(super) fn picker_mode_available(&self, mode: Mode) -> bool {
         match mode {
+            Mode::History => {
+                self.page == pages::Page::Comparison
+                    && self
+                        .repository
+                        .ready()
+                        .and_then(|s| s.history.as_ref().ok())
+                        .is_some()
+            }
             Mode::Files => self.page == pages::Page::Comparison && self.comparison().is_some(),
             Mode::Line => self.page == pages::Page::Comparison && self.code().is_some(),
             Mode::FileSymbols => self.page == pages::Page::Comparison && self.code().is_some(),
@@ -52,6 +62,7 @@ impl Viewer {
             PaletteKind::FileSymbols | PaletteKind::ProjectSymbols => {
                 self.symbol_picker_description()
             }
+            PaletteKind::History => self.history_picker_description(),
             PaletteKind::Reviews => self.palette.review_error.clone().unwrap_or_else(|| {
                 if self.palette.review_loading {
                     "Loading branches… · Escape closes".into()
@@ -90,6 +101,9 @@ impl Viewer {
                 "Open a file first to go to a source line. Type ? for available modes."
             }
             PaletteKind::Line => "Enter a line number within this file, starting at 1.",
+            PaletteKind::History => {
+                "No matching history. Try a SHA, message, author:name, after:YYYY-MM-DD or before:YYYY-MM-DD."
+            }
             PaletteKind::References => "No matching branches or bookmarks in this repository.",
             PaletteKind::Remotes => "No matching remotes in this repository.",
             PaletteKind::FileSymbols | PaletteKind::ProjectSymbols => {

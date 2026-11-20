@@ -36,10 +36,11 @@ The existing shortcuts open one picker with editable prefixes. Changing or remov
 | `~` | Recent repositories | Ctrl+R |
 | `!` | Pull requests | Open pull request command |
 | `?` | Modes and prefixes | Picker modes and prefixes command |
+| `/` | Search repository history | Find in history command |
 | `@` | Symbols on the focused file side | Secondary+Shift+O |
 | `#` | Symbols across snapshot files | Secondary+T |
 
-For example: `src/main.rs`, `>refresh`, `:120`, `~jaywalk`, `!fix scrolling`. Start a literal filename with `./` if it begins with a mode character, such as `./!important.rs`. File/line modes explain when a comparison/file is unavailable on Welcome. Escape dismisses the root picker and restores its originating focus. Nested PR filters retain parent queries, selection and scrolling; Escape returns one step. The full PR browsing page remains reachable through **Browse pull requests**.
+For example: `src/main.rs`, `>refresh`, `:120`, `~jaywalk`, `!fix scrolling`, `/fix crash author:alex after:2026-11-01`. Start a literal filename with `./` if it begins with a mode character, such as `./!important.rs`. File/line modes explain when a comparison/file is unavailable on Welcome. Escape dismisses the root picker and restores its originating focus. Nested PR filters retain parent queries, selection and scrolling; Escape returns one step. The full PR browsing page remains reachable through **Browse pull requests**.
 
 The PR picker starts on **For me**: GitHub assignments and review requests appear before authored PRs, without duplicates. Text matching takes precedence over that default grouping. Tab → Scope offers separate Assigned to me, Review requested and Authored by me filters. Bitbucket review requests also appear before authored PRs, using its internal workspace aggregation endpoint with the existing OAuth connection. Assigned to me remains GitHub-only. Bitbucket discovery covers up to ten workspaces (preferred workspace first), three pages per workspace and ten pages per category; limits are labeled as partial results. The internal endpoint is undocumented: failures are shown and keep previously loaded results; Authored by me remains available separately. Results retain the same refresh, cache and restart-snapshot behavior. Independent accounts fetch concurrently (default three), with list and dispatch priority from the config’s `[[accounts]]` order; fast results appear without waiting for slower accounts. Account names and preferred workspaces also live in those config entries; credentials stay in the OS store.
 
@@ -225,6 +226,9 @@ layout/reset/remote-management command merely to fill the table.
 | `keybindings.refresh` | `["secondary-r"]` | Refresh recorded changes |
 | `keybindings.all_changes` | `["secondary-shift-b"]` | All changes |
 | `keybindings.overview` | `["secondary-k o"]` | Changeset overview |
+| `keybindings.search_history` | `[]` | Find in history (`/` palette mode) |
+| `keybindings.load_more_history` | `[]` | Load another graph page |
+| `keybindings.latest_history` | `[]` | Return the graph to latest history |
 | `keybindings.go_to_reference` | `[]` | Go to branch or bookmark in the command palette |
 | `keybindings.remote_history_sources` | `[]` | Toggle individual remote history sources in the command palette |
 | `keybindings.review_selected_reference` | `["shift-enter"]` | Review selected branch changes (branch/bookmark picker only) |
@@ -534,3 +538,17 @@ existing comparison-base flow. Both actions preserve local checkout state.
 Show all / Hide all actions. Enter toggles a source without closing the picker or
 clearing its query. Hidden references remain searchable and can be opened.
 These pickers use the loaded reference snapshot and do not fetch from remotes.
+
+In `/` mode, plain text searches commit messages, author names, ID prefixes and
+reference labels in the captured history sources. Terms combine with AND; a
+hexadecimal token of four or more characters searches Git commit/jj commit ID
+prefixes, and other terms can match jj change IDs. Use quotes for phrases or
+filter values with spaces, such as `/author:"Example Author" "fix crash"`.
+`after:YYYY-MM-DD` is inclusive and `before:YYYY-MM-DD` is exclusive, based on the
+authored calendar date shown in the metadata. Invalid filters show a message
+inside the picker. Results remain in history order; Enter inspects/reveals a
+commit, while typing and selecting rows leave the current diff intact. **Load
+more matches…** stays in the picker. Escape or switching mode cancels the query.
+Local searches stream repository metadata beyond loaded graph pages; hosted
+reviews search only their available acquired PR commits. No network fetches or
+checkout changes are performed.

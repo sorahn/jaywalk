@@ -65,3 +65,7 @@ profile *args:
 # Synthetic UI timings; never opens a native desktop window.
 profile-ui:
     profile_host=$(rustc -vV | sed -n 's/^host: //p'); test -n "$profile_host"; cargo test --locked --release --target "$profile_host" --target-dir target --bin jaywalk viewer::performance_tests -- --ignored --nocapture --test-threads=1
+
+# Read-only resource measurements against an explicitly supplied repository.
+profile-history *args:
+    scripts/profile-history.sh "$@"

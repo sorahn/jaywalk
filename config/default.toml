@@ -99,6 +99,10 @@ min_code_width = 100
 # The before/after panes default to an even split of the remaining width.
 
 [history]
+# Page sizes count history rows, including the Git working-copy row.
+page_size = 500
+page_on_scroll = false
+search_page_size = 100
 # Alternate row tint; 0 disables stripes. Updates live.
 stripe_opacity = 0.08
 # Minimum row height; larger UI fonts can require more space.

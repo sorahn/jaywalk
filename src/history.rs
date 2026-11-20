@@ -1,5 +1,10 @@
 //! Recorded revisions, typed references and explicit history query scope.
-const DEFAULT_HISTORY_LIMIT: usize = 200;
+pub const DEFAULT_HISTORY_LIMIT: usize = 500;
+mod process;
+mod search;
+mod source;
+pub use search::{SearchPage, SearchQuery};
+pub use source::{HistorySource, Pagination};
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum TrackingState {
@@ -164,7 +169,7 @@ impl HistoryQuery {
                 }
             }
         };
-        format!("ancestors({roots}, {})", self.limit)
+        format!("ancestors({roots})")
     }
 }
 
@@ -234,6 +239,7 @@ pub struct History {
     pub graph: Vec<GraphRow>,
     pub lane_count: usize,
     pub references: std::sync::Arc<crate::references::ReferenceSnapshot>,
+    pub pagination: Option<std::sync::Arc<Pagination>>,
 }
 
 impl History {
@@ -341,6 +347,7 @@ impl History {
             graph,
             lane_count,
             references: Default::default(),
+            pagination: None,
         }
     }
 }
@@ -430,10 +437,10 @@ mod query_tests {
     #[test]
     fn query_scope_and_reference_identity_are_independent_of_graph_geometry() {
         let query = HistoryQuery::default();
-        assert_eq!(query.limit(), 200);
+        assert_eq!(query.limit(), 500);
         assert_eq!(
             query.jj_revset("abc", &Default::default()),
-            "ancestors(visible_heads() | abc, 200)"
+            "ancestors(visible_heads() | abc)"
         );
         assert_eq!(
             HistoryQuery::ancestors(vec!["abc".into(), "def".into()])
@@ -441,7 +448,7 @@ mod query_tests {
                 .with_limit(12)
                 .unwrap()
                 .jj_revset("unused", &Default::default()),
-            "ancestors(abc | def, 12)"
+            "ancestors(abc | def)"
         );
         assert!(query.with_limit(0).is_err());
         assert!(HistoryQuery::ancestors(vec![]).is_err());

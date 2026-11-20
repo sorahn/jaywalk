@@ -1,5 +1,5 @@
 //! Read-only Git comparisons for repositories without Jujutsu metadata.
-use crate::history::{History, HistoryQuery, Revision};
+use crate::history::Revision;
 use crate::repository::{
     ChangedFile, Comparison, ComparisonMetadata, ContentSource, FileSide, next_capture,
 };
@@ -82,7 +82,7 @@ fn run(root: &Path, args: &[&str]) -> Result<Vec<u8>, String> {
 pub(crate) fn output(root: &Path, args: &[&str]) -> Result<String, String> {
     String::from_utf8(run(root, args)?).map_err(|error| format!("Non-UTF-8 Git metadata: {error}"))
 }
-fn resolve(root: &Path, revision: &str) -> Result<String, String> {
+pub(crate) fn resolve(root: &Path, revision: &str) -> Result<String, String> {
     output(
         root,
         &[
@@ -531,66 +531,6 @@ pub(crate) fn references(root: &Path) -> Result<crate::references::ReferenceSnap
     Ok(snapshot)
 }
 
-pub(crate) fn history(root: &Path, query: &HistoryQuery) -> Result<History, String> {
-    let references = references(root)?;
-    let limit = query.limit().to_string();
-    let mut args = vec![
-        "log",
-        "--topo-order",
-        "-n",
-        &limit,
-        "-z",
-        "--format=%H%x00%P%x00%B%x00%an%x00%aI",
-    ];
-    let roots = query.roots(&references);
-    if roots.is_empty() {
-        return Ok(History::new(vec![]).with_references(references));
-    }
-    args.extend(roots.iter().map(String::as_str));
-    args.push("--");
-    let data = output(root, &args)?;
-    let fields: Vec<_> = data.split_terminator('\0').collect();
-    if !fields.len().is_multiple_of(5) {
-        return Err("Incomplete Git history entry".into());
-    }
-    let mut revisions: Vec<_> = fields
-        .as_chunks::<5>()
-        .0
-        .iter()
-        .map(|entry| Revision {
-            commit_id: entry[0].into(),
-            change_id: entry[0].into(),
-            description: entry[2].into(),
-            author: entry[3].into(),
-            timestamp: entry[4].into(),
-            parents: entry[1].split_whitespace().map(str::to_owned).collect(),
-            references: vec![],
-            working_copy: false,
-            empty: false,
-        })
-        .collect();
-    if query.includes_working_copy() {
-        let head = resolve(root, "HEAD")?;
-        let empty =
-            output(root, &["status", "--porcelain", "--untracked-files=normal"])?.is_empty();
-        revisions.insert(
-            0,
-            Revision {
-                commit_id: WORKING_TREE.into(),
-                change_id: String::new(),
-                description: String::new(),
-                author: String::new(),
-                timestamp: String::new(),
-                parents: vec![head],
-                references: vec![],
-                working_copy: true,
-                empty,
-            },
-        );
-        revisions.truncate(query.limit());
-    }
-    Ok(History::new(revisions).with_references(references))
-}
 pub(crate) fn for_revision(
     comparison: &Comparison,
     revision: &Revision,

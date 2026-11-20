@@ -394,3 +394,23 @@ not request redraws and stops when the window closes. These diagnostics require
 both the opt-in build feature and environment variable; normal builds are
 unaffected. CPU draw time is not GPU execution time, and presentation intervals
 should not be interpreted as a constant FPS during idle periods.
+
+### Read-only history profiling
+
+`just profile-history --repo /path/to/repository --label example` builds the native
+release `history-profile` example. It reads Git metadata, including working-copy
+status with optional index locks, fsmonitor and status hooks disabled. It never
+checks out, fetches, snapshots jj, or changes the repository. Run each case in a
+fresh process; `--page-size 500 --pages 10 --retain-snapshots` additionally models
+Back/Forward retaining older page snapshots. `--search` changes the query. Output
+contains counts/timings rather than private commit messages, authors or paths.
+
+Capture/reference discovery, initial page, subsequent pages and full-source
+search are timed separately. On macOS, memory counters are cumulative process
+peak RSS and the largest completed Git child's peak RSS, in KiB; they are not
+additive. This harness exercises backend parsing and graph layout, excluding
+native rendering, syntax setup and full application memory. Warm filesystem
+caches, page position, graph fanout and other running workloads affect timings.
+Keep private real-repository results in the personal notes store; repository
+regressions use disposable synthetic fixtures only. Streamed metadata fields
+are bounded to 1 MiB and query stderr to 64 KiB; errors retain the current view.

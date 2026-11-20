@@ -359,6 +359,11 @@ impl Viewer {
                 self.refresh(window, cx);
             }
             CommandId::ToggleWrap => self.toggle_wrap(window, cx),
+            CommandId::SearchHistory => {
+                self.open_palette(palette::PaletteKind::History, window, cx)
+            }
+            CommandId::LoadMoreHistory => self.load_more_history(window, cx),
+            CommandId::LatestHistory => self.latest_history(window, cx),
             CommandId::ShowReferences => self.show_references(cx),
             CommandId::GoToReference => {
                 self.open_palette(palette::PaletteKind::References, window, cx)
@@ -447,7 +452,9 @@ impl Viewer {
                     self.references.visibility.clone(),
                     None,
                 )
-                .expect("default visibility has no commit expression");
+                .expect("default visibility has no commit expression")
+                .with_limit(self.settings.history.page_size)
+                .expect("validated page size");
                 self.reload_history(None, window, cx);
                 self.set_view_mode(self.settings.diff.default_view, cx);
                 self.wrapping = Wrapping::from_settings(&self.settings.diff);

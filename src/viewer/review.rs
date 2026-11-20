@@ -48,6 +48,7 @@ impl Viewer {
             self.config.error = Some(format!("Could not reapply keymap: {error}"));
         }
         self.sync_pr_status(window, cx);
+        self.sync_history_picker(window, cx);
         if !self.is_welcome() {
             self.sync_overview(window, cx);
             self.sync_navigation(cx);

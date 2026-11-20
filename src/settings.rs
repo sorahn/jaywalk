@@ -311,6 +311,9 @@ pub struct OverviewSettings {
 #[derive(Clone, Debug, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct HistorySettings {
+    pub page_size: usize,
+    pub page_on_scroll: bool,
+    pub search_page_size: usize,
     pub stripe_opacity: f32,
     pub show_reference_labels: bool,
     pub reference_badge_width: f32,
@@ -606,6 +609,14 @@ impl Config {
         )?;
         if !(1..=50).contains(&self.welcome.recent_count) {
             return Err("welcome.recent_count must be between 1 and 50".into());
+        }
+        if !(1..=5000).contains(&self.history.page_size)
+            || !(1..=1000).contains(&self.history.search_page_size)
+        {
+            return Err(
+                "history.page_size must be 1..5000 and history.search_page_size must be 1..1000"
+                    .into(),
+            );
         }
         if !(1..=1000).contains(&self.navigation.history_limit) {
             return Err("navigation.history_limit must be between 1 and 1000".into());

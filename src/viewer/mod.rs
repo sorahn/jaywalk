@@ -15,6 +15,7 @@ use jaywalk::settings::{DiffSettings, DiffView as ViewMode, Settings};
 use jaywalk::syntax::file_language;
 use std::cell::Cell;
 use std::rc::Rc;
+use std::sync::Arc;
 
 use crate::Arguments;
 
@@ -139,7 +140,7 @@ enum ComparisonScope {
 struct RepositorySession {
     home: Rc<Comparison>,
     review: review_context::ReviewContext,
-    history: Result<Rc<jaywalk::history::History>, String>,
+    history: Result<Arc<jaywalk::history::History>, String>,
     scope: ComparisonScope,
     comparison: LoadState<Rc<Comparison>>,
     revision_comparison: Option<Rc<Comparison>>,

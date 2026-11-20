@@ -52,6 +52,11 @@ impl Viewer {
         } else {
             pages::Page::Comparison
         };
+        let history_query =
+            jaywalk::history::HistoryQuery::sources(settings.history.remotes.clone(), None)
+                .expect("default source query has no unvalidated IDs")
+                .with_limit(settings.history.page_size)
+                .expect("validated page size");
         let mut viewer = Self {
             welcome,
             page,
@@ -86,8 +91,7 @@ impl Viewer {
             overview: overview::OverviewState::default(),
             navigation,
             history_scroll: UniformListScrollHandle::new(),
-            history_query: jaywalk::history::HistoryQuery::sources(Default::default(), None)
-                .expect("default source query has no unvalidated IDs"),
+            history_query,
             references,
             evolution,
             evolution_header: None,
@@ -202,7 +206,7 @@ impl Viewer {
                                 },
                                 aggregate: branch.clone(),
                             },
-                            history: history.map(Rc::new),
+                            history: history.map(Arc::new),
                             scope: ComparisonScope::Aggregate,
                             comparison: LoadState::Loaded(branch),
                             revision_comparison: None,

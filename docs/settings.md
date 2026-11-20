@@ -239,11 +239,22 @@ preferences use `jump`; session-only toolkit overrides are not queried.
 
 | Setting | Default | Meaning and allowed values |
 | --- | --- | --- |
+| `history.page_size` | `500` | Initial graph rows and rows per Load older action; 1–5000. Includes Git's virtual working-copy row on the first page. Applies live by starting a fresh history snapshot; already loaded pages remain visible until replacement succeeds. |
+| `history.page_on_scroll` | `false` | Automatically load the next page when its footer row becomes visible. Applies live. Otherwise use Load older history or the graph's bottom row. Errors pause automatic loading until an explicit retry. |
+| `history.search_page_size` | `100` | Matches per `/` history-search request; 1–1000. Applies to the next query/page request. Searches older commits beyond the graph's loaded pages; hosted reviews search their available acquired commits. |
 | `history.stripe_opacity` | `0.08` | Alternate-row text-tint opacity; 0–0.2. `0` disables zebra stripes. |
 | `history.lane_spacing` | `8` | Distance between graph lanes; 4–48. The graph column adapts to visible lane sprawl. |
 | `history.show_reference_labels` | `true` | Show compact bookmark/branch badges. Does not hide history from any remote. |
 | `history.reference_badge_width` | `110` | Maximum compact reference-badge width; 40–300. Full names remain available in reference details. |
 | `history.row_height` | omitted | Override ui.row_height for graph rows; 12–200. Font size can raise the effective minimum. |
+
+History pages share a captured reference/root snapshot; jj reads stay at one explicit
+operation and never snapshot the working copy. Loading more retains the current
+comparison and reading position. Refresh, a remote-source change, or **Show latest
+history** starts a fresh snapshot. Search result selection reveals an older commit
+with a bounded ancestor context; the upward-arrow header action returns to latest
+history without changing the inspected diff. Loading further pages retains more
+metadata in memory; page size controls each request, not the eventual total.
 
 ### `history.remotes`
 

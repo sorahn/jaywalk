@@ -13,9 +13,18 @@ pub(super) struct ReferenceState {
     pub(super) labels: bool,
     pub(super) open: bool,
     pub(super) inspected: Option<jaywalk::history::Reference>,
-    generation: u64,
-    task: Option<Task<()>>,
+    pub(super) generation: u64,
+    pub(super) task: Option<Task<()>>,
     pub(super) error: Option<String>,
+    pub(super) loading_more: bool,
+    pub(super) page_control: Option<jaywalk::accounts::Control>,
+}
+impl Drop for ReferenceState {
+    fn drop(&mut self) {
+        if let Some(control) = &self.page_control {
+            control.cancel();
+        }
+    }
 }
 impl ReferenceState {
     pub(super) fn new(settings: &jaywalk::settings::HistorySettings) -> Self {
@@ -27,6 +36,8 @@ impl ReferenceState {
             generation: 0,
             task: None,
             error: None,
+            loading_more: false,
+            page_control: None,
         }
     }
 }
@@ -56,7 +67,9 @@ impl Viewer {
             self.references.visibility = RemoteVisibility::all(visible);
         }
         self.history_query = HistoryQuery::sources(self.references.visibility.clone(), None)
-            .expect("no reveal target");
+            .expect("no reveal target")
+            .with_limit(self.settings.history.page_size)
+            .expect("validated page size");
         self.reload_history(None, window, cx);
         self.save_layout(cx);
     }
@@ -93,7 +106,9 @@ impl Viewer {
         }
         match HistoryQuery::sources(self.references.visibility.clone(), Some(commit.clone())) {
             Ok(query) => {
-                self.history_query = query;
+                self.history_query = query
+                    .with_limit(self.settings.history.page_size)
+                    .expect("validated page size");
                 self.reload_history(Some((commit, select)), window, cx);
             }
             Err(error) => {
@@ -103,6 +118,10 @@ impl Viewer {
         }
     }
     pub(super) fn invalidate_history_reload(&mut self) {
+        if let Some(control) = self.references.page_control.take() {
+            control.cancel();
+        }
+        self.references.loading_more = false;
         self.references.generation += 1;
         self.references.task = None;
     }
@@ -130,17 +149,36 @@ impl Viewer {
             .and_then(|history| history.revisions.get(top))
             .map(|r| r.commit_id.clone());
         let query = self.history_query.clone();
-        self.references.generation += 1;
+        self.invalidate_history_reload();
         let generation = self.references.generation;
         let selection_generation = self.requests.comparison();
+        let page_size = self.settings.history.page_size;
+        let control = jaywalk::accounts::Control::new(std::time::Duration::from_secs(30));
+        self.references.page_control = Some(control.clone());
+        self.references.loading_more = true;
+        let reveal = target.as_ref().map(|(commit, _)| commit.clone());
         self.references.task = Some(cx.spawn_in(window, async move |this, cx| {
             let result = cx
-                .background_spawn(async move { branch.current_history(&query) })
+                .background_spawn(async move {
+                    let history = branch.current_history_with_control(&query, &control)?;
+                    if let Some(commit) = reveal
+                        && !history
+                            .revisions
+                            .iter()
+                            .any(|revision| revision.commit_id == commit)
+                        && let Some(source) = history.source()
+                    {
+                        return source.around(&commit, page_size, &control);
+                    }
+                    Ok(history)
+                })
                 .await;
             let _ = this.update_in(cx, |viewer, window, cx| {
                 if generation != viewer.references.generation {
                     return;
                 }
+                viewer.references.page_control = None;
+                viewer.references.loading_more = false;
                 match result {
                     Ok(history) => {
                         let scroll_target = target
@@ -154,7 +192,7 @@ impl Viewer {
                                 .position(|r| &r.commit_id == commit)
                         });
                         if let LoadState::Loaded(session) = &mut viewer.repository {
-                            session.history = Ok(Rc::new(history));
+                            session.history = Ok(Arc::new(history));
                         }
                         viewer.references.error = None;
                         if let Some(index) = index {
@@ -471,7 +509,7 @@ pub(super) fn reference_row(
 }
 
 pub(super) fn reference_badge(
-    history: &Rc<jaywalk::history::History>,
+    history: &Arc<jaywalk::history::History>,
     index: usize,
     visibility: &RemoteVisibility,
     viewer: WeakEntity<Viewer>,
