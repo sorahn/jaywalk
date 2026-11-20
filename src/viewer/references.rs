@@ -205,12 +205,22 @@ impl Viewer {
                     )
                     .tooltip("Choose remote history sources"),
             )
-            .content(move |_, _, _| {
+            .content(move |_, window, cx| {
+                let width = reference_popup_width(
+                    remotes
+                        .iter()
+                        .map(|remote| format!("☑ {remote}"))
+                        .chain(["Reveal inspected revision".to_owned()]),
+                    window,
+                    cx,
+                );
                 let mut content = div()
                     .v_flex()
                     .gap_1()
                     .p_2()
-                    .w(px(320.))
+                    .w(width)
+                    .max_w(window.viewport_size().width - px(24.))
+                    .text_left()
                     .max_h(px(450.))
                     .id("remote-sources-list")
                     .overflow_y_scroll()
@@ -233,7 +243,8 @@ impl Viewer {
                         Button::new(SharedString::from(label.clone()))
                             .ghost()
                             .small()
-                            .label(label)
+                            .accessibility_label(label.clone())
+                            .child(div().w_full().min_w_0().text_left().truncate().child(label))
                             .on_click(move |_, window, cx| {
                                 let _ = viewer.update(cx, |viewer, cx| {
                                     viewer.set_remote_visibility(
@@ -251,11 +262,16 @@ impl Viewer {
                     Button::new("toggle-reference-labels")
                         .ghost()
                         .small()
-                        .label(if labels {
+                        .accessibility_label(if labels {
                             "Hide reference labels"
                         } else {
                             "Show reference labels"
                         })
+                        .child(div().w_full().text_left().child(if labels {
+                            "Hide reference labels"
+                        } else {
+                            "Show reference labels"
+                        }))
                         .on_click(move |_, _, cx| {
                             let _ = toggle_viewer
                                 .update(cx, |viewer, cx| viewer.toggle_reference_labels(cx));
@@ -266,7 +282,14 @@ impl Viewer {
                     Button::new("reveal-selected")
                         .ghost()
                         .small()
-                        .label("Reveal inspected revision")
+                        .accessibility_label("Reveal inspected revision")
+                        .child(
+                            div()
+                                .w_full()
+                                .text_left()
+                                .truncate()
+                                .child("Reveal inspected revision"),
+                        )
                         .on_click(move |_, window, cx| {
                             let _ = viewer.update(cx, |viewer, cx| {
                                 viewer.reveal_history_selection(window, cx)
@@ -421,7 +444,8 @@ pub(super) fn reference_row(
                 .selected(selected)
                 .flex_1()
                 .min_w_0()
-                .label(label)
+                .accessibility_label(label.clone())
+                .child(div().w_full().min_w_0().text_left().truncate().child(label))
                 .tooltip(detail)
                 .on_click(move |_, window, cx| {
                     let _ = popup.update(cx, |popup, cx| popup.dismiss(window, cx));
@@ -436,7 +460,8 @@ pub(super) fn reference_row(
                 .ghost()
                 .small()
                 .compact()
-                .label("Copy")
+                .icon(IconName::Copy)
+                .accessibility_label("Copy qualified reference name")
                 .tooltip("Copy qualified reference name")
                 .on_click(move |_, _, cx| {
                     cx.write_to_clipboard(ClipboardItem::new_string(copy.clone()))
@@ -568,4 +593,36 @@ pub(super) fn reference_badge(
             })
             .into_any_element(),
     )
+}
+
+/// Measure popup labels with the UI font and reserve room for padding and Copy.
+/// Virtual lists cannot derive their width from rows that are not rendered yet.
+pub(super) fn reference_popup_width(
+    labels: impl Iterator<Item = String>,
+    window: &Window,
+    cx: &App,
+) -> Pixels {
+    let font = Font {
+        family: gpui::component::Theme::global(cx).font_family.clone(),
+        ..Default::default()
+    };
+    let size = window.rem_size() * 0.875;
+    let mut width = px(240.);
+    for label in labels {
+        let run = TextRun {
+            len: label.len(),
+            font: font.clone(),
+            ..Default::default()
+        };
+        let measured = window
+            .text_system()
+            .shape_line(label.into(), size, &[run], None)
+            .width
+            + px(64.);
+        width = width.max(measured);
+        if width >= px(640.) {
+            return px(640.);
+        }
+    }
+    width
 }

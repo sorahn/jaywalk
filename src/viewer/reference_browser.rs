@@ -38,6 +38,7 @@ pub(super) struct ReferenceBrowser {
     labels: Vec<String>,
     rows: Vec<Row>,
     selected: Option<usize>,
+    content_width: Option<Pixels>,
     input: Entity<InputState>,
     scroll: UniformListScrollHandle,
     owner: WeakEntity<Viewer>,
@@ -70,6 +71,7 @@ impl ReferenceBrowser {
             labels: vec![],
             rows: vec![],
             selected: None,
+            content_width: None,
             input,
             scroll: UniformListScrollHandle::new(),
             owner,
@@ -96,6 +98,7 @@ impl ReferenceBrowser {
         {
             return;
         }
+        self.content_width = None;
         self.snapshot = snapshot;
         self.target = target.map(str::to_owned);
         self.visibility = visibility.clone();
@@ -177,7 +180,28 @@ impl ReferenceBrowser {
     }
 }
 impl Render for ReferenceBrowser {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let width = *self.content_width.get_or_insert_with(|| {
+            super::references::reference_popup_width(
+                self.snapshot
+                    .references
+                    .iter()
+                    .filter(|reference| {
+                        self.target
+                            .as_ref()
+                            .is_none_or(|target| target == &reference.target)
+                    })
+                    .map(Reference::display_name)
+                    .chain(
+                        self.snapshot
+                            .remotes
+                            .iter()
+                            .map(|remote| format!("{remote} · hidden from graph")),
+                    ),
+                window,
+                cx,
+            )
+        });
         let rows = uniform_list(
             "reference-rows",
             self.rows.len(),
@@ -229,7 +253,9 @@ impl Render for ReferenceBrowser {
             .key_context("ReferenceBrowser")
             .v_flex()
             .gap_1()
-            .w(px(400.))
+            .w(width)
+            .max_w(window.viewport_size().width - px(24.))
+            .text_left()
             .on_action(cx.listener(|this, _: &SelectDown, _, cx| this.step(1, cx)))
             .on_action(cx.listener(|this, _: &SelectUp, _, cx| this.step(-1, cx)))
             .on_action(cx.listener(|this, _: &Confirm, window, cx| this.confirm(window, cx)))

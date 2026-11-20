@@ -188,6 +188,7 @@ fn revision_hover(revision: &jaywalk::history::Revision, cx: &App) -> AnyElement
     };
     div()
         .debug_selector(|| "commit-hover".into())
+        .text_left()
         .v_flex()
         .gap_2()
         .min_w_0()
