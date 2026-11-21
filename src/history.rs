@@ -198,6 +198,46 @@ pub struct Revision {
 }
 
 impl Revision {
+    pub(super) fn parse_jj(line: &str) -> Result<Self, String> {
+        let Entry(
+            commit_id,
+            change_id,
+            description,
+            author,
+            bookmarks,
+            parents,
+            working_copy,
+            empty,
+            timestamp,
+        ) = serde_json::from_str(line)
+            .map_err(|error| format!("Invalid jj history entry: {error}"))?;
+        for id in std::iter::once(&commit_id).chain(parents.iter()) {
+            if id.is_empty() || !id.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+                return Err("Invalid commit ID in jj history.".into());
+            }
+        }
+        Ok(Revision {
+            commit_id: commit_id.clone(),
+            change_id,
+            description,
+            author,
+            timestamp,
+            references: bookmarks
+                .into_iter()
+                .map(|name| Reference {
+                    name,
+                    target: commit_id.clone(),
+                    kind: ReferenceKind::Local,
+                    tracked_by: Vec::new(),
+                    conflicted: false,
+                })
+                .collect(),
+            parents,
+            working_copy,
+            empty,
+        })
+    }
+
     /// Git's virtual working-tree row has no commit or jj change identity.
     pub fn is_virtual_working_copy(&self) -> bool {
         self.working_copy && self.change_id.is_empty()
@@ -252,47 +292,11 @@ pub struct History {
 
 impl History {
     pub fn parse(output: &str) -> Result<Self, String> {
-        let mut revisions = Vec::new();
-        for line in output.lines() {
-            let Entry(
-                commit_id,
-                change_id,
-                description,
-                author,
-                bookmarks,
-                parents,
-                working_copy,
-                empty,
-                timestamp,
-            ) = serde_json::from_str(line)
-                .map_err(|error| format!("Invalid jj history entry: {error}"))?;
-            for id in std::iter::once(&commit_id).chain(parents.iter()) {
-                if id.is_empty() || !id.bytes().all(|byte| byte.is_ascii_hexdigit()) {
-                    return Err("Invalid commit ID in jj history.".into());
-                }
-            }
-            revisions.push(Revision {
-                commit_id: commit_id.clone(),
-                change_id,
-                description,
-                author,
-                timestamp,
-                references: bookmarks
-                    .into_iter()
-                    .map(|name| Reference {
-                        name,
-                        target: commit_id.clone(),
-                        kind: ReferenceKind::Local,
-                        tracked_by: Vec::new(),
-                        conflicted: false,
-                    })
-                    .collect(),
-                parents,
-                working_copy,
-                empty,
-            });
-        }
-        Ok(Self::new(revisions))
+        output
+            .lines()
+            .map(Revision::parse_jj)
+            .collect::<Result<Vec<_>, _>>()
+            .map(Self::new)
     }
 
     /// Space only for lanes drawn in the current visible row range. Edges
