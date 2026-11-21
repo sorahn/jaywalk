@@ -17,6 +17,15 @@ on:
       automation_ref:
         required: true
         type: string
+    secrets:
+      MACOS_CERTIFICATE_P12_BASE64:
+        required: true
+      MACOS_CERTIFICATE_PASSWORD:
+        required: true
+      APPLE_NOTARY_KEY_BASE64:
+        required: true
+      SPARKLE_PRIVATE_KEY:
+        required: true
   workflow_dispatch:
     inputs:
       version:
@@ -88,6 +97,36 @@ jobs:
       JAYWALK_RELEASE_VERSION: ${{ inputs.version }}
       JAYWALK_RELEASE_CHECKS_RUN: ${{ inputs.checks }}
     steps:
+      - name: Verify release credentials before build setup
+        env:
+          MACOS_CERTIFICATE_P12_BASE64: ${{ secrets.MACOS_CERTIFICATE_P12_BASE64 }}
+          MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+          APPLE_NOTARY_KEY_BASE64: ${{ secrets.APPLE_NOTARY_KEY_BASE64 }}
+          SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
+          MACOS_SIGNING_IDENTITY: ${{ vars.MACOS_SIGNING_IDENTITY }}
+          APPLE_NOTARY_KEY_ID: ${{ vars.APPLE_NOTARY_KEY_ID }}
+          APPLE_NOTARY_ISSUER_ID: ${{ vars.APPLE_NOTARY_ISSUER_ID }}
+          SPARKLE_PUBLIC_KEY: ${{ vars.SPARKLE_PUBLIC_KEY }}
+          UPDATE_FEED_URL: ${{ vars.UPDATE_FEED_URL }}
+        run: |
+          python3 - <<'PYTHON'
+          import os
+          required = (
+              "MACOS_CERTIFICATE_P12_BASE64",
+              "MACOS_CERTIFICATE_PASSWORD",
+              "APPLE_NOTARY_KEY_BASE64",
+              "SPARKLE_PRIVATE_KEY",
+              "MACOS_SIGNING_IDENTITY",
+              "APPLE_NOTARY_KEY_ID",
+              "APPLE_NOTARY_ISSUER_ID",
+              "SPARKLE_PUBLIC_KEY",
+              "UPDATE_FEED_URL",
+          )
+          missing = [name for name in required if not os.environ.get(name)]
+          if missing:
+              raise SystemExit("Missing release credentials/configuration: " + ", ".join(missing))
+          print("Required release credentials and configuration are present.")
+          PYTHON
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 0

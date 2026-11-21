@@ -53,6 +53,16 @@ Restrict `macos-release` and `release-automation` to `main`, without recurring e
 | `SPARKLE_PUBLIC_KEY` | Variable | Matching public EdDSA key included in the app |
 | `UPDATE_FEED_URL` | Variable | HTTPS URL of the signed public appcast |
 
+The automatic release caller explicitly passes the four named secrets into
+`macos-release.yml`, which declares them required under `workflow_call.secrets`.
+GitHub requires this handoff even for secrets stored only in the called job's
+protected environment; declaring `environment: macos-release` alone does not
+make them available. They remain environment-scoped. The official job checks
+for nonempty secrets and required variables before checkout/toolchain/cache
+setup, reporting missing names only. Required declarations catch a missing
+handoff, while the runtime check catches missing values. See
+https://docs.github.com/en/actions/how-tos/reuse-automations/reuse-workflows .
+
 Enter/export values locally and upload through secure tooling; do not send secrets in chat or commit them. Keep encrypted backups and document rotation. Development builds keep the Apple Development identity; public builds use Developer ID Application. CI uses an ephemeral Keychain and deletes its temporary key files/Keychain on exit. No ACL/trust changes are made to the developer's login Keychain.
 
 Official signing requires an explicit identity and hardened runtime/timestamp. The app, launcher and Sparkle's nested helpers/framework are signed inside-out. Submit/staple the app, package it, sign/submit/staple the DMG, then verify signatures, Gatekeeper and tickets before computing final artifact metadata. The manifest records version, exact source commit, platform/architecture, minimum OS and final sizes/hashes.
