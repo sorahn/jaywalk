@@ -1,7 +1,7 @@
 //! Main-thread state transitions only; every store/provider/service call is on
 //! the background executor. Atomic handles cancel waits without taking its locks.
 use super::{
-    AccountKey, Control, Error, Identity, Provider, WorkspaceListing,
+    AccountKey, Control, Error, Identity, Provider, Secret, WorkspaceListing,
     application::{AccountState, Accounts},
 };
 use gpui_kit::{AppContext, Context};
@@ -12,6 +12,14 @@ pub enum AccountAction {
     Load,
     Connect {
         provider: Provider,
+        replace: Option<AccountKey>,
+    },
+    ConnectToken {
+        token: Secret,
+        replace: Option<AccountKey>,
+    },
+    ImportGithubCli {
+        path: std::path::PathBuf,
         replace: Option<AccountKey>,
     },
     Verify(AccountKey),
@@ -46,6 +54,8 @@ impl OperationView {
         match self.action {
             AccountAction::Load => "Checking saved accounts…",
             AccountAction::Connect { .. } => "Preparing sign-in…",
+            AccountAction::ConnectToken { .. } => "Validating token…",
+            AccountAction::ImportGithubCli { .. } => "Importing GitHub CLI token…",
             AccountAction::Verify(_) => "Checking connection…",
             AccountAction::Disconnect(_) => "Disconnecting account…",
             AccountAction::Workspaces(_) => "Loading workspaces…",
@@ -182,6 +192,15 @@ impl AccountState {
                                     }
                                     control.check()?;
                                     Ok(Outcome::Loaded)
+                                }
+                                AccountAction::ConnectToken { token, replace } => backend
+                                    .connect_token(token, replace, &control)
+                                    .map(Outcome::Connected),
+                                AccountAction::ImportGithubCli { path, replace } => {
+                                    let token = super::token::import_gh(&path, &control)?;
+                                    backend
+                                        .connect_token(token, replace, &control)
+                                        .map(Outcome::Connected)
                                 }
                                 AccountAction::Verify(key) => backend
                                     .access_token(&key, &control)

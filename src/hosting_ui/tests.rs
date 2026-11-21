@@ -307,6 +307,7 @@ fn a_full_url_offers_its_provider_even_after_a_different_account_filter(
                 .push(jaywalk::accounts::AccountView {
                     name: None,
                     generation: 999,
+                    authentication: jaywalk::accounts::Authentication::Oauth,
                     identity: Identity {
                         key: AccountKey {
                             provider: Provider::Bitbucket,
@@ -753,6 +754,7 @@ fn configured_account_order_wins_over_completion_order_and_updates_live(
     let config = |ids: &[&str]| {
         ids.iter()
             .map(|id| AccountConfig {
+                authentication: jaywalk::accounts::Authentication::Oauth,
                 provider: Provider::Github,
                 id: (*id).into(),
                 name: Some(format!("Account {id}")),

@@ -11,6 +11,7 @@ use std::{
 struct Store {
     sessions: Mutex<BTreeMap<AccountKey, StoredSession>>,
     saves: AtomicUsize,
+    registrations: AtomicUsize,
     fail_save: AtomicUsize,
     unavailable: AtomicBool,
     fail_delete: AtomicBool,
@@ -49,6 +50,7 @@ impl CredentialStore for Store {
         Ok(())
     }
     fn registration(&self, provider: Provider, _: &str) -> Result<ClientRegistration, Error> {
+        self.registrations.fetch_add(1, Ordering::SeqCst);
         Ok(registration(provider))
     }
 }
@@ -204,7 +206,8 @@ fn rotated() -> Tokens {
 fn session(expired: bool) -> StoredSession {
     StoredSession {
         identity: identity(),
-        client_id: "synthetic-client".into(),
+        authentication: Authentication::Oauth,
+        client_id: Some("synthetic-client".into()),
         workspace: None,
         tokens: tokens(expired),
         refresh_state: RefreshState::Ready,
@@ -830,4 +833,136 @@ fn explicit_discovery_refresh_bypasses_cache_and_retains_it_on_failure() {
         Err(Error::RateLimited)
     ));
     assert_eq!(provider.hosting_calls.load(Ordering::SeqCst), calls);
+}
+
+#[test]
+fn personal_tokens_restore_without_registration_or_refresh_and_reject_revocation() {
+    let (service, store, provider) = fixture(false, None, None);
+    service.restore().unwrap();
+    service
+        .connect_token(
+            secret("personal-token"),
+            Some(key()),
+            &Control::new(Duration::from_secs(2)),
+        )
+        .unwrap();
+    let saved = store.sessions.lock().unwrap()[&key()].clone();
+    assert_eq!(saved.authentication, Authentication::Token);
+    assert!(saved.client_id.is_none() && saved.tokens.refresh.is_none());
+    let restored = Service::new(store.clone(), provider.clone());
+    restored.restore().unwrap();
+    let control = Control::new(Duration::from_secs(2));
+    assert_eq!(
+        restored.access_token(&key(), &control).unwrap().expose(),
+        "personal-token"
+    );
+    assert_eq!(store.registrations.load(Ordering::SeqCst), 0);
+    assert_eq!(provider.calls.load(Ordering::SeqCst), 0);
+    restored
+        .reject_access_token(&key(), &secret("personal-token"))
+        .unwrap();
+    assert_eq!(
+        restored.access_token(&key(), &control).unwrap_err(),
+        Error::NeedsSignIn
+    );
+    assert_eq!(store.registrations.load(Ordering::SeqCst), 0);
+}
+#[test]
+fn token_replacement_requires_explicit_same_identity_and_preserves_previous_connection_on_failure()
+{
+    let (service, store, provider) = fixture(false, None, None);
+    service.restore().unwrap();
+    let previous = store.sessions.lock().unwrap()[&key()]
+        .tokens
+        .access
+        .expose()
+        .to_owned();
+    assert_eq!(
+        service.connect_token(
+            secret("personal-token"),
+            None,
+            &Control::new(Duration::from_secs(2))
+        ),
+        Err(Error::AccountExists)
+    );
+    *provider.identity_result.lock().unwrap() = Err(Error::Denied);
+    assert_eq!(
+        service.connect_token(
+            secret("bad-token"),
+            Some(key()),
+            &Control::new(Duration::from_secs(2))
+        ),
+        Err(Error::Denied)
+    );
+    let mut other = identity();
+    other.key.subject = "different".into();
+    *provider.identity_result.lock().unwrap() = Ok(other);
+    assert_eq!(
+        service.connect_token(
+            secret("wrong-token"),
+            Some(key()),
+            &Control::new(Duration::from_secs(2))
+        ),
+        Err(Error::IdentityMismatch)
+    );
+    *provider.identity_result.lock().unwrap() = Ok(identity());
+    store.fail_save.store(1, Ordering::SeqCst);
+    assert_eq!(
+        service.connect_token(
+            secret("unsaved-token"),
+            Some(key()),
+            &Control::new(Duration::from_secs(2))
+        ),
+        Err(Error::Persistence)
+    );
+    assert_eq!(
+        store.sessions.lock().unwrap()[&key()]
+            .tokens
+            .access
+            .expose(),
+        previous
+    );
+    assert_eq!(
+        service
+            .access_token(&key(), &Control::new(Duration::from_secs(2)))
+            .unwrap()
+            .expose(),
+        previous
+    );
+}
+#[test]
+fn disconnect_during_token_validation_cannot_resurrect_the_account() {
+    let gate = Arc::new(Gate::default());
+    let (service, store, _) = fixture(false, None, Some(gate.clone()));
+    service.restore().unwrap();
+    let worker = service.clone();
+    let job = thread::spawn(move || {
+        worker.connect_token(
+            secret("late-token"),
+            Some(key()),
+            &Control::new(Duration::from_secs(2)),
+        )
+    });
+    gate.entered();
+    service.disconnect(&key()).unwrap();
+    gate.release();
+    assert!(matches!(
+        job.join().unwrap(),
+        Err(Error::Cancelled | Error::Superseded)
+    ));
+    assert!(store.sessions.lock().unwrap().is_empty());
+    assert!(service.accounts_snapshot().accounts.is_empty());
+}
+#[test]
+fn legacy_oauth_records_migrate_and_token_records_reject_oauth_fields() {
+    let old = serde_json::to_value(session(false)).unwrap();
+    let mut legacy = old.clone();
+    legacy.as_object_mut().unwrap().remove("authentication");
+    let migrated: StoredSession = serde_json::from_value(legacy).unwrap();
+    assert_eq!(migrated.authentication, Authentication::Oauth);
+    migrated.validate().unwrap();
+    let mut invalid = old;
+    invalid["authentication"] = serde_json::json!("token");
+    let invalid: StoredSession = serde_json::from_value(invalid).unwrap();
+    assert_eq!(invalid.validate(), Err(Error::StoreInvalid));
 }

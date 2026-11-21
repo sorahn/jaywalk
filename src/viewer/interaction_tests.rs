@@ -3772,6 +3772,7 @@ fn workspace_command_tracks_configured_bitbucket_accounts(cx: &mut TestAppContex
             state.snapshot.accounts.push(AccountView {
                 name: None,
                 generation: 1,
+                authentication: jaywalk::accounts::Authentication::Oauth,
                 identity: Identity {
                     key: AccountKey {
                         provider: Provider::Bitbucket,

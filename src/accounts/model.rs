@@ -105,8 +105,8 @@ impl ClientRegistration {
 pub struct Tokens {
     pub access: Secret,
     pub refresh: Option<Secret>,
-    /// Absolute expiry survives application restarts. None means provider-issued
-    /// non-expiring; missing/invalid expiry is not silently converted to None.
+    /// Absolute expiry survives application restarts. None means no locally known
+    /// expiry; an imported token can still expire or be revoked by its provider.
     pub expires_at: Option<u64>,
 }
 impl Tokens {
@@ -128,10 +128,20 @@ pub(crate) enum RefreshState {
     Pending,
     Blocked,
 }
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Authentication {
+    #[default]
+    Oauth,
+    Token,
+}
 #[derive(Clone, Serialize, Deserialize)]
 pub struct StoredSession {
     pub identity: Identity,
-    pub client_id: String,
+    #[serde(default)]
+    pub authentication: Authentication,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub client_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub workspace: Option<super::Workspace>,
     pub tokens: Tokens,
@@ -140,8 +150,22 @@ pub struct StoredSession {
 impl StoredSession {
     pub(crate) fn validate(&self) -> Result<(), Error> {
         self.identity.validate()?;
-        if self.client_id.trim().is_empty() || self.client_id.len() > 256 {
-            return Err(Error::Registration);
+        match self.authentication {
+            Authentication::Oauth
+                if self.client_id.as_ref().is_none_or(|id| {
+                    id.trim().is_empty() || id.len() > 256 || id.chars().any(char::is_control)
+                }) =>
+            {
+                return Err(Error::Registration);
+            }
+            Authentication::Token
+                if self.client_id.is_some()
+                    || self.tokens.refresh.is_some()
+                    || self.refresh_state != RefreshState::Ready =>
+            {
+                return Err(Error::StoreInvalid);
+            }
+            _ => (),
         }
         self.tokens.validate()?;
         if let Some(workspace) = &self.workspace {
@@ -168,6 +192,10 @@ pub enum Error {
     NeedsSignIn,
     RefreshUncertain,
     IdentityMismatch,
+    AccountExists,
+    CliUnavailable,
+    CliImport,
+    InvalidToken,
     NotConnected,
     Busy,
     Unsupported,
@@ -208,6 +236,10 @@ impl fmt::Display for Error {
             Self::IdentityMismatch => {
                 "The signed-in account differs from the account being reconnected"
             }
+            Self::AccountExists => "This account is already connected; choose Use token on its account row to replace it",
+            Self::CliUnavailable => "GitHub CLI was not found; install gh or paste a token instead",
+            Self::InvalidToken => "Enter a nonempty token without whitespace (maximum 16 KiB)",
+            Self::CliImport => "Could not import a saved github.com token from gh; sign in with gh or paste a token instead",
             Self::NotConnected => "This account is not connected",
             Self::NoAccess => "This account or app does not have access to that request",
             Self::NotFound => "Pull request not found or unavailable to this account",
@@ -235,6 +267,7 @@ pub enum ConnectionState {
 pub struct AccountView {
     pub name: Option<String>,
     pub generation: u64,
+    pub authentication: Authentication,
     pub identity: Identity,
     pub workspace: Option<super::Workspace>,
     pub state: ConnectionState,

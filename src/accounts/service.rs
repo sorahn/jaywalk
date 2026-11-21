@@ -1,7 +1,7 @@
 use super::model::{RefreshState, now};
 use super::{
-    AccountKey, AccountView, BrowserAttempt, ClientRegistration, ConnectionState, Control,
-    CredentialStore, Error, HostingProvider, Identity, Provider, Secret, StoredSession,
+    AccountKey, AccountView, Authentication, BrowserAttempt, ClientRegistration, ConnectionState,
+    Control, CredentialStore, Error, HostingProvider, Identity, Provider, Secret, StoredSession,
 };
 use std::{
     collections::BTreeMap,
@@ -298,6 +298,110 @@ impl Service {
         state.store_error = None;
         self.publish(&state);
         Ok(())
+    }
+    /// Worker-only. Validate before persisting; require an explicit same-account replacement.
+    pub fn connect_token(
+        &self,
+        token: Secret,
+        replace: Option<AccountKey>,
+        control: &Control,
+    ) -> Result<Identity, Error> {
+        self.restore()?;
+        control.check()?;
+        let provider = Provider::Github;
+        let id = {
+            let mut state = self.state.lock().expect("account state mutex poisoned");
+            if state.pending.contains_key(&provider) {
+                return Err(Error::Busy);
+            }
+            if let Some(key) = &replace
+                && (key.provider != provider || !state.accounts.contains_key(key))
+            {
+                return Err(Error::NotConnected);
+            }
+            state.serial += 1;
+            let id = state.serial;
+            state.pending.insert(
+                provider,
+                Pending {
+                    id,
+                    control: control.clone(),
+                },
+            );
+            self.publish(&state);
+            id
+        };
+        let result = (|| {
+            let identity = self.provider.identity(provider, &token, control)?;
+            identity.validate()?;
+            control.check()?;
+            if identity.key.provider != provider
+                || replace.as_ref().is_some_and(|key| *key != identity.key)
+            {
+                return Err(Error::IdentityMismatch);
+            }
+            let mut state = self.state.lock().expect("account state mutex poisoned");
+            if !state
+                .pending
+                .get(&provider)
+                .is_some_and(|pending| pending.id == id)
+            {
+                return Err(Error::Superseded);
+            }
+            if state.accounts.contains_key(&identity.key) && replace.is_none() {
+                return Err(Error::AccountExists);
+            }
+            let session = StoredSession {
+                identity: identity.clone(),
+                authentication: Authentication::Token,
+                client_id: None,
+                workspace: None,
+                tokens: super::Tokens {
+                    access: token,
+                    refresh: None,
+                    expires_at: None,
+                },
+                refresh_state: RefreshState::Ready,
+            };
+            session.validate()?;
+            control.commit()?;
+            self.store.save(&session).map_err(|_| Error::Persistence)?;
+            if let Some(old) = state
+                .accounts
+                .get(&identity.key)
+                .and_then(|a| a.flight.as_ref())
+            {
+                old.control.cancel();
+                old.finish(Err(Error::Superseded));
+            }
+            state.serial += 1;
+            let epoch = state.serial;
+            state.accounts.insert(
+                identity.key.clone(),
+                Account {
+                    session,
+                    epoch,
+                    verified: true,
+                    dirty: false,
+                    state: ConnectionState::Connected,
+                    flight: None,
+                },
+            );
+            self.publish(&state);
+            Ok(identity)
+        })();
+        // Completion is not cancellation: cancelling this shared handle here
+        // would make the controller discard a genuine validation error.
+        let mut state = self.state.lock().expect("account state mutex poisoned");
+        if state
+            .pending
+            .get(&provider)
+            .is_some_and(|pending| pending.id == id)
+        {
+            state.pending.remove(&provider);
+            self.publish(&state);
+        }
+        result
     }
     pub fn begin_sign_in(
         self: &Arc<Self>,
@@ -869,9 +973,14 @@ impl Service {
                 .refresh
                 .clone()
                 .ok_or(Error::NeedsSignIn)?;
-            let registration = self
-                .store
-                .registration(key.provider, &account.session.client_id)?;
+            let registration = self.store.registration(
+                key.provider,
+                account
+                    .session
+                    .client_id
+                    .as_deref()
+                    .ok_or(Error::Registration)?,
+            )?;
             account.session.refresh_state = RefreshState::Pending;
             // A persisted intent prevents replay after a crash or lost response.
             if let Err(error) = self.store.save(&account.session) {
@@ -988,6 +1097,7 @@ fn snapshot(state: &State) -> Snapshot {
             AccountView {
                 name: preference(state, key).and_then(|entry| entry.name.clone()),
                 generation: account.epoch,
+                authentication: account.session.authentication,
                 identity: account.session.identity.clone(),
                 workspace: preferred_workspace(state, key, &account.session.workspace),
                 state: account.state.clone(),
@@ -1063,7 +1173,8 @@ impl SignIn {
         }
         let session = StoredSession {
             identity: identity.clone(),
-            client_id: self.registration.client_id.clone(),
+            authentication: Authentication::Oauth,
+            client_id: Some(self.registration.client_id.clone()),
             workspace: None,
             tokens,
             refresh_state: RefreshState::Ready,

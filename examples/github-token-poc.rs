@@ -8,11 +8,7 @@ use jaywalk::{
     },
 };
 use serde::{Deserialize, Serialize};
-use std::{
-    io::Read,
-    process::{Command, Stdio},
-    time::{Duration, Instant},
-};
+use std::time::Duration;
 
 const SLOT: &str = "github-token-validation";
 const SERVICE: &str = "jaywalk.hosting-auth-poc.v1";
@@ -49,79 +45,10 @@ fn main() {
         std::process::exit(1);
     }
 }
-fn gh_command() -> Command {
-    let mut command = Command::new("gh");
-    command
-        .args(["auth", "token", "--hostname", "github.com"])
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null());
-    // This command imports gh's saved credential, not ambient shell/CI credentials.
-    for name in [
-        "GH_TOKEN",
-        "GITHUB_TOKEN",
-        "GH_ENTERPRISE_TOKEN",
-        "GITHUB_ENTERPRISE_TOKEN",
-        "GH_DEBUG",
-        "GH_HOST",
-    ] {
-        command.env_remove(name);
-    }
-    command
-        .env("GH_PROMPT_DISABLED", "1")
-        .env("GH_NO_UPDATE_NOTIFIER", "1")
-        .env("GH_NO_EXTENSION_UPDATE_NOTIFIER", "1")
-        .env("DO_NOT_TRACK", "1");
-    command
-}
-fn parse_token(bytes: &[u8]) -> Result<Secret, String> {
-    if bytes.len() > 16_386 {
-        return Err("GitHub CLI returned an oversized credential".into());
-    }
-    let value = std::str::from_utf8(bytes)
-        .map_err(|_| "GitHub CLI returned invalid credential encoding")?;
-    // Accept CLI line termination only; embedded whitespace is never a credential.
-    let value = value.trim_end_matches(['\r', '\n']);
-    if value.bytes().any(|b| b.is_ascii_whitespace()) {
-        return Err("GitHub CLI returned an invalid credential".into());
-    }
-    Secret::new(value.to_owned()).map_err(|_| "GitHub CLI returned an invalid credential".into())
-}
 fn import_gh() -> Result<Secret, String> {
-    let mut child = gh_command()
-        .spawn()
-        .map_err(|_| "Cannot run gh; install GitHub CLI and sign in first")?;
-    let deadline = Instant::now() + Duration::from_secs(15);
-    let result = loop {
-        match child.try_wait() {
-            Ok(Some(status)) => break Ok(status),
-            Ok(None) if Instant::now() < deadline => std::thread::sleep(Duration::from_millis(20)),
-            Ok(None) => break Err("GitHub CLI token import timed out"),
-            Err(_) => break Err("Could not wait for GitHub CLI"),
-        }
-    };
-    let status = match result {
-        Ok(status) => status,
-        Err(error) => {
-            let _ = child.kill();
-            let _ = child.wait();
-            return Err(error.into());
-        }
-    };
-    if !status.success() {
-        return Err(
-            "GitHub CLI has no usable saved github.com credential, or access was denied".into(),
-        );
-    }
-    let mut bytes = Vec::new();
-    child
-        .stdout
-        .take()
-        .ok_or("Missing GitHub CLI output pipe")?
-        .take(16_387)
-        .read_to_end(&mut bytes)
-        .map_err(|_| "Could not read GitHub CLI credential")?;
-    parse_token(&bytes)
+    let path = jaywalk::accounts::token::discover().ok_or("GitHub CLI was not found")?;
+    jaywalk::accounts::token::import_gh(&path, &Control::new(Duration::from_secs(15)))
+        .map_err(|error| error.to_string())
 }
 fn locator(value: &str) -> Result<Locator, String> {
     match EntryInput::parse(value).map_err(|_| "Supply a canonical github.com pull request URL")? {
@@ -304,42 +231,9 @@ fn run() -> Result<(), String> {
 }
 #[cfg(test)]
 mod tests {
-    use super::{gh_command, locator, parse_token};
+    use super::locator;
     #[test]
-    fn cli_output_is_bounded_literal_and_errors_do_not_echo_credentials() {
-        assert_eq!(
-            parse_token(b"synthetic-secret\r\n").unwrap().expose(),
-            "synthetic-secret"
-        );
-        for bytes in [
-            &b""[..],
-            &b"synthetic-secret\nextra"[..],
-            &b" secret"[..],
-            &b"\xff"[..],
-            &vec![b'x'; 16_387][..],
-        ] {
-            assert!(parse_token(bytes).is_err());
-        }
-        assert!(
-            !parse_token(b"synthetic-secret extra")
-                .unwrap_err()
-                .contains("synthetic-secret")
-        );
-    }
-    #[test]
-    fn import_explicitly_targets_public_host_and_removes_ambient_tokens() {
-        let command = gh_command();
-        assert_eq!(
-            command.get_args().collect::<Vec<_>>(),
-            ["auth", "token", "--hostname", "github.com"]
-        );
-        for key in ["GH_TOKEN", "GITHUB_TOKEN", "GH_DEBUG"] {
-            assert!(
-                command
-                    .get_envs()
-                    .any(|(name, value)| name == key && value.is_none())
-            );
-        }
+    fn only_canonical_public_github_pr_urls_are_accepted() {
         assert!(locator("https://github.com/owner/repo/pull/1").is_ok());
         assert!(locator("https://example.org/owner/repo/pull/1").is_err());
     }

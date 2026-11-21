@@ -2,6 +2,7 @@
 use gpui::component::{
     Disableable, StyledExt,
     button::{Button, ButtonVariants},
+    input::{Input, InputEvent, InputState},
     spinner::Spinner,
 };
 use gpui::prelude::FluentBuilder;
@@ -57,11 +58,14 @@ pub(crate) fn cancel_sign_in(cx: &mut App) {
     if let Some(accounts) = cx.try_global::<Accounts>() {
         let state = accounts.state.clone();
         state.update(cx, |state, cx| {
-            if state
-                .operation
-                .as_ref()
-                .is_some_and(|operation| matches!(operation.action, AccountAction::Connect { .. }))
-            {
+            if state.operation.as_ref().is_some_and(|operation| {
+                matches!(
+                    operation.action,
+                    AccountAction::Connect { .. }
+                        | AccountAction::ConnectToken { .. }
+                        | AccountAction::ImportGithubCli { .. }
+                )
+            }) {
                 state.cancel(cx);
             }
         });
@@ -71,12 +75,21 @@ pub(crate) fn cancel_sign_in(cx: &mut App) {
 pub(crate) struct LeavePage;
 impl EventEmitter<LeavePage> for AccountPanel {}
 
+struct TokenForm {
+    input: Entity<InputState>,
+    replace: Option<AccountKey>,
+}
 pub(crate) struct AccountPanel {
     focus: FocusHandle,
     state: Entity<AccountState>,
     mode: Mode,
     owner: Option<OperationHandle>,
     disconnect: Option<AccountKey>,
+    token_form: Option<TokenForm>,
+    token_error: Option<String>,
+    gh_path: Option<std::path::PathBuf>,
+    gh_checked: bool,
+    gh_task: Option<Task<()>>,
     _subscription: Subscription,
 }
 impl AccountPanel {
@@ -107,12 +120,35 @@ impl AccountPanel {
             mode,
             owner: None,
             disconnect: None,
+            token_form: None,
+            token_error: None,
+            gh_path: None,
+            gh_checked: false,
+            gh_task: None,
             _subscription: subscription,
         };
+        panel.refresh_gh(cx);
         panel.start(AccountAction::Load, cx);
         panel
     }
+    fn refresh_gh(&mut self, cx: &mut Context<Self>) {
+        self.gh_checked = false;
+        self.gh_path = None;
+        self.gh_task = Some(cx.spawn(async move |panel, cx| {
+            let path = cx
+                .background_spawn(async { jaywalk::accounts::token::discover() })
+                .await;
+            let _ = panel.update(cx, |panel, cx| {
+                panel.gh_path = path;
+                panel.gh_checked = true;
+                cx.notify();
+            });
+        }));
+    }
     pub(crate) fn show(&mut self, command: CommandId, window: &mut Window, cx: &mut Context<Self>) {
+        self.token_form = None;
+        self.token_error = None;
+        self.refresh_gh(cx);
         self.mode = Mode::command(command);
         self.disconnect = None;
         self.focus(window, cx);
@@ -126,9 +162,67 @@ impl AccountPanel {
             self.owner = Some(owner);
         }
     }
+    fn open_token(
+        &mut self,
+        replace: Option<AccountKey>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let input = cx.new(|cx| {
+            InputState::new(window, cx)
+                .placeholder("GitHub token")
+                .masked(true)
+        });
+        cx.subscribe(&input, |panel, _, event: &InputEvent, cx| {
+            if matches!(event, InputEvent::PressEnter { .. }) {
+                panel.submit_token(cx);
+            }
+        })
+        .detach();
+        input.update(cx, |input, cx| input.focus(window, cx));
+        self.token_form = Some(TokenForm { input, replace });
+        self.token_error = None;
+        cx.notify();
+    }
+    fn submit_token(&mut self, cx: &mut Context<Self>) {
+        if self.state.read(cx).operation.is_some() {
+            return;
+        }
+        let Some(form) = &self.token_form else {
+            return;
+        };
+        let token = jaywalk::accounts::token::parse(form.input.read(cx).unmask_value().as_bytes());
+        let replace = form.replace.clone();
+        match token {
+            Ok(token) => {
+                self.start(AccountAction::ConnectToken { token, replace }, cx);
+                if self.owner.is_some() {
+                    self.token_form = None;
+                    self.token_error = None;
+                }
+            }
+            Err(error) => {
+                self.token_error = Some(error.to_string());
+                cx.notify();
+            }
+        }
+    }
+    fn import_token(&mut self, replace: Option<AccountKey>, cx: &mut Context<Self>) {
+        if self.state.read(cx).operation.is_some() {
+            return;
+        }
+        if let Some(path) = self.gh_path.clone() {
+            self.start(AccountAction::ImportGithubCli { path, replace }, cx);
+            self.token_form = None;
+            self.token_error = None;
+        }
+    }
     fn cancel(&mut self, _: &mut Window, cx: &mut Context<Self>) {
         if self.state.read(cx).operation.is_some() {
             self.state.update(cx, |state, cx| state.cancel(cx));
+        } else if self.token_form.take().is_some() {
+            self.token_error = None;
+            cx.notify();
         } else if self.disconnect.take().is_some() {
             cx.notify();
         } else {
@@ -176,7 +270,13 @@ impl AccountPanel {
                     key.subject
                 )))
                 .ghost()
-                .label("Reconnect")
+                .label(
+                    if account.authentication == jaywalk::accounts::Authentication::Token {
+                        "Connect with browser…"
+                    } else {
+                        "Reconnect"
+                    },
+                )
                 .disabled(busy)
                 .on_click(cx.listener(move |view, _, _, cx| {
                     view.start(
@@ -187,6 +287,25 @@ impl AccountPanel {
                         cx,
                     )
                 })),
+            );
+        }
+        if key.provider == Provider::Github && matches!(self.mode, Mode::Accounts | Mode::Reconnect)
+        {
+            let key = key.clone();
+            actions = actions.child(
+                Button::new(SharedString::from(format!("token-{}", key.subject)))
+                    .ghost()
+                    .label(
+                        if account.authentication == jaywalk::accounts::Authentication::Token {
+                            "Replace token…"
+                        } else {
+                            "Use token…"
+                        },
+                    )
+                    .disabled(busy)
+                    .on_click(cx.listener(move |view, _, window, cx| {
+                        view.open_token(Some(key.clone()), window, cx)
+                    })),
             );
         }
         if matches!(self.mode, Mode::Accounts | Mode::Disconnect) {
@@ -238,6 +357,13 @@ impl AccountPanel {
                     .text_color(theme.muted_foreground)
                     .child(status),
             )
+            .child(div().text_sm().text_color(theme.muted_foreground).child(
+                if account.authentication == jaywalk::accounts::Authentication::Token {
+                    "Token connection"
+                } else {
+                    "Browser connection"
+                },
+            ))
             .children(account.workspace.as_ref().map(|workspace| {
                 div()
                     .text_sm()
@@ -428,14 +554,16 @@ impl Render for AccountPanel {
                         .h(px(180.)),
                     );
             }
+            content = content.child(div().text_sm().font_medium().child("Connect GitHub"));
             content = content.child(
                 div()
                     .h_flex()
+                    .flex_wrap()
                     .gap_2()
                     .mt_2()
                     .child(
                         Button::new("accounts-connect-github")
-                            .label("Connect GitHub…")
+                            .label("Connect with browser…")
                             .disabled(busy)
                             .on_click(cx.listener(|view, _, _, cx| {
                                 view.start(
@@ -448,24 +576,70 @@ impl Render for AccountPanel {
                             })),
                     )
                     .child(
-                        Button::new("accounts-connect-bitbucket")
-                            .label("Connect Bitbucket…")
+                        Button::new("accounts-paste-token")
+                            .debug_selector(|| "accounts-paste-token".into())
+                            .label("Paste token…")
                             .disabled(busy)
-                            .on_click(cx.listener(|view, _, _, cx| {
-                                view.start(
-                                    AccountAction::Connect {
-                                        provider: Provider::Bitbucket,
-                                        replace: None,
-                                    },
-                                    cx,
-                                )
-                            })),
+                            .on_click(
+                                cx.listener(|view, _, window, cx| {
+                                    view.open_token(None, window, cx)
+                                }),
+                            ),
+                    )
+                    .child(
+                        Button::new("accounts-gh-token")
+                            .debug_selector(|| "accounts-gh-token".into())
+                            .label("Use GitHub CLI token")
+                            .disabled(busy || self.gh_path.is_none())
+                            .on_click(cx.listener(|view, _, _, cx| view.import_token(None, cx))),
                     ),
             );
+            content = content.child(
+                div().child(
+                    Button::new("accounts-connect-bitbucket")
+                        .label("Connect Bitbucket…")
+                        .disabled(busy)
+                        .on_click(cx.listener(|view, _, _, cx| {
+                            view.start(
+                                AccountAction::Connect {
+                                    provider: Provider::Bitbucket,
+                                    replace: None,
+                                },
+                                cx,
+                            )
+                        })),
+                ),
+            );
+            if self.gh_path.is_none() {
+                content =
+                    content.child(div().text_sm().text_color(muted).child(if self.gh_checked {
+                        "Install GitHub CLI (gh) to import its saved token."
+                    } else {
+                        "Checking for GitHub CLI…"
+                    }));
+            }
+            if let Some(form) = &self.token_form {
+                let replace = form.replace.clone();
+                let gh_replace = replace.clone();
+                content=content.child(div().v_flex().gap_2().p_3().border_1().border_color(border)
+                    .child(if replace.is_some() {"Replace this account's connection with a token"} else {"Connect with a GitHub token"})
+                    .child(div().text_sm().text_color(muted).child("Stored securely in the system credential store. The token's permissions determine which repositories and review features are available."))
+                    .child(div().id("accounts-token-input").debug_selector(||"accounts-token-input".into()).child(Input::new(&form.input)))
+                    .child(div().h_flex().gap_2()
+                        .child(Button::new("accounts-save-token").debug_selector(||"accounts-save-token".into()).label(if replace.is_some(){"Replace connection"}else{"Connect"}).disabled(busy).on_click(cx.listener(|view,_,_,cx|view.submit_token(cx))))
+                        .child(Button::new("accounts-token-from-gh").label("Use GitHub CLI token").disabled(busy || self.gh_path.is_none()).on_click(cx.listener(move|view,_,_,cx|view.import_token(gh_replace.clone(),cx))))
+                        .child(Button::new("accounts-token-cancel").ghost().label("Cancel").on_click(cx.listener(|view,_,_,cx|{view.token_form=None;view.token_error=None;cx.notify();})))));
+            }
+            if let Some(error) = &self.token_error {
+                content = content.child(crate::feedback::error_message(
+                    "accounts-token-error",
+                    error,
+                ));
+            }
             if let Some(url) = jaywalk::accounts::publisher::github_install_url() {
                 content = content.child(
                     div().v_flex().gap_1()
-                        .child(div().text_sm().text_color(muted).child("To review private GitHub repositories, choose which repositories Jaywalk can access."))
+                        .child(div().text_sm().text_color(muted).child("For browser connections, choose which GitHub repositories Jaywalk can access."))
                         .child(div().child(Button::new("accounts-github-repositories").ghost().label("Choose GitHub repositories…").on_click(move |_, _, cx| cx.open_url(&url))))
                 );
             }
@@ -648,6 +822,62 @@ pub(crate) mod tests {
             cx.run_until_parked();
             cx.update(|window, app| window.draw(app).clear(app));
         }
+    }
+    #[gpui_test::test]
+    fn token_input_is_masked_and_missing_gh_is_disabled(cx: &mut gpui_test::TestAppContext) {
+        let store = setup(cx);
+        let mut panel = None;
+        let (_, cx) = cx.add_window_view(|window, app| {
+            let view = app.new(|cx| AccountPanel::new(CommandId::Accounts, window, cx));
+            panel = Some(view.clone());
+            gpui::component::Root::new(view, window, app)
+        });
+        let panel = panel.unwrap();
+        cx.simulate_resize(size(px(1100.), px(1000.)));
+        draw(cx);
+        cx.update(|_, app| {
+            panel.update(app, |panel, cx| {
+                panel.gh_path = None;
+                panel.gh_checked = true;
+                cx.notify();
+            })
+        });
+        draw(cx);
+        let gh = cx.debug_bounds("accounts-gh-token").unwrap();
+        cx.simulate_click(gh.center(), Default::default());
+        draw(cx);
+        assert!(cx.update(|_, app| panel.read(app).state.read(app).operation.is_none()));
+        let paste = cx.debug_bounds("accounts-paste-token").unwrap();
+        cx.simulate_click(paste.center(), Default::default());
+        draw(cx);
+        cx.simulate_input("synthetic-token");
+        draw(cx);
+        cx.update(|_, app| {
+            let form = panel.read(app).token_form.as_ref().unwrap();
+            assert!(form.input.read(app).presentation().is_masked());
+            assert_eq!(
+                form.input.read(app).unmask_value().as_ref(),
+                "synthetic-token"
+            );
+        });
+        // This is an existing identity: validate but require explicit replacement.
+        cx.simulate_keystrokes("enter");
+        draw(cx);
+        assert!(cx.update(|_, app| panel.read(app).token_form.is_none()));
+        assert_eq!(
+            store.sessions.lock().unwrap()[0].authentication,
+            jaywalk::accounts::Authentication::Oauth
+        );
+        assert!(cx.update(|_, app| {
+            panel
+                .read(app)
+                .state
+                .read(app)
+                .notice
+                .as_ref()
+                .unwrap()
+                .error
+        }));
     }
     #[gpui_test::test]
     fn disconnect_requires_confirmation_and_escape_keeps_the_account(
