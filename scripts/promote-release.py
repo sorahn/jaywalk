@@ -121,9 +121,21 @@ def verify_native(directory, report, public, identity):
             raise ValueError("candidate executable provenance mismatch")
 
 
-def should_be_latest(api, released):
+def should_be_latest(api, released, source):
     latest = pipeline.optional(lambda: api.api("releases/latest"))
-    return latest is None or pipeline.version.stable_version(released) > pipeline.version.stable_version(latest["tag_name"].removeprefix("v"))
+    if latest is None:
+        return True
+    if pipeline.version.stable_version(released) <= pipeline.version.stable_version(latest["tag_name"].removeprefix("v")):
+        return False
+    previous = pipeline.version.tag_commit(api, latest["tag_name"])
+    if previous == source:
+        return False
+    relation = api.api(f"compare/{previous}...{source}")["status"]
+    if relation == "diverged":
+        raise ValueError("latest release and selected source have diverged")
+    # Main checks can complete out of order. A late build of an older commit
+    # must not replace the update channel merely because it reserved a bigger number.
+    return relation == "ahead"
 
 
 def promote(api, tag, source, sdk, publish=False):
@@ -166,7 +178,7 @@ def promote(api, tag, source, sdk, publish=False):
     if release["draft"]:
         # GITHUB_TOKEN publication does not recursively dispatch release workflows;
         # the parent pipeline explicitly awaits tap delivery.
-        newest = should_be_latest(api, report["version"])
+        newest = should_be_latest(api, report["version"], source)
         api.api("releases/" + str(release["id"]), {"draft": False, "make_latest": "true" if newest else "false"}, method="PATCH")
         print("Published " + tag)
     else:

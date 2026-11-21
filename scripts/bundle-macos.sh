@@ -14,7 +14,7 @@ mkdir -p "$bundle/Contents/MacOS" "$bundle/Contents/Resources"
 cp "$binaries/jaywalk" "$bundle/Contents/MacOS/jaywalk"
 cp "$binaries/jw" "$bundle/Contents/MacOS/jw"
 cp packaging/macos/Info.plist "$bundle/Contents/Info.plist"
-# The standalone executable gets this value from Cargo.toml.
+# The standalone executable exposes the app version injected by release CI.
 /usr/libexec/PlistBuddy -c "Add :CFBundleShortVersionString string $version" "$bundle/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c "Add :CFBundleVersion string $version" "$bundle/Contents/Info.plist"
 # Compile the editable Icon Composer document, including the legacy fallback.

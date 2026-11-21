@@ -1,7 +1,7 @@
 """Portable release state-machine tests: no network, credentials or real refs."""
-import base64
 import copy
 import importlib.util
+import json
 from pathlib import Path
 import subprocess
 import unittest
@@ -11,8 +11,6 @@ version = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(version)
 SOURCE = "a" * 40
 MAIN = "b" * 40
-CARGO = '[package]\nname = "jaywalk"\nversion = "2026.11.1" # keep comment\n\n[dependencies]\nother = "2026.11.1"\n'
-LOCK = 'version = 4\n\n[[package]]\nname = "jaywalk"\nversion = "2026.11.1"\ndependencies = ["other"]\n\n[[package]]\nname = "other"\nversion = "2026.11.1"\nsource = "registry+https://example.test"\n'
 
 
 def missing():
@@ -24,14 +22,16 @@ class FakeGitHub:
         self.repository = "example/project"
         self.main = MAIN
         self.tag = None
-        self.files = {SOURCE: {"Cargo.toml": CARGO, "Cargo.lock": LOCK},
-                      MAIN: {"Cargo.toml": CARGO, "Cargo.lock": LOCK}}
-        self.created = []
         self.mutations = []
-        self.races = 0
         self.denied = False
+        self.refs = {}
+        self.objects = {}
+        self.has_release = True
+        self.run = {"id": 77, "head_sha": SOURCE, "head_branch": "main", "event": "push",
+                    "path": ".github/workflows/checks.yml", "status": "completed", "conclusion": "success",
+                    "head_repository": {"full_name": self.repository}}
         self.relation = "ahead"
-        self.report = {"official": True, "source_tree_clean": True, "version": "2026.11.1",
+        self.report = {"release_tag": "v2026.11.1", "checks_run_id": "77", "official": True, "source_tree_clean": True, "version": "2026.11.1",
                        "source_commit": SOURCE, "binary_revision": SOURCE[:12],
                        "platform": "macos", "architecture": "arm64", "artifacts": [
                            {"filename": f"Jaywalk-2026.11.1-macos-arm64{suffix}", "sha256": "c" * 64, "bytes": 123}
@@ -49,16 +49,47 @@ class FakeGitHub:
             self.mutations.append((route, copy.deepcopy(payload)))
         if route == "git/ref/heads/main":
             return {"object": {"sha": self.main}}
-        if route.startswith("contents/"):
-            path, ref = route.removeprefix("contents/").split("?ref=")
-            return {"content": base64.b64encode(self.files[ref][path].encode()).decode()}
-        if route == "git/ref/tags/v2026.11.1":
-            if self.tag is None:
-                raise missing()
-            return {"object": {"type": "tag", "sha": "tag-object"}}
+        if route.startswith("actions/runs/"):
+            return self.run
+        if route.startswith("actions/workflows/"):
+            return {"workflow_runs": [self.run]}
+        if route.startswith("tags?per_page="):
+            entries = [{"name": name, "commit": {"sha": self.objects[oid]["object"]["sha"]}}
+                       for name, oid in self.refs.items()]
+            if self.tag:
+                entries.append({"name": "v2026.11.1", "commit": {"sha": self.tag}})
+            page = int(route.split("page=")[-1])
+            return entries[(page - 1) * 100:page * 100]
+        if route.startswith("git/ref/tags/"):
+            name = route.removeprefix("git/ref/tags/")
+            if name in self.refs:
+                return {"object": {"type": "tag", "sha": self.refs[name]}}
+            if name == "v2026.11.1" and self.tag:
+                return {"object": {"type": "tag", "sha": "tag-object"}}
+            raise missing()
         if route == "git/tags/tag-object":
-            return {"object": {"type": "commit", "sha": self.tag}}
+            return {"tag": "v2026.11.1", "message": json.dumps({"schema": 1, "version": "2026.11.1", "source_commit": self.tag, "checks_run_id": "77"}),
+                    "object": {"type": "commit", "sha": self.tag}}
+        if route.startswith("git/tags/"):
+            return self.objects[route.removeprefix("git/tags/")]
+        if route == "git/tags":
+            oid = "object-" + str(len(self.objects))
+            self.objects[oid] = {"tag": payload["tag"], "message": payload["message"],
+                                 "object": {"type": payload["type"], "sha": payload["object"]}}
+            return {"sha": oid}
+        if route == "git/refs":
+            if self.denied:
+                raise subprocess.CalledProcessError(1, ["gh"], stderr="Forbidden (HTTP 403)")
+            name = payload["ref"].removeprefix("refs/tags/")
+            if name in self.refs:
+                raise subprocess.CalledProcessError(1, ["gh"], stderr="Already exists (HTTP 422)")
+            self.refs[name] = payload["sha"]
+            return {}
+        if route == "releases/latest":
+            return self.release
         if route.startswith("releases/tags/"):
+            if not self.has_release:
+                raise missing()
             return self.release
         if route.startswith("compare/"):
             return {"status": self.relation}

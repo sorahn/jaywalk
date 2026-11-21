@@ -6,7 +6,7 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: checks-${{ github.ref }}
+  group: checks-${{ github.event_name == 'push' && github.sha || github.ref }}
   cancel-in-progress: true
 jobs:
   macos:
@@ -44,6 +44,10 @@ jobs:
           cargo +1.100.0 fmt --all -- --check
           cargo +1.100.0 test --locked
           cargo +1.100.0 clippy --locked --all-targets -- -D warnings
+      - name: Verify injected application version
+        env:
+          JAYWALK_RELEASE_VERSION: 2026.11.42
+        run: cargo +1.100.0 test --locked --test build_version --test versioning
       - name: Verify updater bridge compiles
         run: |
           python3 scripts/fetch-sparkle.py target/sparkle

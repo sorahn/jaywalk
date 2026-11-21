@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build and deliver explicitly tagged releases without editing versions or refs."""
+"""Allocate calendar builds from successful main checks, then deliver verified releases."""
 import argparse
 import base64
 import importlib.util
@@ -8,7 +8,7 @@ import os
 from pathlib import Path
 import re
 import subprocess
-import tomllib
+from datetime import datetime, timezone
 from urllib.parse import quote
 
 spec = importlib.util.spec_from_file_location("release_version", Path(__file__).with_name("release-version.py"))
@@ -28,31 +28,115 @@ def optional(call):
         return None
 
 
-def select(api, tag):
-    """Select only the explicitly supplied immutable tag; never mutate main/refs."""
+def successful_checks(api, identifier):
+    if not re.fullmatch(r"[0-9]+", str(identifier)):
+        raise ValueError("invalid checks run identifier")
+    run = api.api("actions/runs/" + str(identifier))
+    if (str(run["id"]) != str(identifier) or run["event"] != "push"
+            or run["head_branch"] != "main" or run["path"] != ".github/workflows/checks.yml"
+            or run["status"] != "completed" or run["conclusion"] != "success"
+            or run["head_repository"]["full_name"] != api.repository
+            or not re.fullmatch(r"[0-9a-f]{40}", run["head_sha"])):
+        raise ValueError("release requires successful main-push checks for this repository")
+    verify_main_source(api, run["head_sha"])
+    return run
+
+
+def allocation(api, tag):
     version.stable_version(tag.removeprefix("v"))
     if not tag.startswith("v"):
-        raise ValueError("expected a v-prefixed version tag")
-    source = version.tag_commit(api, tag)
-    verify_source(api, tag, source)
-    cargo = version.content(api, "Cargo.toml", source)
-    target = version.package_version(cargo)
-    lock = version.content(api, "Cargo.lock", source)
-    name = tomllib.loads(cargo)["package"]["name"]
-    if tag != "v" + target or version.root_lock_version(lock, name) != target:
-        raise ValueError("tag, Cargo.toml and root lockfile versions must agree")
+        raise ValueError("expected a v-prefixed calendar version tag")
+    obj = api.api("git/ref/tags/" + quote(tag, safe=""))["object"]
+    if obj["type"] != "tag":
+        raise ValueError("automatic release requires its annotated allocation tag")
+    annotation = api.api("git/tags/" + obj["sha"])
+    record = json.loads(annotation["message"])
+    if (record.get("schema") != 1 or record.get("version") != tag[1:]
+            or annotation["tag"] != tag or annotation["object"]["type"] != "commit"
+            or annotation["object"]["sha"] != record.get("source_commit")):
+        raise ValueError("release allocation does not match its immutable tag")
+    if successful_checks(api, record.get("checks_run_id"))["head_sha"] != record["source_commit"]:
+        raise ValueError("release allocation checks identify a different source")
+    return record
+
+
+def tags(api):
+    result = []
+    page = 1
+    while True:
+        batch = api.api(f"tags?per_page=100&page={page}")
+        result.extend(batch)
+        if len(batch) < 100:
+            return result
+        page += 1
+
+
+def reserve(api, check_id=None, now=None):
+    if check_id is None:
+        source = api.api("git/ref/heads/main")["object"]["sha"]
+        runs = api.api(f"actions/workflows/checks.yml/runs?head_sha={source}&event=push&branch=main&status=success&per_page=1")["workflow_runs"]
+        if not runs:
+            raise ValueError("current main has no successful checks; wait or rerun its checks")
+        check_id = runs[0]["id"]
+    run = successful_checks(api, check_id)
+    source = run["head_sha"]
+    clock = now or datetime.now(timezone.utc)
+    for _ in range(10):
+        existing = tags(api)
+        calendar = []
+        for entry in existing:
+            if not entry["name"].startswith("v"):
+                continue
+            try:
+                numeric = version.stable_version(entry["name"][1:])
+            except ValueError:
+                continue  # Legacy semver and unrelated tags are not allocations.
+            calendar.append((numeric, entry))
+        matching = [entry for _, entry in calendar if entry["commit"]["sha"] == source]
+        if len(matching) > 1:
+            raise ValueError("source already has multiple calendar tags; inspect release history")
+        if matching:
+            return select(api, matching[0]["name"])
+        # Reserved/failed numbers count too. Avoid channel regression if an older
+        # checks run finishes later or the month changes while runs are queued.
+        month = max([(clock.year, clock.month), *(n[:2] for n, _ in calendar)])
+        number = max([n[2] for n, _ in calendar if n[:2] == month], default=0) + 1
+        target = f"{month[0]}.{month[1]}.{number}"
+        tag = "v" + target
+        record = {"schema": 1, "version": target, "source_commit": source,
+                  "checks_run_id": str(run["id"])}
+        obj = api.api("git/tags", {"tag": tag, "message": json.dumps(record, sort_keys=True),
+                                  "object": source, "type": "commit"})
+        try:
+            api.api("git/refs", {"ref": "refs/tags/" + tag, "sha": obj["sha"]})
+        except subprocess.CalledProcessError as error:
+            # Only a verified ref collision is retryable; auth/network failures
+            # must not be hidden or manufacture another allocation.
+            if not any(code in (error.stderr or "") for code in ("(HTTP 409)", "(HTTP 422)")):
+                raise
+            competing_source = optional(lambda: version.tag_commit(api, tag))
+            if competing_source is None:
+                raise
+            if competing_source == source:
+                return select(api, tag)
+            continue
+        return select(api, tag)
+    raise RuntimeError("release tags changed repeatedly; rerun the same checks run")
+
+
+def select(api, tag):
+    record = allocation(api, tag)
     existing = candidate(api, tag)
-    return {"tag": tag, "source": source, "build": "true" if existing is None else "false"}
+    return {"tag": tag, "source": record["source_commit"], "version": record["version"],
+            "checks": record["checks_run_id"], "build": "true" if existing is None else "false"}
 
 
 def candidate(api, tag):
     release = optional(lambda: api.api("releases/tags/" + quote(tag, safe="")))
     if release is None:
         return None
-    source = version.tag_commit(api, tag)
-    target = version.package_version(version.content(api, "Cargo.toml", source))
-    if tag != "v" + target:
-        raise ValueError("candidate tag and source version disagree")
+    record = allocation(api, tag)
+    source, target = record["source_commit"], record["version"]
     required = {"manifest.json", "appcast.xml", "jaywalk.rb",
                 f"Jaywalk-{target}-macos-arm64.zip", f"Jaywalk-{target}-macos-arm64.dmg"}
     names = [asset["name"] for asset in release["assets"]]
@@ -62,17 +146,24 @@ def candidate(api, tag):
         raise ValueError("published release assets are incomplete")
     report = api.manifest(release)
     version.verify_artifacts(release, report, tag, source, target)
+    if report.get("checks_run_id") != record["checks_run_id"] or report.get("release_tag") != tag:
+        raise ValueError("candidate manifest does not match the recorded release allocation")
     return release, report, source
 
 
-def verify_source(api, tag, source):
-    if not re.fullmatch(r"v[0-9]+\.[0-9]+\.[0-9]+", tag) or not re.fullmatch(r"[0-9a-f]{40}", source):
-        raise ValueError("invalid release identity")
-    if version.tag_commit(api, tag) != source:
-        raise ValueError("release tag does not identify the selected source")
+def verify_main_source(api, source):
+    if not re.fullmatch(r"[0-9a-f]{40}", source):
+        raise ValueError("invalid source commit")
     main = api.api("git/ref/heads/main")["object"]["sha"]
     if main != source and api.api(f"compare/{source}...{main}")["status"] not in ("ahead", "identical"):
         raise ValueError("release source is not on main")
+
+
+def verify_source(api, tag, source):
+    record = allocation(api, tag)
+    if record["source_commit"] != source:
+        raise ValueError("release tag does not identify the selected source")
+    return record
 
 
 def update_tap(tap, report):
@@ -112,14 +203,20 @@ def finish(api, tap, tag):
     release, report, source = existing
     verify_source(api, tag, source)
     version.verify_release(release, report, tag, source, tag[1:])
+    latest = api.api("releases/latest")
+    if latest["tag_name"] != tag:
+        print("Historical release verified; leaving the current Homebrew channel unchanged")
+        return
     print(update_tap(tap, report))
 
 
 def create_draft(api, tag, directory):
     report = json.loads((directory / "manifest.json").read_text())
-    source = version.tag_commit(api, tag)
-    verify_source(api, tag, source)
-    if report.get("source_commit") != source or report.get("version") != tag[1:] or report.get("official") is not True:
+    record = allocation(api, tag)
+    source = record["source_commit"]
+    if (report.get("source_commit") != source or report.get("version") != record["version"]
+            or report.get("checks_run_id") != record["checks_run_id"]
+            or report.get("release_tag") != tag or report.get("official") is not True):
         raise ValueError("draft assets do not identify the official tagged source")
     existing = optional(lambda: api.api("releases/tags/" + quote(tag, safe="")))
     if existing:
@@ -133,6 +230,12 @@ def create_draft(api, tag, directory):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest="action", required=True)
+    reservation = sub.add_parser("reserve")
+    reservation.add_argument("--checks")
+    validation = sub.add_parser("check-source")
+    validation.add_argument("tag")
+    validation.add_argument("source")
+    validation.add_argument("checks")
     selection = sub.add_parser("select")
     selection.add_argument("tag")
     draft = sub.add_parser("draft")
@@ -143,12 +246,16 @@ def main():
     completion.add_argument("--tap", default="sorahn/homebrew-tap")
     args = parser.parse_args()
     api = version.GitHub(os.environ["GITHUB_REPOSITORY"])
-    if args.action == "select":
-        result = select(api, args.tag)
+    if args.action in ("select", "reserve"):
+        result = select(api, args.tag) if args.action == "select" else reserve(api, args.checks)
         print(json.dumps(result))
         if os.environ.get("GITHUB_OUTPUT"):
             with open(os.environ["GITHUB_OUTPUT"], "a") as output:
                 output.writelines(f"{key}={value}\n" for key, value in result.items())
+    elif args.action == "check-source":
+        record = verify_source(api, args.tag, args.source)
+        if record["checks_run_id"] != args.checks:
+            raise ValueError("checks do not match the immutable release allocation")
     elif args.action == "draft":
         create_draft(api, args.tag, args.directory)
     else:

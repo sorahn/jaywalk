@@ -7,7 +7,7 @@ for name in MACOS_CERTIFICATE_P12_BASE64 MACOS_CERTIFICATE_PASSWORD MACOS_SIGNIN
     python3 -c 'import os,sys; name=sys.argv[1]; sys.exit(0 if os.environ.get(name) else "Missing release credential/configuration: "+name)' "$name"
 done
 release_tag=${JAYWALK_RELEASE_TAG:-${GITHUB_REF_NAME:?Run on a release tag}}
-python3 scripts/release-macos.py check-tag "$release_tag"
+python3 "$automation/release-macos.py" check-tag "$release_tag"
 case "$UPDATE_FEED_URL" in https://*) ;; *) echo 'Update feed must use HTTPS' >&2;exit 2;; esac
 workspace=$(mktemp -d)
 keychain="$workspace/release.keychain-db"

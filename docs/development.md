@@ -265,12 +265,23 @@ combines that configuration with an independently validated keyboard profile. Up
 
 ## Versions and diagnostics
 
-`Cargo.toml` owns the release version; update `Cargo.lock` alongside it.
-The bundle builder reads the executable's package version. Debug builds show
-`VERSION-dev (REVISION)` with a dirty marker when applicable; release-profile
-builds show the release version. `jw --version` and **About Jaywalk** identify
-the compiled build. A running process retains that identity until restarted.
-Release notes will live in GitHub Releases when releases begin.
+Release CI allocates the app's calendar version after successful main checks and
+supplies `JAYWALK_RELEASE_VERSION` at build time. Cargo.toml intentionally omits
+its version; Cargo.lock retains the internal `0.0.0` package identity. No version
+bumps are committed. The bundle builder reads the compiled application's
+numeric version through `--package-version`.
+
+Local builds display `dev (REVISION)` with a dirty marker when applicable,
+including local release-profile builds. A release with an injected version
+displays that calendar version. `jw --version` and **About Jaywalk** share the
+compiled identity; a running process retains it until restarted. For headless
+version-injection checks, use:
+
+```sh
+JAYWALK_RELEASE_VERSION=2026.11.42 cargo test --locked --test build_version --test versioning
+```
+
+This does not create a release or tag. Release notes live in GitHub Releases.
 
 Detached GUI diagnostics append to `~/.config/jaywalk/jaywalk.log`, or beneath
 `$XDG_CONFIG_HOME/jaywalk/` when set. An explicit `--config PATH` uses the
