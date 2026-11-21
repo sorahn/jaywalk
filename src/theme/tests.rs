@@ -164,7 +164,7 @@ seed="#ff00ff"
             .resolved_theme()
             .dark
             .surface(Surface::History, Part::Background),
-        Color::rgb(0x1e1e1e)
+        Color::rgb(0x1f1f1f)
     );
     assert_eq!(
         settings
@@ -197,7 +197,7 @@ fn soft_light_default_reverses_dark_layering_with_readable_surface_text() {
     let resolved = settings.resolved_theme();
     assert_eq!(
         resolved.light.surface(Surface::Viewer, Part::Background),
-        Color::rgb(0xf7f7f6)
+        Color::rgb(0xf7f7f7)
     );
     for surface in [
         Surface::History,

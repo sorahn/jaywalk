@@ -131,25 +131,25 @@ fn generated(surface: Surface, r: &ShellAuto, dark: bool) -> Color {
 fn built_in(surface: Surface, dark: bool) -> Color {
     let hex = if dark {
         match surface {
-            Surface::Window | Surface::Viewer | Surface::ViewerHeader => 0x111111,
-            Surface::History => 0x1e1e1e,
-            Surface::Files => 0x171717,
+            Surface::Window | Surface::Viewer | Surface::ViewerHeader => 0x121212,
+            Surface::History => 0x1f1f1f,
+            Surface::Files => 0x181818,
             Surface::Header | Surface::Footer | Surface::HistoryFooter | Surface::FilesFooter => {
-                0x292929
+                0x2b2b2b
             }
-            Surface::HistoryHeader | Surface::Floating => 0x212121,
-            Surface::FilesHeader => 0x1a1a1a,
+            Surface::HistoryHeader | Surface::Floating => 0x222222,
+            Surface::FilesHeader => 0x1b1b1b,
         }
     } else {
         match surface {
-            Surface::Window | Surface::Viewer | Surface::ViewerHeader => 0xf7f7f6,
+            Surface::Window | Surface::Viewer | Surface::ViewerHeader => 0xf7f7f7,
             Surface::History => 0xe4e4e4,
-            Surface::Files => 0xeeeeed,
+            Surface::Files => 0xeeeeee,
             Surface::Header | Surface::Footer | Surface::HistoryFooter | Surface::FilesFooter => {
                 0xd4d4d4
             }
-            Surface::HistoryHeader | Surface::Floating => 0xe0e0df,
-            Surface::FilesHeader => 0xe9e9e8,
+            Surface::HistoryHeader | Surface::Floating => 0xe0e0e0,
+            Surface::FilesHeader => 0xe9e9e9,
         }
     };
     Color::rgb(hex)

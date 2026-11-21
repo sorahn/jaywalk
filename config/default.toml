@@ -276,7 +276,7 @@ overrides = {}
 enabled = true
 algorithm = "tonal-v1"
 # Seeds are inputs to the mode-specific recipe, not exact final backgrounds.
-seed = { light = "#575756", dark = "#111111" }
+seed = { light = "#575757", dark = "#121212" }
 layer_strength = 1.4
 hue_shift = 0.0
 chroma_scale = 1.0

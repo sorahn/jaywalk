@@ -808,8 +808,8 @@ still uses `ui.appearance = "system"`, `"light"`, or `"dark"`; the system accent
 and `ui.accent_color` remain independent of the shell seed.
 
 The neutral default follows the selected Layered shell prototype: a dark viewer
-at `#111111`, History at `#1e1e1e`, Files at `#171717`, and app bars at `#292929`.
-The soft, slightly warm light counterpart uses `#f7f7f6`, `#e4e4e4`, `#eeeeed`,
+at `#121212`, History at `#1f1f1f`, Files at `#181818`, and app bars at `#2b2b2b`.
+The soft neutral light counterpart uses `#f7f7f7`, `#e4e4e4`, `#eeeeee`,
 and `#d4d4d4`, respectively, with the same Layered 1.4 offsets in reverse. Panel colors follow History/Files identity when moved.
 No focused docked-panel outlines are added.
 
@@ -822,7 +822,7 @@ color overrides accept one `"#rrggbb"` string for both modes, or separate
 | --- | --- | --- |
 | `enabled` | `true` | `false` uses fixed built-in shell colors; exact overrides still apply |
 | `algorithm` | `"tonal-v1"` | Versioned recipe; unknown versions are rejected |
-| `seed` | `{ light = "#575756", dark = "#111111" }` | Independent primary colors; colored seeds tint the actual surfaces |
+| `seed` | `{ light = "#575757", dark = "#121212" }` | Independent primary colors; colored seeds tint the actual surfaces |
 | `layer_strength` | `1.4` | 0–2.5; separation between viewer, sidebars and bars |
 | `hue_shift` | `0.0` | −180–180 degrees |
 | `chroma_scale` | `1.0` | 0–3; saturation multiplier |
@@ -845,7 +845,7 @@ an overridden background unless they are explicitly overridden too.
 
 ```toml
 [theme.shell_auto]
-seed = { light = "#575756", dark = "#153049" }
+seed = { light = "#575757", dark = "#153049" }
 layer_strength = 1.4
 
 [theme.shell_auto.roles."shell.sidebar.files.background"]
