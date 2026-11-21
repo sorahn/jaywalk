@@ -12,7 +12,7 @@ import subprocess
 import tempfile
 import tomllib
 
-ROOT = Path(__file__).resolve().parent.parent
+ROOT = Path(os.environ.get("JAYWALK_RELEASE_SOURCE", Path(__file__).resolve().parent.parent)).resolve()
 
 def run(*args):
     env = os.environ.copy()
@@ -77,13 +77,16 @@ def cask(data):
     return f'''cask "jaywalk" do
   version "{v}"
   sha256 "{asset['sha256']}"
+
   url "https://github.com/sorahn/jaywalk/releases/download/v#{{version}}/Jaywalk-#{{version}}-macos-arm64.dmg"
   name "Jaywalk"
   desc "Native Git and Jujutsu diff viewer"
   homepage "https://github.com/sorahn/jaywalk"
+
   auto_updates true
   depends_on arch: :arm64
-  depends_on macos: ">= :sequoia"
+  depends_on macos: :sequoia
+
   app "Jaywalk.app"
   binary "#{{appdir}}/Jaywalk.app/Contents/MacOS/jw"
 end

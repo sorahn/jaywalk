@@ -36,6 +36,8 @@ jobs:
           cache-bin: false
       - name: Metadata and packaging tests
         run: python3 -m unittest discover -s scripts -p 'test_*.py'
+      - name: Generated Homebrew cask style
+        run: scripts/test-release-cask.sh
       - name: Rust checks
         run: |
           test "$(uname -m)" = arm64

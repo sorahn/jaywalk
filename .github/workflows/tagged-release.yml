@@ -1,0 +1,117 @@
+name: tagged release
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing immutable version tag to build or finish (for example v2026.11.1)
+        required: true
+        type: string
+permissions:
+  contents: read
+concurrency:
+  # Serialize publication/tap updates; never cancel an active signed build.
+  group: jaywalk-release-cycle
+  cancel-in-progress: false
+jobs:
+  select:
+    if: github.event_name == 'push' || github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 70
+    environment: release-automation
+    outputs:
+      tag: ${{ steps.candidate.outputs.tag }}
+      source: ${{ steps.candidate.outputs.source }}
+      build: ${{ steps.candidate.outputs.build }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: main
+          persist-credentials: false
+      - name: Create selected-repository release token
+        id: token
+        uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2
+        with:
+          app-id: ${{ vars.RELEASE_APP_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: |
+            jaywalk
+            homebrew-tap
+          permission-contents: write
+      # The token action requests Contents write for both selected repositories.
+      # App-token repository responses need not include OAuth permissions.push.
+      - name: Check tap availability before building or publishing a release
+        env:
+          GH_TOKEN: ${{ steps.token.outputs.token }}
+        run: gh api repos/sorahn/homebrew-tap --jq 'if .archived or .private or .default_branch != "main" then error("tap is not ready for automatic updates") else .full_name end'
+      - name: Validate explicitly selected tag and source
+        id: candidate
+        env:
+          GH_TOKEN: ${{ steps.token.outputs.token }}
+          RELEASE_TAG: ${{ github.event_name == 'push' && github.ref_name || inputs.tag }}
+        run: python3 scripts/release-pipeline.py select "$RELEASE_TAG"
+  candidate:
+    needs: select
+    if: needs.select.outputs.build == 'true'
+    permissions:
+      contents: write
+      actions: read
+    uses: ./.github/workflows/macos-release.yml
+    with:
+      tag: ${{ needs.select.outputs.tag }}
+      source: ${{ needs.select.outputs.source }}
+  publish:
+    needs: [select, candidate]
+    if: always() && needs.select.result == 'success' && (needs.candidate.result == 'success' || needs.candidate.result == 'skipped')
+    runs-on: macos-26
+    timeout-minutes: 30
+    environment: macos-release
+    permissions:
+      contents: write
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: main
+          persist-credentials: false
+      - name: Fetch checksum-pinned verifier SDK
+        run: python3 scripts/fetch-sparkle.py target/sparkle
+      - name: Verify candidate bytes and publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.select.outputs.tag }}
+          SOURCE_COMMIT: ${{ needs.select.outputs.source }}
+          MACOS_SIGNING_IDENTITY: ${{ vars.MACOS_SIGNING_IDENTITY }}
+          SPARKLE_PUBLIC_KEY: ${{ vars.SPARKLE_PUBLIC_KEY }}
+          SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
+        run: python3 scripts/promote-release.py "$RELEASE_TAG" "$SOURCE_COMMIT" --sdk target/sparkle --publish
+  finish:
+    needs: [select, publish]
+    if: always() && needs.publish.result == 'success'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    environment: release-automation
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: main
+          persist-credentials: false
+      - name: Create selected-repository completion token
+        id: token
+        uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2
+        with:
+          app-id: ${{ vars.RELEASE_APP_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: |
+            jaywalk
+            homebrew-tap
+          permission-contents: write
+      - name: Update Homebrew from the verified public release
+        env:
+          GH_TOKEN: ${{ steps.token.outputs.token }}
+          RELEASE_TAG: ${{ needs.select.outputs.tag }}
+        run: python3 scripts/release-pipeline.py finish "$RELEASE_TAG"
