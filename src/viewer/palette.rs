@@ -409,6 +409,12 @@ impl Viewer {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if self.references.open {
+            self.references.open = false;
+            // Escape from the palette must return to the viewer, not the
+            // reference search input that is about to leave the focus tree.
+            self.focus.focus(window, cx);
+        }
         if !matches!(
             kind,
             PaletteKind::LocalRepositories | PaletteKind::CheckoutRecovery
@@ -860,6 +866,7 @@ impl Viewer {
         let command =
             Command::new(&self.palette.state)
                 .bordered(false)
+                .bg(gpui::hsla(0., 0., 0., 0.))
                 .filterable(false)
                 .placeholder(match kind {
                     PaletteKind::PullRequests | PaletteKind::Accounts => {

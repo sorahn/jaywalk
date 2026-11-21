@@ -12,6 +12,7 @@ pub(crate) fn frame(cx: &App) -> Div {
         .border_1()
         .border_color(crate::appearance::floating_outline(cx))
         .rounded_lg()
+        .overflow_hidden()
 }
 pub(crate) fn context(lines: impl IntoIterator<Item = String>, cx: &App) -> Div {
     div()

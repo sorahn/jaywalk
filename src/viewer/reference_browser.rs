@@ -247,7 +247,8 @@ impl Render for ReferenceBrowser {
         .track_scroll(&self.scroll)
         .h(px((self.rows.len().clamp(1, 14) * 30) as f32))
         .w_full();
-        crate::picker_ui::frame(cx)
+        div()
+            .min_w_0()
             .id("reference-browser")
             .debug_selector(|| "reference-browser".to_owned())
             .key_context("ReferenceBrowser")

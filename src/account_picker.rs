@@ -447,6 +447,7 @@ impl Render for AccountPicker {
         let context = [title.clone(), message];
         let command = Command::new(&self.input)
             .bordered(false)
+            .bg(gpui::hsla(0., 0., 0., 0.))
             .filterable(false)
             .max_h(px(360.))
             .placeholder(title)

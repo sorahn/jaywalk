@@ -943,6 +943,38 @@ fn reference_browser_bounds_work_and_supports_search_keyboard_and_reopen(cx: &mu
 }
 
 #[gpui_test::test]
+fn main_palette_dismisses_reference_browser_and_restores_viewer_focus(cx: &mut TestAppContext) {
+    let fixture = Fixture::new();
+    let (viewer, cx) = setup(&fixture, cx);
+    cx.update(|_, app| {
+        viewer.update(app, |viewer, cx| {
+            viewer.references.open = true;
+            cx.notify();
+        })
+    });
+    draw(cx);
+    assert!(cx.debug_bounds("reference-browser").is_some());
+    cx.simulate_keystrokes("secondary-p");
+    draw(cx);
+    assert!(!cx.update(|_, app| viewer.read(app).references.open));
+    assert!(cx.debug_bounds("reference-browser").is_none());
+    assert_eq!(
+        cx.update(|_, app| viewer.read(app).palette_test_state(app).0),
+        Some(palette::PaletteKind::Commands)
+    );
+    cx.simulate_input("refresh");
+    draw(cx);
+    assert_eq!(
+        cx.update(|_, app| viewer.read(app).palette_test_state(app).1),
+        ">refresh"
+    );
+    cx.simulate_keystrokes("escape");
+    draw(cx);
+    assert!(cx.update(|_, app| viewer.read(app).palette_test_state(app).0.is_none()));
+    assert!(cx.update(|window, app| viewer.read(app).focus.is_focused(window)));
+}
+
+#[gpui_test::test]
 fn history_scrollbar_drags_without_changing_the_comparison(cx: &mut TestAppContext) {
     let fixture = Fixture::new();
     for index in 0..70 {

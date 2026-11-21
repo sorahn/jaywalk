@@ -1091,14 +1091,14 @@ impl Render for PullRequestsPage {
             } else {
                 self.filter_command(cx)
             };
-            let command =
-                command
-                    .bordered(false)
-                    .max_h(px(maximum))
-                    .description(move |_, _, cx| {
-                        crate::picker_ui::context(lines.clone(), cx)
-                            .debug_selector(|| "pr-picker-context".into())
-                    });
+            let command = command
+                .bordered(false)
+                .bg(gpui::hsla(0., 0., 0., 0.))
+                .max_h(px(maximum))
+                .description(move |_, _, cx| {
+                    crate::picker_ui::context(lines.clone(), cx)
+                        .debug_selector(|| "pr-picker-context".into())
+                });
             return div()
                 .w_full()
                 .key_context("JaywalkPullRequests")
