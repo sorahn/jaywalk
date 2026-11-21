@@ -23,6 +23,7 @@ fn packages_fresh_native_binaries_despite_custom_cargo_target_and_stale_outputs(
     for file in [
         "scripts/package-rpm.sh",
         "scripts/build-native.sh",
+        "scripts/native-shell.sh",
         "packaging/linux/jaywalk.spec",
         "packaging/linux/io.github.sorahn.jaywalk.desktop",
         "packaging/linux/io.github.sorahn.jaywalk.svg",
