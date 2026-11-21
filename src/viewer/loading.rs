@@ -20,6 +20,7 @@ impl Viewer {
         arguments: Arguments,
         settings: Settings,
         layout: SessionLayout,
+        startup_setup: Result<bool, String>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
@@ -47,7 +48,7 @@ impl Viewer {
         let references = references::ReferenceState::new(&settings.history);
         let navigation = navigation::NavigationState::new(settings.navigation.history_limit);
         let welcome = arguments.welcome.then(welcome::WelcomeState::default);
-        let page = if !cfg!(test) && crate::platform::is_app_bundle() && !settings.setup.completed {
+        let page = if !matches!(&startup_setup, Ok(false)) {
             pages::Page::Setup
         } else if arguments.welcome {
             pages::Page::Welcome
@@ -60,7 +61,7 @@ impl Viewer {
                 .with_limit(settings.history.page_size)
                 .expect("validated page size");
         let mut viewer = Self {
-            setup: setup::State::new(&settings),
+            setup: setup::State::initial(&settings, startup_setup.err()),
             welcome,
             page,
             account_page: None,
@@ -751,7 +752,7 @@ mod completion_tests {
                 args.directory = Some(second.0.clone());
                 let settings = viewer.settings.clone();
                 let layout = SessionLayout::load(&args, &settings);
-                *viewer = Viewer::new(args, settings, layout, window, cx);
+                *viewer = Viewer::new(args, settings, layout, Ok(false), window, cx);
             })
         });
         cx.run_until_parked();

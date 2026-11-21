@@ -552,6 +552,23 @@ branch-review presets. Swap reverses only the current captured comparison.
 
 ## Connected accounts
 
+GitHub's Accounts page offers **Connect with browser…**, **Paste token…**, and
+**Use GitHub CLI token**. The CLI option is disabled while detection is pending or
+`gh` is unavailable. Detection checks executable metadata on a worker; importing
+runs only after selection. Finder launches also check common Homebrew locations.
+Reopening Accounts repeats detection after installing `gh`.
+
+Pasted tokens use a masked field. Both token paths validate the GitHub identity
+before saving to the OS credential store. For an existing account, use **Use token…**
+or **Replace token…** on its row, then explicitly replace the connection. A failed
+validation/save keeps the previous connection. One credential is stored per
+provider/user identity; token scopes and repository/organization policies determine
+available features. `gh` import copies its saved github.com bearer credential,
+ignores ambient `GH_TOKEN`/`GITHUB_TOKEN` overrides, and does not share the CLI's
+refresh lifecycle. Imported tokens can expire or be revoked; replace them when
+needed. Browser sign-in remains available, including when switching back from a
+token connection. Local disconnect deletes only Jaywalk's copy.
+
 Public account configuration lives in ordered `[[accounts]]` tables in the active
 config file. Once account features restore the OS credential store, Jaywalk appends
 newly connected accounts to that file. It preserves existing rows, comments and
@@ -562,6 +579,7 @@ unrelated settings. This stays lazy: opening a local diff alone does not read Ke
 provider = "github"
 id = "12345"                 # Stable provider account ID, not the login name.
 name = "Personal"            # Optional display name; provider queries keep the real login.
+authentication = "oauth"
 client_id = "public-client-id"
 
 [[accounts]]
@@ -582,6 +600,12 @@ the next listing, while the shared limit also constrains queued service requests
 The last successfully applied
 config source controls application-wide preferences, matching other shared settings.
 
+`authentication` is `"oauth"` (default for existing entries) or `"token"`.
+It records the connection method; editing it cannot import a token or convert a
+stored credential. Token connections omit `client_id`; specifying both is invalid.
+Account actions synchronize the binding while preserving names, order and comments.
+The new token connection choices are currently GitHub-only.
+
 `provider` accepts `github` or `bitbucket`. `id` is required; `name` and `client_id`
 are optional nonempty strings of at most 256 bytes without control characters.
 Duplicate provider/ID pairs are rejected; at most 256 preference rows are accepted.
@@ -589,7 +613,7 @@ Duplicate provider/ID pairs are rejected; at most 256 preference rows are accept
 commands writes it here. Omitting it clears the preferred workspace; it does not
 restrict discovery to one workspace.
 
-The public OAuth `client_id` selects a registration for Connect/Reconnect; its
+For browser connections, the public OAuth `client_id` selects a registration for Connect/Reconnect; its
 matching client secret must already exist in the OS store. Changing the client
 requires reconnecting and does not reinterpret existing tokens as belonging to a
 different app. Config entries do not grant access or create a signed-in account.
@@ -746,11 +770,23 @@ These actions prepare local review sources and optional checkout only. They do n
 
 ## First-open setup and updates
 
-`[setup] completed` defaults to `false`. It is application-level and saved by **Save and continue** in **Set up Jaywalk…**. Skipping leaves it false and saves none of the edited choices. Setup remains available later. Existing configs inherit false; updates are never silently opted in. Appearance uses the existing `ui.appearance` setting.
+`[setup] seen` defaults to `false`. The signed app records it when preparing the
+first automatic setup window. Later opens show Welcome (or an explicitly requested
+comparison), even after Skip, closing the window or quitting. This marker saves no
+draft choices and grants no network consent. **Set up Jaywalk…** remains available
+explicitly from the command palette regardless of the marker.
+
+`[setup] completed` defaults to `false` and is saved with `seen = true` by **Save
+and continue**. Skipping leaves `completed` false. Update checkboxes save immediately; skipping
+does not undo them. Other unsaved choices remain unchanged. Previously completed setups do not reappear when `seen` is absent in an
+older config. Both values are application-level in the active config; edits affect
+the next automatic open. Update consent comes only from the saved update options and is independent of
+setup completion.
+Appearance uses the existing `ui.appearance` setting.
 
 | `[updates]` key | Default | Accepted values / behavior |
 | --- | --- | --- |
-| `automatic_checks` | `false` | Boolean; scheduled checks additionally require completed setup |
+| `automatic_checks` | `false` | Boolean; explicit checkbox/config opt-in, independent of setup completion |
 | `automatic_downloads` | `false` | Boolean; requires automatic checks; downloading alone never authorizes installation |
 | `automatic_installation` | `false` | Boolean; requires automatic downloads; explicitly permits installation on quit when restart guards allow |
 | `check_interval_hours` | `24` | Integer 1–168; automatic-check cadence |

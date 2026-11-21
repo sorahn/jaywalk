@@ -216,6 +216,7 @@ fn configured_order_and_aliases_do_not_change_authenticated_identity() {
     let (service, provider) = fixture(2);
     let entries = vec![
         AccountConfig {
+            authentication: crate::accounts::Authentication::Oauth,
             provider: Provider::Github,
             id: "2".into(),
             name: Some("Work".into()),
@@ -223,6 +224,7 @@ fn configured_order_and_aliases_do_not_change_authenticated_identity() {
             workspace: None,
         },
         AccountConfig {
+            authentication: crate::accounts::Authentication::Oauth,
             provider: Provider::Github,
             id: "1".into(),
             name: Some("Personal".into()),

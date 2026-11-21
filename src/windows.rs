@@ -181,15 +181,29 @@ pub(crate) struct PreparedWindow {
     pub(crate) arguments: Arguments,
     settings: Settings,
     layout: crate::viewer::SessionLayout,
+    startup_setup: Result<bool, String>,
 }
 impl PreparedWindow {
     /// Read persistence before entering the window/UI update.
-    pub(crate) fn load(arguments: Arguments, settings: Settings) -> Self {
+    pub(crate) fn load(arguments: Arguments, mut settings: Settings) -> Self {
+        // Persist before opening: closing/skipping the first window must not
+        // cancel this marker. This worker writes no consent or appearance choices.
+        let startup_setup = if !cfg!(test) && crate::platform::is_app_bundle() {
+            SettingsSource::resolve(arguments.config.as_deref()).and_then(|source| {
+                source.initialize()?;
+                let first = jaywalk::setup::claim_first_open(source.path())?;
+                settings = source.read()?;
+                Ok(first)
+            })
+        } else {
+            Ok(false)
+        };
         let layout = crate::viewer::SessionLayout::load(&arguments, &settings);
         Self {
             arguments,
             settings,
             layout,
+            startup_setup,
         }
     }
 }
@@ -211,6 +225,7 @@ pub(crate) fn open_with_disposition(
         arguments,
         settings,
         mut layout,
+        startup_setup,
     } = prepared;
     layout.use_latest(&settings, cx);
     let source = SettingsSource::resolve(arguments.config.as_deref())?;
@@ -261,7 +276,14 @@ pub(crate) fn open_with_disposition(
                 if replace {
                     window.set_window_title(&window_title(&arguments));
                     viewer.update(cx, |viewer, cx| {
-                        *viewer = Viewer::new(arguments.clone(), settings, layout, window, cx)
+                        *viewer = Viewer::new(
+                            arguments.clone(),
+                            settings,
+                            layout,
+                            startup_setup,
+                            window,
+                            cx,
+                        )
                     });
                 } else if arguments.difftool.is_some() {
                     viewer.update(cx, |viewer, cx| {
@@ -307,7 +329,16 @@ pub(crate) fn open_with_disposition(
         };
         let (window, viewer) = gpui::open_window(options, cx, |window, cx| {
             crate::appearance::watch_window(window, cx);
-            let viewer = cx.new(|cx| Viewer::new(arguments.clone(), settings, layout, window, cx));
+            let viewer = cx.new(|cx| {
+                Viewer::new(
+                    arguments.clone(),
+                    settings,
+                    layout,
+                    startup_setup,
+                    window,
+                    cx,
+                )
+            });
             // Register once per native window, rather than per replaced repository.
             viewer.update(cx, |_, cx| {
                 cx.observe_window_activation(window, |_, window, cx| {

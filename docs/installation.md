@@ -47,7 +47,7 @@ To remove only the CLI link, first verify `test -L "$HOME/.local/bin/jw"` and in
 
 ## Updates
 
-Update checks and downloads are off by default. First-open setup records explicit choices in the normal config. Skipping does not grant consent, even after changing an unsaved checkbox. Existing users with no recorded choice are not automatically opted in.
+Update checks and downloads are off by default. First-open setup records explicit choices in the normal config. Update checkboxes save their values immediately; skipping setup does not grant consent or undo an explicit checkbox choice. Seeing/completing setup is independent of update consent. Existing users with no recorded choice are not automatically opted in.
 
 **Check for updates…** explicitly checks the release feed even when scheduled checks are disabled. Official macOS builds include Sparkle; ordinary development and unsigned rehearsal builds have no configured feed/key and make no update requests. Homebrew and direct installs support the same in-app flow; the cask declares `auto_updates true`. Homebrew upgrades remain available.
 

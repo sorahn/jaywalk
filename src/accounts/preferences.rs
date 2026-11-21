@@ -1,5 +1,5 @@
 //! Public connection preferences. Tokens and client secrets remain in the OS store.
-use super::{AccountKey, Provider, StoredSession, Workspace};
+use super::{AccountKey, Authentication, Provider, StoredSession, Workspace};
 use serde::Deserialize;
 use std::{collections::HashSet, io::Write, path::Path};
 
@@ -8,6 +8,8 @@ use std::{collections::HashSet, io::Write, path::Path};
 pub struct AccountConfig {
     pub provider: Provider,
     pub id: String,
+    #[serde(default)]
+    pub authentication: Authentication,
     #[serde(default)]
     pub name: Option<String>,
     #[serde(default)]
@@ -27,7 +29,8 @@ impl AccountConfig {
             provider: session.identity.key.provider,
             id: session.identity.key.subject.clone(),
             name: Some(session.identity.label.clone()),
-            client_id: Some(session.client_id.clone()),
+            authentication: session.authentication,
+            client_id: session.client_id.clone(),
             workspace: session.workspace.clone(),
         }
     }
@@ -56,6 +59,9 @@ pub(crate) fn validate(entries: &[AccountConfig]) -> Result<(), String> {
         if !seen.insert(entry.key()) {
             return Err("accounts contains duplicate provider/id entries".into());
         }
+        if entry.authentication == Authentication::Token && entry.client_id.is_some() {
+            return Err("token accounts do not use an OAuth client_id".into());
+        }
         if let Some(workspace) = &entry.workspace {
             if entry.provider != Provider::Bitbucket {
                 return Err("accounts.workspace is only supported for Bitbucket".into());
@@ -71,6 +77,11 @@ fn table(entry: &AccountConfig) -> toml_edit::Table {
     let mut table = toml_edit::Table::new();
     table["provider"] = toml_edit::value(entry.provider.name());
     table["id"] = toml_edit::value(entry.id.clone());
+    table["authentication"] = toml_edit::value(if entry.authentication == Authentication::Token {
+        "token"
+    } else {
+        "oauth"
+    });
     if let Some(name) = &entry.name {
         table["name"] = toml_edit::value(name.clone());
     }
@@ -110,7 +121,13 @@ pub(super) fn synchronize(
         .iter()
         .filter(|entry| !config.accounts.iter().any(|old| old.key() == entry.key()))
         .collect::<Vec<_>>();
-    if missing.is_empty() && workspace.is_none() {
+    let changed_auth = known.iter().any(|entry| {
+        config
+            .accounts
+            .iter()
+            .any(|old| old.key() == entry.key() && old.authentication != entry.authentication)
+    });
+    if missing.is_empty() && workspace.is_none() && !changed_auth {
         return Ok(config.accounts);
     }
     if document
@@ -124,6 +141,27 @@ pub(super) fn synchronize(
         .ok_or("accounts must use [[accounts]] tables when Jaywalk adds connection metadata")?;
     for entry in missing {
         rows.push(table(entry));
+    }
+    for entry in known {
+        if let Some(old) = config.accounts.iter().find(|old| old.key() == entry.key())
+            && old.authentication != entry.authentication
+            && let Some(row) = rows.iter_mut().find(|row| {
+                row.get("provider").and_then(toml_edit::Item::as_str) == Some(entry.provider.name())
+                    && row.get("id").and_then(toml_edit::Item::as_str) == Some(&entry.id)
+            })
+        {
+            row["authentication"] =
+                toml_edit::value(if entry.authentication == Authentication::Token {
+                    "token"
+                } else {
+                    "oauth"
+                });
+            if let Some(id) = &entry.client_id {
+                row["client_id"] = toml_edit::value(id.clone());
+            } else {
+                row.remove("client_id");
+            }
+        }
     }
     if let Some((key, value)) = workspace {
         let row = rows
@@ -187,6 +225,7 @@ mod tests {
     fn entry(provider: Provider, id: &str) -> AccountConfig {
         AccountConfig {
             provider,
+            authentication: Authentication::Oauth,
             id: id.into(),
             name: Some(format!("Display {id}")),
             client_id: Some("public-client".into()),
@@ -256,6 +295,25 @@ mod tests {
                 .unwrap()
                 .contains("access_token")
         );
+    }
+    #[test]
+    fn switching_authentication_updates_binding_without_changing_alias_or_order() {
+        let fixture = tempfile::tempdir().unwrap();
+        let path = fixture.path().join("config.toml");
+        std::fs::write(&path,"# keep\n[[accounts]]\nprovider='github'\nid='one'\nname='Work' # alias\nclient_id='old-client'\n").unwrap();
+        let mut token = entry(Provider::Github, "one");
+        token.authentication = Authentication::Token;
+        token.client_id = None;
+        let entries = synchronize(&path, &[token], None).unwrap();
+        assert_eq!(entries[0].authentication, Authentication::Token);
+        assert_eq!(entries[0].name.as_deref(), Some("Work"));
+        assert!(entries[0].client_id.is_none());
+        assert!(std::fs::read_to_string(&path).unwrap().contains("# alias"));
+        let browser = entry(Provider::Github, "one");
+        let entries = synchronize(&path, &[browser], None).unwrap();
+        assert_eq!(entries[0].authentication, Authentication::Oauth);
+        assert_eq!(entries[0].client_id.as_deref(), Some("public-client"));
+        assert_eq!(entries[0].name.as_deref(), Some("Work"));
     }
     #[test]
     fn invalid_configuration_is_never_overwritten_and_sensitive_fields_are_rejected() {
