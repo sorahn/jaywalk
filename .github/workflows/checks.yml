@@ -23,7 +23,17 @@ jobs:
       - name: Install pinned repository test tools
         run: scripts/install-ci-tools-macos.sh
       - name: Install pinned toolchain
-        run: rustup toolchain install 1.100.0 --profile minimal --component rustfmt --component clippy
+        run: |
+          rustup toolchain install 1.100.0 --profile minimal --component rustfmt --component clippy
+          rustup override set 1.100.0
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@e9d7b9f1e587218970671bac74e5511ed9506e6a # v2
+        with:
+          # Toolchain/lockfile keys are automatic; also isolate Apple SDKs and
+          # invalidate path dependencies when our vendored source changes.
+          key: checks-macos15-${{ hashFiles('vendor/**') }}
+          env-vars: CARGO CC CFLAGS CXX CMAKE RUST DEVELOPER_DIR MACOSX_DEPLOYMENT_TARGET
+          cache-bin: false
       - name: Metadata and packaging tests
         run: python3 -m unittest discover -s scripts -p 'test_*.py'
       - name: Rust checks

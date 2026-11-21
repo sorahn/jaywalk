@@ -1,0 +1,52 @@
+name: advance release version
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Published stable release tag to recover bookkeeping for (for example v0.1.1)
+        required: true
+        type: string
+permissions:
+  contents: read
+concurrency:
+  group: advance-release-version-${{ github.event_name }}
+  cancel-in-progress: false
+jobs:
+  dispatch:
+    if: github.event_name == 'release' && !github.event.release.prerelease && !github.event.release.draft
+    runs-on: ubuntu-24.04
+    permissions:
+      actions: write
+    steps:
+      - name: Run bookkeeping from trusted main
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: gh workflow run advance-release-version.yml --ref main -f tag="$RELEASE_TAG"
+  advance:
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    environment: release-automation
+    steps:
+      # Execute trusted main automation, never code obtained from a release asset.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: main
+          persist-credentials: false
+      - name: Validate version advancement logic
+        run: python3 -m unittest discover -s scripts -p 'test_release_version.py'
+      - name: Create repository-scoped version token
+        id: token
+        uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2
+        with:
+          app-id: ${{ vars.RELEASE_APP_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+          permission-contents: write
+      - name: Advance main after verifying the published release
+        env:
+          GH_TOKEN: ${{ steps.token.outputs.token }}
+          RELEASE_TAG: ${{ github.event.release.tag_name || inputs.tag }}
+        run: python3 scripts/release-version.py advance "$RELEASE_TAG"

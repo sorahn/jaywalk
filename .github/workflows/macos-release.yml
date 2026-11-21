@@ -15,10 +15,10 @@ concurrency:
 jobs:
   rehearsal:
     if: inputs.mode == 'rehearsal'
-    runs-on: macos-15
+    runs-on: macos-26
     timeout-minutes: 120
     env:
-      DEVELOPER_DIR: /Applications/Xcode_26.1.1.app/Contents/Developer
+      DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
       MACOSX_DEPLOYMENT_TARGET: '15.0'
       CARGO_BUILD_JOBS: '3'
       JAYWALK_SIGNING_IDENTITY: '-'
@@ -27,11 +27,21 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
+      - name: Verify icon compiler before building
+        run: scripts/test-macos-icon.sh
       - name: Prepare toolchain and public updater SDK
         run: |
           rustup toolchain install 1.100.0 --profile minimal
           rustup override set 1.100.0
           python3 scripts/fetch-sparkle.py target/sparkle
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@e9d7b9f1e587218970671bac74e5511ed9506e6a # v2
+        with:
+          # Toolchain/lockfile keys are automatic; also isolate Apple SDKs and
+          # invalidate path dependencies when our vendored source changes.
+          key: rehearsal-macos26-${{ hashFiles('vendor/**') }}
+          env-vars: CARGO CC CFLAGS CXX CMAKE RUST DEVELOPER_DIR MACOSX_DEPLOYMENT_TARGET
+          cache-bin: false
       - name: Build unsigned candidate
         run: |
           test "$(uname -m)" = arm64
@@ -48,12 +58,12 @@ jobs:
   official:
     if: inputs.mode == 'official' && startsWith(github.ref, 'refs/tags/v')
     environment: macos-release
-    runs-on: macos-15
+    runs-on: macos-26
     timeout-minutes: 120
     permissions:
       contents: write
     env:
-      DEVELOPER_DIR: /Applications/Xcode_26.1.1.app/Contents/Developer
+      DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
       MACOSX_DEPLOYMENT_TARGET: '15.0'
       CARGO_BUILD_JOBS: '3'
     steps:
@@ -61,14 +71,28 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
+      - name: Verify icon compiler before building
+        run: scripts/test-macos-icon.sh
       - name: Install pinned repository test tools
         run: scripts/install-ci-tools-macos.sh
       - name: Validate tag and source
         run: |
           python3 scripts/release-macos.py check-tag "$GITHUB_REF_NAME"
           git merge-base --is-ancestor HEAD origin/main
+      - name: Install pinned toolchain
+        run: |
           rustup toolchain install 1.100.0 --profile minimal --component rustfmt --component clippy
           rustup override set 1.100.0
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@e9d7b9f1e587218970671bac74e5511ed9506e6a # v2
+        with:
+          # Toolchain/lockfile keys are automatic; also isolate Apple SDKs and
+          # invalidate path dependencies when our vendored source changes.
+          key: official-macos26-${{ hashFiles('vendor/**') }}
+          env-vars: CARGO CC CFLAGS CXX CMAKE RUST DEVELOPER_DIR MACOSX_DEPLOYMENT_TARGET
+          cache-bin: false
+      - name: Rust checks
+        run: |
           cargo fmt --all -- --check
           cargo test --locked
           cargo clippy --locked --all-targets -- -D warnings
