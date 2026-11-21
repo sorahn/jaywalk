@@ -83,8 +83,17 @@ fn setup_arguments_with_settings<'a>(
 }
 fn setup_arguments_with_config<'a>(
     fixture: &Fixture,
+    args: Arguments,
+    contents: &str,
+    cx: &'a mut TestAppContext,
+) -> (Entity<Viewer>, &'a mut VisualTestContext) {
+    setup_arguments_with_startup(fixture, args, contents, Ok(false), cx)
+}
+fn setup_arguments_with_startup<'a>(
+    fixture: &Fixture,
     mut args: Arguments,
     contents: &str,
+    startup: Result<bool, String>,
     cx: &'a mut TestAppContext,
 ) -> (Entity<Viewer>, &'a mut VisualTestContext) {
     let config = fixture.0.join("settings.toml");
@@ -106,7 +115,7 @@ fn setup_arguments_with_config<'a>(
     let mut viewer = None;
     let (_, cx) = cx.add_window_view(|window, app| {
         let layout = SessionLayout::load(&args, &settings);
-        let view = app.new(|cx| Viewer::new(args, settings, layout, window, cx));
+        let view = app.new(|cx| Viewer::new(args, settings, layout, startup, window, cx));
         viewer = Some(view.clone());
         Root::new(view, window, app)
     });
@@ -3802,4 +3811,36 @@ fn workspace_command_tracks_configured_bitbucket_accounts(cx: &mut TestAppContex
         cx.update(|_, app| viewer.read(app).palette_test_count(app)),
         0
     );
+}
+
+#[gpui_test::test]
+fn first_setup_skip_returns_to_welcome_and_manual_setup_remains_available(cx: &mut TestAppContext) {
+    use jaywalk::commands::CommandId;
+    let fixture = Fixture::new();
+    let args = Arguments::parse_from(["jaywalk"]).for_welcome();
+    // Preparation already persisted seen before constructing this first window.
+    let (viewer, cx) = setup_arguments_with_startup(
+        &fixture,
+        args,
+        "[setup]\nseen=true\ncompleted=false\n[layout]\nremember_per_repository=false\n[live]\nenabled=false\n",
+        Ok(true),
+        cx,
+    );
+    cx.simulate_resize(size(px(1500.), px(1400.)));
+    draw(cx);
+    let skip = cx.debug_bounds("setup-later").unwrap();
+    cx.simulate_click(skip.center(), Default::default());
+    draw(cx);
+    assert!(cx.update(|_, app| viewer.read(app).is_welcome()));
+    let saved = Settings::parse(&std::fs::read_to_string(fixture.0.join("settings.toml")).unwrap())
+        .unwrap();
+    assert!(saved.setup.seen && !saved.setup.completed);
+    assert!(!saved.updates.may_check_automatically(saved.setup));
+    cx.update(|window, app| {
+        viewer.update(app, |viewer, cx| {
+            viewer.execute_command(CommandId::ShowSetup, window, cx)
+        })
+    });
+    draw(cx);
+    assert!(cx.debug_bounds("setup-page").is_some());
 }

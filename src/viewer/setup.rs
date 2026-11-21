@@ -12,6 +12,11 @@ pub(super) struct State {
     cli_task: Option<Task<()>>,
 }
 impl State {
+    pub(super) fn initial(settings: &Settings, message: Option<String>) -> Self {
+        let mut state = Self::new(settings);
+        state.message = message.map(|error| format!("Could not remember setup was shown: {error}"));
+        state
+    }
     pub(super) fn new(settings: &Settings) -> Self {
         Self {
             updates: settings.updates,

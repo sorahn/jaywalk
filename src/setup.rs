@@ -8,6 +8,8 @@ use std::path::Path;
 #[serde(deny_unknown_fields)]
 pub struct SetupSettings {
     pub completed: bool,
+    #[serde(default)]
+    pub seen: bool,
 }
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
@@ -43,6 +45,41 @@ pub fn save(
     appearance: Appearance,
 ) -> Result<Config, String> {
     updates.validate()?;
+    edit(path, |doc, _| {
+        doc["setup"]["completed"] = toml_edit::value(completed);
+        doc["updates"]["automatic_checks"] = toml_edit::value(updates.automatic_checks);
+        doc["updates"]["automatic_downloads"] = toml_edit::value(updates.automatic_downloads);
+        doc["updates"]["automatic_installation"] = toml_edit::value(updates.automatic_installation);
+        doc["updates"]["check_interval_hours"] =
+            toml_edit::value(i64::from(updates.check_interval_hours));
+        doc["ui"]["appearance"] = toml_edit::value(match appearance {
+            Appearance::System => "system",
+            Appearance::Light => "light",
+            Appearance::Dark => "dark",
+        });
+        if completed {
+            doc["setup"]["seen"] = toml_edit::value(true);
+        }
+        Ok(())
+    })
+}
+/// Claim the first automatic presentation atomically, without saving draft choices
+/// or authorizing any network traffic. Call on the window-preparation worker.
+pub fn claim_first_open(path: &Path) -> Result<bool, String> {
+    let mut first = false;
+    edit(path, |doc, config| {
+        if !config.setup.completed && !config.setup.seen {
+            doc["setup"]["seen"] = toml_edit::value(true);
+            first = true;
+        }
+        Ok(())
+    })?;
+    Ok(first)
+}
+fn edit(
+    path: &Path,
+    change: impl FnOnce(&mut toml_edit::DocumentMut, &Config) -> Result<(), String>,
+) -> Result<Config, String> {
     let _writer = crate::settings_reload::CONFIG_WRITER
         .lock()
         .expect("config writer mutex poisoned");
@@ -50,23 +87,16 @@ pub fn save(
         std::fs::canonicalize(path).map_err(|e| format!("Could not resolve setup config: {e}"))?;
     let original = std::fs::read_to_string(&target)
         .map_err(|e| format!("Could not read setup config: {e}"))?;
-    Config::parse(&original)?;
+    let config = Config::parse(&original)?;
     let mut doc: toml_edit::DocumentMut = original
         .parse()
         .map_err(|e| format!("Could not edit setup config: {e}"))?;
-    doc["setup"]["completed"] = toml_edit::value(completed);
-    doc["updates"]["automatic_checks"] = toml_edit::value(updates.automatic_checks);
-    doc["updates"]["automatic_downloads"] = toml_edit::value(updates.automatic_downloads);
-    doc["updates"]["automatic_installation"] = toml_edit::value(updates.automatic_installation);
-    doc["updates"]["check_interval_hours"] =
-        toml_edit::value(i64::from(updates.check_interval_hours));
-    doc["ui"]["appearance"] = toml_edit::value(match appearance {
-        Appearance::System => "system",
-        Appearance::Light => "light",
-        Appearance::Dark => "dark",
-    });
+    change(&mut doc, &config)?;
     let updated = doc.to_string();
     let config = Config::parse(&updated)?;
+    if updated == original {
+        return Ok(config);
+    }
     let mut temp = tempfile::NamedTempFile::new_in(target.parent().ok_or("Config has no parent")?)
         .map_err(|e| e.to_string())?;
     temp.as_file()
@@ -112,10 +142,49 @@ mod tests {
         let mut updates = config.updates;
         updates.automatic_checks = true;
         assert!(!updates.may_check_automatically(config.setup));
-        assert!(updates.may_check_automatically(SetupSettings { completed: true }));
+        assert!(updates.may_check_automatically(SetupSettings {
+            completed: true,
+            seen: true
+        }));
         updates.automatic_checks = false;
         updates.automatic_downloads = true;
         assert!(updates.validate().is_err());
+    }
+    #[test]
+    fn first_presentation_is_remembered_without_completing_setup_or_authorizing_updates() {
+        let fixture = tempfile::tempdir().unwrap();
+        let path = fixture.path().join("config.toml");
+        std::fs::write(
+            &path,
+            "# keep\n[ui]\nappearance='light'\n[updates]\nautomatic_checks=true\n",
+        )
+        .unwrap();
+        assert!(claim_first_open(&path).unwrap());
+        let saved = Config::parse(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        assert!(saved.setup.seen && !saved.setup.completed);
+        assert!(!saved.updates.may_check_automatically(saved.setup));
+        assert_eq!(saved.ui.appearance, Appearance::Light);
+        let first = std::fs::read_to_string(&path).unwrap();
+        assert!(first.contains("# keep"));
+        assert!(!claim_first_open(&path).unwrap());
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), first);
+        // Older completed configs never need a second first-open page.
+        std::fs::write(&path, "[setup]\ncompleted=true\n").unwrap();
+        assert!(!claim_first_open(&path).unwrap());
+        std::fs::write(&path, "invalid = [").unwrap();
+        assert!(claim_first_open(&path).is_err());
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "invalid = [");
+    }
+    #[test]
+    fn simultaneous_open_requests_claim_only_one_setup_page() {
+        let fixture = tempfile::tempdir().unwrap();
+        let path = fixture.path().join("config.toml");
+        std::fs::write(&path, "").unwrap();
+        let other = path.clone();
+        let worker = std::thread::spawn(move || claim_first_open(&other).unwrap());
+        let first = claim_first_open(&path).unwrap();
+        let second = worker.join().unwrap();
+        assert_ne!(first, second);
     }
     #[test]
     fn setup_saves_choices_without_destroying_other_settings_or_symlink() {

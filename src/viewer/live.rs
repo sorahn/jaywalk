@@ -775,7 +775,7 @@ mod git_tests {
             super::super::init(&arguments, &settings, app).unwrap();
             let layout = SessionLayout::load(&arguments, &settings);
             gpui_kit::open_window(WindowOptions::default(), app, |window, app| {
-                app.new(|cx| Viewer::new(arguments, settings, layout, window, cx))
+                app.new(|cx| Viewer::new(arguments, settings, layout, Ok(false), window, cx))
             })
             .unwrap()
         });
@@ -1018,7 +1018,7 @@ mod lifecycle_tests {
                 args.directory = Some(second.0.clone());
                 let settings = viewer.settings.clone();
                 let layout = SessionLayout::load(&args, &settings);
-                *viewer = Viewer::new(args, settings, layout, window, cx);
+                *viewer = Viewer::new(args, settings, layout, Ok(false), window, cx);
                 viewer.settings.ui.loading_delay_ms = 0;
                 let new = viewer.begin_live_refresh(window, cx);
                 viewer.live.notice = Some(LiveNotice::UpdatingRecorded);

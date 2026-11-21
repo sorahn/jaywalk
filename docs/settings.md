@@ -770,7 +770,18 @@ These actions prepare local review sources and optional checkout only. They do n
 
 ## First-open setup and updates
 
-`[setup] completed` defaults to `false`. It is application-level and saved by **Save and continue** in **Set up Jaywalk…**. Skipping leaves it false and saves none of the edited choices. Setup remains available later. Existing configs inherit false; updates are never silently opted in. Appearance uses the existing `ui.appearance` setting.
+`[setup] seen` defaults to `false`. The signed app records it when preparing the
+first automatic setup window. Later opens show Welcome (or an explicitly requested
+comparison), even after Skip, closing the window or quitting. This marker saves no
+draft choices and grants no network consent. **Set up Jaywalk…** remains available
+explicitly from the command palette regardless of the marker.
+
+`[setup] completed` defaults to `false` and is saved with `seen = true` by **Save
+and continue**. Skipping leaves `completed` false and saves none of the edited
+choices. Previously completed setups do not reappear when `seen` is absent in an
+older config. Both values are application-level in the active config; edits affect
+the next automatic open. Updates still require explicit opt-in and completed setup.
+Appearance uses the existing `ui.appearance` setting.
 
 | `[updates]` key | Default | Accepted values / behavior |
 | --- | --- | --- |

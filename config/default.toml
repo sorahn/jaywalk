@@ -12,6 +12,7 @@ additional_directories = []
 
 [setup]
 completed = false
+seen = false
 
 [updates]
 automatic_checks = false
