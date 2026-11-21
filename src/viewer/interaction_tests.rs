@@ -3769,6 +3769,55 @@ fn setup_is_optional_preserves_the_comparison_and_only_saves_explicit_choices(
 }
 
 #[gpui_test::test]
+fn older_setup_window_cannot_restore_revoked_update_consent(test_cx: &mut TestAppContext) {
+    use jaywalk::commands::CommandId;
+    let fixture = Fixture::new();
+    let args = Arguments::parse_from(["jaywalk", fixture.0.to_str().unwrap()]);
+    let mut other_context = test_cx.clone();
+    let (first, first_cx) = setup_arguments_with_settings(
+        &fixture,
+        args,
+        "[updates]\nautomatic_checks=true\n",
+        test_cx,
+    );
+    let (arguments, settings) = first_cx.update(|_, app| {
+        let viewer = first.read(app);
+        (viewer.arguments.clone(), viewer.settings.clone())
+    });
+    let mut second = None;
+    let (_, second_cx) = other_context.add_window_view(|window, app| {
+        let layout = SessionLayout::load(&arguments, &settings);
+        let view = app.new(|cx| Viewer::new(arguments, settings, layout, Ok(false), window, cx));
+        second = Some(view.clone());
+        Root::new(view, window, app)
+    });
+    let second = second.unwrap();
+    for (viewer, cx) in [(&first, &mut *first_cx), (&second, &mut *second_cx)] {
+        cx.simulate_resize(size(px(1500.), px(1400.)));
+        cx.update(|window, app| {
+            viewer.update(app, |viewer, cx| {
+                viewer.execute_command(CommandId::ShowSetup, window, cx);
+            })
+        });
+        draw(cx);
+    }
+    let checks = first_cx.debug_bounds("setup-update-0").unwrap();
+    first_cx.simulate_click(checks.center(), Default::default());
+    draw(first_cx);
+    let path = fixture.0.join("settings.toml");
+    let revoked = Settings::parse(&std::fs::read_to_string(&path).unwrap()).unwrap();
+    assert!(!revoked.updates.automatic_checks);
+    // Preserve the older window's snapshot to reproduce the stale-save race.
+    let save = second_cx.debug_bounds("setup-save").unwrap();
+    second_cx.simulate_click(save.center(), Default::default());
+    draw(second_cx);
+    let saved = Settings::parse(&std::fs::read_to_string(&path).unwrap()).unwrap();
+    assert!(saved.setup.completed);
+    assert!(!saved.updates.automatic_checks);
+    assert_eq!(saved.updates, revoked.updates);
+}
+
+#[gpui_test::test]
 fn setup_fits_one_normal_viewport_and_stacks_in_narrow_windows(cx: &mut TestAppContext) {
     use jaywalk::commands::CommandId;
     let fixture = Fixture::new();

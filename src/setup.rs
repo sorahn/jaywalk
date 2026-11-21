@@ -36,22 +36,12 @@ impl UpdateSettings {
         self.automatic_checks
     }
 }
+/// Save completion and appearance only; update consent is owned by checkbox writes.
 /// Serialize app-owned writers, preserve comments/symlinks/permissions, and reject
 /// edits made while preparing the replacement. Explicit configs must exist.
-pub fn save(
-    path: &Path,
-    completed: bool,
-    updates: UpdateSettings,
-    appearance: Appearance,
-) -> Result<Config, String> {
-    updates.validate()?;
+pub fn save(path: &Path, completed: bool, appearance: Appearance) -> Result<Config, String> {
     edit(path, |doc, _| {
         doc["setup"]["completed"] = toml_edit::value(completed);
-        doc["updates"]["automatic_checks"] = toml_edit::value(updates.automatic_checks);
-        doc["updates"]["automatic_downloads"] = toml_edit::value(updates.automatic_downloads);
-        doc["updates"]["automatic_installation"] = toml_edit::value(updates.automatic_installation);
-        doc["updates"]["check_interval_hours"] =
-            toml_edit::value(i64::from(updates.check_interval_hours));
         doc["ui"]["appearance"] = toml_edit::value(match appearance {
             Appearance::System => "system",
             Appearance::Light => "light",
@@ -220,8 +210,7 @@ mod tests {
         let fixture = tempfile::tempdir().unwrap();
         let path = fixture.path().join("config.toml");
         std::fs::write(&path, "# keep me\n[editor]\nfont_size=17\n").unwrap();
-        let config = Config::parse("").unwrap();
-        let saved = save(&path, true, config.updates, Appearance::Light).unwrap();
+        let saved = save(&path, true, Appearance::Light).unwrap();
         assert!(saved.setup.completed);
         assert_eq!(saved.ui.appearance, Appearance::Light);
         assert_eq!(saved.editor.font_size, 17.);
@@ -234,11 +223,11 @@ mod tests {
         {
             let link = fixture.path().join("alias.toml");
             std::os::unix::fs::symlink(&path, &link).unwrap();
-            save(&link, true, config.updates, Appearance::Dark).unwrap();
+            save(&link, true, Appearance::Dark).unwrap();
             assert!(link.is_symlink());
         }
         std::fs::write(&path, "invalid = [").unwrap();
-        assert!(save(&path, true, config.updates, Appearance::Light).is_err());
+        assert!(save(&path, true, Appearance::Light).is_err());
         assert_eq!(std::fs::read_to_string(&path).unwrap(), "invalid = [");
     }
 }

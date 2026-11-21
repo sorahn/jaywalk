@@ -42,7 +42,6 @@ impl Viewer {
         }
         self.setup.busy = true;
         let explicit = self.arguments.config.clone();
-        let updates = self.setup.updates;
         let appearance = self.setup.appearance;
         cx.spawn_in(window, async move |this, cx| {
             let result = cx
@@ -50,7 +49,7 @@ impl Viewer {
                     let source =
                         jaywalk::settings_reload::SettingsSource::resolve(explicit.as_deref())?;
                     source.initialize()?;
-                    jaywalk::setup::save(source.path(), true, updates, appearance)?;
+                    jaywalk::setup::save(source.path(), true, appearance)?;
                     source.read()
                 })
                 .await;
