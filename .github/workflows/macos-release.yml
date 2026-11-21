@@ -45,11 +45,10 @@ jobs:
           persist-credentials: false
       - name: Verify icon compiler before building
         run: scripts/test-macos-icon.sh
-      - name: Prepare toolchain and public updater SDK
+      - name: Prepare toolchain
         run: |
           rustup toolchain install 1.100.0 --profile minimal
           rustup override set 1.100.0
-          python3 scripts/fetch-sparkle.py target/sparkle
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@e9d7b9f1e587218970671bac74e5511ed9506e6a # v2
         with:
@@ -62,6 +61,7 @@ jobs:
         run: |
           test "$(uname -m)" = arm64
           export JAYWALK_SPARKLE_DIR="$PWD/target/sparkle"
+          python3 scripts/fetch-sparkle.py "$JAYWALK_SPARKLE_DIR"
           scripts/bundle-macos.sh release
           python3 scripts/release-macos.py package target/release/Jaywalk.app target/distribution
           python3 scripts/release-macos.py manifest target/release/Jaywalk.app target/distribution/*.zip target/distribution/*.dmg > target/distribution/manifest.json
@@ -93,23 +93,10 @@ jobs:
           fetch-depth: 0
           ref: ${{ inputs.tag || github.ref }}
           persist-credentials: false
-      - name: Load current release automation independently of source
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-        with:
-          ref: ${{ inputs.automation_ref }}
-          path: target/release-automation
-          persist-credentials: false
       - name: Verify icon compiler before building
         run: scripts/test-macos-icon.sh
       - name: Install pinned repository test tools
         run: scripts/install-ci-tools-macos.sh
-      - name: Validate allocation, exact source and successful checks
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          test "$(git rev-parse HEAD)" = "$EXPECTED_SOURCE"
-          python3 target/release-automation/scripts/release-pipeline.py check-source "$JAYWALK_RELEASE_TAG" "$EXPECTED_SOURCE" "$JAYWALK_RELEASE_CHECKS_RUN"
-          python3 target/release-automation/scripts/release-macos.py check-tag "$JAYWALK_RELEASE_TAG"
       - name: Install pinned toolchain
         run: |
           rustup toolchain install 1.100.0 --profile minimal --component rustfmt --component clippy
@@ -122,6 +109,21 @@ jobs:
           key: official-macos26-${{ hashFiles('vendor/**') }}
           env-vars: CARGO CC CFLAGS CXX CMAKE RUST DEVELOPER_DIR MACOSX_DEPLOYMENT_TARGET
           cache-bin: false
+      # Partial cache restores prune non-Cargo files under target/. Load the
+      # pinned automation afterward so signing/verification scripts survive.
+      - name: Load current release automation independently of source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ inputs.automation_ref }}
+          path: target/release-automation
+          persist-credentials: false
+      - name: Validate allocation, exact source and successful checks
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          test "$(git rev-parse HEAD)" = "$EXPECTED_SOURCE"
+          python3 target/release-automation/scripts/release-pipeline.py check-source "$JAYWALK_RELEASE_TAG" "$EXPECTED_SOURCE" "$JAYWALK_RELEASE_CHECKS_RUN"
+          python3 target/release-automation/scripts/release-macos.py check-tag "$JAYWALK_RELEASE_TAG"
       # The allocation above validates the exact source's completed checks run.
       # Reuse those checks; the injected version policy is covered by headless tests.
       - name: Sign, notarize and prepare draft assets
