@@ -6,6 +6,7 @@ use super::*;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Page {
     Comparison,
+    Setup,
     Welcome,
     Accounts,
     PullRequests,
@@ -201,6 +202,7 @@ impl Viewer {
             .child(self.render_navigation_buttons(cx))
             .child(div().px_3().text_sm().child(match self.page {
                 Page::Welcome => "Welcome",
+                Page::Setup => "Set up Jaywalk",
                 Page::Accounts => "Accounts",
                 Page::PullRequests => "Pull requests",
                 Page::Comparison => unreachable!("comparisons keep their existing header"),

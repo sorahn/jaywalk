@@ -1,0 +1,90 @@
+name: macos release candidate
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: Rehearsal creates unsigned artifacts; official requires protected release credentials and a version tag
+        type: choice
+        options: [rehearsal, official]
+        default: rehearsal
+permissions:
+  contents: read
+concurrency:
+  group: macos-release-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  rehearsal:
+    if: inputs.mode == 'rehearsal'
+    runs-on: macos-15
+    timeout-minutes: 120
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.1.1.app/Contents/Developer
+      MACOSX_DEPLOYMENT_TARGET: '15.0'
+      CARGO_BUILD_JOBS: '3'
+      JAYWALK_SIGNING_IDENTITY: '-'
+      JAYWALK_MACOS_UPDATER: '1'
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Prepare toolchain and public updater SDK
+        run: |
+          rustup toolchain install 1.100.0 --profile minimal
+          rustup override set 1.100.0
+          python3 scripts/fetch-sparkle.py target/sparkle
+      - name: Build unsigned candidate
+        run: |
+          test "$(uname -m)" = arm64
+          export JAYWALK_SPARKLE_DIR="$PWD/target/sparkle"
+          scripts/bundle-macos.sh release
+          python3 scripts/release-macos.py package target/release/Jaywalk.app target/distribution
+          python3 scripts/release-macos.py manifest target/release/Jaywalk.app target/distribution/*.zip target/distribution/*.dmg > target/distribution/manifest.json
+          printf '%s\n' 'UNSIGNED REHEARSAL. Not notarized, not an official release, and no update feed is configured.' > target/distribution/REHEARSAL.txt
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: unsigned-macos-arm64-rehearsal
+          path: target/distribution/
+          retention-days: 7
+  official:
+    if: inputs.mode == 'official' && startsWith(github.ref, 'refs/tags/v')
+    environment: macos-release
+    runs-on: macos-15
+    timeout-minutes: 120
+    permissions:
+      contents: write
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.1.1.app/Contents/Developer
+      MACOSX_DEPLOYMENT_TARGET: '15.0'
+      CARGO_BUILD_JOBS: '3'
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Install pinned repository test tools
+        run: scripts/install-ci-tools-macos.sh
+      - name: Validate tag and source
+        run: |
+          python3 scripts/release-macos.py check-tag "$GITHUB_REF_NAME"
+          git merge-base --is-ancestor HEAD origin/main
+          rustup toolchain install 1.100.0 --profile minimal --component rustfmt --component clippy
+          rustup override set 1.100.0
+          cargo fmt --all -- --check
+          cargo test --locked
+          cargo clippy --locked --all-targets -- -D warnings
+      - name: Sign, notarize and prepare draft assets
+        env:
+          MACOS_CERTIFICATE_P12_BASE64: ${{ secrets.MACOS_CERTIFICATE_P12_BASE64 }}
+          MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+          MACOS_SIGNING_IDENTITY: ${{ vars.MACOS_SIGNING_IDENTITY }}
+          APPLE_NOTARY_KEY_BASE64: ${{ secrets.APPLE_NOTARY_KEY_BASE64 }}
+          APPLE_NOTARY_KEY_ID: ${{ vars.APPLE_NOTARY_KEY_ID }}
+          APPLE_NOTARY_ISSUER_ID: ${{ vars.APPLE_NOTARY_ISSUER_ID }}
+          SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
+          SPARKLE_PUBLIC_KEY: ${{ vars.SPARKLE_PUBLIC_KEY }}
+          UPDATE_FEED_URL: ${{ vars.UPDATE_FEED_URL }}
+        run: scripts/release-sign-macos.sh
+      - name: Create draft release only
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" target/distribution/* --draft --verify-tag --generate-notes

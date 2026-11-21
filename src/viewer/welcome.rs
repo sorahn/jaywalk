@@ -378,6 +378,8 @@ impl Viewer {
                         (CommandId::OpenRepository, false),
                         (CommandId::OpenRecent, false),
                         (CommandId::ComparePaths, false),
+                        (CommandId::ShowSetup, false),
+                        (CommandId::InstallCli, false),
                         (CommandId::OpenSettings, false),
                         (CommandId::OpenKeybindings, false),
                     ],

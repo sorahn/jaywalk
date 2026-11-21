@@ -57,6 +57,7 @@ pub(crate) use session_layout::SessionLayout;
 #[cfg(test)]
 mod interaction_tests;
 mod settings;
+mod setup;
 mod typography;
 mod welcome;
 use geometry::{comparison_geometry, horizontal_wheel};
@@ -165,6 +166,7 @@ pub(crate) struct Viewer {
     pr_status: pr_status::StatusState,
     local_actions: local_actions::State,
     welcome: Option<welcome::WelcomeState>,
+    setup: setup::State,
     page: pages::Page,
     account_page: Option<Entity<crate::account_ui::AccountPanel>>,
     pull_requests_page: Option<Entity<crate::hosting_ui::PullRequestsPage>>,

@@ -115,6 +115,8 @@ pub struct LiveSettings {
 #[derive(Clone, Debug, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct Config {
+    pub setup: crate::setup::SetupSettings,
+    pub updates: crate::setup::UpdateSettings,
     pub accounts: Vec<crate::accounts::preferences::AccountConfig>,
     pub hosting: crate::hosting::review::Options,
     pub local_review: crate::local_review::Options,
@@ -560,6 +562,7 @@ impl Config {
     }
 
     fn validate(&self) -> Result<(), String> {
+        self.updates.validate()?;
         crate::accounts::preferences::validate(&self.accounts)?;
         self.hosting.validate()?;
         self.local_review.validate()?;

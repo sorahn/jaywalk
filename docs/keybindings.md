@@ -552,3 +552,7 @@ more matches…** stays in the picker. Escape or switching mode cancels the quer
 Local searches stream repository metadata beyond loaded graph pages; hosted
 reviews search only their available acquired PR commits. No network fetches or
 checkout changes are performed.
+
+## Setup and command-line integration
+
+**Set up Jaywalk…** (`show_setup`), **Install or check jw command…** (`install_cli`) and **Check for updates…** (`check_updates`) are available without a repository, start unbound, and can be remapped through the normal keybinding profile. macOS also lists them in the Jaywalk menu. First-open setup is optional and can be revisited through `show_setup`. CLI setup reports discovered commands, offers a default/custom directory and copies manual installation/PATH instructions. An explicit `check_updates` action authorizes a manual check even if automatic checks are off; unconfigured development/rehearsal builds show an explanation without contacting a server.

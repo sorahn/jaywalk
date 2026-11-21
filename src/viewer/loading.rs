@@ -47,7 +47,9 @@ impl Viewer {
         let references = references::ReferenceState::new(&settings.history);
         let navigation = navigation::NavigationState::new(settings.navigation.history_limit);
         let welcome = arguments.welcome.then(welcome::WelcomeState::default);
-        let page = if arguments.welcome {
+        let page = if !cfg!(test) && crate::platform::is_app_bundle() && !settings.setup.completed {
+            pages::Page::Setup
+        } else if arguments.welcome {
             pages::Page::Welcome
         } else {
             pages::Page::Comparison
@@ -58,6 +60,7 @@ impl Viewer {
                 .with_limit(settings.history.page_size)
                 .expect("validated page size");
         let mut viewer = Self {
+            setup: setup::State::new(&settings),
             welcome,
             page,
             account_page: None,
@@ -126,7 +129,10 @@ impl Viewer {
         }
         viewer.observe_review(window, cx);
         viewer.start_settings_reload(window, cx);
-        if !viewer.is_welcome() {
+        if viewer.page == pages::Page::Setup {
+            viewer.check_setup_cli(window, cx);
+        }
+        if !viewer.arguments.welcome {
             viewer.initialize_browser(window, cx);
             viewer.load_repository(preferred_path, window, cx);
         }

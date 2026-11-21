@@ -32,7 +32,20 @@ fn reuse_priority(
     }
 }
 
+static WAITING_CLIENTS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+pub(crate) fn update_restart_allowed(_cx: &App) -> bool {
+    restart_is_safe()
+}
+pub(crate) fn restart_is_safe() -> bool {
+    WAITING_CLIENTS.load(std::sync::atomic::Ordering::Acquire) == 0
+        && !jaywalk::local_review::checkout::has_active_checkouts()
+}
 fn release_waiters(waiting: &mut Vec<Sender<Response>>) {
+    let _ = WAITING_CLIENTS.try_update(
+        std::sync::atomic::Ordering::AcqRel,
+        std::sync::atomic::Ordering::Acquire,
+        |count| Some(count.saturating_sub(waiting.len())),
+    );
     for client in waiting.drain(..) {
         let _ = client.send(Response::Closed);
     }
@@ -328,6 +341,7 @@ pub(crate) fn open_with_disposition(
     if let Some(reply) = reply {
         let _ = reply.send(Response::Opened);
         if arguments.wait {
+            WAITING_CLIENTS.fetch_add(1, std::sync::atomic::Ordering::AcqRel);
             cx.global_mut::<Windows>()
                 .0
                 .get_mut(&id)

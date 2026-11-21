@@ -1,0 +1,41 @@
+name: checks
+on:
+  push:
+    branches: [main]
+  pull_request:
+permissions:
+  contents: read
+concurrency:
+  group: checks-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  macos:
+    runs-on: macos-15
+    timeout-minutes: 90
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.1.1.app/Contents/Developer
+      MACOSX_DEPLOYMENT_TARGET: '15.0'
+      CARGO_BUILD_JOBS: '3'
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Install pinned repository test tools
+        run: scripts/install-ci-tools-macos.sh
+      - name: Install pinned toolchain
+        run: rustup toolchain install 1.100.0 --profile minimal --component rustfmt --component clippy
+      - name: Metadata and packaging tests
+        run: python3 -m unittest discover -s scripts -p 'test_*.py'
+      - name: Rust checks
+        run: |
+          test "$(uname -m)" = arm64
+          cargo +1.100.0 fmt --all -- --check
+          cargo +1.100.0 test --locked
+          cargo +1.100.0 clippy --locked --all-targets -- -D warnings
+      - name: Verify updater bridge compiles
+        run: |
+          python3 scripts/fetch-sparkle.py target/sparkle
+          JAYWALK_SPARKLE_DIR="$PWD/target/sparkle" scripts/test-updater-macos.sh
+          JAYWALK_SPARKLE_DIR="$PWD/target/sparkle" scripts/test-sparkle-feed.sh
+          JAYWALK_SPARKLE_DIR="$PWD/target/sparkle" DYLD_FRAMEWORK_PATH="$PWD/target/sparkle" cargo +1.100.0 test --locked --features macos-updater
+          JAYWALK_SPARKLE_DIR="$PWD/target/sparkle" cargo +1.100.0 clippy --locked --all-targets --features macos-updater -- -D warnings

@@ -12,6 +12,9 @@ pub(super) fn update_menus(cx: &mut App) {
     cx.set_menus([
         Menu::new("Jaywalk").items([
             item(About),
+            item(CheckUpdates),
+            item(ShowSetup),
+            item(InstallCli),
             MenuItem::separator(),
             item(OpenSettings),
             item(OpenKeybindings),

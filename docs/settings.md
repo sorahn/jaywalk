@@ -743,3 +743,16 @@ A temporary checkout writes and syncs a private recovery receipt before switchin
 **Restore review checkout…** lists receipts in the active configuration's `review-checkouts/` state directory, including receipts from interrupted runs. It verifies repository identity and current state before doing anything. Recovery is never forced or performed automatically on startup. Once a protected checkout/restore has begun, closing its picker stops waiting rather than cancelling that Git operation; the receipt and restoration worker retain ownership. Each protected Git command has a 30-second deadline. Failure, interruption or an external lock can leave a receipt requiring manual recovery; no forced repair is attempted. A later review cannot reuse an old receipt, and checkout creation stops during application quit.
 
 These actions prepare local review sources and optional checkout only. They do not start a language server or implement Cmd/Ctrl-click Go to Definition yet. Semantic navigation must distinguish exact Before/After revisions and report unavailable context rather than using the current checkout for another revision. Explicit Fetch/Pull of the user's repository remains separate work.
+
+## First-open setup and updates
+
+`[setup] completed` defaults to `false`. It is application-level and saved by **Save and continue** in **Set up Jaywalk…**. Skipping leaves it false and saves none of the edited choices. Setup remains available later. Existing configs inherit false; updates are never silently opted in. Appearance uses the existing `ui.appearance` setting.
+
+| `[updates]` key | Default | Accepted values / behavior |
+| --- | --- | --- |
+| `automatic_checks` | `false` | Boolean; scheduled checks additionally require completed setup |
+| `automatic_downloads` | `false` | Boolean; requires automatic checks; downloading alone never authorizes installation |
+| `automatic_installation` | `false` | Boolean; requires automatic downloads; explicitly permits installation on quit when restart guards allow |
+| `check_interval_hours` | `24` | Integer 1–168; automatic-check cadence |
+
+These public settings apply live application-wide, using the same active configuration-source policy as other shared settings. Disabled update options cancel background raw downloads and prevent new automatic checks; an already running feed request can complete but its result cannot start another download after opt-out. Explicit manual checks/downloads are separately authorized. Updating is unavailable on builds without the macOS updater feature or configured public feed/key; preferences are still saved. CLI installation has an explicit chosen destination and does not edit shell startup files. See [installation](installation.md) and [release operations](releasing.md).

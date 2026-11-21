@@ -5,6 +5,9 @@ keymap = []
 # Replace a command's entire array to rebind it; [] removes its shortcuts.
 # Space-separated keystrokes form chords, e.g. "secondary-k secondary-s".
 [keybindings]
+show_setup = []
+install_cli = []
+check_updates = []
 # Account commands are available from the palette and start unbound.
 accounts = []
 manage_accounts = []

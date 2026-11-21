@@ -8,6 +8,11 @@ fi
 target=$1
 identifier=${2:-dev.jaywalk.Jaywalk}
 signing_identity=${JAYWALK_SIGNING_IDENTITY:-}
+mode=${JAYWALK_SIGNING_MODE:-development}
+case "$mode" in development|release) ;; *) echo 'Invalid signing mode' >&2;exit 2;; esac
+if [ "$mode" = release ] && { [ -z "$signing_identity" ] || [ "$signing_identity" = - ]; }; then
+    echo 'Release signing requires an explicit Developer ID identity.' >&2;exit 2
+fi
 if [ -z "$signing_identity" ]; then
     # Use a certificate-backed identity only when the choice is unambiguous.
     # CI or machines without a certificate can still produce an ad hoc bundle.
@@ -30,5 +35,9 @@ fi
 if [ "$signing_identity" = - ]; then
     echo 'Using ad hoc signing: Keychain approval may recur after rebuilding. Set JAYWALK_SIGNING_IDENTITY for a stable certificate-backed identity.' >&2
 fi
-/usr/bin/codesign --force --sign "$signing_identity" --identifier "$identifier" "$target"
+set -- --force --sign "$signing_identity"
+if [ "$identifier" != preserve ]; then set -- "$@" --identifier "$identifier"; else set -- "$@" --preserve-metadata=entitlements; fi
+if [ "$mode" = release ]; then set -- "$@" --options runtime --timestamp; fi
+if [ -n "${JAYWALK_SIGNING_KEYCHAIN:-}" ]; then set -- "$@" --keychain "$JAYWALK_SIGNING_KEYCHAIN"; fi
+/usr/bin/codesign "$@" "$target"
 /usr/bin/codesign --verify --strict "$target"

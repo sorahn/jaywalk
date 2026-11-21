@@ -10,6 +10,15 @@ accounts = []
 profile = "keybindings/default.toml"
 additional_directories = []
 
+[setup]
+completed = false
+
+[updates]
+automatic_checks = false
+automatic_downloads = false
+automatic_installation = false
+check_interval_hours = 24
+
 [application]
 quit_on_last_window = true
 # Reuse the current viewer for CLI, recent-repository and normal Open actions.

@@ -22,6 +22,7 @@ use cli::Arguments;
 mod launcher;
 mod picker_ui;
 mod platform;
+mod updater;
 mod viewer;
 use viewer::Viewer;
 
@@ -34,6 +35,10 @@ fn main() {
 
 fn run() -> std::result::Result<(), String> {
     let mut arguments = Arguments::parse();
+    if arguments.build_revision {
+        println!("{}", jaywalk::version::REVISION);
+        return Ok(());
+    }
     if arguments.package_version {
         println!("{}", jaywalk::version::PACKAGE);
         return Ok(());
