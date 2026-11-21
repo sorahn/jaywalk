@@ -29,6 +29,25 @@ class SelectionAPI(FakeGitHub):
         self.tag = SOURCE
 
 
+class DraftAPI(SelectionAPI):
+    """Match GitHub: a draft is listed but the published-by-tag API returns 404."""
+    def __init__(self):
+        super().__init__()
+        self.release.update(draft=True, id=123, published_at=None)
+        self.pages = [[{"id": 123, "tag_name": "v2026.11.1"}]]
+        self.reads = []
+
+    def api(self, route, payload=None, method="POST"):
+        self.reads.append(route)
+        if route.startswith("releases/tags/"):
+            raise missing()
+        if route.startswith("releases?per_page=100&page="):
+            return self.pages[int(route.rsplit("=", 1)[1]) - 1]
+        if route == "releases/123":
+            return self.release
+        return super().api(route, payload, method)
+
+
 class TapAPI:
     def __init__(self, text=None):
         self.text = text
@@ -65,6 +84,54 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual(result, {"source": SOURCE, "tag": "v2026.11.1", "build": "false", "version": "2026.11.1", "checks": "77"})
         self.assertEqual(api.main, MAIN)
         self.assertEqual(api.mutations, [])
+
+    def test_complete_draft_is_discovered_and_reused_without_rebuilding(self):
+        api = DraftAPI()
+        result = pipeline.select(api, "v2026.11.1")
+        self.assertEqual(result["build"], "false")
+        self.assertIn("releases/123", api.reads)
+        self.assertEqual(api.mutations, [])
+
+    def test_draft_discovery_paginates_and_matches_exact_tag(self):
+        api = DraftAPI()
+        api.pages.insert(0, [{"id": i, "tag_name": "v2026.11.10"} for i in range(100)])
+        self.assertEqual(pipeline.find_release(api, "v2026.11.1"), api.release)
+        self.assertIn("releases?per_page=100&page=2", api.reads)
+
+    def test_ambiguous_or_changed_draft_identity_is_rejected(self):
+        api = DraftAPI()
+        api.pages[0].append({"id": 456, "tag_name": "v2026.11.1"})
+        with self.assertRaisesRegex(ValueError, "multiple releases"):
+            pipeline.find_release(api, "v2026.11.1")
+        api = DraftAPI()
+        api.release["tag_name"] = "v2026.11.2"
+        with self.assertRaisesRegex(ValueError, "tag changed"):
+            pipeline.find_release(api, "v2026.11.1")
+
+    def test_partial_draft_can_be_rebuilt_but_auth_errors_are_not_missing(self):
+        api = DraftAPI()
+        api.release["assets"].pop()
+        self.assertEqual(pipeline.select(api, "v2026.11.1")["build"], "true")
+        with patch.object(api, "api", side_effect=subprocess.CalledProcessError(1, ["gh"], stderr="Forbidden (HTTP 403)")):
+            with self.assertRaises(subprocess.CalledProcessError):
+                pipeline.find_release(api, "v2026.11.1")
+
+    def test_existing_draft_is_found_before_guarded_replacement(self):
+        api = DraftAPI()
+        original = api.api
+        deleted = []
+        def request(route, payload=None, method="POST"):
+            if method == "DELETE":
+                deleted.append(route)
+                return None
+            return original(route, payload, method)
+        api.api = request
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "manifest.json").write_text(json.dumps(api.report))
+            with patch.object(pipeline.subprocess, "run"):
+                pipeline.create_draft(api, "v2026.11.1", root)
+        self.assertEqual(deleted, ["releases/123"])
 
     def test_missing_release_builds_only_the_selected_source(self):
         api = SelectionAPI()
