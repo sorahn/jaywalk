@@ -4,9 +4,9 @@ This is the operator guide for the initial Apple Silicon/macOS 15+ release path.
 
 ## Credential-free validation
 
-GitHub's standard macOS runners are free for this public repository. Workflows use `macos-15` ARM64 and an explicit Xcode 26.1.1 path because the runner's default Xcode 16.4 cannot compile the Icon Composer asset. Rust is pinned to 1.100.0; Cargo dependencies stay locked. Checks and official release jobs install checksum-pinned jj 0.47.1 into a job-local tool directory and verify Git/Clang availability before compiling. jj is required for the test suite, but remains optional for plain-Git users and is not bundled into the app. GitHub-hosted images roll forward; record the actual image/Xcode/Rust versions in the run logs and update the explicit Xcode path deliberately if images retire it.
+GitHub's standard macOS runners are free for this public repository. Checks use `macos-15` ARM64 with explicit Xcode 26.1.1. Packaging uses `macos-26` ARM64 with explicit Xcode 26.6: the first rehearsal compiled Rust successfully but the older runner/Xcode pairing crashed in Apple's Icon Composer asset runtime. Packaging now runs `scripts/test-macos-icon.sh` before Cargo so an incompatible image fails early. The app deployment target remains macOS 15. Rust is pinned to 1.100.0; Cargo dependencies stay locked. Checks and official release jobs install checksum-pinned jj 0.47.1 into a job-local tool directory and verify Git/Clang availability before compiling. jj is required for the test suite, but remains optional for plain-Git users and is not bundled into the app. GitHub-hosted images roll forward; record the actual image/Xcode/Rust versions in the run logs and update the explicit Xcode path deliberately if images retire it.
 
-`checks.yml` runs metadata tests, Rust formatting/tests/strict Clippy and updater-enabled compilation on PRs without signing credentials. `macos-release.yml` is manually dispatched: Rehearsal produces visibly unsigned artifacts with no update feed or key. Official mode requires a `v<Cargo version>` tag reachable from main, protected `macos-release` environment and the inputs below. It rechecks source and creates a **draft** release only. Neither workflow updates Homebrew or the feed host automatically. No `pull_request_target` or privileged fork-artifact signing is used.
+`checks.yml` runs metadata tests, Rust formatting/tests/strict Clippy and updater-enabled compilation on PRs without signing credentials. `macos-release.yml` is manually dispatched: Rehearsal produces visibly unsigned artifacts with no update feed or key. Official mode requires a `v<Cargo version>` tag reachable from main, protected `macos-release` environment and the inputs below. The `prepare macos release` workflow creates that tag automatically from Cargo at the reviewed main commit, then dispatches official mode. It rechecks source and creates a **draft** release only. Neither workflow updates Homebrew or the feed host automatically. No `pull_request_target` or privileged fork-artifact signing is used.
 
 Local checks:
 
@@ -55,6 +55,28 @@ Official signing requires an explicit identity and hardened runtime/timestamp. T
 
 `generate_appcast` signs the archive enclosure and feed with the separate EdDSA key. Only the canonical ZIP is fed to it; the DMG is a separate install artifact. Preserve existing published artifacts for rollback. A release job creates draft assets and a generated `jaywalk.rb`; it does not create a tap or deploy a feed. Before publishing, review signed assets/manifest/feed/cask and fulfill license/source/notice requirements for redistributed dependencies. The bundle collects resolved dependency metadata and available license/notice files under Resources/licenses, without local source paths; this inventory is an audit aid, not a claim that every dependency's redistribution obligations have been fulfilled.
 
+## Automatic tags and development versions
+
+Normal patch releases require no manual version calculation or tag command:
+
+1. Review the exact main commit to ship, then dispatch **prepare macos release** on `main`. It derives the stable version from Cargo, verifies the root lockfile agrees and creates an annotated `v<version>` tag at that exact commit. If main advanced while waiting for approval, dispatch again after reviewing the new tip. An existing tag is reused only for identical source; it is never moved.
+2. The preparation workflow starts **macos release candidate** in official mode at that tag. The existing protected signing job produces a draft. Inspect the signed assets and complete the promotion checklist below; preparation itself does not publish.
+3. Publish the reviewed stable draft. **advance release version** dispatches its bookkeeping run on trusted `main`, verifies the public manifest/tag/source and GitHub's payload digests/sizes, then appends `start <next patch> development` directly to main. Only Cargo.toml's package version and Cargo.lock's root-package version change. Subsequent development builds display that upcoming version with their existing `-dev` suffix.
+
+For minor/major releases, deliberately set Cargo.toml and Cargo.lock to the desired version through the normal review path. Automatic patch advancement resumes after that release. Commit messages do not select versions. A later version already present on main is preserved.
+
+Retries do not increment twice. Drafts, prereleases, unsigned rehearsals and build failures never advance main. Updates are fast-forward only; concurrent main edits cause a bounded retry against the new tip. If publication succeeds but bookkeeping fails, rerun **advance release version** on main with the same published `tag`; do not rebuild or republish. If publication is performed by a workflow using `GITHUB_TOKEN`, its release event will not trigger this workflow: the promotion workflow must explicitly dispatch advancement on main. A normal owner publication in the GitHub UI triggers it automatically.
+
+A failed official candidate may leave its version tag reserved. Retry the candidate at that same tag/source. If source changes are required, deliberately select a new version; never retag a different commit under a shipped/reserved version. If preparation created the tag but dispatch failed, run official mode on that existing tag.
+
+### Release automation identity
+
+These workflows are implemented but remain inactive until this separate identity is provisioned. Create a dedicated GitHub App installed only on `sorahn/jaywalk`, with repository **Contents: read/write** and **Actions: read/write**. Do not reuse the application's hosting-login OAuth registration. Store its public App ID as `RELEASE_APP_ID` and PEM private key as `RELEASE_APP_PRIVATE_KEY` in a `release-automation` environment; enter keys locally, never in chat or tracked files. Restrict that environment to the main branch. Preparation runs there; release-event handling has no App credential and only dispatches the main-branch bookkeeping workflow. The pinned token action defaults to the current repository and narrows the advancement token to Contents write; ordinary CI retains read-only permissions.
+
+Allow this App to bypass the **update restriction** on main. Keep owner-only human updates. The current ruleset combines update, deletion and non-fast-forward restrictions, so split the latter two into a separate ruleset without an App bypass before granting update access. The App's bypass is not a per-file permission: the trusted script enforces version-only edits, and workflows must remain owner reviewed. An App token allows the resulting main commit to trigger normal push CI, unlike `GITHUB_TOKEN`. Verify this with the first real advancement.
+
+Protect `v*` release tags from updates/deletion and permit the release App to create them. Review the effective combined rules before enabling automation. The existing `macos-release` environment stays separately restricted to version tags and owner-approved signing. This implementation does not provision secrets, alter rulesets or publish a release.
+
 ## Native update integration
 
 The small Objective-C bridge uses the pinned Sparkle framework; Rust owns public TOML preferences and opt-in. It does not read OAuth credentials. Automatic checks require both `setup.completed=true` and `updates.automatic_checks=true`. Manual checks require an explicit action. No telemetry/profile or release-note fetches are enabled. Update enclosures come from this repository's GitHub release paths; download-only redirects are limited to GitHub's release asset CDN.
@@ -65,7 +87,7 @@ The no-window native probe verifies absence of consent/configuration does not in
 
 ## First promotion checklist
 
-- Run the workflow on an owner-reviewed version tag and inspect the draft outputs.
+- Dispatch preparation on an owner-reviewed main commit; it creates the version tag and starts the official draft build. Inspect its outputs.
 - Validate signed app/DMG with `codesign`, `stapler` and `spctl` on a clean Mac.
 - Exercise first-run consent (including skip/offline/disable), CLI setup and custom paths, Finder/terminal Git/jj discovery, paths containing spaces/non-ASCII and existing-command conflicts.
 - Exercise old-to-new updates under every check/download/install combination, including download-only followed by quit/relaunch, active CLI waiters and local checkout receipts, canceled/interrupted downloads, and rejected/tampered feeds/archives.
