@@ -85,7 +85,7 @@ def cask(data):
 
   auto_updates true
   depends_on arch: :arm64
-  depends_on macos: ">= :sequoia"
+  depends_on macos: :sequoia
 
   app "Jaywalk.app"
   binary "#{{appdir}}/Jaywalk.app/Contents/MacOS/jw"

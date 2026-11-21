@@ -40,10 +40,12 @@ jobs:
             jaywalk
             homebrew-tap
           permission-contents: write
+      # The token action requests Contents write for both selected repositories.
+      # App-token repository responses need not include OAuth permissions.push.
       - name: Check tap availability before building or publishing a release
         env:
           GH_TOKEN: ${{ steps.token.outputs.token }}
-        run: gh api repos/sorahn/homebrew-tap --jq 'if .archived or .default_branch != "main" or .permissions.push != true then error("tap is not ready for automatic updates") else .full_name end'
+        run: gh api repos/sorahn/homebrew-tap --jq 'if .archived or .private or .default_branch != "main" then error("tap is not ready for automatic updates") else .full_name end'
       - name: Validate explicitly selected tag and source
         id: candidate
         env:
