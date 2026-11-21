@@ -774,8 +774,13 @@ impl Viewer {
                 .border_b_1()
                 .border_color(gpui::component::Theme::global(cx).border)
                 .bg(crate::appearance::surface(
-                    jaywalk::theme::Surface::Footer,
+                    jaywalk::theme::Surface::Header,
                     jaywalk::theme::Part::Background,
+                    cx,
+                ))
+                .text_color(crate::appearance::surface(
+                    jaywalk::theme::Surface::Header,
+                    jaywalk::theme::Part::Foreground,
                     cx,
                 ))
                 .child(self.render_navigation_buttons(cx))
@@ -895,6 +900,11 @@ impl Viewer {
             EvolutionKind::Change => jaywalk::panel_layout::PanelId::ChangeEvolution,
             EvolutionKind::File => jaywalk::panel_layout::PanelId::FileEvolution,
         };
+        let muted_foreground = crate::appearance::surface(
+            chrome::panel_surface(panel_id),
+            jaywalk::theme::Part::MutedForeground,
+            cx,
+        );
         let header = self
             .panel_header(panel_id, font_size, cx)
             .child(div().flex_1().min_w_0().truncate().child(match kind {
@@ -1033,7 +1043,7 @@ impl Viewer {
                     .px_3()
                     .pb_1()
                     .text_size(px(font_size * 0.85))
-                    .text_color(gpui::component::Theme::global(cx).muted_foreground)
+                    .text_color(muted_foreground)
                     .truncate()
                     .child(context)
                     .tooltip(move |window, cx| Tooltip::new(tooltip.clone()).build(window, cx)),
@@ -1044,7 +1054,7 @@ impl Viewer {
                     .px_3()
                     .pb_1()
                     .text_size(px(font_size * 0.85))
-                    .text_color(gpui::component::Theme::global(cx).muted_foreground)
+                    .text_color(muted_foreground)
                     .child("Timeline · changes since previous"),
             );
         }
@@ -1082,7 +1092,6 @@ impl Viewer {
         let grouping_enabled = state.collapse_repeats;
         let operation = evolution.operation.clone();
         let menu_focus = self.focus.clone();
-        let muted_foreground = gpui::component::Theme::global(cx).muted_foreground;
         let rows = uniform_list(("evolution-rows", kind.id()), presentation.rows.len(), move |visible, _, _| {
             let width = 20. + (presentation.graph.visible_lane_count(visible.clone()) - 1) as f32 * spacing;
             visible
@@ -1265,7 +1274,7 @@ impl Viewer {
             .px_3()
             .py_2()
             .text_size(px(font_size * 0.85))
-            .text_color(gpui::component::Theme::global(cx).muted_foreground)
+            .text_color(muted_foreground)
             .child(format!(
                 "{} versions · {} {} · {} hidden{}",
                 count,

@@ -1,10 +1,11 @@
-//! Defaults captured from shell-lab preferredFoundation(defaults()), checkpoint
-//! 9a4fe57eacddbb44f280fb94ccb857919fa40efb; generated independently by its JS engine.
+//! Dark/colored reference palettes come from shell-lab checkpoint
+//! 9a4fe57eacddbb44f280fb94ccb857919fa40efb. The soft light default uses the
+//! same Layered 1.4 offsets with the native-reviewed paper seed.
 use super::*;
 use crate::settings::Settings;
 
 #[test]
-fn approved_prototype_defaults_match_in_both_modes() {
+fn prototype_palettes_and_soft_light_default_match_fixtures() {
     let fixtures: serde_json::Value = serde_json::from_str(include_str!("fixtures.json")).unwrap();
     for fixture in fixtures.as_array().unwrap() {
         let settings = match fixture["seed"].as_str() {
@@ -185,5 +186,50 @@ fn invalid_theme_config_is_rejected() {
         "[theme.shell_auto.roles.\"shell.foreground\"]\nlightness_shift=0.1",
     ] {
         assert!(Settings::parse(input).is_err(), "{input}");
+    }
+}
+
+#[test]
+fn soft_light_default_reverses_dark_layering_with_readable_surface_text() {
+    let settings = Settings::default();
+    assert_eq!(settings.theme.shell_auto.layer_strength.resolve(false), 1.4);
+    assert_eq!(settings.theme.shell_auto.layer_strength.resolve(true), 1.4);
+    let resolved = settings.resolved_theme();
+    assert_eq!(
+        resolved.light.surface(Surface::Viewer, Part::Background),
+        Color::rgb(0xf7f7f6)
+    );
+    for surface in [
+        Surface::History,
+        Surface::Files,
+        Surface::Header,
+        Surface::HistoryHeader,
+        Surface::FilesHeader,
+    ] {
+        let light_offset = resolved
+            .light
+            .surface(Surface::Viewer, Part::Background)
+            .lch()[0]
+            - resolved.light.surface(surface, Part::Background).lch()[0];
+        let dark_offset = resolved.dark.surface(surface, Part::Background).lch()[0]
+            - resolved
+                .dark
+                .surface(Surface::Viewer, Part::Background)
+                .lch()[0];
+        assert!(
+            (light_offset - dark_offset).abs() < 0.004,
+            "{surface:?}: light={light_offset}, dark={dark_offset}"
+        );
+    }
+    for shell in [&resolved.light, &resolved.dark] {
+        for surface in Surface::ALL {
+            let background = shell.surface(surface, Part::Background);
+            for part in [Part::Foreground, Part::MutedForeground] {
+                assert!(
+                    background.contrast(shell.surface(surface, part)) >= 4.5,
+                    "{surface:?} {part:?}"
+                );
+            }
+        }
     }
 }

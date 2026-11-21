@@ -142,14 +142,14 @@ fn built_in(surface: Surface, dark: bool) -> Color {
         }
     } else {
         match surface {
-            Surface::Window | Surface::Viewer | Surface::ViewerHeader => 0xf8f8f8,
-            Surface::History => 0xe6e6e6,
-            Surface::Files => 0xefefef,
+            Surface::Window | Surface::Viewer | Surface::ViewerHeader => 0xf7f7f6,
+            Surface::History => 0xe4e4e4,
+            Surface::Files => 0xeeeeed,
             Surface::Header | Surface::Footer | Surface::HistoryFooter | Surface::FilesFooter => {
-                0xd6d6d6
+                0xd4d4d4
             }
-            Surface::HistoryHeader | Surface::Floating => 0xe1e1e1,
-            Surface::FilesHeader => 0xeaeaea,
+            Surface::HistoryHeader | Surface::Floating => 0xe0e0df,
+            Surface::FilesHeader => 0xe9e9e8,
         }
     };
     Color::rgb(hex)

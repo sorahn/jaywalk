@@ -368,7 +368,7 @@ mod mode_tests {
         let light = syntax_theme(false);
         let dark = syntax_theme(true);
         let settings = Settings::default();
-        for (is_dark, background) in [(false, 0xf8f8f8), (true, 0x111111)] {
+        for (is_dark, background) in [(false, 0xf7f7f6), (true, 0x111111)] {
             let mut theme = Theme::default();
             theme.highlight_theme = syntax_theme(is_dark);
             let string = theme.highlight_theme.style.syntax.string;

@@ -274,7 +274,11 @@ impl Viewer {
                 div()
                     .max_w(rems(24.))
                     .truncate()
-                    .text_color(theme.muted_foreground)
+                    .text_color(crate::appearance::surface(
+                        jaywalk::theme::Surface::ViewerHeader,
+                        jaywalk::theme::Part::MutedForeground,
+                        cx,
+                    ))
                     .child(detail)
             }))
             .children(updating.then(|| div().flex_shrink_0().child("Updating…")))
@@ -282,7 +286,11 @@ impl Viewer {
                 title.child(
                     div()
                         .flex_shrink_0()
-                        .text_color(theme.muted_foreground)
+                        .text_color(crate::appearance::surface(
+                            jaywalk::theme::Surface::ViewerHeader,
+                            jaywalk::theme::Part::MutedForeground,
+                            cx,
+                        ))
                         .child(if self.is_interdiff() {
                             "Previous (rebased)"
                         } else {
@@ -333,7 +341,11 @@ impl Viewer {
                             .flex_1()
                             .min_w_0()
                             .px(px(super::chrome::PANEL_INSET))
-                            .text_color(theme.muted_foreground)
+                            .text_color(crate::appearance::surface(
+                                jaywalk::theme::Surface::ViewerHeader,
+                                jaywalk::theme::Part::MutedForeground,
+                                cx,
+                            ))
                             .child(if self.is_interdiff() {
                                 "Selected version"
                             } else {

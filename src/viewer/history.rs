@@ -145,7 +145,7 @@ fn history_row(
 
 /// Uses the loaded history snapshot; hovering never queries or snapshots a repository.
 fn revision_hover(revision: &jaywalk::history::Revision, cx: &App) -> AnyElement {
-    let muted = gpui::component::Theme::global(cx).muted_foreground;
+    let muted = crate::appearance::surface(Surface::Floating, Part::MutedForeground, cx);
     let mut details = Vec::new();
     if revision.is_virtual_working_copy() {
         details.push("Uncommitted working changes against HEAD".to_owned());
