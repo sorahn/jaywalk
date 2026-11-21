@@ -162,8 +162,8 @@ static BOOL initialize(void) {
     lastStatus=[@"Update feed: " stringByAppendingString:feed];
     return YES;
 }
-void jaywalk_updater_configure(bool consent, bool checks, bool downloads, bool install, double interval, bool restart) {
-    restartAllowed=restart;checksAllowed=consent && checks;downloadsAllowed=checksAllowed && downloads;installsAllowed=downloadsAllowed && install && restart;
+void jaywalk_updater_configure(bool checks, bool downloads, bool install, double interval, bool restart) {
+    restartAllowed=restart;checksAllowed=checks;downloadsAllowed=checksAllowed && downloads;installsAllowed=downloadsAllowed && install && restart;
     if (!checksAllowed && !driver) return;
     if (!initialize()) return;
     if (!downloadsAllowed && driver.download && !driver.showDownloadResult) [driver cancelDownload:nil];

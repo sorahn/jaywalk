@@ -3611,7 +3611,11 @@ fn setup_is_optional_preserves_the_comparison_and_only_saves_explicit_choices(
     let button = cx.debug_bounds("setup-update-0").unwrap();
     cx.simulate_click(button.center(), Default::default());
     draw(cx);
-    // Skipping is not consent, even after editing an unsaved checkbox.
+    let path = fixture.0.join("settings.toml");
+    let checked = Settings::parse(&std::fs::read_to_string(&path).unwrap()).unwrap();
+    assert!(checked.updates.automatic_checks && !checked.setup.completed);
+    assert!(checked.updates.may_check_automatically());
+    // The checkbox saves consent immediately; skipping does not undo that choice.
     let later = cx.debug_bounds("setup-later").unwrap();
     cx.simulate_click(later.center(), Default::default());
     draw(cx);
@@ -3635,7 +3639,7 @@ fn setup_is_optional_preserves_the_comparison_and_only_saves_explicit_choices(
     cx.simulate_click(save.center(), Default::default());
     draw(cx);
     let saved = Settings::parse(&std::fs::read_to_string(&path).unwrap()).unwrap();
-    assert!(saved.setup.completed && saved.updates.automatic_checks);
+    assert!(saved.setup.completed && !saved.updates.automatic_checks);
     assert!(!saved.updates.automatic_downloads && !saved.updates.automatic_installation);
     assert_eq!(
         cx.update(|_, app| viewer.read(app).comparison().unwrap().identity()),
@@ -3835,7 +3839,7 @@ fn first_setup_skip_returns_to_welcome_and_manual_setup_remains_available(cx: &m
     let saved = Settings::parse(&std::fs::read_to_string(fixture.0.join("settings.toml")).unwrap())
         .unwrap();
     assert!(saved.setup.seen && !saved.setup.completed);
-    assert!(!saved.updates.may_check_automatically(saved.setup));
+    assert!(!saved.updates.may_check_automatically());
     cx.update(|window, app| {
         viewer.update(app, |viewer, cx| {
             viewer.execute_command(CommandId::ShowSetup, window, cx)

@@ -777,15 +777,16 @@ draft choices and grants no network consent. **Set up Jaywalk…** remains avail
 explicitly from the command palette regardless of the marker.
 
 `[setup] completed` defaults to `false` and is saved with `seen = true` by **Save
-and continue**. Skipping leaves `completed` false and saves none of the edited
-choices. Previously completed setups do not reappear when `seen` is absent in an
+and continue**. Skipping leaves `completed` false. Update checkboxes save immediately; skipping
+does not undo them. Other unsaved choices remain unchanged. Previously completed setups do not reappear when `seen` is absent in an
 older config. Both values are application-level in the active config; edits affect
-the next automatic open. Updates still require explicit opt-in and completed setup.
+the next automatic open. Update consent comes only from the saved update options and is independent of
+setup completion.
 Appearance uses the existing `ui.appearance` setting.
 
 | `[updates]` key | Default | Accepted values / behavior |
 | --- | --- | --- |
-| `automatic_checks` | `false` | Boolean; scheduled checks additionally require completed setup |
+| `automatic_checks` | `false` | Boolean; explicit checkbox/config opt-in, independent of setup completion |
 | `automatic_downloads` | `false` | Boolean; requires automatic checks; downloading alone never authorizes installation |
 | `automatic_installation` | `false` | Boolean; requires automatic downloads; explicitly permits installation on quit when restart guards allow |
 | `check_interval_hours` | `24` | Integer 1–168; automatic-check cadence |

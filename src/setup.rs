@@ -32,8 +32,8 @@ impl UpdateSettings {
         }
         Ok(())
     }
-    pub fn may_check_automatically(self, setup: SetupSettings) -> bool {
-        setup.completed && self.automatic_checks
+    pub fn may_check_automatically(self) -> bool {
+        self.automatic_checks
     }
 }
 /// Serialize app-owned writers, preserve comments/symlinks/permissions, and reject
@@ -60,6 +60,18 @@ pub fn save(
         if completed {
             doc["setup"]["seen"] = toml_edit::value(true);
         }
+        Ok(())
+    })
+}
+/// Persist explicit checkbox choices independently of setup completion/appearance.
+pub fn save_updates(path: &Path, updates: UpdateSettings) -> Result<Config, String> {
+    updates.validate()?;
+    edit(path, |doc, _| {
+        doc["updates"]["automatic_checks"] = toml_edit::value(updates.automatic_checks);
+        doc["updates"]["automatic_downloads"] = toml_edit::value(updates.automatic_downloads);
+        doc["updates"]["automatic_installation"] = toml_edit::value(updates.automatic_installation);
+        doc["updates"]["check_interval_hours"] =
+            toml_edit::value(i64::from(updates.check_interval_hours));
         Ok(())
     })
 }
@@ -138,14 +150,10 @@ mod tests {
     #[test]
     fn existing_config_does_not_authorize_traffic_and_invalid_combinations_fail() {
         let config = Config::parse("").unwrap();
-        assert!(!config.updates.may_check_automatically(config.setup));
+        assert!(!config.updates.may_check_automatically());
         let mut updates = config.updates;
         updates.automatic_checks = true;
-        assert!(!updates.may_check_automatically(config.setup));
-        assert!(updates.may_check_automatically(SetupSettings {
-            completed: true,
-            seen: true
-        }));
+        assert!(updates.may_check_automatically());
         updates.automatic_checks = false;
         updates.automatic_downloads = true;
         assert!(updates.validate().is_err());
@@ -162,7 +170,7 @@ mod tests {
         assert!(claim_first_open(&path).unwrap());
         let saved = Config::parse(&std::fs::read_to_string(&path).unwrap()).unwrap();
         assert!(saved.setup.seen && !saved.setup.completed);
-        assert!(!saved.updates.may_check_automatically(saved.setup));
+        assert!(saved.updates.may_check_automatically());
         assert_eq!(saved.ui.appearance, Appearance::Light);
         let first = std::fs::read_to_string(&path).unwrap();
         assert!(first.contains("# keep"));
@@ -185,6 +193,27 @@ mod tests {
         let first = claim_first_open(&path).unwrap();
         let second = worker.join().unwrap();
         assert_ne!(first, second);
+    }
+    #[test]
+    fn checkbox_choices_save_without_completing_setup_or_changing_appearance() {
+        let fixture = tempfile::tempdir().unwrap();
+        let path = fixture.path().join("config.toml");
+        std::fs::write(
+            &path,
+            "# keep\n[setup]\nseen=true\ncompleted=false\n[ui]\nappearance='light'\n",
+        )
+        .unwrap();
+        let mut updates = Config::parse("").unwrap().updates;
+        updates.automatic_checks = true;
+        let saved = save_updates(&path, updates).unwrap();
+        assert!(saved.setup.seen && !saved.setup.completed);
+        assert!(saved.updates.may_check_automatically());
+        assert_eq!(saved.ui.appearance, Appearance::Light);
+        updates.automatic_checks = false;
+        let saved = save_updates(&path, updates).unwrap();
+        assert!(!saved.updates.may_check_automatically());
+        assert!(!saved.setup.completed);
+        assert!(std::fs::read_to_string(&path).unwrap().contains("# keep"));
     }
     #[test]
     fn setup_saves_choices_without_destroying_other_settings_or_symlink() {

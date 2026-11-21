@@ -75,6 +75,48 @@ impl Viewer {
         })
         .detach();
     }
+    fn save_setup_updates(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.setup.busy = true;
+        self.setup.message = None;
+        let explicit = self.arguments.config.clone();
+        let updates = self.setup.updates;
+        // The worker acknowledges the disk write even if its window is closed.
+        // An immediate application quit waits for that acknowledgement.
+        let (done, finished) = async_channel::bounded(1);
+        let quit = App::on_app_quit(cx, move |_| {
+            let finished = finished.clone();
+            async move {
+                let _ = finished.recv().await;
+            }
+        });
+        let work = cx.background_spawn(async move {
+            let result = (|| {
+                let source =
+                    jaywalk::settings_reload::SettingsSource::resolve(explicit.as_deref())?;
+                source.initialize()?;
+                jaywalk::setup::save_updates(source.path(), updates)?;
+                source.read()
+            })();
+            let _ = done.try_send(());
+            result
+        });
+        cx.spawn_in(window, async move |viewer, cx| {
+            let result = work.await;
+            drop(quit);
+            let _ = viewer.update_in(cx, |viewer, window, cx| {
+                viewer.setup.busy = false;
+                match result {
+                    Ok(settings) => viewer.receive_settings(settings, None, window, cx),
+                    Err(error) => {
+                        viewer.setup.updates = viewer.settings.updates;
+                        viewer.setup.message = Some(error);
+                    }
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+    }
     /// Read the filesystem off the UI thread before revealing the setup form.
     /// Retain results only in this setup state; replacing it cancels its task.
     pub(super) fn check_setup_cli(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -239,7 +281,7 @@ impl Viewer {
             );
         let mut updates=div().id("setup-updates").debug_selector(||"setup-updates".into()).v_flex().min_w_0().gap_3().when(wide,|el|el.flex_1())
             .child(div().text_lg().font_medium().child("Updates"))
-            .child(div().text_sm().text_color(muted).child("Opt in to automatic checks, downloads or installation. Nothing update-related connects until you save an opt-in or explicitly check."));
+            .child(div().text_sm().text_color(muted).child("Opt in to automatic checks, downloads or installation. Each checkbox saves immediately. Nothing update-related connects unless automatic checks are enabled or you explicitly check."));
         for (index, label, selected, enabled) in [
             (
                 0usize,
@@ -266,7 +308,7 @@ impl Viewer {
                     .label(label)
                     .checked(selected)
                     .disabled(!enabled || self.setup.busy)
-                    .on_click(cx.listener(move |v, checked: &bool, _, cx| {
+                    .on_click(cx.listener(move |v, checked: &bool, window, cx| {
                         match index {
                             0 => {
                                 v.setup.updates.automatic_checks = *checked;
@@ -283,6 +325,7 @@ impl Viewer {
                             }
                             _ => v.setup.updates.automatic_installation = *checked,
                         }
+                        v.save_setup_updates(window, cx);
                         cx.notify();
                     })),
             );

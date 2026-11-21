@@ -4,7 +4,6 @@ use gpui::*;
 mod native {
     unsafe extern "C" {
         pub(super) fn jaywalk_updater_configure(
-            consent: bool,
             checks: bool,
             downloads: bool,
             install: bool,
@@ -16,16 +15,11 @@ mod native {
         pub(super) fn jaywalk_updater_feed() -> *const std::ffi::c_char;
     }
 }
-fn configure_native(
-    setup: jaywalk::setup::SetupSettings,
-    updates: jaywalk::setup::UpdateSettings,
-    restart_allowed: bool,
-) {
+fn configure_native(updates: jaywalk::setup::UpdateSettings, restart_allowed: bool) {
     #[cfg(all(target_os = "macos", feature = "macos-updater"))]
     // SAFETY: called only on GPUI's main thread; the C adapter retains its objects.
     unsafe {
         native::jaywalk_updater_configure(
-            setup.completed,
             updates.automatic_checks,
             updates.automatic_downloads,
             updates.automatic_installation,
@@ -34,7 +28,7 @@ fn configure_native(
         );
     }
     #[cfg(not(all(target_os = "macos", feature = "macos-updater")))]
-    let _ = (setup, updates, restart_allowed);
+    let _ = (updates, restart_allowed);
 }
 pub(crate) fn check(window: &mut Window, cx: &mut App) {
     #[cfg(all(target_os = "macos", feature = "macos-updater"))]
@@ -59,7 +53,6 @@ pub(crate) fn status() -> String {
 }
 
 struct UpdaterState {
-    setup: jaywalk::setup::SetupSettings,
     updates: jaywalk::setup::UpdateSettings,
     last_status: String,
     _task: Task<()>,
@@ -77,11 +70,7 @@ pub(crate) fn configure(settings: &jaywalk::settings::Settings, cx: &mut App) {
                     .await;
                 cx.update(|cx| {
                     let state = cx.global::<UpdaterState>();
-                    configure_native(
-                        state.setup,
-                        state.updates,
-                        crate::windows::update_restart_allowed(cx),
-                    );
+                    configure_native(state.updates, crate::windows::update_restart_allowed(cx));
                     let current = status();
                     if cx.global::<UpdaterState>().last_status != current {
                         cx.global_mut::<UpdaterState>().last_status = current;
@@ -91,21 +80,15 @@ pub(crate) fn configure(settings: &jaywalk::settings::Settings, cx: &mut App) {
             }
         });
         cx.set_global(UpdaterState {
-            setup: settings.setup,
             updates: settings.updates,
             last_status: status(),
             _task: task,
         });
     } else {
         let state = cx.global_mut::<UpdaterState>();
-        state.setup = settings.setup;
         state.updates = settings.updates;
     }
-    configure_native(
-        settings.setup,
-        settings.updates,
-        crate::windows::update_restart_allowed(cx),
-    );
+    configure_native(settings.updates, crate::windows::update_restart_allowed(cx));
 }
 
 #[cfg(all(target_os = "macos", feature = "macos-updater"))]
