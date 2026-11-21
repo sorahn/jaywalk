@@ -87,6 +87,8 @@ class FakeGitHub:
             return {}
         if route == "releases/latest":
             return self.release
+        if route.startswith("releases?per_page="):
+            return []
         if route.startswith("releases/tags/"):
             if not self.has_release:
                 raise missing()

@@ -131,8 +131,32 @@ def select(api, tag):
             "checks": record["checks_run_id"], "build": "true" if existing is None else "false"}
 
 
-def candidate(api, tag):
+def find_release(api, tag):
+    # GitHub's by-tag endpoint only returns published releases. Drafts must be
+    # discovered through an authenticated listing, then fetched by release ID.
     release = optional(lambda: api.api("releases/tags/" + quote(tag, safe="")))
+    if release is not None:
+        return release
+    matches = []
+    page = 1
+    while True:
+        batch = api.api(f"releases?per_page=100&page={page}")
+        matches.extend(entry for entry in batch if entry["tag_name"] == tag)
+        if len(batch) < 100:
+            break
+        page += 1
+    if len(matches) > 1:
+        raise ValueError("multiple releases use the selected tag; inspect draft history")
+    if not matches:
+        return None
+    release = api.api(f"releases/{matches[0]['id']}")
+    if release["tag_name"] != tag:
+        raise ValueError("selected release tag changed during discovery")
+    return release
+
+
+def candidate(api, tag):
+    release = find_release(api, tag)
     if release is None:
         return None
     record = allocation(api, tag)
@@ -218,7 +242,7 @@ def create_draft(api, tag, directory):
             or report.get("checks_run_id") != record["checks_run_id"]
             or report.get("release_tag") != tag or report.get("official") is not True):
         raise ValueError("draft assets do not identify the official tagged source")
-    existing = optional(lambda: api.api("releases/tags/" + quote(tag, safe="")))
+    existing = find_release(api, tag)
     if existing:
         if not existing["draft"]:
             raise ValueError("never replace a public release")

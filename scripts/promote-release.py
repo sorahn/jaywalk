@@ -79,7 +79,7 @@ def verify_native(directory, report, public, identity):
     run(["codesign", "--verify", "--strict", str(directory / dmg)])
     run(["xcrun", "stapler", "validate", str(directory / dmg)])
     prefix = str(directory / "signing-cert-")
-    run(["codesign", "-d", "--extract-certificates", prefix, str(bundle)])
+    run(["codesign", "-d", "--extract-certificates=" + prefix, str(bundle)])
     actual = hashlib.sha1(Path(prefix + "0").read_bytes()).hexdigest()
     if actual.lower() != identity.lower():
         raise ValueError("candidate was signed by a different Developer ID certificate")
