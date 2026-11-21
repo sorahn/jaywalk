@@ -1,5 +1,6 @@
 """Release orchestration invariants; synthetic API fixtures, no real credentials."""
 import base64
+from datetime import datetime, timezone
 from contextlib import redirect_stdout
 import copy
 import hashlib
@@ -61,7 +62,7 @@ class PipelineTests(unittest.TestCase):
     def test_selects_tagged_ancestor_without_main_or_ref_writes(self):
         api = SelectionAPI()
         result = pipeline.select(api, "v2026.11.1")
-        self.assertEqual(result, {"source": SOURCE, "tag": "v2026.11.1", "build": "false"})
+        self.assertEqual(result, {"source": SOURCE, "tag": "v2026.11.1", "build": "false", "version": "2026.11.1", "checks": "77"})
         self.assertEqual(api.main, MAIN)
         self.assertEqual(api.mutations, [])
 
@@ -73,13 +74,12 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual(result["build"], "true")
         self.assertEqual(api.mutations, [])
 
-    def test_tag_and_lock_versions_must_match(self):
-        for path in ("Cargo.toml", "Cargo.lock"):
-            api = SelectionAPI()
-            api.files[SOURCE][path] = api.files[SOURCE][path].replace("2026.11.1", "2026.11.2", 1)
-            with self.assertRaises(ValueError):
-                pipeline.select(api, "v2026.11.1")
-            self.assertEqual(api.mutations, [])
+    def test_allocation_source_and_checks_must_match(self):
+        api = SelectionAPI()
+        api.run["head_sha"] = MAIN
+        with self.assertRaisesRegex(ValueError, "different source"):
+            pipeline.select(api, "v2026.11.1")
+        self.assertEqual(api.mutations, [])
 
     def test_invalid_or_unrelated_source_rejected(self):
         for tag in ("main", "v2026.13.1", "v2026.11.01", "v2026.11.1-dev"):
@@ -173,6 +173,19 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual(api.main, MAIN)
         self.assertEqual(api.mutations, [])
 
+    def test_late_historical_build_cannot_update_the_homebrew_channel(self):
+        api = SelectionAPI()
+        original = api.api
+        def request(route, payload=None, method=None):
+            if route == "releases/latest":
+                return {"tag_name": "v2026.11.2"}
+            return original(route, payload, method)
+        api.api = request
+        tap = TapAPI()
+        with redirect_stdout(io.StringIO()):
+            pipeline.finish(api, tap, "v2026.11.1")
+        self.assertEqual(tap.writes, [])
+
     def test_draft_cannot_update_public_tap_or_development_version(self):
         api = SelectionAPI()
         api.tag = SOURCE
@@ -184,14 +197,137 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual(api.mutations, [])
 
 
+class AllocationTests(unittest.TestCase):
+    now = datetime(2026, 11, 21, tzinfo=timezone.utc)
+
+    def fresh(self):
+        api = FakeGitHub()
+        api.has_release = False
+        return api
+
+    def reserve(self, api, now=None):
+        return pipeline.reserve(api, "77", now=now or self.now)
+
+    def test_first_build_reserves_annotated_identity_without_editing_main(self):
+        api = self.fresh()
+        result = self.reserve(api)
+        self.assertEqual(result, {"tag": "v2026.11.1", "source": SOURCE, "version": "2026.11.1", "checks": "77", "build": "true"})
+        self.assertEqual(api.main, MAIN)
+        self.assertTrue(all(route in ("git/tags", "git/refs") for route, _ in api.mutations))
+        self.assertEqual(pipeline.allocation(api, result["tag"])["source_commit"], SOURCE)
+
+    def test_retry_in_another_month_reuses_version_and_original_checks(self):
+        api = self.fresh()
+        first = self.reserve(api)
+        writes = len(api.mutations)
+        retry = self.reserve(api, datetime(2027, 1, 2, tzinfo=timezone.utc))
+        self.assertEqual(retry, first)
+        self.assertEqual(len(api.mutations), writes)
+
+    def test_failed_reserved_numbers_count_and_new_month_resets_counter(self):
+        api = self.fresh()
+        self.reserve(api)
+        api.run.update(head_sha=MAIN, id=78)
+        next_build = pipeline.reserve(api, "78", now=self.now)
+        self.assertEqual(next_build["version"], "2026.11.2")
+        api.main = "c" * 40
+        api.run.update(head_sha=api.main, id=79)
+        next_month = pipeline.reserve(api, "79", now=datetime(2026, 12, 1, tzinfo=timezone.utc))
+        self.assertEqual(next_month["version"], "2026.12.1")
+
+    def test_queued_older_checks_do_not_regress_calendar(self):
+        api = self.fresh()
+        self.reserve(api, datetime(2026, 12, 1, tzinfo=timezone.utc))
+        api.run.update(head_sha=MAIN, id=78)
+        result = pipeline.reserve(api, "78", now=self.now)
+        self.assertEqual(result["version"], "2026.12.2")
+
+    def test_only_successful_same_repository_main_checks_can_allocate(self):
+        mutations = [("event", "pull_request"), ("head_branch", "feature"),
+                     ("path", ".github/workflows/other.yml"), ("conclusion", "failure"),
+                     ("status", "in_progress"), ("head_repository", {"full_name": "other/repo"})]
+        for key, value in mutations:
+            api = self.fresh()
+            api.run[key] = value
+            with self.assertRaises(ValueError):
+                self.reserve(api)
+            self.assertEqual(api.mutations, [])
+        api = self.fresh()
+        api.relation = "diverged"
+        with self.assertRaises(ValueError):
+            self.reserve(api)
+        self.assertEqual(api.mutations, [])
+
+    def test_permission_failure_is_not_treated_as_tag_collision(self):
+        api = self.fresh()
+        api.denied = True
+        with self.assertRaises(subprocess.CalledProcessError):
+            self.reserve(api)
+        self.assertEqual(api.refs, {})
+        self.assertEqual(len(api.objects), 1)
+
+    def test_all_tag_pages_are_considered_before_allocating(self):
+        api = self.fresh()
+        original = api.api
+        def paginated(route, payload=None, method=None):
+            if route == "tags?per_page=100&page=1":
+                return [{"name": "unrelated-" + str(i), "commit": {"sha": MAIN}} for i in range(100)]
+            if route == "tags?per_page=100&page=2":
+                return [{"name": "v2026.11.99", "commit": {"sha": MAIN}}]
+            return original(route, payload, method)
+        api.api = paginated
+        self.assertEqual(self.reserve(api)["version"], "2026.11.100")
+
+    def test_same_source_collision_reuses_winning_allocation(self):
+        api = self.fresh()
+        original = api.api
+        raced = []
+        def race(route, payload=None, method=None):
+            if route == "git/refs" and not raced:
+                raced.append(True)
+                api.refs["v2026.11.1"] = payload["sha"]
+            return original(route, payload, method)
+        api.api = race
+        result = self.reserve(api)
+        self.assertEqual(result["version"], "2026.11.1")
+        self.assertEqual(len(api.refs), 1)
+        self.assertEqual(len(api.objects), 1)
+
+    def test_competing_allocation_retries_without_moving_existing_tag(self):
+        api = self.fresh()
+        original = api.api
+        raced = []
+        def race(route, payload=None, method=None):
+            if route == "git/refs" and not raced:
+                raced.append(True)
+                oid = payload["sha"]
+                rival = copy.deepcopy(api.objects[oid])
+                rival["object"]["sha"] = MAIN
+                api.objects["rival"] = rival
+                api.refs["v2026.11.1"] = "rival"
+            return original(route, payload, method)
+        api.api = race
+        result = self.reserve(api)
+        self.assertEqual(result["version"], "2026.11.2")
+        self.assertEqual(api.refs["v2026.11.1"], "rival")
+
+
 class PromotionTests(unittest.TestCase):
     def test_publishing_historical_versions_never_moves_latest_backwards(self):
         api = SelectionAPI()
-        with patch.object(api, "api", return_value={"tag_name": "v2026.11.10"}):
-            self.assertFalse(promotion.should_be_latest(api, "2026.11.9"))
-            self.assertTrue(promotion.should_be_latest(api, "2026.12.1"))
+        original = api.api
+        def request(route, payload=None, method=None):
+            if route == "releases/latest":
+                return {"tag_name": "v2026.11.10"}
+            return original(route, payload, method)
+        api.api = request
+        self.assertFalse(promotion.should_be_latest(api, "2026.11.9", MAIN))
+        with patch.object(promotion.pipeline.version, "tag_commit", return_value=SOURCE):
+            self.assertTrue(promotion.should_be_latest(api, "2026.12.1", MAIN))
+            api.relation = "behind"
+            self.assertFalse(promotion.should_be_latest(api, "2026.12.1", MAIN))
         with patch.object(api, "api", side_effect=missing()):
-            self.assertTrue(promotion.should_be_latest(api, "2026.11.1"))
+            self.assertTrue(promotion.should_be_latest(api, "2026.11.1", SOURCE))
 
     def test_native_children_never_inherit_secrets(self):
         with patch.dict("os.environ", {"SPARKLE_PRIVATE_KEY": "secret", "GH_TOKEN": "token", "GITHUB_TOKEN": "token"}):

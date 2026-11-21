@@ -10,7 +10,6 @@ import re
 import shutil
 import subprocess
 import tempfile
-import tomllib
 
 ROOT = Path(os.environ.get("JAYWALK_RELEASE_SOURCE", Path(__file__).resolve().parent.parent)).resolve()
 
@@ -25,11 +24,11 @@ def run(*args):
     return result.stdout.strip()
 
 def version():
-    return tomllib.loads((ROOT / "Cargo.toml").read_text())["package"]["version"]
+    return os.environ.get("JAYWALK_RELEASE_VERSION") or "0.0.0"
 
 def validate_tag(tag):
     if tag != "v" + version():
-        raise ValueError("release tag must equal v plus Cargo.toml version")
+        raise ValueError("release tag must equal v plus the injected application version")
 
 def checksum(path):
     with path.open("rb") as stream:
@@ -47,7 +46,10 @@ def manifest(bundle, archive, dmg, official):
     if official:
         if revision != source_commit[:12]:
             raise ValueError("binary was not built from the clean release source commit")
-        validate_tag(run("git", "describe", "--exact-match", "--tags", "HEAD"))
+        tag = os.environ["JAYWALK_RELEASE_TAG"]
+        validate_tag(tag)
+        if run("git", "rev-parse", tag + "^{commit}") != source_commit:
+            raise ValueError("release tag does not identify the packaged source")
         if run("git", "status", "--porcelain"):
             raise ValueError("official releases require a clean source tree")
         run("codesign", "--verify", "--deep", "--strict", str(bundle))
@@ -61,7 +63,9 @@ def manifest(bundle, archive, dmg, official):
     files = [{"filename": p.name, "sha256": checksum(p), "bytes": p.stat().st_size} for p in (archive, dmg)]
     return {"version": version(), "source_commit": source_commit, "binary_revision": revision, "source_tree_clean": not bool(run("git", "status", "--porcelain")),
             "platform": "macos", "architecture": "arm64", "minimum_os": info["LSMinimumSystemVersion"],
-            "official": official, "artifacts": files}
+            "official": official, "artifacts": files,
+            "release_tag": os.environ.get("JAYWALK_RELEASE_TAG"),
+            "checks_run_id": os.environ.get("JAYWALK_RELEASE_CHECKS_RUN")}
 
 def cask(data):
     if not data["official"]:

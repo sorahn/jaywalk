@@ -1,4 +1,6 @@
-//! Optional source provenance; Cargo.toml owns the release version.
+//! Source provenance and the release version supplied by CI.
+#[path = "src/build_version.rs"]
+mod build_version;
 use std::env;
 use std::path::PathBuf;
 use std::process::Command;
@@ -19,6 +21,7 @@ fn git(arguments: &[&str]) -> Option<String> {
 
 fn main() {
     println!("cargo::rerun-if-env-changed=JAYWALK_SPARKLE_DIR");
+    println!("cargo::rerun-if-env-changed=JAYWALK_RELEASE_VERSION");
     if env::var_os("CARGO_FEATURE_MACOS_UPDATER").is_some()
         && env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("macos")
     {
@@ -101,8 +104,11 @@ fn main() {
             println!("cargo::rerun-if-changed={path}");
         }
     }
-    let version = env::var("CARGO_PKG_VERSION").expect("Cargo supplies the package version");
-    let development = env::var("PROFILE").expect("Cargo supplies the build profile") != "release";
+    let release = env::var("JAYWALK_RELEASE_VERSION")
+        .ok()
+        .filter(|version| !version.is_empty());
+    let release_profile =
+        env::var("PROFILE").expect("Cargo supplies the build profile") == "release";
     let provenance = match (revision, dirty) {
         (Some(revision), Some(status)) => format!(
             "{revision}{}",
@@ -113,11 +119,12 @@ fn main() {
             "unknown".into()
         }
     };
-    let display = if development {
-        format!("{version}-dev ({provenance})")
-    } else {
-        version
-    };
-    println!("cargo::rustc-env=JAYWALK_DISPLAY_VERSION={display}");
+    let identity = build_version::resolve(release.as_deref(), release_profile, &provenance)
+        .unwrap_or_else(|error| panic!("invalid release build configuration: {error}"));
+    println!("cargo::rustc-env=JAYWALK_APP_VERSION={}", identity.numeric);
+    println!(
+        "cargo::rustc-env=JAYWALK_DISPLAY_VERSION={}",
+        identity.display
+    );
     println!("cargo::rustc-env=JAYWALK_BUILD_REVISION={provenance}");
 }

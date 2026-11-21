@@ -8,7 +8,9 @@ if [ "$(uname -s)" != Darwin ] || [ "$(uname -m)" != arm64 ]; then
 fi
 version=0.47.1
 checksum=50129b527f7cd6aef82aebd4bb2b670bb56766adc509ef3279c4327aa3592255
-bin="$(pwd)/target/ci-tools/bin"
+# Partial Cargo-cache restores prune arbitrary files below target/. Keep
+# executable test tools outside that tree so cache hits cannot delete them.
+bin="${RUNNER_TEMP:?CI tools require RUNNER_TEMP}/jaywalk-ci-tools/bin"
 mkdir -p "$bin"
 workspace=$(mktemp -d)
 trap 'rm -rf "$workspace"' EXIT

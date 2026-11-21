@@ -1,22 +1,24 @@
-name: tagged release
+name: automatic release
 on:
-  push:
-    tags: ['v*']
+  workflow_run:
+    workflows: [checks]
+    branches: [main]
+    types: [completed]
   workflow_dispatch:
     inputs:
-      tag:
-        description: Existing immutable version tag to build or finish (for example v2026.11.1)
-        required: true
+      checks:
+        description: Optional successful main checks run ID to retry; empty selects current main
         type: string
 permissions:
   contents: read
 concurrency:
-  # Serialize publication/tap updates; never cancel an active signed build.
+  # Keep every checked merge queued rather than replacing pending releases.
   group: jaywalk-release-cycle
+  queue: max
   cancel-in-progress: false
 jobs:
   select:
-    if: github.event_name == 'push' || github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/main' && (github.event_name == 'workflow_dispatch' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push' && github.event.workflow_run.head_repository.full_name == github.repository))
     runs-on: ubuntu-24.04
     timeout-minutes: 70
     environment: release-automation
@@ -24,10 +26,12 @@ jobs:
       tag: ${{ steps.candidate.outputs.tag }}
       source: ${{ steps.candidate.outputs.source }}
       build: ${{ steps.candidate.outputs.build }}
+      version: ${{ steps.candidate.outputs.version }}
+      checks: ${{ steps.candidate.outputs.checks }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
-          ref: main
+          ref: ${{ github.sha }}
           persist-credentials: false
       - name: Create selected-repository release token
         id: token
@@ -40,18 +44,24 @@ jobs:
             jaywalk
             homebrew-tap
           permission-contents: write
+          permission-actions: read
       # The token action requests Contents write for both selected repositories.
       # App-token repository responses need not include OAuth permissions.push.
       - name: Check tap availability before building or publishing a release
         env:
           GH_TOKEN: ${{ steps.token.outputs.token }}
         run: gh api repos/sorahn/homebrew-tap --jq 'if .archived or .private or .default_branch != "main" then error("tap is not ready for automatic updates") else .full_name end'
-      - name: Validate explicitly selected tag and source
+      - name: Reserve or recover this checked merge's immutable build identity
         id: candidate
         env:
           GH_TOKEN: ${{ steps.token.outputs.token }}
-          RELEASE_TAG: ${{ github.event_name == 'push' && github.ref_name || inputs.tag }}
-        run: python3 scripts/release-pipeline.py select "$RELEASE_TAG"
+          CHECK_RUN: ${{ github.event.workflow_run.id || inputs.checks }}
+        run: |
+          if [ -n "$CHECK_RUN" ]; then
+            python3 scripts/release-pipeline.py reserve --checks "$CHECK_RUN"
+          else
+            python3 scripts/release-pipeline.py reserve
+          fi
   candidate:
     needs: select
     if: needs.select.outputs.build == 'true'
@@ -62,6 +72,9 @@ jobs:
     with:
       tag: ${{ needs.select.outputs.tag }}
       source: ${{ needs.select.outputs.source }}
+      version: ${{ needs.select.outputs.version }}
+      checks: ${{ needs.select.outputs.checks }}
+      automation_ref: ${{ github.sha }}
   publish:
     needs: [select, candidate]
     if: always() && needs.select.result == 'success' && (needs.candidate.result == 'success' || needs.candidate.result == 'skipped')
@@ -70,12 +83,13 @@ jobs:
     environment: macos-release
     permissions:
       contents: write
+      actions: read
     env:
       DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
-          ref: main
+          ref: ${{ github.sha }}
           persist-credentials: false
       - name: Fetch checksum-pinned verifier SDK
         run: python3 scripts/fetch-sparkle.py target/sparkle
@@ -97,7 +111,7 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
-          ref: main
+          ref: ${{ github.sha }}
           persist-credentials: false
       - name: Create selected-repository completion token
         id: token
@@ -110,6 +124,7 @@ jobs:
             jaywalk
             homebrew-tap
           permission-contents: write
+          permission-actions: read
       - name: Update Homebrew from the verified public release
         env:
           GH_TOKEN: ${{ steps.token.outputs.token }}

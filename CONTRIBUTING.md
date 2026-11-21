@@ -116,12 +116,18 @@ reference entries.
 
 ## Versions
 
-`Cargo.toml` is the single source of the release version. Update its version
-and Cargo.lock together. Release notes will live in GitHub Releases when
-releases begin; a repository changelog is not maintained.
+Release versions are allocated by CI after successful main checks. The immutable
+annotated `v<year>.<month>.<release-number>` tag records the exact source commit,
+calendar version and checks run before building. Do not maintain a release
+version in Cargo.toml or create version-bump commits. Cargo uses its internal
+`0.0.0` default in Cargo.lock; this app is not published to crates.io.
 
-Development builds display the upcoming version with `-dev`, a source revision,
-and `-dirty` when applicable. Release-profile builds display the release version.
-The CLI and About window use the same compiled identity; the macOS bundle reads
-its numeric version from the built executable. Source archives without Git
-metadata display unknown provenance rather than inventing a revision.
+CI supplies `JAYWALK_RELEASE_VERSION` to the build script. The CLI, About window,
+macOS bundle, release metadata and update feed share that compiled app identity.
+Local builds, including release-profile builds without an injected version,
+display `dev` with a source revision and `-dirty` when applicable. Their numeric
+bundle/package output is the internal `0.0.0` placeholder. Source archives
+without Git metadata display unknown provenance rather than inventing a hash.
+The optional `--package-version` CLI output remains the numeric application
+version, despite its historical name. Release notes live in GitHub Releases;
+a repository changelog is not maintained.

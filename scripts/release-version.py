@@ -1,10 +1,8 @@
 #!/usr/bin/env python3
 """Shared GitHub release identity and artifact validation."""
-import base64
 import json
 import re
 import subprocess
-import tomllib
 from urllib.parse import quote
 
 
@@ -41,25 +39,6 @@ def stable_version(value):
     if not 2000 <= year <= 9999 or not 1 <= month <= 12 or release < 1:
         raise ValueError("release versions must use year.month.release-number (for example 2026.11.1)")
     return year, month, release
-
-
-def package_version(cargo):
-    value = tomllib.loads(cargo)["package"]["version"]
-    stable_version(value)
-    return value
-
-
-def content(api, path, ref):
-    data = api.api(f"contents/{path}?ref={quote(ref, safe='')}")
-    return base64.b64decode(data["content"], validate=False).decode("utf-8")
-
-
-def root_lock_version(lock, name):
-    entries = [p for p in tomllib.loads(lock)["package"]
-               if p["name"] == name and "source" not in p]
-    if len(entries) != 1:
-        raise ValueError("lockfile must contain exactly one local root package")
-    return entries[0]["version"]
 
 
 def tag_commit(api, tag):
