@@ -943,6 +943,48 @@ fn reference_browser_bounds_work_and_supports_search_keyboard_and_reopen(cx: &mu
 }
 
 #[gpui_test::test]
+fn palette_bottom_inset_never_selects_a_clipped_row(cx: &mut TestAppContext) {
+    let fixture = Fixture::new();
+    let (viewer, cx) = setup(&fixture, cx);
+    cx.simulate_keystrokes("secondary-p");
+    draw(cx);
+    let results = cx.debug_bounds("command-results").unwrap();
+    let selected = cx.update(|_, app| viewer.read(app).palette_test_state(app).2);
+    cx.simulate_mouse_move(
+        point(results.center().x, results.bottom() - px(1.)),
+        None,
+        Default::default(),
+    );
+    draw(cx);
+    assert_eq!(
+        cx.update(|_, app| viewer.read(app).palette_test_state(app).2),
+        selected,
+        "the bottom breathing room must not belong to a hidden row"
+    );
+    for _ in 0..12 {
+        cx.simulate_keystrokes("down");
+    }
+    draw(cx);
+    let selected = cx.update(|_, app| viewer.read(app).palette_test_state(app).2);
+    cx.simulate_mouse_move(
+        point(results.center().x, results.bottom() + px(1.)),
+        None,
+        Default::default(),
+    );
+    cx.simulate_mouse_move(
+        point(results.center().x, results.bottom() - px(1.)),
+        None,
+        Default::default(),
+    );
+    draw(cx);
+    assert_eq!(
+        cx.update(|_, app| viewer.read(app).palette_test_state(app).2),
+        selected,
+        "scrolling must not turn the inset into a row hit target"
+    );
+}
+
+#[gpui_test::test]
 fn main_palette_dismisses_reference_browser_and_restores_viewer_focus(cx: &mut TestAppContext) {
     let fixture = Fixture::new();
     let (viewer, cx) = setup(&fixture, cx);

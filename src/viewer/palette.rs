@@ -866,6 +866,7 @@ impl Viewer {
         let command =
             Command::new(&self.palette.state)
                 .bordered(false)
+                .whole_row_viewport(true)
                 .bg(gpui::hsla(0., 0., 0., 0.))
                 .filterable(false)
                 .placeholder(match kind {

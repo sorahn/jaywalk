@@ -102,6 +102,13 @@ results in `src/command/command.rs` and `src/command/state.rs`. It lets the host
 show compact status without putting controls above search or inserting fake
 results. Host interaction tests verify slot order and keyboard confirmation.
 
+`Command::whole_row_viewport` is an opt-in host extension for floating palettes.
+It caps the list height at the last complete measured item within its maximum
+(including variable heights/headings), and keeps the existing vertical inset
+outside the scrolling viewport so clipped rows cannot hover into that strip.
+Continuous scrolling and oversized first rows remain available; default toolkit
+lists keep their original behavior. This does not change the spacing tokens.
+
 `CommandItem::key` supplies an optional stable identity. Command selection follows
 that identity across label changes and reordered refresh results; unkeyed models
 retain their previous index-path behavior. A removed keyed result falls back to

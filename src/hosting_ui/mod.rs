@@ -1093,6 +1093,7 @@ impl Render for PullRequestsPage {
             };
             let command = command
                 .bordered(false)
+                .whole_row_viewport(true)
                 .bg(gpui::hsla(0., 0., 0., 0.))
                 .max_h(px(maximum))
                 .description(move |_, _, cx| {

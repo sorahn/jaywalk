@@ -21,6 +21,7 @@ pub(crate) struct CommandOptions {
     pub(crate) empty: Option<Rc<CommandSlot>>,
     pub(crate) max_h: DefiniteLength,
     pub(crate) scroll_bounce: Option<bool>,
+    pub(crate) whole_row_viewport: bool,
     pub(crate) bordered: bool,
     pub(crate) header: Option<Rc<CommandSlot>>,
     pub(crate) description: Option<Rc<CommandSlot>>,
@@ -35,6 +36,7 @@ impl Default for CommandOptions {
             empty: None,
             max_h: rems(18.75).into(),
             scroll_bounce: None,
+            whole_row_viewport: false,
             bordered: true,
             header: None,
             description: None,
@@ -208,6 +210,14 @@ impl Command {
     /// Set the max height of the list, default: 18.75rem (300px).
     pub fn max_h(mut self, height: impl Into<DefiniteLength>) -> Self {
         self.options.max_h = height.into();
+        self
+    }
+
+    /// Fit the resting viewport to complete measured rows and keep its vertical
+    /// inset outside the scrolling/hit-tested rows. Scrolling remains continuous;
+    /// a first row taller than the limit is still scrollable. Default: false.
+    pub fn whole_row_viewport(mut self, enabled: bool) -> Self {
+        self.options.whole_row_viewport = enabled;
         self
     }
 
