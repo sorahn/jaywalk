@@ -83,7 +83,7 @@ impl fmt::Debug for Secret {
 
 /// Developer/publisher credentials remain separate from individual account grants.
 /// Both current browser adapters require client authentication. Provisioning for
-/// distributed builds is deliberately not decided by this type.
+/// distributed builds is handled separately by the publisher client resolver.
 #[derive(Clone, Serialize, Deserialize)]
 pub struct ClientRegistration {
     pub provider: Provider,
@@ -200,7 +200,7 @@ impl fmt::Display for Error {
             Self::Network => "Could not reach the provider; the saved account has been retained",
             Self::RateLimited => "Provider rate limit reached; try again later",
             Self::InvalidResponse => "Provider returned an unsupported response",
-            Self::Registration => "The provider app registration needs developer setup",
+            Self::Registration => "Jaywalk's provider app setup is missing or invalid. The publisher must configure it before sign-in can work.",
             Self::NeedsSignIn => "Authorization expired or was revoked; reconnect this account",
             Self::RefreshUncertain => {
                 "A refresh may have been interrupted; reconnect instead of replaying the old token"

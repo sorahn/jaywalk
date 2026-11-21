@@ -1,4 +1,5 @@
 //! Toolkit command UI; actions and file results preserve their original subject.
+mod files;
 mod history;
 mod references;
 mod support;
@@ -116,6 +117,11 @@ pub(super) struct PaletteState {
     return_focus: Option<FocusHandle>,
     usage: CommandUsage,
     symbols: symbols::SymbolPicker,
+    files: files::FilePicker,
+    account_observer: Option<(
+        Entity<jaywalk::accounts::application::AccountState>,
+        Subscription,
+    )>,
     history: history::HistorySearch,
     line_before: bool,
     pub(super) generation: u64,
@@ -134,6 +140,8 @@ impl PaletteState {
             return_focus: None,
             usage: CommandUsage::default(),
             symbols: symbols::SymbolPicker::default(),
+            files: files::FilePicker::default(),
+            account_observer: None,
             history: history::HistorySearch::default(),
             line_before: false,
             generation: 0,
@@ -217,7 +225,9 @@ fn rank_commands(
     query: &str,
     choices: Vec<(String, Choice)>,
     usage: Option<&CommandUsage>,
+    suggestions: &[jaywalk::commands::CommandId],
 ) -> Vec<(String, Choice)> {
+    let empty = query.trim().is_empty();
     let query = jaywalk::quick_picker::CommandQuery::new(query);
     let mut ranked: Vec<_> = choices
         .into_iter()
@@ -231,10 +241,39 @@ fn rank_commands(
         })
         .collect();
     ranked.sort_by(|a, b| a.0.cmp(&b.0).then_with(|| a.1.cmp(&b.1)));
-    ranked
+    let mut rows: Vec<_> = ranked
         .into_iter()
         .map(|(_, label, choice)| (label, choice))
-        .collect()
+        .collect();
+    if !empty {
+        return rows;
+    }
+    let mut promoted = Vec::new();
+    if let Some(usage) = usage {
+        promoted.extend(
+            rows.iter()
+                .filter_map(|(_, choice)| match choice {
+                    Choice::Command(command) if usage.score(*command) > 0 => Some(*command),
+                    _ => None,
+                })
+                .take(2),
+        );
+    }
+    for command in suggestions {
+        if !promoted.contains(command) {
+            promoted.push(*command);
+        }
+    }
+    let mut result = Vec::with_capacity(rows.len());
+    for command in promoted {
+        if let Some(index) = rows.iter().position(
+            |(_, choice)| matches!(choice, Choice::Command(candidate) if *candidate == command),
+        ) {
+            result.push(rows.remove(index));
+        }
+    }
+    result.extend(rows);
+    result
 }
 
 fn rank_choices(
@@ -406,6 +445,7 @@ impl Viewer {
         self.palette.usage = cx.global::<crate::command_usage::Usage>().history.clone();
         self.retire_pr_picker(cx);
         self.palette.open = Some(kind);
+        self.observe_palette_accounts(cx);
         self.palette.state.update(cx, |state, cx| {
             state.set_loading(false, window, cx);
             state.set_query(kind.mode().map_or("", Mode::prefix), window, cx);
@@ -478,6 +518,7 @@ impl Viewer {
                 self.create_pr_picker(window, cx);
             }
         }
+        self.observe_palette_accounts(cx);
         self.start_symbol_picker(window, cx);
         self.sync_history_picker(window, cx);
         cx.notify();
@@ -532,7 +573,7 @@ impl Viewer {
             _ => {}
         }
     }
-    pub(super) fn render_palette(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
+    pub(super) fn render_palette(&mut self, cx: &mut Context<Self>) -> Option<AnyElement> {
         let kind = self.palette.open?;
         if matches!(kind, PaletteKind::PullRequests | PaletteKind::Accounts) {
             let picker = if kind == PaletteKind::PullRequests {
@@ -620,27 +661,7 @@ impl Viewer {
                 })
                 .collect(),
             PaletteKind::Line => self.line_choice(query, cx).into_iter().collect(),
-            PaletteKind::Files => self
-                .comparison()
-                .filter(|_| self.page == pages::Page::Comparison)
-                .map(|comparison| {
-                    let source = Rc::new(comparison.identity());
-                    comparison
-                        .catalog()
-                        .entries()
-                        .map(|file| {
-                            (
-                                file.path().to_owned(),
-                                Choice::File {
-                                    path: file.path().to_owned(),
-                                    status: file.status().map(str::to_owned),
-                                    source: source.clone(),
-                                },
-                            )
-                        })
-                        .collect()
-                })
-                .unwrap_or_default(),
+            PaletteKind::Files => self.file_palette_choices(query),
             PaletteKind::Repositories => {
                 repository_choices(&cx.global::<crate::recents::Recents>().repositories)
             }
@@ -703,6 +724,8 @@ impl Viewer {
                                     | jaywalk::commands::CommandId::RemoteHistorySources
                                     | jaywalk::commands::CommandId::ShowReferences
                             ))
+                        && (**command != jaywalk::commands::CommandId::ChooseHostingWorkspace
+                            || self.has_bitbucket_account(cx))
                         && (self.page == pages::Page::Comparison
                             || command.available_without_repository())
                         && (self.supports_evolution()
@@ -725,10 +748,14 @@ impl Viewer {
                     .picker
                     .adaptive_command_order
                     .then_some(&self.palette.usage),
+                &self.context_command_suggestions(),
             )
         } else if matches!(
             kind,
-            PaletteKind::FileSymbols | PaletteKind::ProjectSymbols | PaletteKind::History
+            PaletteKind::FileSymbols
+                | PaletteKind::ProjectSymbols
+                | PaletteKind::History
+                | PaletteKind::Files
         ) {
             choices // Symbol rows are ranked once, before cloning the visible results.
         } else {
@@ -1131,8 +1158,36 @@ impl Viewer {
 #[cfg(test)]
 mod tests {
     use super::{
-        Choice, PaletteKind, file_rank, fuzzy_score, rank_choices, recent_rank, repository_choices,
+        Choice, PaletteKind, file_rank, fuzzy_score, rank_choices, rank_commands, recent_rank,
+        repository_choices,
     };
+    #[test]
+    fn empty_command_query_mixes_context_with_at_most_two_learned_favorites() {
+        use jaywalk::{commands::CommandId as C, quick_picker::CommandUsage};
+        let choices = || {
+            vec![
+                ("Files".into(), Choice::Command(C::FindFile)),
+                ("Overview".into(), Choice::Command(C::Overview)),
+                ("Wrap".into(), Choice::Command(C::ToggleWrap)),
+                ("Welcome".into(), Choice::Command(C::ShowWelcome)),
+            ]
+        };
+        let mut usage = CommandUsage::default();
+        usage.record(C::ToggleWrap);
+        usage.record(C::Overview);
+        usage.record(C::ShowWelcome);
+        let context = [C::FindFile, C::Overview];
+        let rows = rank_commands("", choices(), Some(&usage), &context);
+        assert!(matches!(rows[0].1, Choice::Command(C::ShowWelcome)));
+        assert!(matches!(rows[1].1, Choice::Command(C::Overview)));
+        assert!(matches!(rows[2].1, Choice::Command(C::FindFile)));
+        assert_eq!(rows.len(), 4);
+        let rows = rank_commands("", choices(), None, &context);
+        assert!(matches!(rows[0].1, Choice::Command(C::FindFile)));
+        let rows = rank_commands("Wrap", choices(), Some(&usage), &context);
+        assert_eq!(rows.len(), 1);
+        assert!(matches!(rows[0].1, Choice::Command(C::ToggleWrap)));
+    }
     #[test]
     fn recent_picker_preserves_mru_order_and_offers_open_when_history_is_empty() {
         let paths = vec![
@@ -1246,6 +1301,9 @@ mod history_navigation_tests {
 
 #[cfg(test)]
 impl Viewer {
+    pub(super) fn palette_test_file_searches(&self) -> usize {
+        self.palette.files.searches
+    }
     pub(super) fn palette_test_line_before(&self) -> bool {
         self.palette.line_before
     }

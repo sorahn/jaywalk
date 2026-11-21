@@ -107,13 +107,13 @@ section header, for example `[editor]` followed by `font_size = 14`.
 | Setting | Default | Meaning and allowed values |
 | --- | --- | --- |
 | `application.quit_on_last_window` | `true` | Quit when the final actual window closes, including About. `false` keeps the app available with no windows. This is application-wide: opening another config or editing this value updates the shared policy; CLI waiters are notified before shutdown. |
-| `application.single_window_mode` | `false` | Normal opens from `jw`, Ctrl+R/recent repositories, welcome, and Open actions replace the originating viewer, or the active/most recently used viewer for a CLI launch, even for a different repository, range, or config. `false` opens a new window on each normal open. Explicit Open in new window and the recent-picker modifier always create a new window. Applies on the next open; uses the application-wide last-applied config-source policy. |
+| `application.single_window_mode` | `false` | Normal opens from `jw`, Ctrl+R/recent repositories, welcome, and Open actions replace the originating viewer, or the active/most recently used viewer for a CLI launch, even for a different repository, range, or config. `false` opens a new window for normal opens once a repository or PR is loaded. An empty startup window is reused on Setup, Welcome or Accounts so those pages do not leave an extra window behind. Explicit Open in new window and the recent-picker modifier always create a new window. Applies on the next open; uses the application-wide last-applied config-source policy. |
 
 ### `picker`
 
 | Setting | Default | Behavior |
 |---|---|---|
-| `picker.adaptive_command_order` | `true` | Window-local preference controlling command usage learning and ordering. With an empty command query, frequent/recent commands come first; textual relevance takes priority for typed queries. Edits apply live. The usage snapshot stays fixed during an opening so activity in another window does not reorder the selected results. A new opening reads the latest shared history. `false` restores deterministic textual/alphabetical ordering and stops recording commands in that viewer; existing saved history remains available if re-enabled. |
+| `picker.adaptive_command_order` | `true` | Window-local preference controlling command usage learning and ordering. With an empty command query, up to two frequent/recent commands precede suggestions for the current view; textual relevance takes priority for typed queries. Edits apply live. The usage snapshot stays fixed during an opening so activity in another window does not reorder the selected results. A new opening reads the latest shared history. `false` keeps deterministic context suggestions and textual/alphabetical ordering and stops recording commands in that viewer; existing saved history remains available if re-enabled. |
 
 Usage is shared across application windows and saved beside the default user configuration in `command-usage.json`, independently of an explicitly selected config. It stores only stable command IDs, bounded frequency/recency counters (up to 256 entries, 64 KiB on read), and no query text, command arguments or credentials. Writes run off the UI thread and flush at app exit. **Clear command usage history** resets it. An unreadable history is preserved until explicitly cleared; the command picker reports read/write errors.
 
@@ -314,7 +314,7 @@ origin = true
 | Setting | Default | Meaning and allowed values |
 | --- | --- | --- |
 | `files.default_view` | `"list"` | `"list"` or `"tree"`. Both use directory-first order; list mode omits directory rows. |
-| `files.tree_scope` | `"changed"` | `"changed"` or `"all"`. Filters tree mode only. `all` includes unchanged files in the selected comparison/revision; Cmd+P searches the entire repository regardless of this filter. |
+| `files.tree_scope` | `"changed"` | `"changed"` or `"all"`. Filters tree mode only. `all` includes unchanged files in the selected comparison/revision; The file picker searches the entire captured comparison regardless of this filter. |
 | `files.indent_guides` | `true` | Show vertical ancestor guides in the directory tree. Applies live. |
 | `files.indent_guide_offset` | `-2` | Horizontal guide offset from ancestor icon centers in pixels; −48–48. Negative moves left. Applies live. |
 | `files.indent_guide_opacity` | `0.12` | Guide opacity using the theme foreground; 0–1. Applies live. |
@@ -756,3 +756,10 @@ These actions prepare local review sources and optional checkout only. They do n
 | `check_interval_hours` | `24` | Integer 1–168; automatic-check cadence |
 
 These public settings apply live application-wide, using the same active configuration-source policy as other shared settings. Disabled update options cancel background raw downloads and prevent new automatic checks; an already running feed request can complete but its result cannot start another download after opt-out. Explicit manual checks/downloads are separately authorized. Updating is unavailable on builds without the macOS updater feature or configured public feed/key; preferences are still saved. CLI installation has an explicit chosen destination and does not edit shell startup files. See [installation](installation.md) and [release operations](releasing.md).
+
+The account `client_id` identifies the OAuth app registration, not the user
+access token. In builds with the public GitHub client configured, a fresh
+installation uses that client automatically. A stored session keeps resolving
+its own client ID after restart; explicit development registrations keep
+working. Publisher build credentials do not go in user settings. Repository
+installation is available from **Choose GitHub repositories…** on Accounts.

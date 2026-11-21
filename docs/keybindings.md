@@ -30,8 +30,8 @@ The existing shortcuts open one picker with editable prefixes. Changing or remov
 
 | Prefix | Mode | Default shortcut |
 |---|---|---|
-| none | Files in the captured comparison | Secondary+P |
-| `>` | Commands, with current setting/state hints | Secondary+Shift+P, F1 |
+| none | Files in the captured comparison | Secondary+Shift+P |
+| `>` | Commands, with current setting/state hints | Secondary+P, F1 |
 | `:` | Go to a source line in the focused file side | Ctrl+G |
 | `~` | Recent repositories | Ctrl+R |
 | `!` | Pull requests | Open pull request command |
@@ -54,7 +54,9 @@ Indexing runs in the background and Escape cancels further indexing. Two indexes
 
 Normal connections use configured client registrations. The development-import action copies an existing local registration; this does not provision a new developer OAuth application or decide public-build credential distribution. Failures and browser-wait status stay below the search input, with keyboard rows for cancel/reopening the browser when applicable.
 
-Commands can learn frequency/recency across restarts. Exact and strong prefix matches keep priority over weak fuzzy matches; usage reorders similarly relevant results. Disable learning with `picker.adaptive_command_order = false`, or use **Clear command usage history** to reset its shared history. New commands `go_to_line`, `picker_help` and `clear_command_usage` are remappable; the last two start unbound. Existing recent-picker secondary-enter and modifier-click behavior is unchanged.
+An empty command query offers actions for the current view, preceded by up to two learned favorites. Commands can learn frequency/recency across restarts. Exact and strong prefix matches keep priority over weak fuzzy matches; usage reorders similarly relevant results. Disable learning with `picker.adaptive_command_order = false`, or use **Clear command usage history** to reset its shared history. New commands `go_to_line`, `picker_help` and `clear_command_usage` are remappable; the last two start unbound. Existing recent-picker secondary-enter and modifier-click behavior is unchanged.
+
+File search covers the complete captured catalog, displays up to 200 matches, and shows a count when more matches remain. Type to narrow the results; repeated openings reuse cached paths. **Bitbucket: Choose workspace…** is available only with a configured Bitbucket account.
 
 ## Files and profile selection
 
@@ -99,8 +101,8 @@ For example, `open_keybindings = ["secondary-k secondary-s"]` inside `[keybindin
 | Previous / next history entry | Cmd+Shift+[ / Cmd+Shift+] | Cmd+Option+Up / Cmd+Option+Down |
 | All changes | Cmd+Shift+B | |
 | Overview of the current comparison | Cmd+K, then O | |
-| Find any repository file | Cmd+P | |
-| Command palette | Cmd+Shift+P | F1 |
+| Find any repository file | Cmd+Shift+P | |
+| Command palette | Cmd+P | F1 |
 | Open recent repository | Ctrl+R | File → Open recent repository; welcome More… |
 | Open settings | Cmd+, | |
 | Toggle wrap | Option+Z | Cmd+K, then Z |
@@ -216,8 +218,8 @@ layout/reset/remote-management command merely to fill the table.
 | `keybindings.compare_paths` | `[]` | Compare files or folders |
 | `keybindings.show_welcome` | `[]` | Welcome |
 | `keybindings.clear_recent` | `[]` | Clear recent repositories |
-| `keybindings.find_file` | `["secondary-p"]` | Find any repository file |
-| `keybindings.show_commands` | `["secondary-shift-p", "f1"]` | Command palette |
+| `keybindings.find_file` | `["secondary-shift-p"]` | Find any repository file |
+| `keybindings.show_commands` | `["secondary-p", "f1"]` | Command palette |
 | `keybindings.open_settings` | `["secondary-,"]` | Open settings |
 | `keybindings.open_keybindings` | `[]` | Open active keybindings profile |
 | `keybindings.select_keybindings` | `[]` | Select keybindings profile… |
@@ -412,8 +414,8 @@ This compares shipped defaults, not personal overrides or every dynamic menu.
 - Fork, Kaleidoscope and Sublime Merge share Cmd+F / Cmd+G / Cmd+Shift+G for
   find/next/previous match. Cmd+, is the familiar settings shortcut.
 - Fork and Sublime Merge use Cmd+P for quick launch/palette-style access, while
-  Jaywalk keeps the VS Code/Zed distinction: Cmd+P for files, Cmd+Shift+P for
-  commands.
+  Jaywalk defaults to Cmd+P for commands (`>`) and Cmd+Shift+P for files
+  (no prefix). Both actions can be remapped in keybindings.
 - Kaleidoscope documents Cmd+Down/Up for change navigation. VS Code uses
   Option+F5 / Option+Shift+F5, with F7-family accessible diff navigation. Jaywalk
   uses Cmd+arrows as primary and retains the existing F5/F7 alternatives.

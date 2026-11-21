@@ -28,6 +28,95 @@ pub(super) fn mode_description(mode: Mode) -> &'static str {
     }
 }
 impl Viewer {
+    pub(in crate::viewer) fn has_bitbucket_account(&self, cx: &App) -> bool {
+        use jaywalk::accounts::{Provider, application::Accounts};
+        if let Some(accounts) = cx.try_global::<Accounts>() {
+            let snapshot = &accounts.state.read(cx).snapshot;
+            if snapshot.loaded {
+                return snapshot
+                    .accounts
+                    .iter()
+                    .any(|account| account.identity.key.provider == Provider::Bitbucket);
+            }
+        }
+        // Public config metadata is available before credential-store restoration.
+        // Opening the palette must not trigger Keychain access.
+        self.settings
+            .accounts
+            .iter()
+            .any(|account| account.provider == Provider::Bitbucket)
+    }
+
+    pub(in crate::viewer::palette) fn observe_palette_accounts(&mut self, cx: &mut Context<Self>) {
+        if self.palette.open != Some(PaletteKind::Commands) {
+            return;
+        }
+        let Some(state) = cx
+            .try_global::<jaywalk::accounts::application::Accounts>()
+            .map(|accounts| accounts.state.clone())
+        else {
+            return;
+        };
+        if self
+            .palette
+            .account_observer
+            .as_ref()
+            .is_some_and(|(old, _)| *old == state)
+        {
+            return;
+        }
+        let subscription = cx.observe(&state, |viewer, _, cx| {
+            if viewer.palette.open == Some(PaletteKind::Commands) {
+                cx.notify();
+            }
+        });
+        self.palette.account_observer = Some((state, subscription));
+    }
+
+    pub(in crate::viewer::palette) fn context_command_suggestions(
+        &self,
+    ) -> Vec<jaywalk::commands::CommandId> {
+        use jaywalk::commands::CommandId as C;
+        if self.page != pages::Page::Comparison {
+            return vec![
+                C::OpenRepository,
+                C::OpenRecent,
+                C::OpenPullRequest,
+                C::ComparePaths,
+                C::ConnectAccount,
+                C::ShowSetup,
+            ];
+        }
+        if self.is_hosted_review() {
+            return vec![
+                C::FindFile,
+                C::UpdatePublishedReview,
+                C::RefreshReviewStatus,
+                C::OpenReviewInBrowser,
+                C::ReviewPRLocally,
+                C::Overview,
+            ];
+        }
+        if self.code().is_some() {
+            return vec![
+                C::Overview,
+                C::FindFile,
+                C::GoToLine,
+                C::ToggleWrap,
+                C::SearchHistory,
+                C::OpenPullRequest,
+            ];
+        }
+        vec![
+            C::FindFile,
+            C::ChooseReview,
+            C::SearchHistory,
+            C::ShowReferences,
+            C::OpenPullRequest,
+            C::OpenRecent,
+        ]
+    }
+
     pub(super) fn picker_mode_available(&self, mode: Mode) -> bool {
         match mode {
             Mode::History => {
@@ -54,6 +143,8 @@ impl Viewer {
             return format!("{error} · Clear command usage history to reset");
         }
         match kind {
+            PaletteKind::Commands => "Suggestions for this view and frequently used actions · Type to search · ? lists modes".into(),
+            PaletteKind::Files if self.palette.files.total > self.palette.files.shown => format!("Showing {} of {} matching files · Type to narrow · ? lists modes", self.palette.files.shown, self.palette.files.total),
             PaletteKind::LocalRepositories | PaletteKind::CheckoutRecovery => self
                 .local_actions
                 .message

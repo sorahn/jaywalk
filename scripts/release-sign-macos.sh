@@ -3,7 +3,7 @@
 set -eu
 automation=$(CDPATH= cd -- "$(dirname "$0")" && pwd)
 cd "${JAYWALK_RELEASE_SOURCE:-$automation/..}"
-for name in MACOS_CERTIFICATE_P12_BASE64 MACOS_CERTIFICATE_PASSWORD MACOS_SIGNING_IDENTITY APPLE_NOTARY_KEY_BASE64 APPLE_NOTARY_KEY_ID APPLE_NOTARY_ISSUER_ID SPARKLE_PRIVATE_KEY SPARKLE_PUBLIC_KEY UPDATE_FEED_URL; do
+for name in MACOS_CERTIFICATE_P12_BASE64 MACOS_CERTIFICATE_PASSWORD MACOS_SIGNING_IDENTITY APPLE_NOTARY_KEY_BASE64 APPLE_NOTARY_KEY_ID APPLE_NOTARY_ISSUER_ID SPARKLE_PRIVATE_KEY SPARKLE_PUBLIC_KEY UPDATE_FEED_URL JAYWALK_GITHUB_CLIENT_ID JAYWALK_GITHUB_CLIENT_SECRET JAYWALK_GITHUB_APP_SLUG; do
     python3 -c 'import os,sys; name=sys.argv[1]; sys.exit(0 if os.environ.get(name) else "Missing release credential/configuration: "+name)' "$name"
 done
 release_tag=${JAYWALK_RELEASE_TAG:-${GITHUB_REF_NAME:?Run on a release tag}}
@@ -69,6 +69,8 @@ export JAYWALK_SPARKLE_DIR="$(pwd)/target/sparkle"
 python3 scripts/fetch-sparkle.py "$JAYWALK_SPARKLE_DIR"
 scripts/bundle-macos.sh release
 bundle=target/release/Jaywalk.app
+# Fresh installs must have a real publisher client, not a developer Keychain import.
+"$bundle/Contents/MacOS/jaywalk" --hosting-capabilities | python3 -c 'import json,sys; sys.exit(0 if json.load(sys.stdin).get("github_browser") is True else "Release binary has no configured GitHub publisher client")'
 # Submit the signed app, staple it, THEN produce end-user payloads.
 ditto -c -k --sequesterRsrc --keepParent "$bundle" "$workspace/notarize.zip"
 xcrun notarytool submit "$workspace/notarize.zip" --key "$workspace/notary.p8" --key-id "$APPLE_NOTARY_KEY_ID" --issuer "$APPLE_NOTARY_ISSUER_ID" --wait --output-format json > "$workspace/notary-app.json"

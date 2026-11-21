@@ -52,8 +52,11 @@ Restrict `macos-release` and `release-automation` to `main`, without recurring e
 | `SPARKLE_PRIVATE_KEY` | Secret | Sparkle EdDSA private key export (file content, not a command-line argument) |
 | `SPARKLE_PUBLIC_KEY` | Variable | Matching public EdDSA key included in the app |
 | `UPDATE_FEED_URL` | Variable | HTTPS URL of the signed public appcast |
+| `JAYWALK_GITHUB_CLIENT_ID` | Variable | Client ID of the publisher-owned public, read-only GitHub App |
+| `JAYWALK_GITHUB_APP_SLUG` | Variable | Public app slug used for its repository installation link |
+| `JAYWALK_GITHUB_CLIENT_SECRET` | Secret | Native GitHub client credential embedded in the shipped binary; not a user token or an app private key |
 
-The automatic release caller explicitly passes the four named secrets into
+The automatic release caller explicitly passes the five named secrets into
 `macos-release.yml`, which declares them required under `workflow_call.secrets`.
 GitHub requires this handoff even for secrets stored only in the called job's
 protected environment; declaring `environment: macos-release` alone does not
@@ -64,6 +67,17 @@ handoff, while the runtime check catches missing values. See
 https://docs.github.com/en/actions/how-tos/reuse-automations/reuse-workflows .
 
 Enter/export values locally and upload through secure tooling; do not send secrets in chat or commit them. Keep encrypted backups and document rotation. Development builds keep the Apple Development identity; public builds use Developer ID Application. CI uses an ephemeral Keychain and deletes its temporary key files/Keychain on exit. No ACL/trust changes are made to the developer's login Keychain.
+
+The public GitHub registration is separate from the release-automation GitHub
+App and local development registrations. GitHub explicitly documents bundling
+native client credentials with authorization-code + PKCE: this client secret
+is extractable from the binary and is not a confidential server credential.
+The app's private key is never bundled. User tokens remain in the OS credential
+store. Production builds receive the three `JAYWALK_GITHUB_*` values only in
+the protected signing/build step; checks and unsigned rehearsals do not receive
+them. After bundling, the signing script runs the binary's offline
+`--hosting-capabilities` check and refuses an unconfigured GitHub release.
+Source: https://docs.github.com/en/apps/creating-github-apps/about-creating-github-apps/best-practices-for-creating-a-github-app .
 
 Official signing requires an explicit identity and hardened runtime/timestamp. The app, launcher and Sparkle's nested helpers/framework are signed inside-out. Submit/staple the app, package it, sign/submit/staple the DMG, then verify signatures, Gatekeeper and tickets before computing final artifact metadata. The manifest records version, exact source commit, platform/architecture, minimum OS and final sizes/hashes.
 

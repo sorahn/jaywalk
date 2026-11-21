@@ -22,6 +22,13 @@ fn git(arguments: &[&str]) -> Option<String> {
 fn main() {
     println!("cargo::rerun-if-env-changed=JAYWALK_SPARKLE_DIR");
     println!("cargo::rerun-if-env-changed=JAYWALK_RELEASE_VERSION");
+    for name in [
+        "JAYWALK_GITHUB_CLIENT_ID",
+        "JAYWALK_GITHUB_CLIENT_SECRET",
+        "JAYWALK_GITHUB_APP_SLUG",
+    ] {
+        println!("cargo::rerun-if-env-changed={name}");
+    }
     if env::var_os("CARGO_FEATURE_MACOS_UPDATER").is_some()
         && env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("macos")
     {

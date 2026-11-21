@@ -10,6 +10,7 @@ mod account_ui;
 mod appearance;
 mod cli;
 mod command_usage;
+mod feedback;
 #[cfg(feature = "profiling")]
 mod frame_profile;
 mod hosting_ui;
@@ -35,6 +36,13 @@ fn main() {
 
 fn run() -> std::result::Result<(), String> {
     let mut arguments = Arguments::parse();
+    if arguments.hosting_capabilities {
+        println!(
+            "{}",
+            serde_json::json!({"github_browser": jaywalk::accounts::publisher::github_configured()})
+        );
+        return Ok(());
+    }
     if arguments.build_revision {
         println!("{}", jaywalk::version::REVISION);
         return Ok(());

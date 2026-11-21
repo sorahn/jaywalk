@@ -442,3 +442,52 @@ caches, page position, graph fanout and other running workloads affect timings.
 Keep private real-repository results in the personal notes store; repository
 regressions use disposable synthetic fixtures only. Streamed metadata fields
 are bounded to 1 MiB and query stderr to 64 KiB; errors retain the current view.
+
+### Publisher GitHub setup and account errors
+
+Shipped builds resolve the public GitHub client from compile-time
+`JAYWALK_GITHUB_CLIENT_ID`, `JAYWALK_GITHUB_CLIENT_SECRET`, and
+`JAYWALK_GITHUB_APP_SLUG`. These describe the publisher's public native app;
+private keys and user tokens are never build inputs. Browser sign-in retains
+PKCE, state and the fixed loopback callback. A fresh OS store automatically
+uses this bundled client, with no development setup import. Explicit local
+registration selections retain priority. Recovered sessions resolve their
+exact client ID; another client's credentials are never substituted. Store
+access denial remains an error rather than silently switching clients.
+
+`jaywalk --hosting-capabilities` reports the bundled GitHub capability as JSON
+without reading Keychain or making network requests. Partial or invalid setup
+reports unavailable; official packaging checks it before notarization. Local
+builds without these inputs remain developer-only for provider connection.
+The Accounts page links to the public app's repository installation page when
+configured; installation determines access to private repositories separately
+from user authorization.
+
+Account error notices and store errors use the shared selectable diagnostic
+component with **Copy error**, preserving complete literal multiline text.
+These are sanitized application error messages, never raw OAuth responses,
+callback URLs or credentials. Publisher setup failures now identify a missing
+or invalid application setup rather than telling ordinary users to perform
+developer setup. Public Bitbucket registration/provisioning remains separate.
+
+## File picker performance checks
+
+The file picker searches the full captured comparison catalog, but mounts at most
+200 results. Its four-query cache keeps the empty query and three recent searches
+for the current comparison identity; it retains paths, status and identity only.
+A refreshed comparison invalidates these results. Narrow the query to reach files
+outside the initial rows. Opening the picker does not scan the working tree.
+
+Run the opt-in synthetic headless measurement with:
+
+```sh
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
+cargo test --locked --release --target aarch64-apple-darwin --bin jaywalk \
+  viewer::performance_tests::profile_file_palette -- --ignored --nocapture --test-threads=1
+```
+
+`JAYWALK_PROFILE_PALETTE_FILES` changes the default 10,000-file fixture size.
+The output reports cold/repeat openings, redraws and a full-catalog search, each
+including three settling frames. These are test-platform timings, not native GPU
+latency. The ordinary interaction regression also checks bounded rows, cache reuse
+and opening a file beyond the initial results.

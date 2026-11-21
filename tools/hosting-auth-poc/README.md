@@ -297,3 +297,20 @@ App registration is a publisher setup step. Ordinary users authorize/install
 an already configured app. The terminal probe does not claim a native GPUI
 Connect UI or establish public-build credential provisioning. Its developer
 client-secret test is not secret-free browser OAuth.
+
+## Publisher registration
+
+`github-register-publisher [NAME]` creates a separate public, read-only GitHub
+App (default name Jaywalk) after browser confirmation. It stores only the
+client setup under `github-publisher-registration`, preserving development
+registration and user sessions. Generated private keys are discarded. This
+is a publisher operation, not a step ordinary users run. The public client
+ID, native client secret and slug are provisioned separately into the protected
+release build environment; no publisher private key belongs in the native app.
+
+After explicitly approving installation and sign-in, `github-check-publisher`
+uses the saved publisher client with browser PKCE and stores its resulting
+session only in `github-publisher-validation-session`. It does not overwrite
+existing development or application sessions. Run `github-check-publisher
+--restore` in a fresh process to verify OS-store recovery and authenticated
+identity. These commands are live operator tests, not part of ordinary signup.
