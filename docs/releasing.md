@@ -8,6 +8,8 @@ GitHub's standard macOS runners are free for this public repository. Checks use 
 
 `checks.yml` runs metadata tests, Rust formatting/tests/strict Clippy and updater-enabled compilation on PRs without signing credentials. `macos-release.yml` is manually dispatched: Rehearsal produces visibly unsigned artifacts with no update feed or key. Official mode requires a `v<Cargo version>` tag reachable from main, protected `macos-release` environment and the inputs below. The `prepare macos release` workflow creates that tag automatically from Cargo at the reviewed main commit, then dispatches official mode. It rechecks source and creates a **draft** release only. Neither workflow updates Homebrew or the feed host automatically. No `pull_request_target` or privileged fork-artifact signing is used.
 
+Rust jobs use the commit-pinned `Swatinem/rust-cache` action after selecting Rust 1.100.0. It retains Cargo downloads and compiled dependency artifacts, excludes the application/workspace outputs and incremental artifacts, and leaves all tests/checks enabled. Cache keys separate checks, rehearsal and official packaging; they include the toolchain/lockfiles, Apple developer directory/deployment target and a hash of vendored source. Root application build provenance is regenerated for each checkout. The first successful run seeds its cache; subsequent runs may reuse it, including default-branch caches available to PRs. Dependency/toolchain/SDK/vendor changes can cause misses; cache restore/save time counts toward the actual benefit. Signed bundles, notarization credentials and distribution assets are not cached as build dependencies. Cargo-bin caching is disabled because CI tooling is installed explicitly.
+
 Local checks:
 
 ```sh
