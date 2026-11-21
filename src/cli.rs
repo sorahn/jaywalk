@@ -35,6 +35,10 @@ pub(crate) struct Arguments {
     #[arg(long, hide = true)]
     #[serde(default)]
     pub(crate) build_revision: bool,
+    /// Offline publisher capability check used by release validation.
+    #[arg(long, hide = true)]
+    #[serde(default)]
+    pub(crate) hosting_capabilities: bool,
     /// Keep the GUI attached to this terminal (useful for debugging).
     #[arg(long)]
     pub(crate) foreground: bool,

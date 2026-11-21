@@ -44,8 +44,18 @@ enum Action {
     },
     /// Open browser-assisted development GitHub App registration and save its client ID.
     GithubRegister,
+    /// Publisher-only: create a separate public, read-only GitHub App for native releases.
+    GithubRegisterPublisher {
+        #[arg(default_value = "Jaywalk")]
+        name: String,
+    },
     /// Recover an explicitly supplied browser callback after the local listener timed out.
     GithubRecoverRegistration,
+    /// Validate the publisher app in a separate session slot, preserving development sessions.
+    GithubCheckPublisher {
+        #[arg(long)]
+        restore: bool,
+    },
     /// Open one-time development registration settings (callback URL or optional device flow).
     GithubSetup,
     /// Open installation for the saved development app; select test repositories yourself.
@@ -166,6 +176,33 @@ fn run() -> Result<()> {
         .map_err(|_| "Cannot initialize HTTPS client")?;
     match args.command {
         Action::GithubRegister => registration::register(&client, &cancelled)?,
+        Action::GithubRegisterPublisher { name } => {
+            registration::register_publisher(&client, &cancelled, &name)?
+        }
+        Action::GithubCheckPublisher { restore } => {
+            let slot = entry("github-publisher-validation-session")?;
+            if restore {
+                let encoded = slot
+                    .get_password()
+                    .map_err(|_| "No saved publisher validation session, or store access denied")?;
+                let session: Session = serde_json::from_str(&encoded)
+                    .map_err(|_| "Invalid publisher validation session")?;
+                identity(&client, Provider::Github, &session)?;
+                println!("Publisher validation session recovered and verified in a fresh process.");
+            } else {
+                let (client_id, secret) = registration::publisher_client()?;
+                let session =
+                    github_browser::connect_with_secret(&client, &client_id, secret, &cancelled)?;
+                identity(&client, Provider::Github, &session)?;
+                let encoded = serde_json::to_string(&session)
+                    .map_err(|_| "Cannot encode publisher validation session")?;
+                slot.set_password(&encoded)
+                    .map_err(|_| "Cannot save publisher validation session")?;
+                println!(
+                    "Publisher browser sign-in and identity verified; saved only to its separate validation session slot."
+                );
+            }
+        }
         Action::GithubRecoverRegistration => registration::recover(&client)?,
         Action::GithubSetup => registration::open_settings()?,
         Action::GithubInstall => registration::open_installation()?,

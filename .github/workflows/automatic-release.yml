@@ -75,6 +75,7 @@ jobs:
       MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
       APPLE_NOTARY_KEY_BASE64: ${{ secrets.APPLE_NOTARY_KEY_BASE64 }}
       SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
+      JAYWALK_GITHUB_CLIENT_SECRET: ${{ secrets.JAYWALK_GITHUB_CLIENT_SECRET }}
     with:
       tag: ${{ needs.select.outputs.tag }}
       source: ${{ needs.select.outputs.source }}

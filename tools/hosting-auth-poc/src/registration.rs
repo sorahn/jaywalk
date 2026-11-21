@@ -71,20 +71,66 @@ impl Registration {
 }
 
 pub(crate) fn register(client: &Client, cancelled: &AtomicBool) -> Result<()> {
-    match entry(ACCOUNT)?.get_password() {
+    register_app(
+        client,
+        cancelled,
+        ACCOUNT,
+        &format!("Jaywalk Dev {}", &random_string()[..10]),
+        false,
+    )
+}
+
+pub(crate) fn register_publisher(
+    client: &Client,
+    cancelled: &AtomicBool,
+    name: &str,
+) -> Result<()> {
+    if name.trim().is_empty() || name.len() > 100 || name.chars().any(char::is_control) {
+        return Err(
+            "Publisher app name must be between 1 and 100 characters without control characters"
+                .into(),
+        );
+    }
+    register_app(
+        client,
+        cancelled,
+        "github-publisher-registration",
+        name,
+        true,
+    )
+}
+
+fn register_app(
+    client: &Client,
+    cancelled: &AtomicBool,
+    account: &str,
+    name: &str,
+    public: bool,
+) -> Result<()> {
+    match entry(account)?.get_password() {
         Err(keyring::Error::NoEntry) => (),
-        Ok(_) => return Err("A development registration is already saved; use github-setup or github-connect. Use github-forget-registration only to forget it locally.".into()),
-        Err(_) => return Err("Cannot access OS credential store; unlock it before registering".into()),
+        Ok(_) => {
+            return Err(
+                "A registration already exists in this slot; it will not be replaced.".into(),
+            );
+        }
+        Err(_) => {
+            return Err("Cannot access OS credential store; unlock it before registering".into());
+        }
     }
     let listener = callback::Listener::bind_registration()?;
     let origin = listener.origin()?;
     let state = random_string();
     let page_path = format!("/register/{}", random_string());
-    let name = format!("Jaywalk Dev {}", &random_string()[..10]);
-    let manifest = manifest(&name, &format!("{origin}/callback"));
+    let mut manifest = manifest(name, &format!("{origin}/callback"));
+    if public {
+        manifest["public"] = json!(true);
+        manifest["description"] =
+            json!("Read-only GitHub pull request review in the native Jaywalk application");
+    }
     let html = page(&manifest, &state)?;
     println!(
-        "Opening GitHub development registration. Confirm the app name and read-only permissions in your browser."
+        "Opening GitHub app registration. Confirm the name, visibility and read-only permissions in your browser."
     );
     open_browser(&format!("{origin}{page_path}"))?;
     let code = listener.receive_with_page(
@@ -94,7 +140,7 @@ pub(crate) fn register(client: &Client, cancelled: &AtomicBool) -> Result<()> {
         Some((&page_path, &html)),
     )?;
     check_cancelled(cancelled)?;
-    complete(client, &code)
+    complete(client, &code, account)
 }
 
 pub(crate) fn recover(client: &Client) -> Result<()> {
@@ -121,7 +167,7 @@ pub(crate) fn recover(client: &Client) -> Result<()> {
         input
     };
     let code = recovery_code(input.trim())?;
-    complete(client, &code)
+    complete(client, &code, ACCOUNT)
 }
 
 fn recovery_code(input: &str) -> Result<String> {
@@ -159,7 +205,7 @@ fn recovery_code(input: &str) -> Result<String> {
     Ok(codes[0].1.to_string())
 }
 
-fn complete(client: &Client, code: &str) -> Result<()> {
+fn complete(client: &Client, code: &str, account: &str) -> Result<()> {
     let url = conversion_url(code)?;
     // No token/private key required: the temporary manifest code authorizes this conversion.
     let response = json(client.post(url))?;
@@ -168,8 +214,14 @@ fn complete(client: &Client, code: &str) -> Result<()> {
     let registration = Registration::parse(&response)?;
     let encoded = serde_json::to_string(&registration).map_err(|_| "Cannot encode registration")?;
     // Conversion is one-shot: save before any optional browser operation can fail.
-    entry(ACCOUNT)?.set_password(&encoded)
+    entry(account)?.set_password(&encoded)
         .map_err(|_| "App created but local save failed. Find it in GitHub Developer settings; use its client ID with github-connect.")?;
+    if account == "github-publisher-registration" {
+        println!(
+            "Public publisher app registered. Client setup saved in its separate OS credential-store entry; no generated private key was retained."
+        );
+        return Ok(());
+    }
     println!("Development app registered; client ID saved in OS credential store.");
     println!(
         "Use github-install to choose test repositories, then github-connect for browser sign-in. Device Flow is not required. This setup is for the app developer, not ordinary users."
@@ -214,12 +266,23 @@ fn escape(value: &str) -> String {
 fn page(manifest: &Value, state: &str) -> Result<String> {
     let encoded =
         serde_json::to_string(manifest).map_err(|_| "Cannot encode GitHub App manifest")?;
+    let (title, description) = if manifest["public"] == true {
+        (
+            "Set up the public Jaywalk GitHub app",
+            "This creates a public GitHub App owned by your account for shipped Jaywalk builds. Its repository metadata, contents, pull requests, checks and commit statuses permissions are read-only. Webhooks are disabled. The native client uses browser sign-in with PKCE; no app private key is shipped.",
+        )
+    } else {
+        (
+            "Set up a Jaywalk development app",
+            "This creates a private development GitHub App owned by your account, with read-only repository permissions. Webhooks are disabled.",
+        )
+    };
     Ok(format!(
         r#"<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Jaywalk development setup</title>
 <style>body{{font:17px system-ui;max-width:38rem;margin:12vh auto;padding:24px;color-scheme:light dark}}button{{font:inherit;padding:12px 18px;cursor:pointer}}p{{line-height:1.5}}</style>
-<h1>Set up a Jaywalk development app</h1>
-<p>This creates a private GitHub App owned by your account, with read-only repository metadata and pull request access. Webhooks are disabled.</p>
-<p>GitHub will let you confirm the name. After registration, return here automatically; the probe saves development client credentials in the OS credential store. Repository installation and account sign-in follow separately.</p>
+<h1>{title}</h1>
+<p>{description}</p>
+<p>GitHub will let you confirm the name. After registration, return here automatically; the probe saves client setup in its separate OS credential-store entry. Repository installation and account sign-in follow separately.</p>
 <form action="https://github.com/settings/apps/new?state={}" method="post"><input type="hidden" name="manifest" value="{}"><button type="submit">Continue to GitHub</button></form>
 <p>Keep the probe running until registration finishes.</p></html>"#,
         escape(state),
@@ -238,6 +301,23 @@ fn load() -> Result<Registration> {
         "permissions":{"metadata":"read","pull_requests":"read"}}),
     )
 }
+pub(crate) fn publisher_client() -> Result<(String, String)> {
+    let encoded = entry("github-publisher-registration")?
+        .get_password()
+        .map_err(|_| "Cannot read publisher setup; unlock the OS store")?;
+    let saved: Registration =
+        serde_json::from_str(&encoded).map_err(|_| "Invalid publisher setup")?;
+    let registration = Registration::parse(
+        &json!({"id":saved.id,"client_id":saved.client_id,"slug":saved.slug,"client_secret":saved.client_secret,"permissions":{"metadata":"read","pull_requests":"read"}}),
+    )?;
+    Ok((
+        registration.client_id,
+        registration
+            .client_secret
+            .ok_or("Publisher browser credential is missing")?,
+    ))
+}
+
 pub(crate) fn client_id() -> Result<String> {
     Ok(load()?.client_id)
 }

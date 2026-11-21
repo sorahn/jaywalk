@@ -229,7 +229,7 @@ mod tests {
         );
     }
     #[test]
-    fn delayed_native_callback_is_one_shot_and_invalid_requests_do_not_consume_it() {
+    fn delayed_native_callback_ignores_invalid_requests_and_closes_the_success_connection() {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let address = listener.local_addr().unwrap();
         let attempt =
@@ -248,7 +248,15 @@ mod tests {
             .write_all(&request(&format!("/callback?state={state}&code=synthetic")))
             .unwrap();
         assert_eq!(worker.join().unwrap().unwrap().0, "synthetic");
-        assert!(TcpStream::connect(address).is_err());
+        // Check the connection this attempt owns. Once the listener closes,
+        // another parallel test can reuse its ephemeral port.
+        valid
+            .set_read_timeout(Some(Duration::from_secs(2)))
+            .unwrap();
+        let mut response = String::new();
+        valid.read_to_string(&mut response).unwrap();
+        assert!(response.starts_with("HTTP/1.1 200 OK\r\n"));
+        assert_eq!(response.matches("HTTP/1.1").count(), 1);
     }
     #[test]
     fn callback_wait_checks_timeout_cancellation_and_port_conflicts() {

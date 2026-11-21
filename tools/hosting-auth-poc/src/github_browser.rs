@@ -24,6 +24,26 @@ pub(crate) fn connect(client: &Client, client_id: &str, cancelled: &AtomicBool) 
                 .map_err(|_| "Cannot read developer secret from the terminal")?
         }
     };
+    connect_bound(client, client_id, secret, cancelled, listener)
+}
+
+pub(crate) fn connect_with_secret(
+    client: &Client,
+    client_id: &str,
+    secret: String,
+    cancelled: &AtomicBool,
+) -> Result<Session> {
+    let listener = callback::Listener::bind_github()?;
+    connect_bound(client, client_id, secret, cancelled, listener)
+}
+
+fn connect_bound(
+    client: &Client,
+    client_id: &str,
+    secret: String,
+    cancelled: &AtomicBool,
+    listener: callback::Listener,
+) -> Result<Session> {
     if secret.is_empty() {
         return Err("Browser authorization requires the development app's client secret".into());
     }

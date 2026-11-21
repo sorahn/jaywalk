@@ -119,12 +119,13 @@ impl CredentialStore for OsCredentialStore {
         provider: Provider,
         client_id: &str,
     ) -> Result<ClientRegistration, Error> {
-        let encoded = entry(&registration_name(provider, client_id))?
-            .get_password()
-            .map_err(|error| match error {
-                keyring::Error::NoEntry => Error::Registration,
-                _ => Error::StoreUnavailable,
-            })?;
+        let encoded = match entry(&registration_name(provider, client_id))?.get_password() {
+            Ok(encoded) => encoded,
+            Err(keyring::Error::NoEntry) => {
+                return super::publisher::registration(provider, Some(client_id));
+            }
+            Err(_) => return Err(Error::StoreUnavailable),
+        };
         let registration: ClientRegistration =
             serde_json::from_str(&encoded).map_err(|_| Error::StoreInvalid)?;
         registration.validate()?;
@@ -134,12 +135,11 @@ impl CredentialStore for OsCredentialStore {
         Ok(registration)
     }
     fn selected_registration(&self, provider: Provider) -> Result<ClientRegistration, Error> {
-        let id = entry(&format!("selected-client/{}", provider.name()))?
-            .get_password()
-            .map_err(|error| match error {
-                keyring::Error::NoEntry => Error::Registration,
-                _ => Error::StoreUnavailable,
-            })?;
+        let id = match entry(&format!("selected-client/{}", provider.name()))?.get_password() {
+            Ok(id) => id,
+            Err(keyring::Error::NoEntry) => return super::publisher::registration(provider, None),
+            Err(_) => return Err(Error::StoreUnavailable),
+        };
         self.registration(provider, &id)
     }
     fn import_development_registration(&self, provider: Provider) -> Result<(), Error> {

@@ -26,6 +26,8 @@ on:
         required: true
       SPARKLE_PRIVATE_KEY:
         required: true
+      JAYWALK_GITHUB_CLIENT_SECRET:
+        required: true
   workflow_dispatch:
     inputs:
       version:
@@ -103,6 +105,9 @@ jobs:
           MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
           APPLE_NOTARY_KEY_BASE64: ${{ secrets.APPLE_NOTARY_KEY_BASE64 }}
           SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
+          JAYWALK_GITHUB_CLIENT_SECRET: ${{ secrets.JAYWALK_GITHUB_CLIENT_SECRET }}
+          JAYWALK_GITHUB_CLIENT_ID: ${{ vars.JAYWALK_GITHUB_CLIENT_ID }}
+          JAYWALK_GITHUB_APP_SLUG: ${{ vars.JAYWALK_GITHUB_APP_SLUG }}
           MACOS_SIGNING_IDENTITY: ${{ vars.MACOS_SIGNING_IDENTITY }}
           APPLE_NOTARY_KEY_ID: ${{ vars.APPLE_NOTARY_KEY_ID }}
           APPLE_NOTARY_ISSUER_ID: ${{ vars.APPLE_NOTARY_ISSUER_ID }}
@@ -121,6 +126,9 @@ jobs:
               "APPLE_NOTARY_ISSUER_ID",
               "SPARKLE_PUBLIC_KEY",
               "UPDATE_FEED_URL",
+              "JAYWALK_GITHUB_CLIENT_ID",
+              "JAYWALK_GITHUB_CLIENT_SECRET",
+              "JAYWALK_GITHUB_APP_SLUG",
           )
           missing = [name for name in required if not os.environ.get(name)]
           if missing:
@@ -174,6 +182,9 @@ jobs:
           APPLE_NOTARY_KEY_ID: ${{ vars.APPLE_NOTARY_KEY_ID }}
           APPLE_NOTARY_ISSUER_ID: ${{ vars.APPLE_NOTARY_ISSUER_ID }}
           SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
+          JAYWALK_GITHUB_CLIENT_SECRET: ${{ secrets.JAYWALK_GITHUB_CLIENT_SECRET }}
+          JAYWALK_GITHUB_CLIENT_ID: ${{ vars.JAYWALK_GITHUB_CLIENT_ID }}
+          JAYWALK_GITHUB_APP_SLUG: ${{ vars.JAYWALK_GITHUB_APP_SLUG }}
           SPARKLE_PUBLIC_KEY: ${{ vars.SPARKLE_PUBLIC_KEY }}
           UPDATE_FEED_URL: ${{ vars.UPDATE_FEED_URL }}
         run: JAYWALK_RELEASE_SOURCE="$GITHUB_WORKSPACE" target/release-automation/scripts/release-sign-macos.sh

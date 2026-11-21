@@ -4,6 +4,7 @@ pub mod application;
 mod browser;
 mod model;
 mod provider;
+pub mod publisher;
 mod service;
 mod store;
 

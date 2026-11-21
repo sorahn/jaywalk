@@ -756,3 +756,10 @@ These actions prepare local review sources and optional checkout only. They do n
 | `check_interval_hours` | `24` | Integer 1–168; automatic-check cadence |
 
 These public settings apply live application-wide, using the same active configuration-source policy as other shared settings. Disabled update options cancel background raw downloads and prevent new automatic checks; an already running feed request can complete but its result cannot start another download after opt-out. Explicit manual checks/downloads are separately authorized. Updating is unavailable on builds without the macOS updater feature or configured public feed/key; preferences are still saved. CLI installation has an explicit chosen destination and does not edit shell startup files. See [installation](installation.md) and [release operations](releasing.md).
+
+The account `client_id` identifies the OAuth app registration, not the user
+access token. In builds with the public GitHub client configured, a fresh
+installation uses that client automatically. A stored session keeps resolving
+its own client ID after restart; explicit development registrations keep
+working. Publisher build credentials do not go in user settings. Repository
+installation is available from **Choose GitHub repositories…** on Accounts.

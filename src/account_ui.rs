@@ -304,20 +304,27 @@ impl Render for AccountPanel {
                 div()
                     .text_sm()
                     .text_color(if notice.error { danger } else { muted })
-                    .child(notice.text),
+                    .child(if notice.error {
+                        crate::feedback::error_message("accounts-notice", &notice.text)
+                    } else {
+                        div().child(notice.text).into_any_element()
+                    }),
             );
         }
         if let Some(error) = snapshot.store_error {
-            content = content
-                .child(div().text_sm().child(error.to_string()))
-                .child(
-                    Button::new("accounts-retry")
-                        .label("Retry")
-                        .disabled(busy)
-                        .on_click(
-                            cx.listener(|view, _, _, cx| view.start(AccountAction::Load, cx)),
-                        ),
-                );
+            content =
+                content
+                    .child(div().text_sm().text_color(danger).child(
+                        crate::feedback::error_message("accounts-store-error", &error.to_string()),
+                    ))
+                    .child(
+                        Button::new("accounts-retry")
+                            .label("Retry")
+                            .disabled(busy)
+                            .on_click(
+                                cx.listener(|view, _, _, cx| view.start(AccountAction::Load, cx)),
+                            ),
+                    );
         }
         if self.mode == Mode::Development {
             content = content
@@ -455,6 +462,13 @@ impl Render for AccountPanel {
                             })),
                     ),
             );
+            if let Some(url) = jaywalk::accounts::publisher::github_install_url() {
+                content = content.child(
+                    div().v_flex().gap_1()
+                        .child(div().text_sm().text_color(muted).child("To review private GitHub repositories, choose which repositories Jaywalk can access."))
+                        .child(div().child(Button::new("accounts-github-repositories").ghost().label("Choose GitHub repositories…").on_click(move |_, _, cx| cx.open_url(&url))))
+                );
+            }
             content = content.child(
                 Button::new("accounts-developer-setup")
                     .ghost()
@@ -700,16 +714,38 @@ pub(crate) mod tests {
         cx.update(|_, app| {
             let state = app.global::<Accounts>().state.read(app);
             assert!(state.operation.is_none());
-            assert!(
-                state
-                    .notice
-                    .as_ref()
-                    .unwrap()
-                    .text
-                    .contains("developer setup")
-            );
+            assert!(state.notice.as_ref().unwrap().text.contains("publisher"));
         });
     }
+    #[gpui_test::test]
+    fn account_error_copy_keeps_full_literal_multiline_message(cx: &mut gpui_test::TestAppContext) {
+        setup(cx);
+        let (_, cx) = cx.add_window_view(|window, app| {
+            let panel = app.new(|cx| AccountPanel::new(CommandId::ConnectAccount, window, cx));
+            gpui::component::Root::new(panel, window, app)
+        });
+        let message = "Provider setup is missing.\n<literal> & diagnostic details\n".to_owned();
+        cx.update(|_, app| {
+            let state = app.global::<Accounts>().state.clone();
+            state.update(app, |state, cx| {
+                state.notice = Some(jaywalk::accounts::controller::Notice {
+                    text: message.clone(),
+                    error: true,
+                });
+                cx.notify();
+            });
+        });
+        cx.simulate_resize(size(px(400.), px(500.)));
+        draw(cx);
+        let copy = cx.debug_bounds("accounts-notice-copy").unwrap();
+        cx.simulate_click(copy.center(), Default::default());
+        draw(cx);
+        assert_eq!(
+            cx.update(|_, app| app.read_from_clipboard().and_then(|item| item.text())),
+            Some(message)
+        );
+    }
+
     #[gpui_test::test]
     fn account_pages_in_two_windows_observe_one_local_disconnect(
         test_cx: &mut gpui_test::TestAppContext,
