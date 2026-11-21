@@ -3848,3 +3848,69 @@ fn first_setup_skip_returns_to_welcome_and_manual_setup_remains_available(cx: &m
     draw(cx);
     assert!(cx.debug_bounds("setup-page").is_some());
 }
+
+#[gpui_test::test]
+fn shell_theme_reload_preserves_open_diff_entities_focus_and_geometry(cx: &mut TestAppContext) {
+    use jaywalk::theme::{Part, Surface};
+    let fixture = Fixture::new();
+    let (viewer, cx) = setup(&fixture, cx);
+    let (before, after, model) = cx.update(|_, app| {
+        let code = viewer.read(app).code().unwrap();
+        (code.before.clone(), code.after.clone(), code.model.clone())
+    });
+    let bounds = cx.update(|_, app| before.read(app).input_bounds());
+    cx.simulate_click(bounds.center(), Default::default());
+    draw(cx);
+    let header = cx.debug_bounds("file-header").unwrap();
+    let settings = Settings::parse(
+        r##"
+[local_review]
+fetch_missing=false
+[live]
+enabled=false
+[layout]
+remember_per_repository=false
+[layout.placement]
+history_side='left'
+files_side='left'
+[ui]
+appearance="dark"
+[theme.shell_auto]
+seed="#153049"
+[theme.overrides]
+"shell.sidebar.files.background"="#273543"
+"##,
+    )
+    .unwrap();
+    cx.update(|window, app| {
+        crate::appearance::apply(&settings, app);
+        viewer.update(app, |v, cx| v.apply_settings(settings, window, cx));
+        let code = viewer.read(app).code().unwrap();
+        assert_eq!(code.before.entity_id(), before.entity_id());
+        assert_eq!(code.after.entity_id(), after.entity_id());
+        assert!(std::rc::Rc::ptr_eq(&code.model, &model));
+        assert_eq!(
+            crate::appearance::surface(Surface::Files, Part::Background, app),
+            gpui::Hsla::from(gpui::rgb(0x273543))
+        );
+        assert_ne!(
+            crate::appearance::surface(Surface::History, Part::Background, app),
+            crate::appearance::surface(Surface::Files, Part::Background, app)
+        );
+        assert_eq!(
+            gpui::component::Theme::global(app)
+                .highlight_theme
+                .style
+                .editor_background,
+            Some(crate::appearance::surface(
+                Surface::Viewer,
+                Part::Background,
+                app
+            ))
+        );
+    });
+    draw(cx);
+    assert_eq!(cx.debug_bounds("file-header").unwrap(), header);
+    assert_eq!(cx.update(|_, app| before.read(app).input_bounds()), bounds);
+    assert!(cx.update(|window, app| before.focus_handle(app).is_focused(window)));
+}

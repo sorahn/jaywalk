@@ -298,8 +298,21 @@ impl Viewer {
             .h(px(height))
             .text_size(px(font_size))
             .border_b_1()
-            .border_color(theme.border)
-            .bg(theme.sidebar)
+            .border_color(crate::appearance::surface(
+                jaywalk::theme::Surface::Header,
+                jaywalk::theme::Part::Border,
+                cx,
+            ))
+            .bg(crate::appearance::surface(
+                jaywalk::theme::Surface::Header,
+                jaywalk::theme::Part::Background,
+                cx,
+            ))
+            .text_color(crate::appearance::surface(
+                jaywalk::theme::Surface::Header,
+                jaywalk::theme::Part::Foreground,
+                cx,
+            ))
             .child(title)
             .when(split, |header| {
                 header
@@ -338,6 +351,21 @@ impl Viewer {
         header
             .id("diff-file-header")
             .debug_selector(|| "file-header".into())
+            .bg(crate::appearance::surface(
+                jaywalk::theme::Surface::ViewerHeader,
+                jaywalk::theme::Part::Background,
+                cx,
+            ))
+            .text_color(crate::appearance::surface(
+                jaywalk::theme::Surface::ViewerHeader,
+                jaywalk::theme::Part::Foreground,
+                cx,
+            ))
+            .border_color(crate::appearance::surface(
+                jaywalk::theme::Surface::ViewerHeader,
+                jaywalk::theme::Part::Border,
+                cx,
+            ))
             .context_menu(move |menu, _, _| {
                 let menu = menu.action_context(focus.clone());
                 let menu = match &target {
@@ -495,7 +523,12 @@ impl Viewer {
             .key_context("JaywalkDiff")
             .v_flex()
             .size_full()
-            .bg(file_background);
+            .bg(file_background)
+            .text_color(crate::appearance::surface(
+                jaywalk::theme::Surface::Viewer,
+                jaywalk::theme::Part::Foreground,
+                cx,
+            ));
         if let Some(selected) = &self.selected_file {
             match &selected.content {
                 LoadState::Loading => {

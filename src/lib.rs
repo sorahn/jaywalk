@@ -54,3 +54,5 @@ pub mod local_review;
 
 pub mod cli_install;
 pub mod setup;
+
+pub mod theme;

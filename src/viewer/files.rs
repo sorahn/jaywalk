@@ -6,6 +6,7 @@ use gpui::component::scroll::ScrollableMask;
 use gpui::component::tree::{Tree, TreeItem, TreeState};
 use gpui::prelude::FluentBuilder;
 use jaywalk::file_browser::{CompactPath, FileNode, present_paths};
+use jaywalk::theme::{Part, Surface};
 use std::collections::HashMap;
 
 use jaywalk::settings::{FileView as FileListMode, TreeScope};
@@ -81,24 +82,36 @@ impl FileBrowser {
     }
 }
 
-fn file_style(status: &str, dark: bool) -> (&'static str, u32) {
-    if !dark {
-        return match status {
-            "added" => ("A", 0x22863a),
-            "removed" => ("D", 0xc12e2a),
-            "renamed" => ("R", 0x0969da),
-            "copied" => ("C", 0x0969da),
-            "unchanged" => ("", 0x57606a),
-            _ => ("M", 0x8a6116),
-        };
+#[derive(Clone, Copy)]
+struct FileColors {
+    added: Hsla,
+    removed: Hsla,
+    modified: Hsla,
+    renamed: Hsla,
+    copied: Hsla,
+    neutral: Hsla,
+}
+impl FileColors {
+    fn new(cx: &App) -> Self {
+        let diff = crate::appearance::diff_colors(cx);
+        Self {
+            added: diff.added,
+            removed: diff.removed,
+            modified: diff.modified,
+            renamed: crate::appearance::color(jaywalk::theme::Role::Renamed, cx),
+            copied: crate::appearance::color(jaywalk::theme::Role::Copied, cx),
+            neutral: crate::appearance::surface(Surface::Files, Part::MutedForeground, cx),
+        }
     }
-    match status {
-        "added" => ("A", 0x7dc67c),
-        "removed" => ("D", 0xe58a83),
-        "renamed" => ("R", 0x86b4ed),
-        "copied" => ("C", 0x86b4ed),
-        "unchanged" => ("", 0xa4b4c2),
-        _ => ("M", 0xe5c07b),
+    fn style(self, status: &str) -> (&'static str, Hsla) {
+        match status {
+            "added" => ("A", self.added),
+            "removed" => ("D", self.removed),
+            "renamed" => ("R", self.renamed),
+            "copied" => ("C", self.copied),
+            "unchanged" => ("", self.neutral),
+            _ => ("M", self.modified),
+        }
     }
 }
 
@@ -420,8 +433,8 @@ impl Viewer {
             .then(|| self.reading_tree_target(cx))
             .flatten();
         let reading_tint = gpui::component::Theme::global(cx).secondary;
-        let dark = gpui::component::Theme::global(cx).is_dark();
-        let neutral = if dark { 0xa4b4c2 } else { 0x57606a };
+        let colors = FileColors::new(cx);
+        let neutral = colors.neutral;
         let files = self.browser.files.clone();
         let retained = self.browser.retained;
         let indices = self.browser.tree_indices.clone();
@@ -455,7 +468,7 @@ impl Viewer {
                 file_index
                     .and_then(|index| files.get(index))
                     .map_or(neutral, |file| {
-                        file_style(file.status().unwrap_or("unchanged"), dark).1
+                        colors.style(file.status().unwrap_or("unchanged")).1
                     })
             };
             let selector = format!("browser-tree:{}", entry.item().id);
@@ -500,7 +513,7 @@ impl Viewer {
                 .py_0()
                 .text_size(px(font_size))
                 .pl(px(entry.depth() as f32 * indent_width + PANEL_INSET))
-                .text_color(rgb(color))
+                .text_color(color)
                 .when(
                     reading.as_deref() == Some(entry.item().id.as_ref()),
                     |row| row.bg(reading_tint),
@@ -615,7 +628,7 @@ impl Viewer {
     }
 
     pub(super) fn render_files(&self, cx: &mut Context<Self>) -> AnyElement {
-        let dark = gpui::component::Theme::global(cx).is_dark();
+        let colors = FileColors::new(cx);
         let toggle_icon =
             |name: IconName, active: bool| crate::appearance::active_icon(name, active, cx);
         let mut panel = super::chrome::Panel::new(
@@ -708,7 +721,16 @@ impl Viewer {
                 .track_focus(&self.browser.focus)
                 .key_context("JaywalkFiles")
                 .relative()
-                .bg(gpui::component::Theme::global(cx).sidebar),
+                .bg(crate::appearance::surface(
+                    Surface::Files,
+                    Part::Background,
+                    cx,
+                ))
+                .text_color(crate::appearance::surface(
+                    Surface::Files,
+                    Part::Foreground,
+                    cx,
+                )),
         );
         match self.comparison_state() {
             LoadState::Failed(error) => {
@@ -745,9 +767,9 @@ impl Viewer {
                 for (index, file) in self.browser.files.iter().enumerate() {
                     let temporary = self.browser.retained == Some(index);
                     let (marker, color) = if temporary {
-                        ("·", if dark { 0xa4b4c2 } else { 0x57606a })
+                        ("·", colors.neutral)
                     } else {
-                        file_style(file.status().unwrap_or("unchanged"), dark)
+                        colors.style(file.status().unwrap_or("unchanged"))
                     };
                     let label = self.browser.labels.get(index).map_or_else(
                         || file.path().to_owned(),
@@ -792,14 +814,14 @@ impl Viewer {
                             {
                                 gpui::component::Theme::global(cx).secondary
                             } else {
-                                gpui::component::Theme::global(cx).sidebar
+                                crate::appearance::surface(Surface::Files, Part::Background, cx)
                             })
                             .hover(|style| {
                                 style.bg(gpui::component::Theme::global(cx).secondary_hover)
                             })
                             .text_size(px(self.settings.panels.files.font.size))
                             .cursor_pointer()
-                            .text_color(rgb(color))
+                            .text_color(color)
                             .child(div().w(px(14.)).flex_shrink_0().child(marker))
                             .when(self.settings.files.file_icons, |row| {
                                 row.child(

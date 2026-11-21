@@ -799,3 +799,82 @@ installation uses that client automatically. A stored session keeps resolving
 its own client ID after restart; explicit development registrations keep
 working. Publisher build credentials do not go in user settings. Repository
 installation is available from **Choose GitHub repositories…** on Accounts.
+
+## Shell themes
+
+The shell palette resolves once when settings load, for both light and dark
+appearance. Changing colors live preserves the open comparison. Appearance
+still uses `ui.appearance = "system"`, `"light"`, or `"dark"`; the system accent
+and `ui.accent_color` remain independent of the shell seed.
+
+The neutral default follows the selected Layered shell prototype: a dark viewer
+at `#111111`, History at `#1e1e1e`, Files at `#171717`, and app bars at `#292929`.
+The generated light counterpart uses `#f8f8f8`, `#e6e6e6`, `#efefef`, and
+`#d6d6d6`, respectively. Panel colors follow History/Files identity when moved.
+No focused docked-panel outlines are added.
+
+`[theme.shell_auto]` controls the versioned `tonal-v1` OKLCH recipe. Every numeric
+knob accepts either one number or `{ light = ..., dark = ... }`. Seeds and exact
+color overrides accept one `"#rrggbb"` string for both modes, or separate
+`{ light = "#rrggbb", dark = "#rrggbb" }` colors.
+
+| Setting | Default | Range / effect |
+| --- | --- | --- |
+| `enabled` | `true` | `false` uses fixed built-in shell colors; exact overrides still apply |
+| `algorithm` | `"tonal-v1"` | Versioned recipe; unknown versions are rejected |
+| `seed` | `{ light = "#585858", dark = "#111111" }` | Independent primary colors; colored seeds tint the actual surfaces |
+| `layer_strength` | `1.4` | 0–2.5; separation between viewer, sidebars and bars |
+| `hue_shift` | `0.0` | −180–180 degrees |
+| `chroma_scale` | `1.0` | 0–3; saturation multiplier |
+| `tint_strength` | `1.0` | 0–1; blend toward a neutral palette |
+| `contrast_spread` | `1.0` | 0.2–2.5; spread of reference surface lightness |
+| `lightness_shift` | `0.0` | −0.15–0.15; overall OKLCH lightness adjustment |
+| `seed_lightness_influence` | `1.0` | 0–1; how strongly seed lightness shifts the foundation |
+
+Out-of-gamut colors reduce chroma before conversion to sRGB. Foregrounds and
+muted text are chosen against each resolved surface with a 4.5:1 contrast
+target. Exact foreground overrides are honored even at lower contrast; the
+resolved palette retains contrast warnings for diagnostics. Semantic diff and
+graph colors are independent of the seed.
+
+Per-surface adjustments live under `[theme.shell_auto.roles."ROLE.background"]`:
+`lightness_shift` (−0.2–0.2, default 0), `hue_shift` (−180–180, default 0), and
+`chroma_scale` (0–3, default 1). Adjustments apply after global controls. Exact
+colors in `[theme.overrides]` apply last; foregrounds automatically adapt to
+an overridden background unless they are explicitly overridden too.
+
+```toml
+[theme.shell_auto]
+seed = { light = "#585858", dark = "#153049" }
+layer_strength = 1.4
+
+[theme.shell_auto.roles."shell.sidebar.files.background"]
+lightness_shift = { light = 0.0, dark = 0.02 }
+
+[theme.overrides]
+"shell.sidebar.history.background" = { light = "#e6e6e6", dark = "#202832" }
+"shell.sidebar.files.background" = { light = "#efefef", dark = "#19212b" }
+"graph.lanes.0" = "#729dcc"
+```
+
+Surface prefixes are `shell.window`, `shell.header`, `shell.footer`,
+`shell.sidebar.history`, `shell.sidebar.files`, each sidebar's `.header` and
+`.footer`, `shell.floating`, `editor`, and `editor.header`. Each has
+`.background`, `.foreground`, `.foreground.muted`, and `.border`. The window
+foreground/muted/border names are shortened to `shell.foreground`,
+`shell.foreground.muted`, and `shell.border`.
+
+Additional exact roles are `graph.lanes.0` through `graph.lanes.4`,
+`graph.evolution.current`, `graph.evolution.muted`, `status.success`,
+`status.warning`, `status.error`, `status.info`, `diff.renamed.marker`,
+`diff.copied.marker`, `shell.control.background`, `shell.control.hover`,
+`shell.control.foreground`, and `shell.backdrop`. The default backdrop is
+translucent black; an explicit RGB override is opaque. Existing `[diff.colors]`
+settings continue to control added/removed/modified markers and diff highlights.
+Unknown role names are rejected to catch typos. Floating borders follow the accent
+while `ui.accent_floating_outlines` is enabled; disable it to use
+`"shell.floating.border"` instead.
+
+This shell slice retains the existing syntax palette. VS Code theme imports,
+independent diff-theme files, theme selection/preview commands, and custom
+native titlebar coloring remain separate work.

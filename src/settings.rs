@@ -129,6 +129,7 @@ pub struct Config {
     pub live: LiveSettings,
     pub window: WindowSettings,
     pub ui: UiSettings,
+    pub theme: crate::theme::ThemeSettings,
     pub picker: PickerSettings,
     pub editor: EditorSettings,
     pub panels: PanelSettings,
@@ -453,6 +454,7 @@ pub struct Settings {
     config: Config,
     pub keybindings: BTreeMap<CommandId, Vec<String>>,
     pub keymap: Vec<crate::keymap::Override>,
+    resolved_theme: std::sync::Arc<crate::theme::ResolvedThemes>,
 }
 impl std::ops::Deref for Settings {
     type Target = Config;
@@ -475,14 +477,19 @@ impl Default for Settings {
     }
 }
 impl Settings {
+    pub fn resolved_theme(&self) -> &std::sync::Arc<crate::theme::ResolvedThemes> {
+        &self.resolved_theme
+    }
     pub fn resolve(
         config: Config,
         profile: crate::keybinding_profiles::Profile,
     ) -> Result<Self, String> {
         config.validate()?;
         profile.validate()?;
+        let resolved_theme = std::sync::Arc::new(crate::theme::resolve(&config.theme));
         Ok(Self {
             config,
+            resolved_theme,
             keybindings: profile.keybindings,
             keymap: profile.keymap,
         })
@@ -562,6 +569,7 @@ impl Config {
     }
 
     fn validate(&self) -> Result<(), String> {
+        self.theme.validate()?;
         self.updates.validate()?;
         crate::accounts::preferences::validate(&self.accounts)?;
         self.hosting.validate()?;

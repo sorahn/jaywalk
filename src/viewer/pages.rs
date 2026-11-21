@@ -198,7 +198,21 @@ impl Viewer {
             .flex_shrink_0()
             .h(px(self.settings.ui.panel_header_height))
             .border_b_1()
-            .border_color(gpui::component::Theme::global(cx).border)
+            .border_color(crate::appearance::surface(
+                jaywalk::theme::Surface::Header,
+                jaywalk::theme::Part::Border,
+                cx,
+            ))
+            .bg(crate::appearance::surface(
+                jaywalk::theme::Surface::Header,
+                jaywalk::theme::Part::Background,
+                cx,
+            ))
+            .text_color(crate::appearance::surface(
+                jaywalk::theme::Surface::Header,
+                jaywalk::theme::Part::Foreground,
+                cx,
+            ))
             .child(self.render_navigation_buttons(cx))
             .child(div().px_3().text_sm().child(match self.page {
                 Page::Welcome => "Welcome",

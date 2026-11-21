@@ -4,6 +4,7 @@ use gpui::component::Sizable;
 use gpui::component::menu::DropdownMenu as _;
 use gpui::prelude::FluentBuilder;
 use jaywalk::panel_layout::Side;
+use jaywalk::theme::{Part, Surface};
 
 const INSET: f32 = 8.;
 const GAP: f32 = 4.;
@@ -37,8 +38,21 @@ impl Viewer {
             .h(px(self.settings.footer_height()))
             .flex_shrink_0()
             .border_t_1()
-            .border_color(gpui::component::Theme::global(cx).border)
-            .bg(gpui::component::Theme::global(cx).muted)
+            .border_color(crate::appearance::surface(
+                Surface::Footer,
+                Part::Border,
+                cx,
+            ))
+            .bg(crate::appearance::surface(
+                Surface::Footer,
+                Part::Background,
+                cx,
+            ))
+            .text_color(crate::appearance::surface(
+                Surface::Footer,
+                Part::Foreground,
+                cx,
+            ))
             .text_size(px(self.settings.ui.footer_font_size))
             .whitespace_nowrap()
             .child(self.render_drawer_footer(Side::Left, cx))
@@ -117,8 +131,17 @@ impl Viewer {
             .flex_shrink_0()
             .children(slots.into_iter().map(|(panel, width)| {
                 let visible = self.measured_sidebar_width(panel, cx).is_some();
+                let surface = match chrome::panel_surface(panel) {
+                    Surface::History => Surface::HistoryFooter,
+                    _ => Surface::FilesFooter,
+                };
                 div()
                     .h_flex()
+                    .h_full()
+                    .when(visible, |slot| {
+                        slot.bg(crate::appearance::surface(surface, Part::Background, cx))
+                            .text_color(crate::appearance::surface(surface, Part::Foreground, cx))
+                    })
                     .items_center()
                     .gap(px(GAP))
                     .w(px(width))
@@ -148,7 +171,11 @@ impl Viewer {
                                 .min_w_0()
                                 .truncate()
                                 .debug_selector(move || format!("drawer-status-{panel:?}"))
-                                .text_color(gpui::component::Theme::global(cx).muted_foreground)
+                                .text_color(crate::appearance::surface(
+                                    surface,
+                                    Part::MutedForeground,
+                                    cx,
+                                ))
                                 .child(status),
                         )
                         .children(

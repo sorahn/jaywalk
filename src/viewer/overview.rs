@@ -416,7 +416,12 @@ impl Viewer {
             .key_context("JaywalkDiff")
             .v_flex()
             .size_full()
-            .bg(theme.background);
+            .bg(theme.background)
+            .text_color(crate::appearance::surface(
+                jaywalk::theme::Surface::Viewer,
+                jaywalk::theme::Part::Foreground,
+                cx,
+            ));
         if let LoadState::Failed(error) = self.comparison_state() {
             return surface
                 .child(

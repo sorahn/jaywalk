@@ -773,7 +773,11 @@ impl Viewer {
                 .overflow_hidden()
                 .border_b_1()
                 .border_color(gpui::component::Theme::global(cx).border)
-                .bg(gpui::component::Theme::global(cx).sidebar)
+                .bg(crate::appearance::surface(
+                    jaywalk::theme::Surface::Footer,
+                    jaywalk::theme::Part::Background,
+                    cx,
+                ))
                 .child(self.render_navigation_buttons(cx))
                 .child(
                     div()
@@ -876,7 +880,14 @@ impl Viewer {
         };
         let state = self.evolution_panel(kind);
         let theme = gpui::component::Theme::global(cx);
-        let surface = theme.sidebar;
+        let surface = crate::appearance::surface(
+            match kind {
+                EvolutionKind::Change => jaywalk::theme::Surface::History,
+                EvolutionKind::File => jaywalk::theme::Surface::Files,
+            },
+            jaywalk::theme::Part::Background,
+            cx,
+        );
         let selection = theme.list_active;
         let hover = theme.secondary_hover;
         let previous_surface = theme.secondary;
@@ -940,7 +951,11 @@ impl Viewer {
         let mut panel = super::chrome::Panel::new(
             ("evolution-panel", kind.id()),
             div().v_flex().child(header).child(filters),
-            div().bg(surface),
+            div().bg(surface).text_color(crate::appearance::surface(
+                chrome::panel_surface(panel_id),
+                jaywalk::theme::Part::Foreground,
+                cx,
+            )),
         );
         let (evolution, file_path, scroll) = match &state.state {
             TimelineState::Unselected => {
@@ -1165,13 +1180,9 @@ impl Viewer {
                                     let row = &graph.graph.graph[row_index];
                                     let x = |lane| bounds.left() + px(10. + lane as f32 * spacing);
                                     let middle = bounds.center().y;
-                                    let color = rgb(if row_selected || previous {
-                                        if gpui::component::Theme::global(cx).is_dark() { 0x9dcaff } else { 0x0969da }
-                                    } else {
-                                        if gpui::component::Theme::global(cx).is_dark() { 0x7797bd } else { 0x57606a }
-                                    });
+                                    let color = crate::appearance::color(if row_selected || previous { jaywalk::theme::Role::EvolutionCurrent } else { jaywalk::theme::Role::EvolutionMuted }, cx);
                                     for stroke in &row.strokes {
-                                        super::history::paint_graph_stroke(stroke,bounds,spacing,color.into(),1.,window);
+                                        super::history::paint_graph_stroke(stroke,bounds,spacing,color,1.,window);
                                     }
                                     let mut marker = PathBuilder::stroke(px(1.));
                                     let center = x(row.lane);

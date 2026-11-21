@@ -378,8 +378,16 @@ impl Render for AccountPanel {
         let theme = gpui::component::Theme::global(cx);
         let muted = theme.muted_foreground;
         let border = theme.border;
-        let background = theme.background;
-        let foreground = theme.foreground;
+        let background = crate::appearance::surface(
+            jaywalk::theme::Surface::Window,
+            jaywalk::theme::Part::Background,
+            cx,
+        );
+        let foreground = crate::appearance::surface(
+            jaywalk::theme::Surface::Window,
+            jaywalk::theme::Part::Foreground,
+            cx,
+        );
         let danger = theme.danger;
         let state = self.state.read(cx);
         let busy = state.operation.is_some();

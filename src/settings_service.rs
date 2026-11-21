@@ -117,7 +117,8 @@ fn apply_shared(settings: &Settings, source: &SettingsSource, cx: &mut App) -> R
         crate::windows::apply_application_settings(&settings.application, cx);
     }
     if previous.as_ref().is_none_or(|old| {
-        old.ui != settings.ui
+        old.theme != settings.theme
+            || old.ui != settings.ui
             || old.editor != settings.editor
             || old.diff.colors != settings.diff.colors
     }) {

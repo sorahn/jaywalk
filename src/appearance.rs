@@ -6,6 +6,8 @@ use gpui::{App, Global, Hsla, SharedString, Styled, Window, WindowAppearance, px
 use jaywalk::settings::{
     Appearance, DiffColorSettings, EditorSettings, RgbColor, Settings, UiSettings,
 };
+use jaywalk::theme::{Part, ResolvedThemes, Role, Surface};
+use std::sync::Arc;
 
 #[derive(Clone)]
 struct AppAppearance {
@@ -13,6 +15,7 @@ struct AppAppearance {
     editor: EditorSettings,
     diff: DiffColorSettings,
     mode: Option<ThemeMode>,
+    themes: Arc<ResolvedThemes>,
 }
 impl Global for AppAppearance {}
 
@@ -22,6 +25,7 @@ pub(crate) fn init(settings: &Settings, cx: &mut App) {
         editor: settings.editor.clone(),
         diff: settings.diff.colors,
         mode: None,
+        themes: settings.resolved_theme().clone(),
     });
     apply(settings, cx);
     crate::platform::accent::observe(cx);
@@ -29,6 +33,7 @@ pub(crate) fn init(settings: &Settings, cx: &mut App) {
 
 pub(crate) fn apply(settings: &Settings, cx: &mut App) {
     let state = cx.global_mut::<AppAppearance>();
+    state.themes = settings.resolved_theme().clone();
     state.ui = settings.ui.clone();
     state.editor = settings.editor.clone();
     state.diff = settings.diff.colors;
@@ -84,8 +89,9 @@ fn refresh(system: Option<WindowAppearance>, force: bool, cx: &mut App) {
     }
     Theme::update(cx, |theme| {
         if changed {
-            theme.highlight_theme = code_theme(dark);
+            theme.highlight_theme = syntax_theme(dark);
         }
+        project_shell(theme, state.themes.shell(dark));
         let system = matches!(
             state.ui.accent_color,
             jaywalk::settings::AccentColorSetting::System(_)
@@ -99,7 +105,18 @@ fn refresh(system: Option<WindowAppearance>, force: bool, cx: &mut App) {
                 .accent_color
                 .resolve(dark, system, state.ui.accent_color_fallback),
         );
-        theme.popup_outline = state.ui.accent_floating_outlines.then_some(theme.primary);
+        theme.popup_outline = Some(if state.ui.accent_floating_outlines {
+            theme.primary
+        } else {
+            gpui::rgba(
+                state
+                    .themes
+                    .shell(dark)
+                    .surface(Surface::Floating, Part::Border)
+                    .0,
+            )
+            .into()
+        });
         theme.font_size = px(state.ui.font_size);
         theme.mono_font_size = px(state.editor.font_size);
         theme.font_family = state
@@ -117,7 +134,77 @@ fn refresh(system: Option<WindowAppearance>, force: bool, cx: &mut App) {
     });
 }
 
-fn code_theme(dark: bool) -> std::sync::Arc<HighlightTheme> {
+/// Lookup is allocation-free; settings resolution owns color generation.
+pub(crate) fn surface(surface: Surface, part: Part, cx: &App) -> Hsla {
+    color(Role::Surface(surface, part), cx)
+}
+
+pub(crate) fn color(role: Role, cx: &App) -> Hsla {
+    if let Some(state) = cx.try_global::<AppAppearance>() {
+        return gpui::rgba(
+            state
+                .themes
+                .shell(Theme::global(cx).is_dark())
+                .get(role)
+                .color
+                .0,
+        )
+        .into();
+    }
+    // Standalone component/headless hosts can use the toolkit without app globals.
+    let theme = Theme::global(cx);
+    match role {
+        Role::Surface(_, Part::Foreground) | Role::ControlForeground => theme.foreground,
+        Role::Surface(_, Part::MutedForeground) => theme.muted_foreground,
+        Role::Surface(_, Part::Border) => theme.border,
+        Role::Surface(_, Part::Background) => theme.background,
+        _ => {
+            static DEFAULTS: std::sync::LazyLock<ResolvedThemes> = std::sync::LazyLock::new(|| {
+                jaywalk::theme::resolve(&jaywalk::settings::Config::default().theme)
+            });
+            gpui::rgba(DEFAULTS.shell(theme.is_dark()).get(role).color.0).into()
+        }
+    }
+}
+
+fn project_shell(theme: &mut Theme, shell: &jaywalk::theme::Shell) {
+    let c = |s, p| -> Hsla { gpui::rgba(shell.surface(s, p).0).into() };
+    theme.background = c(Surface::Viewer, Part::Background);
+    theme.foreground = c(Surface::Window, Part::Foreground);
+    theme.muted_foreground = c(Surface::Window, Part::MutedForeground);
+    theme.border = c(Surface::Window, Part::Border);
+    theme.sidebar = c(Surface::History, Part::Background);
+    theme.sidebar_foreground = c(Surface::History, Part::Foreground);
+    theme.sidebar_border = c(Surface::History, Part::Border);
+    theme.popover = c(Surface::Floating, Part::Background);
+    theme.popover_foreground = c(Surface::Floating, Part::Foreground);
+    theme.title_bar = c(Surface::Header, Part::Background);
+    theme.title_bar_border = c(Surface::Header, Part::Border);
+    theme.muted = c(Surface::Footer, Part::Background);
+    let role = |r| -> Hsla { gpui::rgba(shell.get(r).color.0).into() };
+    theme.secondary = role(Role::ControlBackground);
+    theme.secondary_foreground = role(Role::ControlForeground);
+    theme.secondary_hover = role(Role::ControlHover);
+    theme.button = theme.secondary;
+    theme.button_foreground = theme.secondary_foreground;
+    theme.button_hover = theme.secondary_hover;
+    theme.colors.list = theme.popover;
+    theme.list_hover = theme.secondary_hover;
+    theme.status_bar = c(Surface::Footer, Part::Background);
+    theme.status_bar_border = c(Surface::Footer, Part::Border);
+    theme.success = role(Role::Success);
+    theme.warning = role(Role::Warning);
+    theme.danger = role(Role::Error);
+    theme.info = role(Role::Info);
+    theme.input = theme.popover;
+    let mut highlight = (*theme.highlight_theme).clone();
+    highlight.style.editor_background = Some(c(Surface::Viewer, Part::Background));
+    highlight.style.editor_foreground = Some(c(Surface::Viewer, Part::Foreground));
+    highlight.style.editor_line_number = Some(c(Surface::Viewer, Part::MutedForeground));
+    theme.highlight_theme = Arc::new(highlight);
+}
+
+fn syntax_theme(dark: bool) -> std::sync::Arc<HighlightTheme> {
     let mut highlight = if dark {
         (*HighlightTheme::default_dark()).clone()
     } else {
@@ -129,9 +216,6 @@ fn code_theme(dark: bool) -> std::sync::Arc<HighlightTheme> {
         "Jaywalk VS Code light"
     }
     .into();
-    highlight.style.editor_background = Some(rgb(if dark { 0x1f1f1f } else { 0xffffff }).into());
-    highlight.style.editor_foreground = Some(rgb(if dark { 0xcccccc } else { 0x3b3b3b }).into());
-    highlight.style.editor_line_number = Some(rgb(if dark { 0x6e7681 } else { 0x6e6e6e }).into());
     let token = |hex: &str| -> Option<ThemeStyle> {
         Some(
             serde_json::from_value(serde_json::json!({"color":hex}))
@@ -275,20 +359,26 @@ mod tests {
 
 #[cfg(test)]
 mod mode_tests {
-    use super::code_theme;
+    use super::{project_shell, syntax_theme};
+    use gpui::component::Theme;
     use gpui::{Hsla, rgb};
+    use jaywalk::settings::Settings;
     #[test]
     fn mode_switches_supply_matching_editor_and_syntax_palettes() {
-        let light = code_theme(false);
-        let dark = code_theme(true);
-        assert_eq!(
-            light.style.editor_background,
-            Some(Hsla::from(rgb(0xffffff)))
-        );
-        assert_eq!(
-            dark.style.editor_background,
-            Some(Hsla::from(rgb(0x1f1f1f)))
-        );
+        let light = syntax_theme(false);
+        let dark = syntax_theme(true);
+        let settings = Settings::default();
+        for (is_dark, background) in [(false, 0xf8f8f8), (true, 0x111111)] {
+            let mut theme = Theme::default();
+            theme.highlight_theme = syntax_theme(is_dark);
+            let string = theme.highlight_theme.style.syntax.string;
+            project_shell(&mut theme, settings.resolved_theme().shell(is_dark));
+            assert_eq!(
+                theme.highlight_theme.style.editor_background,
+                Some(Hsla::from(rgb(background)))
+            );
+            assert_eq!(theme.highlight_theme.style.syntax.string, string);
+        }
         assert_ne!(light.style.syntax.string, dark.style.syntax.string);
         assert_ne!(light.style.syntax.keyword, dark.style.syntax.keyword);
     }
@@ -357,8 +447,24 @@ mod outline_tests {
 
             settings.ui.accent_floating_outlines = false;
             apply(&settings, cx);
-            assert_eq!(Theme::global(cx).popup_outline, None);
+            assert_eq!(Theme::global(cx).popup_outline, Some(neutral));
             assert_eq!(floating_outline(cx), neutral);
+
+            let custom = Settings::parse(
+                r##"
+[ui]
+accent_floating_outlines=false
+[theme.overrides]
+"shell.floating.border"="#abc123"
+"##,
+            )
+            .unwrap();
+            apply(&custom, cx);
+            assert_eq!(floating_outline(cx), Hsla::from(rgb(0xabc123)));
+            assert_eq!(
+                Theme::global(cx).popup_outline,
+                Some(Hsla::from(rgb(0xabc123)))
+            );
 
             settings.ui.accent_floating_outlines = true;
             settings.ui.accent_color = jaywalk::settings::AccentColorSetting::Custom(

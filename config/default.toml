@@ -267,3 +267,22 @@ fetch_missing = true
 checkout_branch = "create_from_remote"
 # Remove only Jaywalk-created, unchanged, unused branches on guarded restoration.
 cleanup_created_branch = false
+
+# Shell generation is independent of system/custom active-control accent colors.
+[theme]
+overrides = {}
+
+[theme.shell_auto]
+enabled = true
+algorithm = "tonal-v1"
+# Seeds are inputs to the mode-specific recipe, not exact final backgrounds.
+seed = { light = "#585858", dark = "#111111" }
+layer_strength = 1.4
+hue_shift = 0.0
+chroma_scale = 1.0
+tint_strength = 1.0
+contrast_spread = 1.0
+lightness_shift = 0.0
+seed_lightness_influence = 1.0
+
+[theme.shell_auto.roles]

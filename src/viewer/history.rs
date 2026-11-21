@@ -1,3 +1,4 @@
+use jaywalk::theme::{Part, Surface};
 mod paging;
 use super::*;
 use gpui::component::Sizable;
@@ -67,17 +68,15 @@ fn history_row(
                     let graph = &history.graph[index];
                     let x = |lane| bounds.left() + px(GRAPH_MARGIN + lane as f32 * spacing);
                     let middle = bounds.center().y;
-                    let palette = if gpui::component::Theme::global(cx).is_dark() {
-                        [0x5b9bd5, 0x7dc67c, 0xd9a066, 0xb18add, 0x66c4c7]
-                    } else {
-                        [0x0969da, 0x1a7f37, 0x9a6700, 0x8250df, 0x0e7490]
-                    };
+                    let palette = std::array::from_fn::<_, 5, _>(|i| {
+                        crate::appearance::color(jaywalk::theme::Role::GraphLane(i as u8), cx)
+                    });
                     for stroke in &graph.strokes {
                         paint_graph_stroke(
                             stroke,
                             bounds,
                             spacing,
-                            rgb(palette[stroke.color % palette.len()]).into(),
+                            palette[stroke.color % palette.len()],
                             1.5,
                             window,
                         );
@@ -88,7 +87,7 @@ fn history_row(
                                 point(x(graph.lane) - px(NODE_RADIUS), middle - px(NODE_RADIUS)),
                                 size(px(NODE_RADIUS * 2.), px(NODE_RADIUS * 2.)),
                             ),
-                            rgb(palette[graph.color % palette.len()]),
+                            palette[graph.color % palette.len()],
                         )
                         .corner_radii(px(NODE_RADIUS)),
                     );
@@ -259,7 +258,7 @@ impl Viewer {
 
     pub(super) fn render_history(&self, cx: &mut Context<Self>) -> AnyElement {
         let theme = gpui::component::Theme::global(cx);
-        let surface = theme.sidebar;
+        let surface = crate::appearance::surface(Surface::History, Part::Background, cx);
         let stripe = surface.blend(
             theme
                 .foreground
@@ -326,7 +325,11 @@ impl Viewer {
                         },
                     ),
             ),
-            div().bg(surface),
+            div().bg(surface).text_color(crate::appearance::surface(
+                Surface::History,
+                Part::Foreground,
+                cx,
+            )),
         );
         let session =
             match &self.repository {
