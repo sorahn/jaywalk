@@ -274,7 +274,10 @@ impl Viewer {
             .when(!compact, |controls| {
                 controls
                     .child(
-                        crate::spacing::toggle_group(Surface::Footer, cx)
+                        div()
+                            .h_flex()
+                            .items_center()
+                            .gap(crate::spacing::interactive(cx))
                             .mr(crate::spacing::edge(cx))
                             .child(self.render_word_wrap_toggle(wrap, cx))
                             .when(
