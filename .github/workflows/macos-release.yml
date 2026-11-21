@@ -61,6 +61,8 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
+      - name: Install pinned repository test tools
+        run: scripts/install-ci-tools-macos.sh
       - name: Validate tag and source
         run: |
           python3 scripts/release-macos.py check-tag "$GITHUB_REF_NAME"

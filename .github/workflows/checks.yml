@@ -20,6 +20,8 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
+      - name: Install pinned repository test tools
+        run: scripts/install-ci-tools-macos.sh
       - name: Install pinned toolchain
         run: rustup toolchain install 1.100.0 --profile minimal --component rustfmt --component clippy
       - name: Metadata and packaging tests
