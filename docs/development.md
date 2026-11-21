@@ -53,9 +53,12 @@ ARM64 Python 3.11+ interpreter even when PATH contains an Intel Python, preventi
 its Apple tool subprocesses from inheriting Rosetta. Shell entry points also
 re-launch natively when started by an Intel parent.
 These guards leave other platforms unchanged.
-Native bundle builds reject an Intel Rust host on Apple Silicon. Packaging and
-release manifests also inspect both app executables and every nested Mach-O;
-Intel-only helpers are rejected, while universal helpers with ARM slices work.
+Native bundle builds reject an Intel Rust host on Apple Silicon. Local bundles
+validate both app executables and every nested Mach-O against the native host,
+so Intel Macs can still build and install locally. Release bundles, packaging and
+release manifests retain an ARM64 requirement; Intel-only helpers are rejected,
+while universal helpers with ARM slices work. The `check-architecture --native`
+option applies only to local bundle validation, never release metadata.
 
 ## Profile PR opening
 

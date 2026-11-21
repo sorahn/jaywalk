@@ -35,13 +35,33 @@ class ReleaseTests(unittest.TestCase):
             helper.write_bytes(bytes.fromhex("cafebabe"))
             architectures = {"jaywalk": "arm64", "jw": "arm64", "Helper": "x86_64"}
             with patch.object(release, "run", side_effect=lambda *args: architectures[Path(args[-1]).name]):
-                with self.assertRaisesRegex(ValueError, "Intel-only.*Helper"):
+                with self.assertRaisesRegex(ValueError, "does not support arm64.*Helper"):
                     release.verify_bundle_architecture(bundle)
                 architectures["Helper"] = "x86_64 arm64"
                 release.verify_bundle_architecture(bundle)
                 architectures["jw"] = "x86_64"
                 with self.assertRaisesRegex(ValueError, "arm64 jw"):
                     release.verify_bundle_architecture(bundle)
+
+    def test_local_intel_bundles_require_native_binaries_and_helpers(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            bundle = Path(temporary) / "Jaywalk.app"
+            binaries = bundle / "Contents/MacOS"
+            binaries.mkdir(parents=True)
+            for name in ("jaywalk", "jw", "helper"):
+                (binaries / name).write_bytes(bytes.fromhex("cffaedfe"))
+            architectures = {"jaywalk": "x86_64", "jw": "x86_64", "helper": "arm64 x86_64"}
+            with patch.object(release, "run", side_effect=lambda *args: architectures[Path(args[-1]).name]):
+                release.verify_bundle_architecture(bundle, "x86_64")
+                # The default release gate must still reject Intel binaries.
+                with self.assertRaisesRegex(ValueError, "arm64 jaywalk"):
+                    release.verify_bundle_architecture(bundle)
+                architectures["helper"] = "arm64"
+                with self.assertRaisesRegex(ValueError, "does not support x86_64.*helper"):
+                    release.verify_bundle_architecture(bundle, "x86_64")
+                architectures["jw"] = "arm64"
+                with self.assertRaisesRegex(ValueError, "x86_64 jw"):
+                    release.verify_bundle_architecture(bundle, "x86_64")
 
     def test_cask_rejects_unsigned_and_invalid_inputs(self):
         data = {"official": True, "architecture": "arm64", "version": "1.2.3", "artifacts": [{"filename": "Jaywalk-1.2.3-macos-arm64.dmg", "sha256": "a" * 64}]}

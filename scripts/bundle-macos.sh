@@ -58,7 +58,12 @@ scripts/python.sh scripts/bundle-licenses.py "$bundle/Contents/Resources/license
 if [ "${JAYWALK_MACOS_UPDATER:-0}" = 1 ]; then
     cp "$JAYWALK_SPARKLE_DIR/LICENSE" "$bundle/Contents/Resources/licenses/Sparkle.txt"
 fi
-scripts/python.sh scripts/release-macos.py check-architecture "$bundle"
+# Local Intel Macs remain supported; release packaging retains its ARM64 gate.
+if [ "${JAYWALK_SIGNING_MODE:-}" = release ]; then
+    scripts/python.sh scripts/release-macos.py check-architecture "$bundle"
+else
+    scripts/python.sh scripts/release-macos.py check-architecture "$bundle" --native
+fi
 scripts/sign-macos.sh "$bundle/Contents/MacOS/jw" dev.jaywalk.jw
 scripts/sign-macos.sh "$bundle"
 # Replace the bundle by renaming directories. Never overwrite a running Mach-O
