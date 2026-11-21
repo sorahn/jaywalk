@@ -157,3 +157,46 @@ fn profile_viewer_modes(cx: &mut TestAppContext) {
         draw(cx);
     }
 }
+
+#[gpui_test::test]
+#[ignore = "opt-in synthetic file palette measurement"]
+fn profile_file_palette(cx: &mut TestAppContext) {
+    use jaywalk::commands::CommandId;
+    let fixture = Fixture::new();
+    let count = std::env::var("JAYWALK_PROFILE_PALETTE_FILES")
+        .ok()
+        .and_then(|s| s.parse::<usize>().ok())
+        .unwrap_or(10_000);
+    std::fs::create_dir(fixture.0.join("catalog")).unwrap();
+    for index in 0..count {
+        std::fs::write(fixture.0.join(format!("catalog/file-{index:05}.rs")), "").unwrap();
+    }
+    fixture.git(&["add", "catalog"]);
+    fixture.git(&["commit", "-m", "add synthetic file catalog"]);
+    let (viewer, cx) = setup(&fixture, cx);
+    for attempt in 0..2 {
+        let start = Instant::now();
+        cx.update(|window, app| {
+            viewer.update(app, |v, cx| {
+                v.execute_command(CommandId::FindFile, window, cx)
+            })
+        });
+        draw(cx);
+        record(&format!("palette/{count}/open-{attempt}"), start.elapsed());
+        let start = Instant::now();
+        draw(cx);
+        record(
+            &format!("palette/{count}/redraw-{attempt}"),
+            start.elapsed(),
+        );
+        let start = Instant::now();
+        cx.simulate_input("file-09999");
+        draw(cx);
+        record(
+            &format!("palette/{count}/search-{attempt}"),
+            start.elapsed(),
+        );
+        cx.simulate_keystrokes("escape");
+        draw(cx);
+    }
+}

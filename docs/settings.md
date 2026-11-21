@@ -113,7 +113,7 @@ section header, for example `[editor]` followed by `font_size = 14`.
 
 | Setting | Default | Behavior |
 |---|---|---|
-| `picker.adaptive_command_order` | `true` | Window-local preference controlling command usage learning and ordering. With an empty command query, frequent/recent commands come first; textual relevance takes priority for typed queries. Edits apply live. The usage snapshot stays fixed during an opening so activity in another window does not reorder the selected results. A new opening reads the latest shared history. `false` restores deterministic textual/alphabetical ordering and stops recording commands in that viewer; existing saved history remains available if re-enabled. |
+| `picker.adaptive_command_order` | `true` | Window-local preference controlling command usage learning and ordering. With an empty command query, up to two frequent/recent commands precede suggestions for the current view; textual relevance takes priority for typed queries. Edits apply live. The usage snapshot stays fixed during an opening so activity in another window does not reorder the selected results. A new opening reads the latest shared history. `false` keeps deterministic context suggestions and textual/alphabetical ordering and stops recording commands in that viewer; existing saved history remains available if re-enabled. |
 
 Usage is shared across application windows and saved beside the default user configuration in `command-usage.json`, independently of an explicitly selected config. It stores only stable command IDs, bounded frequency/recency counters (up to 256 entries, 64 KiB on read), and no query text, command arguments or credentials. Writes run off the UI thread and flush at app exit. **Clear command usage history** resets it. An unreadable history is preserved until explicitly cleared; the command picker reports read/write errors.
 
@@ -314,7 +314,7 @@ origin = true
 | Setting | Default | Meaning and allowed values |
 | --- | --- | --- |
 | `files.default_view` | `"list"` | `"list"` or `"tree"`. Both use directory-first order; list mode omits directory rows. |
-| `files.tree_scope` | `"changed"` | `"changed"` or `"all"`. Filters tree mode only. `all` includes unchanged files in the selected comparison/revision; Cmd+P searches the entire repository regardless of this filter. |
+| `files.tree_scope` | `"changed"` | `"changed"` or `"all"`. Filters tree mode only. `all` includes unchanged files in the selected comparison/revision; The file picker searches the entire captured comparison regardless of this filter. |
 | `files.indent_guides` | `true` | Show vertical ancestor guides in the directory tree. Applies live. |
 | `files.indent_guide_offset` | `-2` | Horizontal guide offset from ancestor icon centers in pixels; −48–48. Negative moves left. Applies live. |
 | `files.indent_guide_opacity` | `0.12` | Guide opacity using the theme foreground; 0–1. Applies live. |

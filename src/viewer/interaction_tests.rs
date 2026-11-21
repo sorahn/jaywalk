@@ -31,7 +31,7 @@ impl Fixture {
         self.git(&["commit", "--amend", "--no-edit"]);
         std::fs::write(self.0.join("file.txt"), after).unwrap();
     }
-    fn git(&self, args: &[&str]) {
+    pub(super) fn git(&self, args: &[&str]) {
         let output = std::process::Command::new("git")
             .current_dir(&self.0)
             .env("GIT_CONFIG_NOSYSTEM", "1")
@@ -1518,7 +1518,7 @@ fn welcome_accounts_navigation_and_palette_stay_in_the_existing_window(cx: &mut 
     let (viewer, cx) = setup_arguments(&fixture, args, cx);
     assert!(cx.debug_bounds("welcome-page").is_some());
     let window_count = cx.update(|_, app| app.windows().len());
-    cx.simulate_keystrokes("secondary-shift-p");
+    cx.simulate_keystrokes("secondary-p");
     draw(cx);
     cx.simulate_input("Accounts");
     draw(cx);
@@ -2885,7 +2885,7 @@ fn remote_palette_toggles_keep_query_selection_and_comparison(cx: &mut TestAppCo
     let fixture = reference_picker_fixture();
     let (viewer, cx) = setup(&fixture, cx);
     let original = cx.update(|_, app| viewer.read(app).comparison().unwrap().identity());
-    cx.simulate_keystrokes("secondary-shift-p");
+    cx.simulate_keystrokes("secondary-p");
     draw(cx);
     cx.simulate_input("Remote history sources");
     draw(cx);
@@ -3320,7 +3320,7 @@ fn slash_history_search_finds_older_commits_and_keeps_repository_scope_after_rev
     let (fixture, oldest, newest) = paged_history_fixture();
     let (viewer, cx) = setup_paged(&fixture, cx);
     let identity = cx.update(|_, app| viewer.read(app).comparison().unwrap().identity());
-    cx.simulate_keystrokes("secondary-p");
+    cx.simulate_keystrokes("secondary-shift-p");
     draw(cx);
     cx.simulate_input("/needle");
     draw(cx);
@@ -3349,7 +3349,7 @@ fn slash_history_search_finds_older_commits_and_keeps_repository_scope_after_rev
         assert!(history.source().unwrap().context().is_some());
     });
     // The graph now shows an older context; / must still search its original source.
-    cx.simulate_keystrokes("secondary-p");
+    cx.simulate_keystrokes("secondary-shift-p");
     draw(cx);
     cx.simulate_input("/newest unique");
     draw(cx);
@@ -3680,5 +3680,125 @@ fn setup_fits_one_normal_viewport_and_stacks_in_narrow_windows(cx: &mut TestAppC
     assert!(
         cx.debug_bounds("setup-content").unwrap().bottom()
             > cx.debug_bounds("setup-page").unwrap().bottom()
+    );
+}
+
+#[gpui_test::test]
+fn picker_default_shortcuts_and_large_catalog_cache(cx: &mut TestAppContext) {
+    let fixture = Fixture::new();
+    std::fs::create_dir(fixture.0.join("catalog")).unwrap();
+    for index in 0..500 {
+        std::fs::write(fixture.0.join(format!("catalog/item-{index:03}.rs")), "").unwrap();
+    }
+    fixture.git(&["add", "catalog"]);
+    fixture.git(&["commit", "-m", "catalog"]);
+    let (viewer, cx) = setup(&fixture, cx);
+    cx.simulate_keystrokes("secondary-p");
+    draw(cx);
+    assert_eq!(
+        cx.update(|_, app| viewer.read(app).palette_test_state(app).0),
+        Some(palette::PaletteKind::Commands)
+    );
+    assert_eq!(
+        cx.update(|_, app| viewer.read(app).palette_test_state(app).1),
+        ">"
+    );
+    cx.simulate_keystrokes("escape");
+    cx.simulate_keystrokes("secondary-shift-p");
+    draw(cx);
+    assert_eq!(
+        cx.update(|_, app| viewer.read(app).palette_test_state(app).1),
+        ""
+    );
+    assert_eq!(
+        cx.update(|_, app| viewer.read(app).palette_test_count(app)),
+        200
+    );
+    let searches = cx.update(|_, app| viewer.read(app).palette_test_file_searches());
+    draw(cx);
+    assert_eq!(
+        cx.update(|_, app| viewer.read(app).palette_test_file_searches()),
+        searches
+    );
+    cx.simulate_input("item-499");
+    draw(cx);
+    let searches = cx.update(|_, app| viewer.read(app).palette_test_file_searches());
+    assert_eq!(
+        cx.update(|_, app| viewer.read(app).palette_test_count(app)),
+        1
+    );
+    cx.simulate_keystrokes("escape");
+    cx.simulate_keystrokes("secondary-shift-p");
+    draw(cx);
+    assert_eq!(
+        cx.update(|_, app| viewer.read(app).palette_test_file_searches()),
+        searches
+    );
+    cx.simulate_input("item-499");
+    draw(cx);
+    cx.simulate_keystrokes("enter");
+    draw(cx);
+    assert_eq!(
+        cx.update(|_, app| viewer.read(app).selected_path()),
+        Some("catalog/item-499.rs".into())
+    );
+}
+
+#[gpui_test::test]
+fn workspace_command_tracks_configured_bitbucket_accounts(cx: &mut TestAppContext) {
+    use jaywalk::accounts::{
+        AccountKey, AccountView, ConnectionState, Identity, Provider, application::Accounts,
+    };
+    crate::account_ui::tests::setup(cx);
+    let fixture = Fixture::new();
+    let (viewer, cx) = setup(&fixture, cx);
+    let state = cx.update(|_, app| app.global::<Accounts>().state.clone());
+    cx.update(|_, app| {
+        state.update(app, |state, cx| {
+            state.snapshot.loaded = true;
+            state.snapshot.accounts.clear();
+            cx.notify();
+        })
+    });
+    cx.simulate_keystrokes("secondary-p");
+    cx.simulate_input("workspace");
+    draw(cx);
+    assert_eq!(
+        cx.update(|_, app| viewer.read(app).palette_test_count(app)),
+        0
+    );
+    cx.update(|_, app| {
+        state.update(app, |state, cx| {
+            state.snapshot.accounts.push(AccountView {
+                name: None,
+                generation: 1,
+                identity: Identity {
+                    key: AccountKey {
+                        provider: Provider::Bitbucket,
+                        subject: "synthetic-bb".into(),
+                    },
+                    label: "Synthetic".into(),
+                },
+                workspace: None,
+                state: ConnectionState::Connected,
+            });
+            cx.notify();
+        })
+    });
+    draw(cx);
+    assert_eq!(
+        cx.update(|_, app| viewer.read(app).palette_test_count(app)),
+        1
+    );
+    cx.update(|_, app| {
+        state.update(app, |state, cx| {
+            state.snapshot.accounts.clear();
+            cx.notify();
+        })
+    });
+    draw(cx);
+    assert_eq!(
+        cx.update(|_, app| viewer.read(app).palette_test_count(app)),
+        0
     );
 }
