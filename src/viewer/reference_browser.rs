@@ -215,10 +215,10 @@ impl Render for ReferenceBrowser {
             )
         });
         let row_height = px(f32::from(
-            window.rem_size() * 0.875 * 1.5 + crate::spacing::interactive(cx) * 2. + px(2.),
+            window.rem_size() * 0.875 * 1.5 + crate::spacing::interactive(cx) * 2.,
         )
         .ceil())
-        .max(px(30.));
+        .max(px(14.) + crate::spacing::interactive(cx) * 2.);
         let rows = uniform_list(
             "reference-rows",
             self.rows.len(),

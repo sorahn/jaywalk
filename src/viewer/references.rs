@@ -479,6 +479,8 @@ pub(super) fn reference_row(
             Button::new(SharedString::from(format!("open:{label}:{target}")))
                 .ghost()
                 .small()
+                .py(crate::spacing::interactive(cx))
+                .min_h(px(0.))
                 .selected(selected)
                 .flex_1()
                 .min_w_0()
