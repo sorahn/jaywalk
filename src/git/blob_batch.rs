@@ -33,6 +33,7 @@ impl Drop for Process {
 
 pub(crate) struct BlobBatch {
     root: PathBuf,
+    git_directory: Option<PathBuf>,
     limit: TextLimit,
     process: Option<Process>,
 }
@@ -40,16 +41,29 @@ impl BlobBatch {
     pub(crate) fn new(root: &Path, limit: TextLimit) -> Self {
         Self {
             root: root.to_owned(),
+            git_directory: None,
             limit,
             process: None,
         }
     }
+    pub(crate) fn with_git_directory(root: &Path, directory: &Path, limit: TextLimit) -> Self {
+        Self {
+            git_directory: Some(directory.to_owned()),
+            ..Self::new(root, limit)
+        }
+    }
     fn start(&mut self) -> Result<&mut Process, String> {
         if self.process.is_none() {
-            let mut child = crate::tools::command("git")?
+            let mut command = crate::tools::command("git")?;
+            command
                 .current_dir(&self.root)
                 .env("GIT_OPTIONAL_LOCKS", "0")
-                .args(["--no-pager", "--literal-pathspecs", "cat-file", "--batch"])
+                .args(["--no-pager", "--literal-pathspecs"]);
+            if let Some(directory) = &self.git_directory {
+                command.arg("--git-dir").arg(directory);
+            }
+            let mut child = command
+                .args(["cat-file", "--batch"])
                 .stdin(Stdio::piped())
                 .stdout(Stdio::piped())
                 .stderr(Stdio::piped())

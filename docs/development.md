@@ -457,6 +457,18 @@ Keep private real-repository results in the personal notes store; repository
 regressions use disposable synthetic fixtures only. Streamed metadata fields
 are bounded to 1 MiB and query stderr to 64 KiB; errors retain the current view.
 
+### Recorded jj overview content
+
+A recorded comparison captures file kinds and object IDs for both immutable
+endpoints once, using the pinned jj operation. It resolves the Git object-store
+directory once, including for non-colocated repositories. Overview preparation
+then reads normal blobs through one size-checked `git cat-file --batch` stream.
+The stream belongs to the read session and closes when preparation finishes;
+comparison/navigation snapshots retain metadata, not idle child processes or
+unbounded decoded-text caches. Oversized, binary or invalid replies reset the
+stream before another file is read. Conflicted/materialized entries retain the
+operation-pinned, bounded `jj file show` fallback.
+
 ### Publisher GitHub setup and account errors
 
 Shipped builds resolve the public GitHub client from compile-time
