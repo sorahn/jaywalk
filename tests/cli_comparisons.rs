@@ -315,7 +315,27 @@ fn finder_environment_can_read_a_jj_repository_without_launching_a_window() {
         "{}",
         String::from_utf8_lossy(&result.stderr)
     );
+    // The restricted child cannot see the parent job's tool directory. Provide
+    // a supported user-install location without relying on a real Homebrew/Cargo
+    // installation or the developer's config. Never execute an unknown wrapper.
+    use std::os::unix::fs::PermissionsExt;
+    let jj = std::env::split_paths(&std::env::var_os("PATH").expect("test tool PATH"))
+        .map(|directory| directory.join("jj"))
+        .find(|path| {
+            std::fs::metadata(path).is_ok_and(|metadata| {
+                metadata.is_file() && metadata.permissions().mode() & 0o111 != 0
+            })
+        })
+        .expect("install jj before running repository tests")
+        .canonicalize()
+        .unwrap();
+    let home = tempfile::tempdir().unwrap();
+    let tools = home.path().join(".cargo/bin");
+    std::fs::create_dir_all(&tools).unwrap();
+    std::os::unix::fs::symlink(jj, tools.join("jj")).unwrap();
     let result = Command::new(env!("CARGO_BIN_EXE_jaywalk"))
+        .env("HOME", home.path())
+        .env_remove("XDG_CONFIG_HOME")
         .env("PATH", "/usr/bin:/bin:/usr/sbin:/sbin")
         .args(["--inspect", fixture.0.to_str().unwrap()])
         .output()
