@@ -1,11 +1,12 @@
 #!/bin/sh
 # Credential-free validation of the generated Homebrew cask on a clean CI runner.
 set -eu
+. "$(dirname "$0")/native-shell.sh"
 cd "$(dirname "$0")/.."
 workspace=$(mktemp -d)
 trap 'rm -rf "$workspace"' EXIT
 mkdir "$workspace/Casks"
-python3 - "$workspace/Casks/jaywalk.rb" <<'PY'
+scripts/python.sh - "$workspace/Casks/jaywalk.rb" <<'PY'
 import importlib.util,sys
 from pathlib import Path
 spec=importlib.util.spec_from_file_location('metadata',Path('scripts/release-macos.py'))

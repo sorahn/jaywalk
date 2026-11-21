@@ -72,10 +72,10 @@ jobs:
         run: |
           test "$(uname -m)" = arm64
           export JAYWALK_SPARKLE_DIR="$PWD/target/sparkle"
-          python3 scripts/fetch-sparkle.py "$JAYWALK_SPARKLE_DIR"
+          scripts/python.sh scripts/fetch-sparkle.py "$JAYWALK_SPARKLE_DIR"
           scripts/bundle-macos.sh release
-          python3 scripts/release-macos.py package target/release/Jaywalk.app target/distribution
-          python3 scripts/release-macos.py manifest target/release/Jaywalk.app target/distribution/*.zip target/distribution/*.dmg > target/distribution/manifest.json
+          scripts/python.sh scripts/release-macos.py package target/release/Jaywalk.app target/distribution
+          scripts/python.sh scripts/release-macos.py manifest target/release/Jaywalk.app target/distribution/*.zip target/distribution/*.dmg > target/distribution/manifest.json
           printf '%s\n' 'UNSIGNED REHEARSAL. Not notarized, not an official release, and no update feed is configured.' > target/distribution/REHEARSAL.txt
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
@@ -114,7 +114,7 @@ jobs:
           SPARKLE_PUBLIC_KEY: ${{ vars.SPARKLE_PUBLIC_KEY }}
           UPDATE_FEED_URL: ${{ vars.UPDATE_FEED_URL }}
         run: |
-          python3 - <<'PYTHON'
+          /usr/bin/arch -arm64 /usr/bin/python3 - <<'PYTHON'
           import os
           required = (
               "MACOS_CERTIFICATE_P12_BASE64",
@@ -169,8 +169,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           test "$(git rev-parse HEAD)" = "$EXPECTED_SOURCE"
-          python3 target/release-automation/scripts/release-pipeline.py check-source "$JAYWALK_RELEASE_TAG" "$EXPECTED_SOURCE" "$JAYWALK_RELEASE_CHECKS_RUN"
-          python3 target/release-automation/scripts/release-macos.py check-tag "$JAYWALK_RELEASE_TAG"
+          target/release-automation/scripts/python.sh target/release-automation/scripts/release-pipeline.py check-source "$JAYWALK_RELEASE_TAG" "$EXPECTED_SOURCE" "$JAYWALK_RELEASE_CHECKS_RUN"
+          target/release-automation/scripts/python.sh target/release-automation/scripts/release-macos.py check-tag "$JAYWALK_RELEASE_TAG"
       # The allocation above validates the exact source's completed checks run.
       # Reuse those checks; the injected version policy is covered by headless tests.
       - name: Sign, notarize and prepare draft assets
@@ -191,4 +191,4 @@ jobs:
       - name: Create draft release only
         env:
           GH_TOKEN: ${{ github.token }}
-        run: python3 target/release-automation/scripts/release-pipeline.py draft "$JAYWALK_RELEASE_TAG" target/distribution
+        run: target/release-automation/scripts/python.sh target/release-automation/scripts/release-pipeline.py draft "$JAYWALK_RELEASE_TAG" target/distribution

@@ -1,6 +1,7 @@
 #!/bin/sh
 # Disposable keys only: never touches the login Keychain or production credentials.
 set -eu
+. "$(dirname "$0")/native-shell.sh"
 cd "$(dirname "$0")/.."
 : "${JAYWALK_SPARKLE_DIR:?Fetch the pinned Sparkle SDK first}"
 workspace=$(mktemp -d)
@@ -26,7 +27,7 @@ fi
 mkdir -p "$workspace/FeedProbe.app/Contents/MacOS" "$workspace/feed"
 printf '%s\n' 'int main(void) {return 0;}' > "$workspace/probe.c"
 xcrun clang "$workspace/probe.c" -o "$workspace/FeedProbe.app/Contents/MacOS/probe"
-python3 - <<'PY'
+scripts/python.sh - <<'PY'
 import os,plistlib
 from pathlib import Path
 root=Path(os.environ['JAYWALK_FEED_FIXTURE'])
@@ -37,7 +38,7 @@ codesign --force --sign - "$workspace/FeedProbe.app"
 ditto -c -k --sequesterRsrc --keepParent "$workspace/FeedProbe.app" "$workspace/feed/FeedProbe.zip"
 "$JAYWALK_SPARKLE_DIR/bin/generate_appcast" --ed-key-file "$workspace/private.key" --download-url-prefix https://github.com/example/fixture/releases/download/v2026.11.1/ "$workspace/feed" > "$workspace/generation.log" 2>&1
 "$JAYWALK_SPARKLE_DIR/bin/sign_update" --verify --ed-key-file "$workspace/private.key" "$workspace/feed/appcast.xml"
-python3 - <<'VERIFY'
+scripts/python.sh - <<'VERIFY'
 import importlib.util,os,subprocess
 from pathlib import Path
 root=Path(os.environ['JAYWALK_FEED_FIXTURE'])
@@ -47,7 +48,7 @@ report={'artifacts':[{'filename':'FeedProbe.zip','bytes':(root/'feed/FeedProbe.z
 archive,signature=promotion.enclosure(root/'feed/appcast.xml','v2026.11.1',report,'example/fixture')
 subprocess.run([os.environ['JAYWALK_SPARKLE_DIR']+'/bin/sign_update','--verify','--ed-key-file',str(root/'private.key'),str(root/'feed'/archive),signature],check=True)
 VERIFY
-python3 - <<'PY'
+scripts/python.sh - <<'PY'
 import os
 from pathlib import Path
 path=Path(os.environ['JAYWALK_FEED_FIXTURE'])/'feed/appcast.xml'

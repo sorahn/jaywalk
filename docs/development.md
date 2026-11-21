@@ -46,6 +46,17 @@ remain usable directly. The justfile delegates bundling and launcher installatio
 to those scripts rather than duplicating them. Recipe arguments use quoted shell
 positional parameters, preserving paths with spaces and literal special characters.
 
+On Apple Silicon, run Python tooling through `scripts/python.sh` (for example,
+`scripts/python.sh -m unittest discover -s scripts -p 'test_*.py'`). Repository
+recipes and workflows use this wrapper. It selects and explicitly launches an
+ARM64 Python 3.11+ interpreter even when PATH contains an Intel Python, preventing
+its Apple tool subprocesses from inheriting Rosetta. Shell entry points also
+re-launch natively when started by an Intel parent.
+These guards leave other platforms unchanged.
+Native bundle builds reject an Intel Rust host on Apple Silicon. Packaging and
+release manifests also inspect both app executables and every nested Mach-O;
+Intel-only helpers are rejected, while universal helpers with ARM slices work.
+
 ## Profile PR opening
 
 Normal PR opens and updates emit `PR open:` timing lines to stderr (`jaywalk.log` in the default config directory for normal detached launches; an explicit `--config` uses that config path with a `.log` extension). They report account-loading time, manifest resolution, repository matching, Git acquisition, file metadata, verification and optional checkout, plus a logical review-API request count. Token refresh, identity validation and HTTP retries are not separate entries in that request count. The diagnostics omit account/repository identifiers, URLs, paths, commits and tokens. Cancellation and failures also record completed stages.

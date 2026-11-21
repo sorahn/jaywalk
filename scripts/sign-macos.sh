@@ -1,6 +1,7 @@
 #!/bin/sh
 # Keep the signing identity stable across local rebuilds. Never weaken Keychain ACLs.
 set -eu
+. "$(dirname "$0")/native-shell.sh"
 if [ "$#" -lt 1 ] || [ "$#" -gt 2 ]; then
     echo 'usage: scripts/sign-macos.sh TARGET [IDENTIFIER]' >&2
     exit 2

@@ -1,5 +1,6 @@
 #!/bin/sh
 set -eu
+. "$(dirname "$0")/native-shell.sh"
 cd "$(dirname "$0")/.."
 profile=${1:-debug}
 binaries=$(scripts/build-native.sh "$profile")
@@ -37,7 +38,7 @@ if [ "${JAYWALK_MACOS_UPDATER:-0}" = 1 ]; then
     done
     scripts/sign-macos.sh "$bundle/Contents/Frameworks/Sparkle.framework" preserve
     # Absence of public configuration is intentional in unsigned rehearsals.
-    JAYWALK_BUNDLE_PATH="$bundle" python3 - <<'PLIST'
+    JAYWALK_BUNDLE_PATH="$bundle" scripts/python.sh - <<'PLIST'
 import os,plistlib
 from pathlib import Path
 path=Path(os.environ['JAYWALK_BUNDLE_PATH'])/'Contents/Info.plist'
@@ -53,10 +54,11 @@ PLIST
 fi
 mkdir -p "$bundle/Contents/Resources/licenses"
 cp LICENSE "$bundle/Contents/Resources/licenses/Jaywalk.txt"
-python3 scripts/bundle-licenses.py "$bundle/Contents/Resources/licenses/dependencies"
+scripts/python.sh scripts/bundle-licenses.py "$bundle/Contents/Resources/licenses/dependencies"
 if [ "${JAYWALK_MACOS_UPDATER:-0}" = 1 ]; then
     cp "$JAYWALK_SPARKLE_DIR/LICENSE" "$bundle/Contents/Resources/licenses/Sparkle.txt"
 fi
+scripts/python.sh scripts/release-macos.py check-architecture "$bundle"
 scripts/sign-macos.sh "$bundle/Contents/MacOS/jw" dev.jaywalk.jw
 scripts/sign-macos.sh "$bundle"
 # Replace the bundle by renaming directories. Never overwrite a running Mach-O
