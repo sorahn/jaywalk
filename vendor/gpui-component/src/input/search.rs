@@ -341,6 +341,9 @@ impl<M: crate::input::overlay::OverlayMode> Render for SearchPanel<M> {
             .px_3()
             .w_full()
             .gap_1()
+            .when_some(cx.theme().host_spacing, |this, spacing| {
+                this.p(spacing.edge).gap(spacing.interactive)
+            })
             .bg(cx.theme().tokens.popover)
             .border_b_1()
             .rounded(cx.theme().radius.half())

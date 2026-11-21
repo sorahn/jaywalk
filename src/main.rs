@@ -23,6 +23,7 @@ use cli::Arguments;
 mod launcher;
 mod picker_ui;
 mod platform;
+mod spacing;
 mod updater;
 mod viewer;
 use viewer::Viewer;

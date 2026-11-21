@@ -65,8 +65,8 @@ impl Render for AboutView {
             .size_full()
             .items_center()
             .justify_center()
-            .gap_3()
-            .p_6()
+            .gap(crate::spacing::edge(cx))
+            .p(crate::spacing::space(6., cx))
             .bg(gpui::component::Theme::global(cx).background)
             .text_color(gpui::component::Theme::global(cx).foreground)
             .child(div().text_xl().child("Jaywalk"))
@@ -84,7 +84,7 @@ impl Render for AboutView {
             .child(
                 div()
                     .h_flex()
-                    .gap_2()
+                    .gap(crate::spacing::edge(cx))
                     .child(Button::new("copy-version").label("Copy version").on_click(
                         |_, _, cx| {
                             cx.write_to_clipboard(ClipboardItem::new_string(format!(

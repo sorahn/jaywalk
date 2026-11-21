@@ -155,8 +155,28 @@ Appearance and accent share the existing application-wide, last-successfully-app
 | `ui.footer_control_height` | `22` | Footer control height; 16–80. |
 | `ui.comparison_bar_height` | `30` | Reserved comparison/evolution toolbar height, including compact back/forward controls; 24–120. Grows to fit the UI font. |
 | `ui.font_size` | `16` | Application control font size; 8–48. Does not replace independent source/sidebar sizes. |
+| `ui.spacing.unit` | `4` | Logical pixels per spacing unit; 1–16. Independent of UI/source font sizes. Applies live to app chrome, pages, and floating controls. |
+| `ui.spacing.edge` | `2` | Unit multiplier for edges, section gaps, and default tree indentation; 0–8. Default 8px. |
+| `ui.spacing.interactive` | `1` | Unit multiplier for padding within hover/selection targets and tight control gaps; 0–8. Default 4px. |
 | `ui.ligatures` | `true` | Enable ligatures and contextual alternates for application text. |
 | `ui.font_family` | omitted | Installed family name; defaults to the theme/system UI font. Must be nonempty when supplied. |
+
+Spacing uses one scale: `space(1)` = 4px, `space(2)` = 8px,
+`space(3)` = 12px, `space(4)` = 16px, and `space(6)` = 24px at defaults.
+Edges normally use two units and interactive content one. Larger page margins
+use multiples of the same unit. History/file row backgrounds span their panels
+with square edges; floating selection targets and toggle groups are rounded. Toggle groups share
+their buttons' hover boundary: the interactive inset is applied once, inside
+each button, without additional group padding.
+Bars grow beyond their configured minimum when controls/padding need more room.
+Border widths, icon sizes, and corner radii keep their own geometry.
+
+```toml
+[ui.spacing]
+unit = 4
+edge = 2
+interactive = 1
+```
 
 All configurable colors accept the same hex formats; `ui.accent_color` additionally accepts `"system"`. A hex string applies in both modes;
 a table selects a color for the active appearance. Omitted table members inherit
@@ -319,7 +339,7 @@ origin = true
 | `files.indent_guide_offset` | `-2` | Horizontal guide offset from ancestor icon centers in pixels; −48–48. Negative moves left. Applies live. |
 | `files.indent_guide_opacity` | `0.12` | Guide opacity using the theme foreground; 0–1. Applies live. |
 | `files.file_icons` | `true` | File-type glyphs in list/tree views; unknown types use a generic file. Folder icons always indicate open/closed state. Applies live. |
-| `files.indent_width` | `12` | Directory-tree indentation per level; 8–48. |
+| `files.indent_width` | omitted (8px derived) | Directory-tree indentation follows `ui.spacing.unit × ui.spacing.edge`. An explicit 1–128px override remains supported. |
 | `files.compact_paths` | `true` | Condense directory components in unwrapped flat-list labels as space runs out; filenames remain intact. |
 | `files.list_word_wrap` | `false` | Wrap flat-list paths instead of scrolling them horizontally. Tree rows always remain single-line. |
 | `files.tree_row_height` | omitted | Override ui.row_height for tree rows; 12–200. Font size can raise the effective minimum. |
@@ -860,7 +880,9 @@ lightness_shift = { light = 0.0, dark = 0.02 }
 Surface prefixes are `shell.window`, `shell.header`, `shell.footer`,
 `shell.sidebar.history`, `shell.sidebar.files`, each sidebar's `.header` and
 `.footer`, `shell.floating`, `editor`, and `editor.header`. Each has
-`.background`, `.foreground`, `.foreground.muted`, and `.border`. The window
+`.background`, `.foreground`, `.foreground.muted`, `.border`, and `.group.background`.
+Toggle groups derive their fill by blending that surface background 6% toward its
+foreground; per-surface exact `.group.background` overrides are supported. The window
 foreground/muted/border names are shortened to `shell.foreground`,
 `shell.foreground.muted`, and `shell.border`.
 

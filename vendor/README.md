@@ -128,3 +128,11 @@ or clipboard text. Configurable whitespace-error color is part of `DiffColors`.
 Popover/menu shadow rings and existing tooltip edges use it without changing
 layout metrics; `None` retains the upstream neutral edges. Jaywalk resolves this
 from its live accent setting and `ui.accent_floating_outlines`.
+
+`Theme::host_spacing` optionally supplies a logical-pixel unit and edge/interactive
+roles. Jaywalk projects its live `[ui.spacing]` settings into this policy.
+Command rows/measurement/insets, popovers, menus, tooltips, inputs/search and named
+button sizes consume it while preserving toolkit defaults when absent. Explicit
+control size/style overrides still win. Spacing changes invalidate measured
+command rows independently of typography. The existing spacing-token projection
+uses the same unit; application files and history keep full-width square rows.

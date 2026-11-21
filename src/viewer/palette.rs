@@ -601,7 +601,8 @@ impl Viewer {
                     .flex()
                     .justify_center()
                     .items_start()
-                    .pt_12()
+                    .pt(crate::spacing::space(12.0, cx))
+                    .px(crate::spacing::edge(cx))
                     .on_mouse_down(
                         MouseButton::Left,
                         cx.listener(|viewer, _, window, cx| viewer.close_palette(window, cx)),
@@ -987,12 +988,12 @@ impl Viewer {
                         })
                 }))
                 .when(matches!(kind, PaletteKind::Repositories), |command| {
-                    command.footer(|_, window, _| {
+                    command.footer(|_, window, cx| {
                         div()
                             .h_flex()
-                            .gap_2()
-                            .px_3()
-                            .py_2()
+                            .gap(crate::spacing::edge(cx))
+                            .px(crate::spacing::edge(cx))
+                            .py(crate::spacing::edge(cx))
                             .text_sm()
                             .children(gpui::component::kbd::Kbd::binding_for_action(
                                 &commands::ExecuteCommand {
@@ -1011,7 +1012,7 @@ impl Viewer {
                 .max_h(px(360.))
                 .empty({
                     let message = self.picker_empty(kind);
-                    move |_, _, _| div().p_3().child(message)
+                    move |_, _, cx| div().p(crate::spacing::edge(cx)).child(message)
                 })
                 .on_query(cx.listener(|this, query: &str, window, cx| {
                     this.palette_query_changed(query, window, cx)
@@ -1076,7 +1077,8 @@ impl Viewer {
                 .flex()
                 .justify_center()
                 .items_start()
-                .pt_12()
+                .pt(crate::spacing::space(12.0, cx))
+                .px(crate::spacing::edge(cx))
                 .on_mouse_down(
                     MouseButton::Left,
                     cx.listener(|this, _, window, cx| this.close_palette(window, cx)),
@@ -1091,7 +1093,9 @@ impl Viewer {
                             matches!(kind, PaletteKind::Repositories)
                                 .then(|| cx.global::<crate::recents::Recents>().error.as_ref())
                                 .flatten()
-                                .map(|error| feedback::error_message("recent-picker-error", error)),
+                                .map(|error| {
+                                    feedback::error_message("recent-picker-error", error, cx)
+                                }),
                         ),
                 )
                 .into_any_element(),

@@ -426,8 +426,8 @@ impl Viewer {
             return surface
                 .child(
                     div()
-                        .p_6()
-                        .child(feedback::error_message("overview-error", &error)),
+                        .p(crate::spacing::space(6.0, cx))
+                        .child(feedback::error_message("overview-error", &error, cx)),
                 )
                 .into_any_element();
         }
@@ -459,14 +459,14 @@ impl Viewer {
                         .flex()
                         .items_center()
                         .justify_center()
-                        .p_6()
+                        .p(crate::spacing::space(6.0, cx))
                         .text_size(px(self.settings.ui.font_size))
                         .text_color(theme.muted_foreground)
                         .child(
                             div()
                                 .h_flex()
                                 .items_center()
-                                .gap_2()
+                                .gap(crate::spacing::edge(cx))
                                 .children(loading.then(|| {
                                     Spinner::new()
                                         .with_size(px(self.settings.ui.font_size))
@@ -517,8 +517,8 @@ impl Viewer {
             let mut header = div()
                 .id("overview-message")
                 .v_flex()
-                .gap_2()
-                .p_4()
+                .gap(crate::spacing::edge(cx))
+                .p(crate::spacing::space(4.0, cx))
                 .when(standalone, |header| {
                     header.max_h(px(max_height)).overflow_y_scroll()
                 })
@@ -529,7 +529,7 @@ impl Viewer {
                     div()
                         .h_flex()
                         .items_center()
-                        .gap_2()
+                        .gap(crate::spacing::edge(cx))
                         .child(
                             div()
                                 .flex_1()
@@ -609,6 +609,7 @@ impl Viewer {
                     &expanded_messages,
                     series_viewer.clone(),
                     muted,
+                    cx,
                 ));
             } else {
                 header = header.child(div().text_xl().whitespace_normal().child(title.to_owned()));
@@ -665,8 +666,8 @@ impl Viewer {
             .line_number(self.line_numbers)
             .soft_wrap(self.wrapping.inline)
             .annotations(annotations)
-            .render_annotation(move |annotation, _, _| {
-                div().p_3().whitespace_normal().child(
+            .render_annotation(move |annotation, _, cx| {
+                div().p(crate::spacing::edge(cx)).whitespace_normal().child(
                     notices
                         .get(annotation.path().as_ref())
                         .and_then(|file| file.notice.clone())
@@ -744,7 +745,7 @@ impl Viewer {
                     .min_h_0()
                     .child(if loaded.files.is_empty() {
                         div()
-                            .p_6()
+                            .p(crate::spacing::space(6.0, cx))
                             .child(if self.is_interdiff() {
                                 "No patch changes between these versions."
                             } else {
@@ -883,9 +884,18 @@ fn render_series(
     expanded_messages: &HashSet<String>,
     owner: WeakEntity<Viewer>,
     muted: Hsla,
+    cx: &App,
 ) -> AnyElement {
-    let mut list = div().v_flex().gap_1().line_height(relative(1.35));
-    list = list.child(div().mb_1().text_xl().child("Commits in this comparison"));
+    let mut list = div()
+        .v_flex()
+        .gap(crate::spacing::interactive(cx))
+        .line_height(relative(1.35));
+    list = list.child(
+        div()
+            .mb(crate::spacing::interactive(cx))
+            .text_xl()
+            .child("Commits in this comparison"),
+    );
     if series.commits.is_empty() {
         list = list.child(div().text_color(muted).child("No commits in this range."));
     }
@@ -916,7 +926,7 @@ fn render_series(
         let mut row = div()
             .h_flex()
             .items_start()
-            .gap_2()
+            .gap(crate::spacing::edge(cx))
             .child("•")
             .child(subject_element);
         if !body.is_empty() {
@@ -956,7 +966,7 @@ fn render_series(
         if open && !body.is_empty() {
             list = list.child(
                 div()
-                    .pl_4()
+                    .pl(crate::spacing::space(4.0, cx))
                     .text_sm()
                     .text_color(muted)
                     .whitespace_normal()

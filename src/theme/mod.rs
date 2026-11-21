@@ -205,6 +205,13 @@ fn resolve_mode(settings: &ThemeSettings, dark: bool) -> Shell {
             Role::Surface(surface, Part::Foreground),
             bg.color.readable(),
         );
+        colors.insert(
+            Role::Surface(surface, Part::GroupBackground),
+            override_color(
+                Role::Surface(surface, Part::GroupBackground),
+                bg.color.blend(fg.color, 0.06),
+            ),
+        );
         colors.insert(bg_role, bg);
         colors.insert(Role::Surface(surface, Part::Foreground), fg);
         colors.insert(

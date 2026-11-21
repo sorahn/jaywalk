@@ -203,7 +203,7 @@ impl Viewer {
             .debug_selector(|| "setup-local".into())
             .v_flex()
             .min_w_0()
-            .gap_3()
+            .gap(crate::spacing::edge(cx))
             .when(wide, |el| el.flex_1())
             .when(!wide, |el| el.w_full())
             .child(div().text_lg().font_medium().child("Command line"))
@@ -228,8 +228,14 @@ impl Viewer {
                     })
                     .on_click(cx.listener(|v, _, w, c| v.install_cli(w, c))),
             )
-            .child(div().pt_2().text_lg().font_medium().child("Appearance"));
-        let mut appearance = div().h_flex().gap_2();
+            .child(
+                div()
+                    .pt(crate::spacing::edge(cx))
+                    .text_lg()
+                    .font_medium()
+                    .child("Appearance"),
+            );
+        let mut appearance = div().h_flex().gap(crate::spacing::edge(cx));
         for (id, label, mode) in [
             (0usize, "System", Appearance::System),
             (1, "Light", Appearance::Light),
@@ -247,9 +253,13 @@ impl Viewer {
                     })),
             );
         }
-        local = local
-            .child(appearance)
-            .child(div().pt_2().text_lg().font_medium().child("Get started"));
+        local = local.child(appearance).child(
+            div()
+                .pt(crate::spacing::edge(cx))
+                .text_lg()
+                .font_medium()
+                .child("Get started"),
+        );
         for command in [
             CommandId::OpenRepository,
             CommandId::ConnectAccount,
@@ -279,7 +289,7 @@ impl Viewer {
                     .text_color(muted)
                     .child("jj and hosting accounts are optional."),
             );
-        let mut updates=div().id("setup-updates").debug_selector(||"setup-updates".into()).v_flex().min_w_0().gap_3().when(wide,|el|el.flex_1())
+        let mut updates=div().id("setup-updates").debug_selector(||"setup-updates".into()).v_flex().min_w_0().gap(crate::spacing::edge(cx)).when(wide,|el|el.flex_1())
             .child(div().text_lg().font_medium().child("Updates"))
             .child(div().text_sm().text_color(muted).child("Opt in to automatic checks, downloads or installation. Each checkbox saves immediately. Nothing update-related connects unless automatic checks are enabled or you explicitly check."));
         for (index, label, selected, enabled) in [
@@ -331,19 +341,19 @@ impl Viewer {
             );
         }
         updates=updates.child(div().text_sm().text_color(muted).child(format!("Checks run every {} hours. Downloading alone never authorizes installation; choose when to restart.",self.setup.updates.check_interval_hours)))
-            .child(div().pt_2().text_sm().text_color(muted).child("Update source"))
+            .child(div().pt(crate::spacing::edge(cx)).text_sm().text_color(muted).child("Update source"))
             .child(div().text_sm().text_color(muted).child(crate::updater::source()))
             .child(div().text_sm().text_color(muted).child("Downloads use GitHub Releases. No hosting account is required."))
             .child(div().text_sm().text_color(muted).child(crate::updater::status()));
         let columns = div()
             .id("setup-columns")
-            .gap_6()
+            .gap(crate::spacing::space(6., cx))
             .when(wide, |el| el.h_flex())
             .when(!wide, |el| el.v_flex())
             .items_start()
             .child(local)
             .child(updates);
-        let mut body=div().id("setup-content").debug_selector(||"setup-content".into()).v_flex().w_full().max_w(px(1050.)).gap_4()
+        let mut body=div().id("setup-content").debug_selector(||"setup-content".into()).v_flex().w_full().max_w(px(1050.)).gap(crate::spacing::space(4., cx))
             .child(div().text_2xl().font_medium().child("Make Jaywalk yours"))
             .child(div().text_sm().text_color(muted).child("A few optional choices to get started. You can revisit setup anytime from the command palette."))
             .child(columns);
@@ -354,8 +364,8 @@ impl Viewer {
             div()
                 .h_flex()
                 .justify_between()
-                .gap_2()
-                .pt_3()
+                .gap(crate::spacing::edge(cx))
+                .pt(crate::spacing::edge(cx))
                 .border_t_1()
                 .border_color(theme.border)
                 .child(
@@ -388,8 +398,8 @@ impl Viewer {
             .overflow_y_scroll()
             .v_flex()
             .items_center()
-            .p_4()
-            .when(wide, |el| el.p_6())
+            .p(crate::spacing::space(4., cx))
+            .when(wide, |el| el.p(crate::spacing::space(6., cx)))
             .child(body)
             .into_any_element()
     }

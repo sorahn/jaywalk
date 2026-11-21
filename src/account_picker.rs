@@ -453,8 +453,8 @@ impl Render for AccountPicker {
             .max_h(px(360.))
             .placeholder(title)
             .description(move |_, _, cx| crate::picker_ui::context(context.clone(), cx))
-            .empty(|_, _, _| {
-                div().p_3().child(
+            .empty(|_, _, cx| {
+                div().p(crate::spacing::edge(cx)).child(
                     "No matching accounts or actions. Use Connect account, or Escape to go back.",
                 )
             })

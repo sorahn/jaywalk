@@ -11,8 +11,6 @@ use std::collections::HashMap;
 
 use jaywalk::settings::{FileView as FileListMode, TreeScope};
 
-use super::chrome::PANEL_INSET;
-
 /// Canvas bounds start inside the row's indentation padding. Subtract the
 /// current depth before locating ancestor icon centers in window coordinates.
 fn ancestor_guide_positions(
@@ -299,7 +297,7 @@ impl Viewer {
             &mut self.browser.tree_indices,
             &mut self.browser.tree_width,
             self.settings.panels.files.font.size * 0.5,
-            self.settings.files.indent_width,
+            self.settings.file_indent_width(),
             self.browser.scope == TreeScope::Changed,
         );
         preserve_expansion(&items, &self.browser.roots, &mut self.browser.expansion);
@@ -379,7 +377,7 @@ impl Viewer {
 
     pub(super) fn refresh_browser_metrics(&mut self) {
         let glyph_width = self.settings.panels.files.font.size * 0.5;
-        let indent = self.settings.files.indent_width;
+        let indent = self.settings.file_indent_width();
         self.browser.tree_width = self
             .browser
             .files
@@ -442,7 +440,7 @@ impl Viewer {
             self.settings.files.tree_row_height,
             self.settings.panels.files.font.size,
         );
-        let indent_width = self.settings.files.indent_width;
+        let indent_width = self.settings.file_indent_width();
         let font_size = self.settings.panels.files.font.size;
         let viewer = cx.entity().downgrade();
         let source = self
@@ -459,7 +457,8 @@ impl Viewer {
             .opacity(self.settings.files.indent_guide_opacity);
         let click_viewer = viewer.clone();
         let click_source = source.as_ref().map(|(identity, _)| identity.clone());
-        let tree = Tree::new(&self.browser.tree, move |_, entry, _, _, _| {
+        let row_edge = self.settings.ui.spacing.edge_px();
+        let tree = Tree::new(&self.browser.tree, move |_, entry, _, _, cx| {
             let file_index = indices.get(&entry.item().id).copied();
             let temporary = file_index.is_some() && file_index == retained;
             let color = if temporary {
@@ -476,7 +475,7 @@ impl Viewer {
                 .debug_selector(move || selector.clone())
                 .h_flex()
                 .items_center()
-                .gap_1()
+                .gap(crate::spacing::interactive(cx))
                 .whitespace_nowrap();
             let icon = if entry.is_folder() {
                 Some(if entry.is_expanded() {
@@ -509,10 +508,11 @@ impl Viewer {
             let click_viewer = click_viewer.clone();
             let click_source = click_source.clone();
             ListItem::new(entry.item().id.clone())
+                .rounded_none()
                 .h(px(row_height))
                 .py_0()
                 .text_size(px(font_size))
-                .pl(px(entry.depth() as f32 * indent_width + PANEL_INSET))
+                .pl(px(entry.depth() as f32 * indent_width + row_edge))
                 .text_color(color)
                 .when(
                     reading.as_deref() == Some(entry.item().id.as_ref()),
@@ -650,7 +650,7 @@ impl Viewer {
             .child(
                 div()
                     .h_flex()
-                    .gap_1()
+                    .gap(crate::spacing::interactive(cx))
                     .child(self.panel_menu(jaywalk::panel_layout::PanelId::Files))
                     .child(self.render_find_file_button(cx))
                     .children((self.browser.mode == FileListMode::Tree).then(|| {
@@ -681,40 +681,43 @@ impl Viewer {
                             }))
                     }))
                     .child(
-                        Button::new("file-list-mode")
-                            .ghost()
-                            .small()
-                            .compact()
-                            .icon(toggle_icon(
-                                IconName::List,
-                                self.browser.mode == FileListMode::List,
-                            ))
-                            .tooltip("File list")
-                            .toggled(self.browser.mode == FileListMode::List)
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                this.browser.mode = FileListMode::List;
-                                this.rebuild_browser(cx);
-                                this.save_layout(cx);
-                                cx.notify();
-                            })),
-                    )
-                    .child(
-                        Button::new("file-tree-mode")
-                            .ghost()
-                            .small()
-                            .compact()
-                            .icon(toggle_icon(
-                                IconName::FolderTree,
-                                self.browser.mode == FileListMode::Tree,
-                            ))
-                            .tooltip("Directory tree")
-                            .toggled(self.browser.mode == FileListMode::Tree)
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                this.browser.mode = FileListMode::Tree;
-                                this.rebuild_browser(cx);
-                                this.save_layout(cx);
-                                cx.notify();
-                            })),
+                        crate::spacing::toggle_group(Surface::FilesHeader, cx)
+                            .child(
+                                Button::new("file-list-mode")
+                                    .ghost()
+                                    .small()
+                                    .compact()
+                                    .icon(toggle_icon(
+                                        IconName::List,
+                                        self.browser.mode == FileListMode::List,
+                                    ))
+                                    .tooltip("File list")
+                                    .toggled(self.browser.mode == FileListMode::List)
+                                    .on_click(cx.listener(|this, _, _, cx| {
+                                        this.browser.mode = FileListMode::List;
+                                        this.rebuild_browser(cx);
+                                        this.save_layout(cx);
+                                        cx.notify();
+                                    })),
+                            )
+                            .child(
+                                Button::new("file-tree-mode")
+                                    .ghost()
+                                    .small()
+                                    .compact()
+                                    .icon(toggle_icon(
+                                        IconName::FolderTree,
+                                        self.browser.mode == FileListMode::Tree,
+                                    ))
+                                    .tooltip("Directory tree")
+                                    .toggled(self.browser.mode == FileListMode::Tree)
+                                    .on_click(cx.listener(|this, _, _, cx| {
+                                        this.browser.mode = FileListMode::Tree;
+                                        this.rebuild_browser(cx);
+                                        this.save_layout(cx);
+                                        cx.notify();
+                                    })),
+                            ),
                     ),
             ),
             div()
@@ -736,8 +739,8 @@ impl Viewer {
             LoadState::Failed(error) => {
                 panel = panel.child(
                     div()
-                        .p_3()
-                        .child(feedback::error_message("files-error", &error)),
+                        .p(crate::spacing::edge(cx))
+                        .child(feedback::error_message("files-error", &error, cx)),
                 )
             }
             LoadState::Loaded(comparison)
@@ -745,7 +748,7 @@ impl Viewer {
                     && !(self.browser.mode == FileListMode::Tree
                         && self.browser.scope == TreeScope::All) =>
             {
-                panel = panel.child(div().p_3().child("No changed files"));
+                panel = panel.child(div().p(crate::spacing::edge(cx)).child("No changed files"));
             }
             _ => {}
         }
@@ -796,9 +799,9 @@ impl Viewer {
                             })
                             .h_flex()
                             .items_center()
-                            .gap_2()
-                            .pl(px(PANEL_INSET))
-                            .pr_3()
+                            .gap(crate::spacing::edge(cx))
+                            .pl(px(self.settings.ui.spacing.edge_px()))
+                            .pr(crate::spacing::edge(cx))
                             .min_h(px(self.settings.row_height(
                                 self.settings.files.list_row_height,
                                 self.settings.panels.files.font.size,

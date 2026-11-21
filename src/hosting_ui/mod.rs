@@ -1140,7 +1140,7 @@ impl Render for PullRequestsPage {
         let muted = theme.muted_foreground;
         let busy = self.operation.is_some();
         let accounts = self.accounts(cx);
-        let mut filters = div().h_flex().flex_wrap().gap_2();
+        let mut filters = div().h_flex().flex_wrap().gap(crate::spacing::edge(cx));
         for (id, label, scope) in [
             ("pr-for-me", "For me", Some(Scope::ForMe)),
             (
@@ -1183,16 +1183,20 @@ impl Render for PullRequestsPage {
                     })),
             );
         }
-        let mut account_filters = div().h_flex().flex_wrap().gap_2().child(
-            Button::new("pr-all-accounts")
-                .ghost()
-                .label("All accounts")
-                .selected(self.account.is_none())
-                .on_click(cx.listener(|page, _, window, cx| {
-                    page.account = None;
-                    page.refresh(window, cx);
-                })),
-        );
+        let mut account_filters = div()
+            .h_flex()
+            .flex_wrap()
+            .gap(crate::spacing::edge(cx))
+            .child(
+                Button::new("pr-all-accounts")
+                    .ghost()
+                    .label("All accounts")
+                    .selected(self.account.is_none())
+                    .on_click(cx.listener(|page, _, window, cx| {
+                        page.account = None;
+                        page.refresh(window, cx);
+                    })),
+            );
         for (index, account) in accounts.iter().enumerate() {
             let key = account.identity.key.clone();
             account_filters = account_filters.child(
@@ -1206,12 +1210,16 @@ impl Render for PullRequestsPage {
                     })),
             );
         }
-        let mut status = div().v_flex().gap_1().text_sm().text_color(muted);
+        let mut status = div()
+            .v_flex()
+            .gap(crate::spacing::interactive(cx))
+            .text_sm()
+            .text_color(muted);
         if let Some(progress) = &self.progress {
             status = status.child(
                 div()
                     .h_flex()
-                    .gap_2()
+                    .gap(crate::spacing::edge(cx))
                     .items_center()
                     .child(Spinner::new())
                     .child(progress.clone()),
@@ -1277,7 +1285,7 @@ impl Render for PullRequestsPage {
         let controls = div()
             .debug_selector(|| "pr-browser-controls".into())
             .h_flex()
-            .gap_2()
+            .gap(crate::spacing::edge(cx))
             .child(
                 Button::new("pr-refresh")
                     .label("Refresh")
@@ -1305,8 +1313,8 @@ impl Render for PullRequestsPage {
             .v_flex()
             .flex_shrink_0()
             .w_full()
-            .gap_3()
-            .p_5()
+            .gap(crate::spacing::edge(cx))
+            .p(crate::spacing::space(5., cx))
             .child(filters)
             .child(account_filters)
             .child(controls)

@@ -54,13 +54,15 @@ pub enum Part {
     Foreground,
     MutedForeground,
     Border,
+    GroupBackground,
 }
 impl Part {
-    pub const ALL: [Self; 4] = [
+    pub const ALL: [Self; 5] = [
         Self::Background,
         Self::Foreground,
         Self::MutedForeground,
         Self::Border,
+        Self::GroupBackground,
     ];
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Deserialize)]
@@ -122,6 +124,7 @@ impl fmt::Display for Role {
                     Part::Foreground => "foreground",
                     Part::MutedForeground => "foreground.muted",
                     Part::Border => "border",
+                    Part::GroupBackground => "group.background",
                 }
             ),
             Self::GraphLane(lane) => write!(f, "graph.lanes.{lane}"),

@@ -16,6 +16,7 @@ struct RowMetrics {
     height: f32,
     spacing: f32,
     font_size: f32,
+    edge: f32,
 }
 
 #[derive(Clone, Copy)]
@@ -44,6 +45,7 @@ fn history_row(
         height,
         spacing,
         font_size,
+        edge,
     } = metrics;
     let revision = &history.revisions[index];
     let commit_id = revision.commit_id.clone();
@@ -101,7 +103,7 @@ fn history_row(
             div()
                 .flex_1()
                 .min_w_0()
-                .pr_2()
+                .pr(px(edge))
                 .text_size(px(font_size))
                 .truncate()
                 .child(description),
@@ -192,14 +194,14 @@ fn revision_hover(revision: &jaywalk::history::Revision, cx: &App) -> AnyElement
         .debug_selector(|| "commit-hover".into())
         .text_left()
         .v_flex()
-        .gap_2()
+        .gap(crate::spacing::edge(cx))
         .min_w_0()
         .max_w(rems(34.))
         .child(div().max_h(rems(16.)).overflow_hidden().child(message))
         .child(
             div()
                 .v_flex()
-                .gap_1()
+                .gap(crate::spacing::interactive(cx))
                 .text_xs()
                 .text_color(muted)
                 .children(details.into_iter().map(|line| div().child(line))),
@@ -289,7 +291,7 @@ impl Viewer {
                 div()
                     .h_flex()
                     .items_center()
-                    .gap_1()
+                    .gap(crate::spacing::interactive(cx))
                     .child(self.panel_menu(jaywalk::panel_layout::PanelId::History))
                     .child(
                         Button::new("search-history")
@@ -331,38 +333,37 @@ impl Viewer {
                 cx,
             )),
         );
-        let session =
-            match &self.repository {
-                LoadState::Loaded(session) => session,
-                LoadState::Loading => {
-                    return panel
-                        .child(div().p_3().child(
-                            if self.loading_visible(LoadingKind::Comparison) {
-                                "Loading repository…"
-                            } else {
-                                ""
-                            },
-                        ))
-                        .into_any_element();
-                }
-                LoadState::Failed(error) => {
-                    return panel
-                        .child(
-                            div()
-                                .p_3()
-                                .child(feedback::error_message("history-error", error)),
-                        )
-                        .into_any_element();
-                }
-            };
+        let session = match &self.repository {
+            LoadState::Loaded(session) => session,
+            LoadState::Loading => {
+                return panel
+                    .child(div().p(crate::spacing::edge(cx)).child(
+                        if self.loading_visible(LoadingKind::Comparison) {
+                            "Loading repository…"
+                        } else {
+                            ""
+                        },
+                    ))
+                    .into_any_element();
+            }
+            LoadState::Failed(error) => {
+                return panel
+                    .child(
+                        div()
+                            .p(crate::spacing::edge(cx))
+                            .child(feedback::error_message("history-error", error, cx)),
+                    )
+                    .into_any_element();
+            }
+        };
         let history = match &session.history {
             Ok(history) => history.clone(),
             Err(error) => {
                 return panel
                     .child(
                         div()
-                            .p_3()
-                            .child(feedback::error_message("history-error", error)),
+                            .p(crate::spacing::edge(cx))
+                            .child(feedback::error_message("history-error", error, cx)),
                     )
                     .into_any_element();
             }
@@ -400,6 +401,7 @@ impl Viewer {
             }) => Some((left.clone(), right.clone())),
             _ => None,
         };
+        let row_edge = self.settings.ui.spacing.edge_px();
         let rows = uniform_list("history-rows", count, move |visible, window, cx| {
             if automatic && history.has_more() && visible.end >= commit_count && !loading {
                 let owner = viewer.clone();
@@ -453,6 +455,7 @@ impl Viewer {
                             height,
                             spacing,
                             font_size,
+                            edge: row_edge,
                         },
                         selected,
                         viewer.clone(),
@@ -469,7 +472,7 @@ impl Viewer {
                             div()
                                 .h_flex()
                                 .items_center()
-                                .gap_1()
+                                .gap(crate::spacing::interactive(cx))
                                 .children(endpoints.as_ref().and_then(|(left, right)| {
                                     let id = &history.revisions[index].commit_id;
                                     let marker = match (id == left, id == right) {
@@ -478,7 +481,13 @@ impl Viewer {
                                         (false, true) => "R",
                                         _ => return None,
                                     };
-                                    Some(div().text_xs().text_color(accent).px_1().child(marker))
+                                    Some(
+                                        div()
+                                            .text_xs()
+                                            .text_color(accent)
+                                            .px(crate::spacing::interactive(cx))
+                                            .child(marker),
+                                    )
                                 }))
                                 .children(if labels {
                                     super::references::reference_badge(

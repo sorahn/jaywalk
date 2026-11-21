@@ -196,7 +196,7 @@ impl Viewer {
             .h_flex()
             .items_center()
             .flex_shrink_0()
-            .h(px(self.settings.ui.panel_header_height))
+            .h(px(self.settings.panel_header_height()))
             .border_b_1()
             .border_color(crate::appearance::surface(
                 jaywalk::theme::Surface::Header,
@@ -214,13 +214,18 @@ impl Viewer {
                 cx,
             ))
             .child(self.render_navigation_buttons(cx))
-            .child(div().px_3().text_sm().child(match self.page {
-                Page::Welcome => "Welcome",
-                Page::Setup => "Set up Jaywalk",
-                Page::Accounts => "Accounts",
-                Page::PullRequests => "Pull requests",
-                Page::Comparison => unreachable!("comparisons keep their existing header"),
-            }))
+            .child(
+                div()
+                    .px(crate::spacing::edge(cx))
+                    .text_sm()
+                    .child(match self.page {
+                        Page::Welcome => "Welcome",
+                        Page::Setup => "Set up Jaywalk",
+                        Page::Accounts => "Accounts",
+                        Page::PullRequests => "Pull requests",
+                        Page::Comparison => unreachable!("comparisons keep their existing header"),
+                    }),
+            )
             .into_any_element()
     }
 }

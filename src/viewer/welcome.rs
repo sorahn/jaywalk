@@ -73,8 +73,8 @@ impl Viewer {
             .debug_selector(|| "welcome-header".into())
             .h_flex()
             .items_center()
-            .gap_4()
-            .pb_4()
+            .gap(crate::spacing::space(4., cx))
+            .pb(crate::spacing::space(4., cx))
             .border_b_1()
             .border_color(theme.border)
             .child(
@@ -87,7 +87,7 @@ impl Viewer {
                 div()
                     .v_flex()
                     .min_w_0()
-                    .gap_2()
+                    .gap(crate::spacing::edge(cx))
                     .child(div().text_2xl().font_medium().child("Welcome to Jaywalk"))
                     .child(div().text_color(muted).child(
                         "Explore Git and Jujutsu history, compare files, and review pull requests.",
@@ -98,7 +98,7 @@ impl Viewer {
             .debug_selector(|| "welcome-start".into())
             .v_flex()
             .min_w_0()
-            .gap_2()
+            .gap(crate::spacing::edge(cx))
             .when(wide, |el| el.flex_1())
             .child(div().text_lg().font_medium().child("Getting started"));
         for (id, command, description) in [
@@ -126,12 +126,12 @@ impl Viewer {
             start = start.child(
                 div()
                     .v_flex()
-                    .gap_1()
+                    .gap(crate::spacing::interactive(cx))
                     .child(
                         div()
                             .h_flex()
                             .items_center()
-                            .gap_2()
+                            .gap(crate::spacing::edge(cx))
                             .child(
                                 Button::new(id)
                                     .ghost()
@@ -147,17 +147,23 @@ impl Viewer {
                             )
                             .child(super::palette::ShortcutHint(command)),
                     )
-                    .child(div().px_2().text_sm().text_color(muted).child(description)),
+                    .child(
+                        div()
+                            .px(crate::spacing::edge(cx))
+                            .text_sm()
+                            .text_color(muted)
+                            .child(description),
+                    ),
             );
         }
         start = start.child(
             div()
-                .mt_2()
-                .pt_4()
+                .mt(crate::spacing::edge(cx))
+                .pt(crate::spacing::space(4., cx))
                 .border_t_1()
                 .border_color(theme.border)
                 .v_flex()
-                .gap_2()
+                .gap(crate::spacing::edge(cx))
                 .child(
                     div()
                         .text_sm()
@@ -173,7 +179,7 @@ impl Viewer {
                 div()
                     .h_flex()
                     .items_center()
-                    .gap_2()
+                    .gap(crate::spacing::edge(cx))
                     .child(
                         Button::new(format!("welcome-picker-{}", command.key()))
                             .ghost()
@@ -192,8 +198,8 @@ impl Viewer {
                 .h_flex()
                 .items_center()
                 .flex_wrap()
-                .gap_2()
-                .px_2()
+                .gap(crate::spacing::edge(cx))
+                .px(crate::spacing::edge(cx))
                 .child(
                     div()
                         .text_color(muted)
@@ -206,11 +212,11 @@ impl Viewer {
             .debug_selector(|| "welcome-recents".into())
             .v_flex()
             .min_w_0()
-            .gap_1()
+            .gap(crate::spacing::interactive(cx))
             .when(wide, |el| el.flex_1())
             .child(
                 div()
-                    .mb_1()
+                    .mb(crate::spacing::interactive(cx))
                     .text_lg()
                     .font_medium()
                     .child("Recent repositories"),
@@ -218,7 +224,7 @@ impl Viewer {
         if recent.repositories.is_empty() {
             recents = recents.child(
                 div()
-                    .py_3()
+                    .py(crate::spacing::edge(cx))
                     .text_color(muted)
                     .child("Your recently opened repositories will appear here."),
             );
@@ -247,10 +253,10 @@ impl Viewer {
                     .h_flex()
                     .items_center()
                     .min_w_0()
-                    .gap_3()
+                    .gap(crate::spacing::edge(cx))
                     .cursor_pointer()
-                    .px_2()
-                    .py_1()
+                    .px(crate::spacing::edge(cx))
+                    .py(crate::spacing::interactive(cx))
                     .rounded_md()
                     .hover(|style| style.bg(theme.secondary_hover))
                     .child(
@@ -265,7 +271,7 @@ impl Viewer {
                             .items_center()
                             .flex_1()
                             .min_w_0()
-                            .gap_2()
+                            .gap(crate::spacing::edge(cx))
                             .child(
                                 div()
                                     .max_w(rems(16.))
@@ -300,10 +306,10 @@ impl Viewer {
         if !recent.repositories.is_empty() {
             recents = recents.child(
                 div()
-                    .mt_1()
+                    .mt(crate::spacing::interactive(cx))
                     .h_flex()
                     .items_center()
-                    .gap_2()
+                    .gap(crate::spacing::edge(cx))
                     .child(
                         Button::new("welcome-more")
                             .ghost()
@@ -324,8 +330,8 @@ impl Viewer {
         let columns = div()
             .id("welcome-columns")
             .flex()
-            .gap_6()
-            .when(wide, |el| el.flex_row().gap_6())
+            .gap(crate::spacing::space(6., cx))
+            .when(wide, |el| el.flex_row().gap(crate::spacing::space(6., cx)))
             .when(!wide, |el| el.flex_col())
             .child(start)
             .child(recents);
@@ -336,7 +342,7 @@ impl Viewer {
             .max_w(rems(68.))
             .flex_shrink_0()
             .v_flex()
-            .gap_4()
+            .gap(crate::spacing::space(4., cx))
             .child(header)
             .child(columns);
         if let Some(error) = self
@@ -347,9 +353,9 @@ impl Viewer {
             content = content.child(
                 div()
                     .v_flex()
-                    .gap_2()
+                    .gap(crate::spacing::edge(cx))
                     .child(div().font_medium().child("Could not open that location"))
-                    .child(feedback::error_message("welcome-open-error", error)),
+                    .child(feedback::error_message("welcome-open-error", error, cx)),
             );
         }
         for (id, error) in [
@@ -357,7 +363,7 @@ impl Viewer {
             ("welcome-recent-error", recent.error.as_ref()),
         ] {
             if let Some(error) = error {
-                content = content.child(feedback::error_message(id, error));
+                content = content.child(feedback::error_message(id, error, cx));
             }
         }
         let focus = self.focus.clone();
@@ -368,8 +374,8 @@ impl Viewer {
             .v_flex()
             .overflow_y_scroll()
             .items_center()
-            .p_4()
-            .when(wide, |el| el.p_6())
+            .p(crate::spacing::space(4., cx))
+            .when(wide, |el| el.p(crate::spacing::space(6., cx)))
             .child(content)
             .context_menu(move |menu, _, _| {
                 context_menu::command_entries(

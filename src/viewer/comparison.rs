@@ -27,7 +27,7 @@ impl Viewer {
             }))
     }
 
-    pub(super) fn render_review_source(&self, caption: AnyElement) -> AnyElement {
+    pub(super) fn render_review_source(&self, caption: AnyElement, cx: &App) -> AnyElement {
         use jaywalk::commands::CommandId;
         let hosted = self.is_hosted_review();
         let repository =
@@ -50,7 +50,7 @@ impl Viewer {
                 div()
                     .h_flex()
                     .items_center()
-                    .gap_1()
+                    .gap(crate::spacing::interactive(cx))
                     .min_w_0()
                     .child(Icon::new(IconName::ChevronDown).small().flex_shrink_0())
                     .child(
@@ -109,7 +109,7 @@ impl Viewer {
             .h_flex()
             .items_center()
             .h_full()
-            .px_1()
+            .px(crate::spacing::interactive(cx))
             .flex_shrink_0()
             .border_l_1()
             .border_color(gpui::component::Theme::global(cx).border);
@@ -241,19 +241,15 @@ impl Viewer {
         let theme = gpui::component::Theme::global(cx);
         let split = self.view.effective() == ViewMode::Fluid && self.code().is_some();
         let font_size = self.settings.ui.font_size * 0.85;
-        let height = self
-            .settings
-            .ui
-            .panel_header_height
-            .max(self.settings.ui.font_size * 1.5);
+        let height = self.settings.panel_header_height();
         let title = div()
             .debug_selector(|| "before-header".into())
             .h_flex()
             .items_center()
-            .gap_2()
+            .gap(crate::spacing::edge(cx))
             .min_w_0()
             .h_full()
-            .px(px(super::chrome::PANEL_INSET))
+            .px(crate::spacing::edge(cx))
             .when(split, |title| {
                 title.w(self.measured_before_width(cx)).flex_shrink_0()
             })
@@ -340,7 +336,7 @@ impl Viewer {
                             .h_full()
                             .flex_1()
                             .min_w_0()
-                            .px(px(super::chrome::PANEL_INSET))
+                            .px(crate::spacing::edge(cx))
                             .text_color(crate::appearance::surface(
                                 jaywalk::theme::Surface::ViewerHeader,
                                 jaywalk::theme::Part::MutedForeground,
@@ -476,12 +472,7 @@ impl Viewer {
     }
 
     pub(super) fn render_view_toggle(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        let mut group = div()
-            .h_flex()
-            .items_center()
-            .gap_1()
-            .rounded_sm()
-            .bg(gpui::component::Theme::global(cx).secondary);
+        let mut group = crate::spacing::toggle_group(jaywalk::theme::Surface::Footer, cx);
         for (id, mode, icon, label) in [
             (
                 "view-inline",
@@ -546,13 +537,17 @@ impl Viewer {
                 LoadState::Loading => {
                     return file_surface
                         .child(self.render_file_header(cx))
-                        .child(div().flex_1().min_h_0().p_6().child(
-                            if self.loading_visible(LoadingKind::File) {
-                                "Loading file…"
-                            } else {
-                                ""
-                            },
-                        ))
+                        .child(
+                            div()
+                                .flex_1()
+                                .min_h_0()
+                                .p(crate::spacing::space(6., cx))
+                                .child(if self.loading_visible(LoadingKind::File) {
+                                    "Loading file…"
+                                } else {
+                                    ""
+                                }),
+                        )
                         .into_any_element();
                 }
                 LoadState::Failed(error) => {
@@ -562,8 +557,8 @@ impl Viewer {
                             div()
                                 .flex_1()
                                 .min_h_0()
-                                .p_6()
-                                .child(feedback::error_message("file-error", error)),
+                                .p(crate::spacing::space(6., cx))
+                                .child(feedback::error_message("file-error", error, cx)),
                         )
                         .into_any_element();
                 }
@@ -580,8 +575,8 @@ impl Viewer {
             if self.view.effective() != ViewMode::Fluid {
                 let body = if let Err(error) = standard {
                     div()
-                        .p_6()
-                        .child(feedback::error_message("diff-error", error))
+                        .p(crate::spacing::space(6., cx))
+                        .child(feedback::error_message("diff-error", error, cx))
                         .into_any_element()
                 } else if let Some(Ok(Some(state))) = self.code().map(|code| &code.standard) {
                     Diff::new(state)

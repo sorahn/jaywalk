@@ -533,7 +533,9 @@ impl Input {
                 .flex_1()
                 // Scope host review keys to source, excluding the editable
                 // search panel above it even when the code editor is readonly.
-                .when(editor, |this| this.key_context(if readonly { "ReadonlyEditor" } else { "Editor" }))
+                .when(editor, |this| {
+                    this.key_context(if readonly { "ReadonlyEditor" } else { "Editor" })
+                })
                 .child(input_state.into_any_element()),
         )
     }
@@ -811,6 +813,13 @@ impl RenderOnce for Input {
                 this.input_px(self.size).input_py(self.size)
             })
             .input_h(self.size)
+            .when_some(
+                cx.theme().host_spacing.filter(|_| !is_multi_line),
+                |this, spacing| {
+                    this.p(spacing.interactive)
+                        .min_h(window.rem_size() * 1.25 + spacing.interactive * 2. + px(2.))
+                },
+            )
             .input_text_size(self.size)
             .items_center()
             .when(presentation.is_multi_line(), |this| {
@@ -826,6 +835,9 @@ impl RenderOnce for Input {
             })
             .items_center()
             .gap(gap_x)
+            .when_some(cx.theme().host_spacing, |this, spacing| {
+                this.gap(spacing.interactive)
+            })
             .refine_style(&self.style)
             .when(
                 focused && self.appearance && self.bordered && self.focus_bordered,
@@ -837,7 +849,12 @@ impl RenderOnce for Input {
                     .child(p)
             }))
             .when(presentation.is_multi_line(), |this| {
-                this.child(Self::render_editor(state.clone(), overlays.search, window, cx))
+                this.child(Self::render_editor(
+                    state.clone(),
+                    overlays.search,
+                    window,
+                    cx,
+                ))
             })
             .when(!presentation.is_multi_line(), |this| {
                 this.child(state.clone().into_any_element())

@@ -240,9 +240,30 @@ pub struct UiSettings {
     pub footer_control_height: f32,
     pub comparison_bar_height: f32,
     pub font_size: f32,
+    pub spacing: UiSpacing,
     #[serde(default)]
     pub font_family: Option<String>,
     pub ligatures: bool,
+}
+
+/// Logical-pixel spacing, independent of typography's rem size.
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct UiSpacing {
+    pub unit: f32,
+    pub edge: f32,
+    pub interactive: f32,
+}
+impl UiSpacing {
+    pub fn space(self, units: f32) -> f32 {
+        self.unit * units
+    }
+    pub fn edge_px(self) -> f32 {
+        self.space(self.edge)
+    }
+    pub fn interactive_px(self) -> f32 {
+        self.space(self.interactive)
+    }
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq)]
@@ -332,7 +353,7 @@ pub struct FileSettings {
     pub tree_scope: TreeScope,
     pub tree_row_height: Option<f32>,
     pub list_row_height: Option<f32>,
-    pub indent_width: f32,
+    pub indent_width: Option<f32>,
     pub indent_guides: bool,
     pub indent_guide_opacity: f32,
     pub indent_guide_offset: f32,
@@ -531,11 +552,22 @@ fn merge_defaults(base: &mut toml::Value, overrides: toml::Value) {
 }
 
 impl Config {
+    pub fn file_indent_width(&self) -> f32 {
+        self.files.indent_width.unwrap_or(self.ui.spacing.edge_px())
+    }
+
+    pub fn panel_header_height(&self) -> f32 {
+        self.ui
+            .panel_header_height
+            .max(self.ui.font_size * 1.5)
+            .max(14. + self.ui.spacing.interactive_px() * 4. + 2.)
+    }
+
     pub fn footer_height(&self) -> f32 {
         self.ui
             .footer_height
-            .max(self.ui.footer_control_height)
-            .max(self.ui.footer_font_size * 1.5)
+            .max(self.ui.footer_control_height + self.ui.spacing.interactive_px() * 2. + 2.)
+            .max(self.ui.footer_font_size * 1.5 + self.ui.spacing.interactive_px() * 2.)
     }
 
     /// One row rhythm by default; larger panel fonts establish a readable minimum.
@@ -647,6 +679,14 @@ impl Config {
             120.,
         )?;
         bounded("ui.font_size", self.ui.font_size, 8., 48.)?;
+        bounded("ui.spacing.unit", self.ui.spacing.unit, 1., 16.)?;
+        bounded("ui.spacing.edge", self.ui.spacing.edge, 0., 8.)?;
+        bounded(
+            "ui.spacing.interactive",
+            self.ui.spacing.interactive,
+            0.,
+            8.,
+        )?;
         bounded("editor.font_size", self.editor.font_size, 8., 48.)?;
         if !(1..=16).contains(&self.editor.tab_size) {
             return Err("editor.tab_size must be between 1 and 16".into());
@@ -840,7 +880,10 @@ impl Config {
             -48.,
             48.,
         )?;
-        bounded("files.indent_width", self.files.indent_width, 8., 48.)
+        if let Some(indent) = self.files.indent_width {
+            bounded("files.indent_width", indent, 1., 128.)?;
+        }
+        Ok(())
     }
 }
 
@@ -1383,4 +1426,26 @@ mod appearance_tests {
 #[serde(deny_unknown_fields)]
 pub struct PickerSettings {
     pub adaptive_command_order: bool,
+}
+
+#[cfg(test)]
+mod spacing_tests {
+    use super::Settings;
+
+    #[test]
+    fn spacing_scale_is_independent_of_fonts_and_preserves_explicit_tree_indent() {
+        let default = Settings::default();
+        assert_eq!(default.ui.spacing.edge_px(), 8.);
+        assert_eq!(default.ui.spacing.interactive_px(), 4.);
+        assert_eq!(default.file_indent_width(), 8.);
+        let scaled = Settings::parse("[ui]\nfont_size=24\n[ui.spacing]\nunit=6\n").unwrap();
+        assert_eq!(scaled.ui.spacing.edge_px(), 12.);
+        assert_eq!(scaled.ui.spacing.interactive_px(), 6.);
+        assert_eq!(scaled.file_indent_width(), 12.);
+        let explicit = Settings::parse("[ui.spacing]\nunit=6\n[files]\nindent_width=20\n").unwrap();
+        assert_eq!(explicit.file_indent_width(), 20.);
+        for invalid in ["unit=0", "unit=nan", "edge=9", "interactive=-1"] {
+            assert!(Settings::parse(&format!("[ui.spacing]\n{invalid}")).is_err());
+        }
+    }
 }

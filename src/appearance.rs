@@ -117,6 +117,11 @@ fn refresh(system: Option<WindowAppearance>, force: bool, cx: &mut App) {
             )
             .into()
         });
+        theme.host_spacing = Some(gpui::component::HostSpacing {
+            unit: px(state.ui.spacing.unit),
+            edge: px(state.ui.spacing.edge_px()),
+            interactive: px(state.ui.spacing.interactive_px()),
+        });
         theme.font_size = px(state.ui.font_size);
         theme.mono_font_size = px(state.editor.font_size);
         theme.font_family = state

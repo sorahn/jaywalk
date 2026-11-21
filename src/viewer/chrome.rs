@@ -18,9 +18,7 @@ fn header_surface(panel: PanelId) -> Surface {
 use gpui::component::menu::{ContextMenu, ContextMenuExt as _};
 use jaywalk::panel_layout::PanelId;
 
-pub(super) const PANEL_INSET: f32 = 8.;
 // Small icon buttons center a 14 px glyph in a 24 px hit target.
-const HEADER_ICON_INSET: f32 = 5.;
 
 impl Viewer {
     pub(super) fn panel_header(
@@ -35,13 +33,9 @@ impl Viewer {
             .h_flex()
             .items_center()
             .justify_between()
-            .pl(px(PANEL_INSET))
-            .pr(px((PANEL_INSET - HEADER_ICON_INSET).max(0.)))
-            .h(px(self
-                .settings
-                .ui
-                .panel_header_height
-                .max(font_size * 1.5)))
+            .pl(crate::spacing::edge(cx))
+            .pr((crate::spacing::edge(cx) - crate::spacing::interactive(cx)).max(px(0.)))
+            .h(px(self.settings.panel_header_height().max(font_size * 1.5)))
             .flex_shrink_0()
             .border_b_1()
             .border_color(crate::appearance::surface(

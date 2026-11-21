@@ -19,8 +19,8 @@ pub(crate) fn context(lines: impl IntoIterator<Item = String>, cx: &App) -> Div 
         .v_flex()
         .min_w_0()
         .flex_shrink_0()
-        .px_3()
-        .py_2()
+        .px(crate::spacing::edge(cx) + crate::spacing::interactive(cx))
+        .py(crate::spacing::edge(cx))
         .text_sm()
         .text_color(crate::appearance::surface(
             jaywalk::theme::Surface::Floating,

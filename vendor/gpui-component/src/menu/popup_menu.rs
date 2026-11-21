@@ -1340,12 +1340,24 @@ impl PopupMenu {
             _ => (rems(1.625), options.radius),
         };
 
+        let item_height =
+            cx.theme()
+                .host_spacing
+                .map_or(item_height.to_pixels(window.rem_size()), |spacing| {
+                    item_height
+                        .to_pixels(window.rem_size())
+                        .max(window.rem_size() * 1.25 + spacing.interactive * 2.)
+                });
         let this = MenuItemElement::new(ix)
             .relative()
             .text_sm()
             .py_0()
             .px(INNER_PADDING)
             .rounded(radius)
+            .when_some(cx.theme().host_spacing, |this, spacing| {
+                this.px(spacing.interactive)
+                    .rounded(radius.min(spacing.interactive))
+            })
             .items_center()
             .selected(selected)
             .on_hover(cx.listener(move |this, hovered, window, cx| {
@@ -1632,6 +1644,9 @@ impl Render for PopupMenu {
                     .id("items")
                     .p_1()
                     .gap_y_0p5()
+                    .when_some(cx.theme().host_spacing, |this, spacing| {
+                        this.p(spacing.edge).gap_y(spacing.interactive)
+                    })
                     .min_w(rems(8.))
                     .when_some(self.min_width, |this, min_width| this.min_w(min_width))
                     .map(|this| match self.max_width {

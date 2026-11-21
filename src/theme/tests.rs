@@ -233,3 +233,28 @@ fn soft_light_default_reverses_dark_layering_with_readable_surface_text() {
         }
     }
 }
+
+#[test]
+fn toggle_groups_derive_from_their_surface_and_allow_exact_overrides() {
+    let settings = Settings::parse(
+        r##"
+[theme.overrides]
+"shell.sidebar.files.header.background"="#224466"
+"shell.footer.group.background"="#123456"
+"##,
+    )
+    .unwrap();
+    for dark in [false, true] {
+        let shell = settings.resolved_theme().shell(dark);
+        let background = shell.surface(Surface::FilesHeader, Part::Background);
+        let foreground = shell.surface(Surface::FilesHeader, Part::Foreground);
+        assert_eq!(
+            shell.surface(Surface::FilesHeader, Part::GroupBackground),
+            background.blend(foreground, 0.06)
+        );
+        assert_eq!(
+            shell.surface(Surface::Footer, Part::GroupBackground),
+            Color::rgb(0x123456)
+        );
+    }
+}

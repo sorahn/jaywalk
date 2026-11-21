@@ -7,13 +7,13 @@ use gpui::*;
 
 /// Keep diagnostics literal and selectable; Copy retains the complete message,
 /// including line breaks, even when only part of it fits in a narrow panel.
-pub(crate) fn error_message(id: impl Into<SharedString>, message: &str) -> AnyElement {
+pub(crate) fn error_message(id: impl Into<SharedString>, message: &str, cx: &App) -> AnyElement {
     let id = id.into();
     let copied = message.to_owned();
     div()
         .id(id.clone())
         .v_flex()
-        .gap_2()
+        .gap(crate::spacing::edge(cx))
         .min_w_0()
         .child(
             div().child(

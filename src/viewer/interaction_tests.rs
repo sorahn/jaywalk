@@ -943,6 +943,53 @@ fn reference_browser_bounds_work_and_supports_search_keyboard_and_reopen(cx: &mu
 }
 
 #[gpui_test::test]
+fn spacing_reloads_without_scaling_fonts_or_losing_the_open_picker(cx: &mut TestAppContext) {
+    let fixture = Fixture::new();
+    let (viewer, cx) = setup(&fixture, cx);
+    let identity = cx.update(|_, app| viewer.read(app).comparison().unwrap().identity());
+    cx.simulate_keystrokes("secondary-p");
+    draw(cx);
+    let old_font = cx.update(|_, app| gpui::component::Theme::global(app).font_size);
+    cx.update(|window, app| {
+        let mut settings = viewer.read(app).settings.clone();
+        settings.ui.spacing.unit = 6.;
+        settings.ui.spacing.interactive = 2.;
+        // Match the shared settings service: project global appearance first,
+        // then deliver the same settings snapshot to each viewer.
+        crate::appearance::apply(&settings, app);
+        viewer.update(app, |viewer, cx| {
+            viewer.apply_settings(settings, window, cx)
+        });
+    });
+    draw(cx);
+    cx.update(|_, app| {
+        let theme = gpui::component::Theme::global(app);
+        let spacing = theme.host_spacing.unwrap();
+        assert_eq!(theme.font_size, old_font);
+        assert_eq!(spacing.edge, px(12.));
+        assert_eq!(spacing.interactive, px(12.));
+        assert_eq!(viewer.read(app).settings.file_indent_width(), 12.);
+        assert_eq!(viewer.read(app).comparison().unwrap().identity(), identity);
+        assert_eq!(viewer.read(app).palette_test_state(app).1, ">");
+    });
+    let results = cx.debug_bounds("command-results").unwrap();
+    let selected = cx.update(|_, app| viewer.read(app).palette_test_state(app).2);
+    cx.simulate_mouse_move(
+        point(results.center().x, results.bottom() - px(1.)),
+        None,
+        Default::default(),
+    );
+    draw(cx);
+    assert_eq!(
+        cx.update(|_, app| viewer.read(app).palette_test_state(app).2),
+        selected
+    );
+    cx.simulate_keystrokes("escape");
+    draw(cx);
+    assert!(cx.update(|window, app| viewer.read(app).focus.is_focused(window)));
+}
+
+#[gpui_test::test]
 fn palette_bottom_inset_never_selects_a_clipped_row(cx: &mut TestAppContext) {
     let fixture = Fixture::new();
     let (viewer, cx) = setup(&fixture, cx);

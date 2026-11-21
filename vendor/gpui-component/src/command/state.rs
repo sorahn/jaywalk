@@ -126,6 +126,7 @@ pub struct CommandState {
     row_sizes: Rc<Vec<Size<Pixels>>>,
     list_measurement_key: Option<ListMeasurementKey>,
     needs_measure: bool,
+    measured_spacing: Option<crate::HostSpacing>,
     /// The keybinding hint each matched item showed when the rows were last
     /// measured. Hints are looked up on every render, so a keymap change can
     /// resize a row while the model stays the same.
@@ -161,6 +162,7 @@ impl CommandState {
             row_sizes: Rc::new(Vec::new()),
             list_measurement_key: None,
             needs_measure: true,
+            measured_spacing: None,
             measured_bindings: Vec::new(),
             matched: Vec::new(),
             selected_index: None,
@@ -735,6 +737,9 @@ impl CommandState {
     /// its frame belongs to the host.
     fn item_radius(&self, window: &Window, cx: &App) -> Pixels {
         let theme = cx.theme();
+        if let Some(spacing) = theme.host_spacing {
+            return theme.radius.min(spacing.interactive);
+        }
         let rem_size = window.rem_size();
         let own_radius = self.options.style.corner_radii.top_left;
         let (outer, border) = match (self.options.bordered, own_radius) {
@@ -759,6 +764,9 @@ impl CommandState {
             .gap_2()
             .px_2()
             .py_1p5()
+            .when_some(cx.theme().host_spacing, |this, spacing| {
+                this.p(spacing.interactive).gap(spacing.interactive)
+            })
             .text_sm()
             .rounded(self.item_radius(window, cx))
             .when(selected, |this| {
@@ -772,6 +780,9 @@ impl CommandState {
             .w_full()
             .px_2()
             .py_1p5()
+            .when_some(cx.theme().host_spacing, |this, spacing| {
+                this.p(spacing.interactive)
+            })
             .text_xs()
             .font_medium()
             .text_color(cx.theme().muted_foreground)
@@ -947,6 +958,10 @@ impl Render for CommandState {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.sync_placeholder(window, cx);
 
+        if self.measured_spacing != cx.theme().host_spacing {
+            self.measured_spacing = cx.theme().host_spacing;
+            self.needs_measure = true;
+        }
         if self.needs_measure {
             self.needs_measure = false;
             self.measure_rows(window, cx);
@@ -961,16 +976,20 @@ impl Render for CommandState {
         let row_sizes = self.row_sizes.clone();
         let command_state = cx.entity();
         let fixed_inset = self.options.whole_row_viewport && rows_count > 0;
-        let inset = window.rem_size() * 0.25;
-        let list_limit = self.options.max_h.to_pixels(
-            window.viewport_size().height.into(),
-            window.rem_size(),
-        );
+        let inset = cx
+            .theme()
+            .host_spacing
+            .map_or(window.rem_size() * 0.25, |spacing| spacing.edge);
+        let list_limit = self
+            .options
+            .max_h
+            .to_pixels(window.viewport_size().height.into(), window.rem_size());
         let list_height = if fixed_inset {
             super::viewport::height(
-                self.rows.iter().zip(row_sizes.iter()).map(|(row, size)| {
-                    (size.height, matches!(row, CommandRow::Item(_)))
-                }),
+                self.rows
+                    .iter()
+                    .zip(row_sizes.iter())
+                    .map(|(row, size)| (size.height, matches!(row, CommandRow::Item(_)))),
                 list_limit,
                 inset,
             )
@@ -1006,6 +1025,9 @@ impl Render for CommandState {
                         .debug_selector(|| "command-search".into())
                         .flex_none()
                         .px_3()
+                        .when_some(cx.theme().host_spacing, |this, spacing| {
+                            this.px(spacing.edge + spacing.interactive)
+                        })
                         .border_b_1()
                         .border_color(cx.theme().border)
                         .child(
@@ -1034,7 +1056,12 @@ impl Render for CommandState {
                     // surrounding dividers; only the empty slot needs the
                     // container padding, and only while it is shown, so a
                     // loading list leaves no blank strip under the query.
-                    .when(rows_count == 0 && !self.loading, |this| this.p_1())
+                    .when(rows_count == 0 && !self.loading, |this| {
+                        this.p_1()
+                            .when_some(cx.theme().host_spacing, |this, spacing| {
+                                this.p(spacing.edge)
+                            })
+                    })
                     .on_prepaint({
                         let measure_state = command_state.clone();
                         move |bounds, window, cx| {
@@ -1047,8 +1074,12 @@ impl Render for CommandState {
                                 state.set_list_measurement_key(
                                     ListMeasurementKey {
                                         content_width: (bounds.size.width
-                                            - window.rem_size() * 0.5)
-                                            .max(px(0.)),
+                                            - cx.theme()
+                                                .host_spacing
+                                                .map_or(window.rem_size() * 0.5, |spacing| {
+                                                    spacing.edge * 2.
+                                                }))
+                                        .max(px(0.)),
                                         rem_size: window.rem_size(),
                                         line_height: window.line_height(),
                                         text_shape: TextShapeKey {
@@ -1095,6 +1126,10 @@ impl Render for CommandState {
                             // upstream scrolling inset.
                             .when(fixed_inset, |list| list.px_1())
                             .when(!fixed_inset, |list| list.p_1())
+                            .when_some(cx.theme().host_spacing, |list, spacing| {
+                                list.px(spacing.edge)
+                                    .when(!fixed_inset, |list| list.py(spacing.edge))
+                            })
                             .with_sizing_behavior(ListSizingBehavior::Infer)
                             .track_scroll(&self.scroll_handle)
                             .map(|list| {
