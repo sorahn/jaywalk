@@ -491,3 +491,44 @@ The output reports cold/repeat openings, redraws and a full-catalog search, each
 including three settling frames. These are test-platform timings, not native GPU
 latency. The ordinary interaction regression also checks bounded rows, cache reuse
 and opening a file beyond the initial results.
+
+## Existing GitHub credential proof of concept
+
+`examples/github-token-poc.rs` exercises the application's real read-only
+`HttpProvider` with a copied bearer credential, independently of OAuth session
+registration and application account configuration. It is not an in-app connection
+flow. Run an explicit import using a public test PR:
+
+```sh
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer cargo run --locked \
+  --example github-token-poc -- import-gh \
+  --pull-request https://github.com/OWNER/REPOSITORY/pull/NUMBER
+```
+
+The probe runs `gh auth token --hostname github.com` with ambient token overrides
+removed, captures stdout privately and never prints the token or API response
+bodies. `gh` must already have a saved connection. The subprocess has a timeout,
+output is bounded and diagnostics never include its stdout/stderr. Network reads
+use Jaywalk's existing host-checked, redirect-disabled provider transport. Identity
+validation must succeed before saving; per-operation permission failures are
+reported independently and do not imply invalid authentication.
+
+The only persisted credential is a separately typed token record in OS-store
+service `jaywalk.hosting-auth-poc.v1`, account `github-token-validation`.
+Application accounts, developer registrations and publisher validation sessions
+are untouched. A separate process can repeat the checks without invoking `gh`:
+
+```sh
+target/debug/examples/github-token-poc restore \
+  --pull-request https://github.com/OWNER/REPOSITORY/pull/NUMBER
+target/debug/examples/github-token-poc forget
+```
+
+`forget` deletes only this copy, not the source credential or its remote grant.
+The probe checks identity, authored/requested-review discovery, direct lookup,
+changed files, a pinned source tree/blob and checks/status/review endpoints.
+Successful empty search results still establish request acceptance, not coverage
+of every repository or permission combination. Imported GitHub CLI credentials
+may themselves be OAuth tokens; this test does not establish fine-grained PAT
+coverage or transfer the CLI's refresh lifecycle. Integration still needs explicit
+OAuth/personal-token session types, migration and replacement/expiry handling.
