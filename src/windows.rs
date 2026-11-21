@@ -18,8 +18,9 @@ fn reuse_priority(
     single_window_mode: bool,
     origin: bool,
     active: bool,
+    repository_free: bool,
 ) -> Option<u8> {
-    if disposition == OpenDisposition::NewWindow || !single_window_mode {
+    if disposition == OpenDisposition::NewWindow || (!single_window_mode && !repository_free) {
         None
     } else {
         Some(if origin {
@@ -233,6 +234,7 @@ pub(crate) fn open_with_disposition(
                     settings.application.single_window_mode,
                     origin.is_some_and(|origin| origin.entity_id() == record.viewer.entity_id()),
                     active == Some(record.window.window_id()),
+                    record.viewer.read(cx).is_repository_free(),
                 )
             }?;
             Some((
@@ -528,31 +530,136 @@ mod tests {
     #[test]
     fn configured_mode_reuses_the_origin_then_active_viewer_without_matching_repositories() {
         assert_eq!(
-            reuse_priority(OpenDisposition::Configured, true, true, false),
+            reuse_priority(OpenDisposition::Configured, true, true, false, false),
             Some(0)
         );
         assert_eq!(
-            reuse_priority(OpenDisposition::Configured, true, false, true),
+            reuse_priority(OpenDisposition::Configured, true, false, true, false),
             Some(1)
         );
         assert_eq!(
-            reuse_priority(OpenDisposition::Configured, true, false, false),
+            reuse_priority(OpenDisposition::Configured, true, false, false, false),
             Some(2)
         );
         for origin in [false, true] {
             for active in [false, true] {
                 assert_eq!(
-                    reuse_priority(OpenDisposition::Configured, false, origin, active),
+                    reuse_priority(OpenDisposition::Configured, false, origin, active, false),
                     None
                 );
                 for single in [false, true] {
                     assert_eq!(
-                        reuse_priority(OpenDisposition::NewWindow, single, origin, active),
+                        reuse_priority(OpenDisposition::NewWindow, single, origin, active, false),
                         None
                     );
                 }
             }
         }
+    }
+
+    #[gpui_test::test]
+    fn normal_opens_fill_repository_free_pages_without_enabling_single_window_mode(
+        cx: &mut gpui_test::TestAppContext,
+    ) {
+        use jaywalk::commands::CommandId;
+        let root =
+            std::env::temp_dir().join(format!("jaywalk-startup-routing-{}", std::process::id()));
+        std::fs::create_dir_all(root.join("repo/.git")).unwrap();
+        let config = root.join("config.toml");
+        std::fs::write(&config, "[layout]\nremember_per_repository=false\n").unwrap();
+        let mut welcome = Arguments::parse_from(["jaywalk"]).for_welcome();
+        welcome.config = Some(config);
+        let repository = welcome.for_repository(root.join("repo"));
+        let mut settings = jaywalk::settings::Settings::default();
+        settings.layout.remember_per_repository = false;
+        assert!(!settings.application.single_window_mode);
+        crate::account_ui::tests::setup(cx);
+        cx.update(|app| {
+            super::init(app);
+            crate::settings_service::init(app);
+            crate::recents::init_without_storage(app);
+            crate::viewer::init(&welcome, &settings, app).unwrap();
+            app.set_quit_mode(gpui::QuitMode::Explicit);
+        });
+        // The same empty-window policy covers setup, skipping to Welcome, and Accounts.
+        for page in [
+            CommandId::ShowSetup,
+            CommandId::ShowWelcome,
+            CommandId::Accounts,
+        ] {
+            cx.update(|app| {
+                let first = super::open_with_disposition(
+                    super::PreparedWindow::load(welcome.clone(), settings.clone()),
+                    None,
+                    OpenDisposition::NewWindow,
+                    None,
+                    app,
+                )
+                .unwrap();
+                super::dispatch_command(first, page, app).unwrap();
+                let origin = app.global::<super::Windows>().0[&first].viewer.downgrade();
+                let count = app.global::<super::Windows>().0.len();
+                let filled = super::open_with_disposition(
+                    super::PreparedWindow::load(repository.clone(), settings.clone()),
+                    None,
+                    OpenDisposition::Configured,
+                    Some(&origin),
+                    app,
+                )
+                .unwrap();
+                assert_eq!(filled, first);
+                assert_eq!(app.global::<super::Windows>().0.len(), count);
+                assert!(
+                    !app.global::<super::Windows>().0[&first]
+                        .viewer
+                        .read(app)
+                        .is_repository_free()
+                );
+                // Populated viewers are still independent under the normal multiwindow policy.
+                let next = super::open(
+                    super::PreparedWindow::load(repository.clone(), settings.clone()),
+                    None,
+                    app,
+                )
+                .unwrap();
+                assert_ne!(next, first);
+            });
+        }
+        cx.update(|app| {
+            let first = super::open_with_disposition(
+                super::PreparedWindow::load(welcome.clone(), settings.clone()),
+                None,
+                OpenDisposition::NewWindow,
+                None,
+                app,
+            )
+            .unwrap();
+            let origin = app.global::<super::Windows>().0[&first].viewer.downgrade();
+            let explicit = super::open_with_disposition(
+                super::PreparedWindow::load(repository.clone(), settings.clone()),
+                None,
+                OpenDisposition::NewWindow,
+                Some(&origin),
+                app,
+            )
+            .unwrap();
+            assert_ne!(explicit, first);
+            assert!(
+                app.global::<super::Windows>().0[&first]
+                    .viewer
+                    .read(app)
+                    .is_repository_free()
+            );
+            // CLI/File > Open can find the empty startup window without an origin handle.
+            let cli = super::open(
+                super::PreparedWindow::load(repository.clone(), settings.clone()),
+                None,
+                app,
+            )
+            .unwrap();
+            assert_eq!(cli, first);
+        });
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
