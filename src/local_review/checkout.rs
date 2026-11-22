@@ -1,4 +1,5 @@
 //! Plain-Git checkout leases. Receipts survive failed restoration and crashes.
+pub mod branches;
 use super::{Workspace, process, validate_commit};
 use crate::accounts::Control;
 use serde::{Deserialize, Serialize};
@@ -9,7 +10,7 @@ use std::{
     path::{Path, PathBuf},
     sync::{
         Arc, Mutex, OnceLock, Weak,
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicUsize, Ordering},
         mpsc,
     },
     time::Duration,
@@ -100,12 +101,14 @@ struct Slot {
     receipt: PathBuf,
 }
 type Leases = HashMap<PathBuf, Slot>;
+static PERMANENT_JOBS: AtomicUsize = AtomicUsize::new(0);
 static QUITTING: AtomicBool = AtomicBool::new(false);
 fn leases() -> &'static Mutex<Leases> {
     static LEASES: OnceLock<Mutex<Leases>> = OnceLock::new();
     LEASES.get_or_init(Mutex::default)
 }
 enum Job {
+    Permanent(Box<dyn FnOnce() + Send>),
     Restore(
         PathBuf,
         Option<async_channel::Sender<Result<String, String>>>,
@@ -118,10 +121,11 @@ fn queue() -> Result<&'static mpsc::Sender<Job>, String> {
         .get_or_init(|| {
             let (sender, receiver) = mpsc::channel();
             std::thread::Builder::new()
-                .name("jaywalk-checkout-restoration".into())
+                .name("jaywalk-checkout-worker".into())
                 .spawn(move || {
                     while let Ok(job) = receiver.recv() {
                         match job {
+                            Job::Permanent(work) => work(),
                             Job::Restore(path, ack) => {
                                 let result = restore(&path);
                                 if let Some(ack) = ack {
@@ -314,10 +318,15 @@ fn read(path: &Path) -> Result<Receipt, String> {
     Ok(receipt)
 }
 pub fn preflight(root: &Path, control: &Control) -> Result<Snapshot, String> {
+    snapshot(root, control, true)
+}
+fn snapshot(root: &Path, control: &Control, require_clean: bool) -> Result<Snapshot, String> {
     let root = PathBuf::from(text(root, &["rev-parse", "--show-toplevel"], control)?)
         .canonicalize()
         .map_err(|_| "Repository is unavailable")?;
-    clean(&root, control)?;
+    if require_clean {
+        clean(&root, control)?;
+    }
     let git_dir = PathBuf::from(text(&root, &["rev-parse", "--absolute-git-dir"], control)?)
         .canonicalize()
         .map_err(|_| "Git directory is unavailable")?;
@@ -938,9 +947,10 @@ pub fn recoveries(directory: &Path) -> Result<Vec<Recovery>, String> {
 }
 /// Explicit quit waits for best-effort guarded restoration. Failed receipts stay.
 pub fn has_active_checkouts() -> bool {
-    leases()
-        .try_lock()
-        .map_or(true, |leases| !leases.is_empty())
+    PERMANENT_JOBS.load(Ordering::Acquire) > 0
+        || leases()
+            .try_lock()
+            .map_or(true, |leases| !leases.is_empty())
 }
 pub async fn restore_on_quit() {
     QUITTING.store(true, Ordering::Release);
