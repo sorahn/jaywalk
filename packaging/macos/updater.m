@@ -9,6 +9,25 @@ static BOOL downloadsAllowed = NO;
 static BOOL installsAllowed = NO;
 static NSString *lastStatus = @"No update requests made.";
 
+// Validate the staged bytes before touching a previously downloaded archive.
+static BOOL saveDownloadedArchive(NSURL *location, NSURL *directory, uint64_t expectedLength, NSDictionary *metadata, NSError **error) {
+    NSFileManager *files = NSFileManager.defaultManager;
+    NSDictionary *attributes = [files attributesOfItemAtPath:location.path error:error];
+    if (!attributes) return NO;
+    if (expectedLength == 0 || expectedLength > 1024ULL*1024*1024 || [attributes[NSFileSize] unsignedLongLongValue] != expectedLength) {
+        if (error) *error = [NSError errorWithDomain:@"dev.jaywalk.Updater" code:2 userInfo:@{NSLocalizedDescriptionKey:@"Update download failed: archive size does not match the update feed. Try again."}];
+        return NO;
+    }
+    if (![files createDirectoryAtURL:directory withIntermediateDirectories:YES attributes:nil error:error]) return NO;
+    NSURL *archive = [directory URLByAppendingPathComponent:@"downloaded-update.zip"];
+    if ([files fileExistsAtPath:archive.path]) {
+        if (![files replaceItemAtURL:archive withItemAtURL:location backupItemName:nil options:0 resultingItemURL:nil error:error]) return NO;
+    } else if (![files moveItemAtURL:location toURL:archive error:error]) {
+        return NO;
+    }
+    return [metadata writeToURL:[directory URLByAppendingPathComponent:@"download.plist"] error:error];
+}
+
 @interface JaywalkUpdateDriver : SPUStandardUserDriver <SPUUpdaterDelegate, NSURLSessionDownloadDelegate>
 @property(nonatomic, strong) SPUUpdater *updater;
 @property(nonatomic, strong) NSURLSession *session;
@@ -100,17 +119,10 @@ static NSString *lastStatus = @"No update requests made.";
 - (void)URLSession:(NSURLSession *)session downloadTask:(NSURLSessionDownloadTask *)task didFinishDownloadingToURL:(NSURL *)location {
     if (task != self.download) return;
     if (![task.response isKindOfClass:NSHTTPURLResponse.class] || ((NSHTTPURLResponse *)task.response).statusCode != 200) {lastStatus=@"Update download failed: unexpected server response.";return;}
-    NSFileManager *files = NSFileManager.defaultManager;
-    NSURL *directory = [self cacheDirectory];
     NSError *error = nil;
-    [files createDirectoryAtURL:directory withIntermediateDirectories:YES attributes:nil error:&error];
-    NSURL *stage = [directory URLByAppendingPathComponent:@"downloaded-update.zip"];
-    if (!error) { [files removeItemAtURL:stage error:nil]; [files moveItemAtURL:location toURL:stage error:&error]; }
-    if (!error) {
-        NSDictionary *metadata=@{@"version":self.downloadItem.versionString,@"url":self.downloadItem.fileURL.absoluteString};
-        [metadata writeToURL:[directory URLByAppendingPathComponent:@"download.plist"] error:&error];
-    }
-    lastStatus = error ? @"Could not save downloaded update." : @"Update downloaded; nothing will install on quit. Choose Check for updates to install when ready. Sparkle will re-fetch and verify the release before installation.";
+    NSDictionary *metadata=@{@"version":self.downloadItem.versionString,@"url":self.downloadItem.fileURL.absoluteString};
+    BOOL saved = saveDownloadedArchive(location, [self cacheDirectory], self.downloadItem.contentLength, metadata, &error);
+    lastStatus = !saved ? (error.localizedDescription ?: @"Could not save downloaded update.") : @"Update downloaded; nothing will install on quit. Choose Check for updates to install when ready. Sparkle will re-fetch and verify the release before installation.";
     [self.progressWindow close]; self.progressWindow=nil;
     if (self.showDownloadResult) {
         NSAlert *alert=[NSAlert new]; alert.messageText=@"Update download";alert.informativeText=lastStatus;[alert addButtonWithTitle:@"OK"];[alert runModal];
