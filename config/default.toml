@@ -53,7 +53,7 @@ accent_color_fallback = { light = "#0066b8", dark = "#3794ff" }
 # Floating accent edges do not reserve layout space. Applies live.
 accent_floating_outlines = true
 # Suppress transient loading indicators; 0 shows them immediately.
-loading_delay_ms = 200
+loading_delay_ms = 400
 # Shared minimum for history, flat files and directory-tree rows.
 row_height = 26
 panel_header_height = 30
