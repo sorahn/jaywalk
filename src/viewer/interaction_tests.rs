@@ -3777,7 +3777,7 @@ fn older_setup_window_cannot_restore_revoked_update_consent(test_cx: &mut TestAp
     let (first, first_cx) = setup_arguments_with_settings(
         &fixture,
         args,
-        "[updates]\nautomatic_checks=true\n",
+        "[updates]\nautomatic_checks=true\nautomatic_downloads=true\n",
         test_cx,
     );
     let (arguments, settings) = first_cx.update(|_, app| {
@@ -3807,7 +3807,21 @@ fn older_setup_window_cannot_restore_revoked_update_consent(test_cx: &mut TestAp
     let path = fixture.0.join("settings.toml");
     let revoked = Settings::parse(&std::fs::read_to_string(&path).unwrap()).unwrap();
     assert!(!revoked.updates.automatic_checks);
-    // Preserve the older window's snapshot to reproduce the stale-save race.
+    second_cx.update(|_, app| {
+        second.update(app, |viewer, _| {
+            viewer.setup.updates.automatic_checks = true;
+            viewer.setup.updates.automatic_downloads = true;
+        })
+    });
+    draw(second_cx);
+    let downloads = second_cx.debug_bounds("setup-update-1").unwrap();
+    second_cx.simulate_click(downloads.center(), Default::default());
+    draw(second_cx);
+    let after_checkbox = Settings::parse(&std::fs::read_to_string(&path).unwrap()).unwrap();
+    assert!(!after_checkbox.updates.automatic_checks);
+    assert!(!after_checkbox.updates.automatic_downloads);
+    second_cx.update(|_, app| assert_eq!(second.read(app).setup.updates, after_checkbox.updates));
+    // Completion must preserve the same revocation.
     let save = second_cx.debug_bounds("setup-save").unwrap();
     second_cx.simulate_click(save.center(), Default::default());
     draw(second_cx);

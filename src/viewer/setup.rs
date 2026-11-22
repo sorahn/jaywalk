@@ -1,10 +1,15 @@
 //! Optional setup in the retained central workspace; no work in render.
 use super::*;
-use jaywalk::{cli_install, settings::Appearance, setup::UpdateSettings};
+use jaywalk::{
+    cli_install,
+    settings::Appearance,
+    setup::{UpdateChoice, UpdateSettings},
+};
 use std::path::PathBuf;
 
 pub(super) struct State {
-    updates: UpdateSettings,
+    pub(super) updates: UpdateSettings,
+    owner: Rc<()>,
     appearance: Appearance,
     message: Option<String>,
     busy: bool,
@@ -20,6 +25,7 @@ impl State {
     pub(super) fn new(settings: &Settings) -> Self {
         Self {
             updates: settings.updates,
+            owner: Rc::new(()),
             appearance: settings.ui.appearance,
             message: None,
             busy: false,
@@ -41,6 +47,7 @@ impl Viewer {
             return;
         }
         self.setup.busy = true;
+        let owner = self.setup.owner.clone();
         let explicit = self.arguments.config.clone();
         let appearance = self.setup.appearance;
         cx.spawn_in(window, async move |this, cx| {
@@ -54,6 +61,9 @@ impl Viewer {
                 })
                 .await;
             let _ = this.update_in(cx, |viewer, window, cx| {
+                if !Rc::ptr_eq(&owner, &viewer.setup.owner) {
+                    return;
+                }
                 viewer.setup.busy = false;
                 match result {
                     Ok(settings) => {
@@ -74,11 +84,16 @@ impl Viewer {
         })
         .detach();
     }
-    fn save_setup_updates(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    fn save_setup_updates(
+        &mut self,
+        choice: UpdateChoice,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         self.setup.busy = true;
         self.setup.message = None;
+        let owner = self.setup.owner.clone();
         let explicit = self.arguments.config.clone();
-        let updates = self.setup.updates;
         // The worker acknowledges the disk write even if its window is closed.
         // An immediate application quit waits for that acknowledgement.
         let (done, finished) = async_channel::bounded(1);
@@ -93,7 +108,7 @@ impl Viewer {
                 let source =
                     jaywalk::settings_reload::SettingsSource::resolve(explicit.as_deref())?;
                 source.initialize()?;
-                jaywalk::setup::save_updates(source.path(), updates)?;
+                jaywalk::setup::save_update_choice(source.path(), choice)?;
                 source.read()
             })();
             let _ = done.try_send(());
@@ -103,6 +118,9 @@ impl Viewer {
             let result = work.await;
             drop(quit);
             let _ = viewer.update_in(cx, |viewer, window, cx| {
+                if !Rc::ptr_eq(&owner, &viewer.setup.owner) {
+                    return;
+                }
                 viewer.setup.busy = false;
                 match result {
                     Ok(settings) => viewer.receive_settings(settings, None, window, cx),
@@ -318,23 +336,12 @@ impl Viewer {
                     .checked(selected)
                     .disabled(!enabled || self.setup.busy)
                     .on_click(cx.listener(move |v, checked: &bool, window, cx| {
-                        match index {
-                            0 => {
-                                v.setup.updates.automatic_checks = *checked;
-                                if !checked {
-                                    v.setup.updates.automatic_downloads = false;
-                                    v.setup.updates.automatic_installation = false;
-                                }
-                            }
-                            1 => {
-                                v.setup.updates.automatic_downloads = *checked;
-                                if !checked {
-                                    v.setup.updates.automatic_installation = false;
-                                }
-                            }
-                            _ => v.setup.updates.automatic_installation = *checked,
-                        }
-                        v.save_setup_updates(window, cx);
+                        let choice = match index {
+                            0 => UpdateChoice::Checks(*checked),
+                            1 => UpdateChoice::Downloads(*checked),
+                            _ => UpdateChoice::Installation(*checked),
+                        };
+                        v.save_setup_updates(choice, window, cx);
                         cx.notify();
                     })),
             );
@@ -459,5 +466,66 @@ impl Viewer {
             let (level,message)=match result {Ok(path)=>(PromptLevel::Info,format!("Installed {}\n\nKeep that directory on your shell's PATH. Verify with command -v jw and jw --version. Moving the app requires reinstalling the link.",path.display())),Err(error)=>(PromptLevel::Warning,error)};
             let _=this.update_in(cx,|v,w,c|{v.check_setup_cli(w,c);w.prompt(level,"Command-line integration",Some(&message),&["OK"],c)});
         }).detach();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Appearance, UpdateChoice};
+    use crate::viewer::interaction_tests::{Fixture, draw, setup};
+    use crate::viewer::{Arguments, SessionLayout, Settings, Viewer};
+    use clap::Parser;
+    use gpui_test::TestAppContext;
+
+    #[gpui_test::test]
+    fn setup_save_callbacks_ignore_replaced_viewers(test_cx: &mut TestAppContext) {
+        for completion in [false, true] {
+            let original = Fixture::new();
+            let replacement = Fixture::new();
+            let (viewer, cx) = setup(&original, test_cx);
+            let path = replacement.0.join("replacement.toml");
+            let contents = "[ui]\nappearance='light'\n[live]\nenabled=false\n[layout]\nremember_per_repository=false\n";
+            std::fs::write(&path, contents).unwrap();
+            let mut arguments = Arguments::parse_from(["jaywalk", replacement.0.to_str().unwrap()]);
+            arguments.config = Some(path);
+            arguments.normalize().unwrap();
+            let settings = Settings::parse(contents).unwrap();
+            cx.update(|window, app| {
+                viewer.update(app, |viewer, cx| {
+                    if completion {
+                        viewer.finish_setup(window, cx);
+                    } else {
+                        viewer.save_setup_updates(UpdateChoice::Checks(true), window, cx);
+                    }
+                    // Same entity, new Viewer, just as single-window reuse does.
+                    let layout = SessionLayout::load(&arguments, &settings);
+                    *viewer =
+                        Viewer::new(arguments, settings.clone(), layout, Ok(false), window, cx);
+                });
+            });
+            draw(cx);
+            cx.update(|_, app| {
+                let current = viewer.read(app);
+                assert_eq!(current.settings.ui.appearance, Appearance::Light);
+                assert!(!current.settings.updates.automatic_checks);
+                assert!(!current.setup.busy);
+                assert_eq!(
+                    current
+                        .arguments
+                        .config
+                        .as_ref()
+                        .unwrap()
+                        .file_name()
+                        .unwrap(),
+                    "replacement.toml"
+                );
+            });
+            let saved = Settings::parse(
+                &std::fs::read_to_string(original.0.join("settings.toml")).unwrap(),
+            )
+            .unwrap();
+            assert_eq!(saved.setup.completed, completion);
+            assert_eq!(saved.updates.automatic_checks, !completion);
+        }
     }
 }

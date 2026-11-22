@@ -53,15 +53,38 @@ pub fn save(path: &Path, completed: bool, appearance: Appearance) -> Result<Conf
         Ok(())
     })
 }
-/// Persist explicit checkbox choices independently of setup completion/appearance.
-pub fn save_updates(path: &Path, updates: UpdateSettings) -> Result<Config, String> {
-    updates.validate()?;
-    edit(path, |doc, _| {
+/// A single explicit checkbox action, applied to the latest committed preferences.
+#[derive(Clone, Copy, Debug)]
+pub enum UpdateChoice {
+    Checks(bool),
+    Downloads(bool),
+    Installation(bool),
+}
+/// Never replay another window's consent snapshot. Disabling a prerequisite also
+/// disables its dependants; enabling one never implicitly grants prerequisites.
+pub fn save_update_choice(path: &Path, choice: UpdateChoice) -> Result<Config, String> {
+    edit(path, |doc, config| {
+        let mut updates = config.updates;
+        match choice {
+            UpdateChoice::Checks(enabled) => {
+                updates.automatic_checks = enabled;
+                if !enabled {
+                    updates.automatic_downloads = false;
+                    updates.automatic_installation = false;
+                }
+            }
+            UpdateChoice::Downloads(enabled) => {
+                updates.automatic_downloads = enabled;
+                if !enabled {
+                    updates.automatic_installation = false;
+                }
+            }
+            UpdateChoice::Installation(enabled) => updates.automatic_installation = enabled,
+        }
+        updates.validate()?;
         doc["updates"]["automatic_checks"] = toml_edit::value(updates.automatic_checks);
         doc["updates"]["automatic_downloads"] = toml_edit::value(updates.automatic_downloads);
         doc["updates"]["automatic_installation"] = toml_edit::value(updates.automatic_installation);
-        doc["updates"]["check_interval_hours"] =
-            toml_edit::value(i64::from(updates.check_interval_hours));
         Ok(())
     })
 }
@@ -193,17 +216,33 @@ mod tests {
             "# keep\n[setup]\nseen=true\ncompleted=false\n[ui]\nappearance='light'\n",
         )
         .unwrap();
-        let mut updates = Config::parse("").unwrap().updates;
-        updates.automatic_checks = true;
-        let saved = save_updates(&path, updates).unwrap();
+        let saved = save_update_choice(&path, UpdateChoice::Checks(true)).unwrap();
         assert!(saved.setup.seen && !saved.setup.completed);
         assert!(saved.updates.may_check_automatically());
         assert_eq!(saved.ui.appearance, Appearance::Light);
-        updates.automatic_checks = false;
-        let saved = save_updates(&path, updates).unwrap();
+        let saved = save_update_choice(&path, UpdateChoice::Checks(false)).unwrap();
         assert!(!saved.updates.may_check_automatically());
         assert!(!saved.setup.completed);
         assert!(std::fs::read_to_string(&path).unwrap().contains("# keep"));
+    }
+    #[test]
+    fn stale_checkbox_actions_cannot_restore_revoked_consent() {
+        let fixture = tempfile::tempdir().unwrap();
+        let path = fixture.path().join("config.toml");
+        std::fs::write(&path, "[updates]\nautomatic_checks=true\nautomatic_downloads=true\nautomatic_installation=true\ncheck_interval_hours=48\n").unwrap();
+        // Two windows began with every option enabled. A revokes checks; B
+        // disables downloads using its old form. Only B's choice is submitted.
+        save_update_choice(&path, UpdateChoice::Checks(false)).unwrap();
+        let saved = save_update_choice(&path, UpdateChoice::Downloads(false)).unwrap();
+        assert!(!saved.updates.automatic_checks);
+        assert!(!saved.updates.automatic_downloads);
+        assert!(!saved.updates.automatic_installation);
+        assert_eq!(saved.updates.check_interval_hours, 48);
+        let revoked = std::fs::read_to_string(&path).unwrap();
+        // Stale enabled controls also cannot implicitly opt back into checks.
+        assert!(save_update_choice(&path, UpdateChoice::Downloads(true)).is_err());
+        assert!(save_update_choice(&path, UpdateChoice::Installation(true)).is_err());
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), revoked);
     }
     #[test]
     fn setup_saves_choices_without_destroying_other_settings_or_symlink() {
