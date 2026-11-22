@@ -197,6 +197,7 @@ fn perform(
     }
     // Once the switch starts, picker cancellation stops waiting, not the Git
     // operation. The app-owned checkout worker also drains this job on quit.
+    control.commit().map_err(|error| error.to_string())?;
     let switching = Control::new(Duration::from_secs(30));
     if existing.is_some() {
         process::git(
@@ -453,13 +454,19 @@ mod tests {
             std::fs::write(&hook, "#!/bin/sh\ntouch hook-ran\n").unwrap();
             std::fs::set_permissions(hook, std::fs::Permissions::from_mode(0o755)).unwrap();
         }
+        let request = control();
         let result = checkout(
             &catalog,
             &pick(&catalog, "origin/remote-topic"),
             &repo.receipts(),
-            &control(),
+            &request,
         )
         .unwrap();
+        assert!(request.is_committing());
+        assert!(
+            !request.cancel(),
+            "a started switch must keep the captured review pinned"
+        );
         assert!(result.contains("stays checked out"));
         drop(catalog);
         assert_eq!(repo.git(&["branch", "--show-current"]), "remote-topic");

@@ -1,16 +1,10 @@
 //! Public first-run preferences; no network requests or credential access.
 use crate::settings::{Appearance, Config};
+use crate::settings_reload::{activate_reference, standard_section};
 use serde::Deserialize;
 use std::io::Write;
 use std::path::Path;
 
-#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
-#[serde(deny_unknown_fields)]
-pub struct SetupSettings {
-    pub completed: bool,
-    #[serde(default)]
-    pub seen: bool,
-}
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct UpdateSettings {
@@ -36,50 +30,93 @@ impl UpdateSettings {
         self.automatic_checks
     }
 }
-/// Save completion and appearance only; update consent is owned by checkbox writes.
+/// Save appearance only; update consent is owned by checkbox writes.
 /// Serialize app-owned writers, preserve comments/symlinks/permissions, and reject
 /// edits made while preparing the replacement. Explicit configs must exist.
-pub fn save(path: &Path, completed: bool, appearance: Appearance) -> Result<Config, String> {
-    edit(path, |doc, _| {
-        doc["setup"]["completed"] = toml_edit::value(completed);
-        doc["ui"]["appearance"] = toml_edit::value(match appearance {
-            Appearance::System => "system",
-            Appearance::Light => "light",
-            Appearance::Dark => "dark",
-        });
-        if completed {
-            doc["setup"]["seen"] = toml_edit::value(true);
-        }
+pub fn save(path: &Path, appearance: Appearance) -> Result<Config, String> {
+    edit(path, "ui", &["appearance"], |doc, _| {
+        let ui = standard_section(doc, "ui");
+        set_value(
+            ui,
+            "appearance",
+            toml_edit::value(match appearance {
+                Appearance::System => "system",
+                Appearance::Light => "light",
+                Appearance::Dark => "dark",
+            }),
+        );
         Ok(())
     })
 }
-/// Persist explicit checkbox choices independently of setup completion/appearance.
-pub fn save_updates(path: &Path, updates: UpdateSettings) -> Result<Config, String> {
-    updates.validate()?;
-    edit(path, |doc, _| {
-        doc["updates"]["automatic_checks"] = toml_edit::value(updates.automatic_checks);
-        doc["updates"]["automatic_downloads"] = toml_edit::value(updates.automatic_downloads);
-        doc["updates"]["automatic_installation"] = toml_edit::value(updates.automatic_installation);
-        doc["updates"]["check_interval_hours"] =
-            toml_edit::value(i64::from(updates.check_interval_hours));
-        Ok(())
-    })
+/// A single explicit checkbox action, applied to the latest committed preferences.
+#[derive(Clone, Copy, Debug)]
+pub enum UpdateChoice {
+    Checks(bool),
+    Downloads(bool),
+    Installation(bool),
 }
-/// Claim the first automatic presentation atomically, without saving draft choices
-/// or authorizing any network traffic. Call on the window-preparation worker.
-pub fn claim_first_open(path: &Path) -> Result<bool, String> {
-    let mut first = false;
-    edit(path, |doc, config| {
-        if !config.setup.completed && !config.setup.seen {
-            doc["setup"]["seen"] = toml_edit::value(true);
-            first = true;
-        }
-        Ok(())
-    })?;
-    Ok(first)
+/// Never replay another window's consent snapshot. Disabling a prerequisite also
+/// disables its dependants; enabling one never implicitly grants prerequisites.
+pub fn save_update_choice(path: &Path, choice: UpdateChoice) -> Result<Config, String> {
+    edit(
+        path,
+        "updates",
+        &[
+            "automatic_checks",
+            "automatic_downloads",
+            "automatic_installation",
+        ],
+        |doc, config| {
+            let mut updates = config.updates;
+            match choice {
+                UpdateChoice::Checks(enabled) => {
+                    updates.automatic_checks = enabled;
+                    if !enabled {
+                        updates.automatic_downloads = false;
+                        updates.automatic_installation = false;
+                    }
+                }
+                UpdateChoice::Downloads(enabled) => {
+                    updates.automatic_downloads = enabled;
+                    if !enabled {
+                        updates.automatic_installation = false;
+                    }
+                }
+                UpdateChoice::Installation(enabled) => updates.automatic_installation = enabled,
+            }
+            updates.validate()?;
+            let table = standard_section(doc, "updates");
+            set_value(
+                table,
+                "automatic_checks",
+                toml_edit::value(updates.automatic_checks),
+            );
+            set_value(
+                table,
+                "automatic_downloads",
+                toml_edit::value(updates.automatic_downloads),
+            );
+            set_value(
+                table,
+                "automatic_installation",
+                toml_edit::value(updates.automatic_installation),
+            );
+            Ok(())
+        },
+    )
+}
+fn set_value(table: &mut toml_edit::Table, key: &str, mut value: toml_edit::Item) {
+    if let Some(previous) = table.get(key).and_then(toml_edit::Item::as_value)
+        && let Some(next) = value.as_value_mut()
+    {
+        *next.decor_mut() = previous.decor().clone();
+    }
+    table[key] = value;
 }
 fn edit(
     path: &Path,
+    section: &str,
+    keys: &[&str],
     change: impl FnOnce(&mut toml_edit::DocumentMut, &Config) -> Result<(), String>,
 ) -> Result<Config, String> {
     let _writer = crate::settings_reload::CONFIG_WRITER
@@ -93,6 +130,42 @@ fn edit(
     let mut doc: toml_edit::DocumentMut = original
         .parse()
         .map_err(|e| format!("Could not edit setup config: {e}"))?;
+    let missing: Vec<_> = keys
+        .iter()
+        .copied()
+        .filter(|key| doc.get(section).and_then(|table| table.get(key)).is_none())
+        .collect();
+    if !missing.is_empty() {
+        doc = activate_reference(&original, section, &missing)
+            .parse()
+            .map_err(|e| format!("Could not edit documented settings: {e}"))?;
+    }
+    if let Some((key, legacy)) = doc.remove_entry("setup") {
+        let decoration = legacy
+            .as_table()
+            .map(toml_edit::Table::decor)
+            .or_else(|| legacy.as_value().map(toml_edit::Value::decor));
+        let mut comments = String::new();
+        for raw in [
+            key.leaf_decor().prefix(),
+            decoration.and_then(|decor| decor.prefix()),
+            decoration.and_then(|decor| decor.suffix()),
+        ]
+        .into_iter()
+        .flatten()
+        {
+            if let Some(text) = raw.as_str()
+                && text.contains('#')
+            {
+                comments.push_str(text);
+                comments.push('\n');
+            }
+        }
+        if !comments.is_empty() {
+            comments.push_str(doc.trailing().as_str().unwrap_or_default());
+            doc.set_trailing(comments);
+        }
+    }
     change(&mut doc, &config)?;
     let updated = doc.to_string();
     let config = Config::parse(&updated)?;
@@ -149,42 +222,6 @@ mod tests {
         assert!(updates.validate().is_err());
     }
     #[test]
-    fn first_presentation_is_remembered_without_completing_setup_or_authorizing_updates() {
-        let fixture = tempfile::tempdir().unwrap();
-        let path = fixture.path().join("config.toml");
-        std::fs::write(
-            &path,
-            "# keep\n[ui]\nappearance='light'\n[updates]\nautomatic_checks=true\n",
-        )
-        .unwrap();
-        assert!(claim_first_open(&path).unwrap());
-        let saved = Config::parse(&std::fs::read_to_string(&path).unwrap()).unwrap();
-        assert!(saved.setup.seen && !saved.setup.completed);
-        assert!(saved.updates.may_check_automatically());
-        assert_eq!(saved.ui.appearance, Appearance::Light);
-        let first = std::fs::read_to_string(&path).unwrap();
-        assert!(first.contains("# keep"));
-        assert!(!claim_first_open(&path).unwrap());
-        assert_eq!(std::fs::read_to_string(&path).unwrap(), first);
-        // Older completed configs never need a second first-open page.
-        std::fs::write(&path, "[setup]\ncompleted=true\n").unwrap();
-        assert!(!claim_first_open(&path).unwrap());
-        std::fs::write(&path, "invalid = [").unwrap();
-        assert!(claim_first_open(&path).is_err());
-        assert_eq!(std::fs::read_to_string(&path).unwrap(), "invalid = [");
-    }
-    #[test]
-    fn simultaneous_open_requests_claim_only_one_setup_page() {
-        let fixture = tempfile::tempdir().unwrap();
-        let path = fixture.path().join("config.toml");
-        std::fs::write(&path, "").unwrap();
-        let other = path.clone();
-        let worker = std::thread::spawn(move || claim_first_open(&other).unwrap());
-        let first = claim_first_open(&path).unwrap();
-        let second = worker.join().unwrap();
-        assert_ne!(first, second);
-    }
-    #[test]
     fn checkbox_choices_save_without_completing_setup_or_changing_appearance() {
         let fixture = tempfile::tempdir().unwrap();
         let path = fixture.path().join("config.toml");
@@ -193,25 +230,82 @@ mod tests {
             "# keep\n[setup]\nseen=true\ncompleted=false\n[ui]\nappearance='light'\n",
         )
         .unwrap();
-        let mut updates = Config::parse("").unwrap().updates;
-        updates.automatic_checks = true;
-        let saved = save_updates(&path, updates).unwrap();
-        assert!(saved.setup.seen && !saved.setup.completed);
+        let saved = save_update_choice(&path, UpdateChoice::Checks(true)).unwrap();
         assert!(saved.updates.may_check_automatically());
         assert_eq!(saved.ui.appearance, Appearance::Light);
-        updates.automatic_checks = false;
-        let saved = save_updates(&path, updates).unwrap();
+        let saved = save_update_choice(&path, UpdateChoice::Checks(false)).unwrap();
         assert!(!saved.updates.may_check_automatically());
-        assert!(!saved.setup.completed);
         assert!(std::fs::read_to_string(&path).unwrap().contains("# keep"));
+    }
+    #[test]
+    fn setup_writes_standard_sections_and_preserves_comments_and_legacy_choices() {
+        let fixture = tempfile::tempdir().unwrap();
+        let path = fixture.path().join("config.toml");
+        std::fs::write(&path, "# keep header\nsetup = { completed = true }\n# keep ui heading\nui = { appearance = 'system', font_size = 18 } # keep ui note\n[updates]\nautomatic_checks = false # keep consent comment\ncheck_interval_hours = 48\n").unwrap();
+        save(&path, Appearance::Dark).unwrap();
+        save_update_choice(&path, UpdateChoice::Checks(true)).unwrap();
+        let saved = std::fs::read_to_string(&path).unwrap();
+        assert!(saved.contains("[ui]"), "{saved}");
+        assert!(saved.contains("[updates]"));
+        assert!(saved.contains("# keep header"));
+        assert!(saved.contains("# keep consent comment"));
+        assert!(saved.contains("# keep ui heading"));
+        assert!(saved.contains("# keep ui note"));
+        assert!(!saved.contains("setup ="));
+        let config = Config::parse(&saved).unwrap();
+        assert_eq!(config.ui.font_size, 18.);
+        assert_eq!(config.updates.check_interval_hours, 48);
+        assert!(config.updates.automatic_checks);
+        assert_eq!(config.ui.appearance, Appearance::Dark);
+        std::fs::write(&path, "").unwrap();
+        save_update_choice(&path, UpdateChoice::Checks(false)).unwrap();
+        assert!(
+            std::fs::read_to_string(&path)
+                .unwrap()
+                .contains("[updates]")
+        );
+    }
+    #[test]
+    fn editing_commented_reference_keeps_fields_in_documented_order() {
+        let fixture = tempfile::tempdir().unwrap();
+        let path = fixture.path().join("config.toml");
+        std::fs::write(&path, crate::keybinding_profiles::user_config()).unwrap();
+        save_update_choice(&path, UpdateChoice::Checks(true)).unwrap();
+        save(&path, Appearance::Dark).unwrap();
+        let text = std::fs::read_to_string(&path).unwrap();
+        assert!(text.find("[ui]\n").unwrap() < text.find("[theme]").unwrap());
+        assert!(text.find("[updates]\n").unwrap() < text.find("[hosting]").unwrap());
+        assert_eq!(text.matches("[updates]").count(), 1);
+        let config = Config::parse(&text).unwrap();
+        assert!(config.updates.automatic_checks);
+        assert!(!config.updates.automatic_downloads);
+        assert_eq!(config.ui.appearance, Appearance::Dark);
+    }
+    #[test]
+    fn stale_checkbox_actions_cannot_restore_revoked_consent() {
+        let fixture = tempfile::tempdir().unwrap();
+        let path = fixture.path().join("config.toml");
+        std::fs::write(&path, "[updates]\nautomatic_checks=true\nautomatic_downloads=true\nautomatic_installation=true\ncheck_interval_hours=48\n").unwrap();
+        // Two windows began with every option enabled. A revokes checks; B
+        // disables downloads using its old form. Only B's choice is submitted.
+        save_update_choice(&path, UpdateChoice::Checks(false)).unwrap();
+        let saved = save_update_choice(&path, UpdateChoice::Downloads(false)).unwrap();
+        assert!(!saved.updates.automatic_checks);
+        assert!(!saved.updates.automatic_downloads);
+        assert!(!saved.updates.automatic_installation);
+        assert_eq!(saved.updates.check_interval_hours, 48);
+        let revoked = std::fs::read_to_string(&path).unwrap();
+        // Stale enabled controls also cannot implicitly opt back into checks.
+        assert!(save_update_choice(&path, UpdateChoice::Downloads(true)).is_err());
+        assert!(save_update_choice(&path, UpdateChoice::Installation(true)).is_err());
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), revoked);
     }
     #[test]
     fn setup_saves_choices_without_destroying_other_settings_or_symlink() {
         let fixture = tempfile::tempdir().unwrap();
         let path = fixture.path().join("config.toml");
         std::fs::write(&path, "# keep me\n[editor]\nfont_size=17\n").unwrap();
-        let saved = save(&path, true, Appearance::Light).unwrap();
-        assert!(saved.setup.completed);
+        let saved = save(&path, Appearance::Light).unwrap();
         assert_eq!(saved.ui.appearance, Appearance::Light);
         assert_eq!(saved.editor.font_size, 17.);
         assert!(
@@ -223,11 +317,11 @@ mod tests {
         {
             let link = fixture.path().join("alias.toml");
             std::os::unix::fs::symlink(&path, &link).unwrap();
-            save(&link, true, Appearance::Dark).unwrap();
+            save(&link, Appearance::Dark).unwrap();
             assert!(link.is_symlink());
         }
         std::fs::write(&path, "invalid = [").unwrap();
-        assert!(save(&path, true, Appearance::Light).is_err());
+        assert!(save(&path, Appearance::Light).is_err());
         assert_eq!(std::fs::read_to_string(&path).unwrap(), "invalid = [");
     }
 }

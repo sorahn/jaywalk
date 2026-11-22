@@ -58,6 +58,7 @@ impl Viewer {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        self.setup.updates = settings.updates;
         self.config.error = error;
         self.apply_settings(settings, window, cx);
         cx.notify();

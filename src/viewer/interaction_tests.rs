@@ -3734,7 +3734,7 @@ fn setup_is_optional_preserves_the_comparison_and_only_saves_explicit_choices(
     draw(cx);
     let path = fixture.0.join("settings.toml");
     let checked = Settings::parse(&std::fs::read_to_string(&path).unwrap()).unwrap();
-    assert!(checked.updates.automatic_checks && !checked.setup.completed);
+    assert!(checked.updates.automatic_checks);
     assert!(checked.updates.may_check_automatically());
     // The checkbox saves consent immediately; skipping does not undo that choice.
     let later = cx.debug_bounds("setup-later").unwrap();
@@ -3745,12 +3745,6 @@ fn setup_is_optional_preserves_the_comparison_and_only_saves_explicit_choices(
         before
     );
     let path = fixture.0.join("settings.toml");
-    assert!(
-        !Settings::parse(&std::fs::read_to_string(&path).unwrap())
-            .unwrap()
-            .setup
-            .completed
-    );
     cx.update(|w, app| viewer.update(app, |v, c| v.execute_command(CommandId::ShowSetup, w, c)));
     draw(cx);
     let checks = cx.debug_bounds("setup-update-0").unwrap();
@@ -3760,7 +3754,7 @@ fn setup_is_optional_preserves_the_comparison_and_only_saves_explicit_choices(
     cx.simulate_click(save.center(), Default::default());
     draw(cx);
     let saved = Settings::parse(&std::fs::read_to_string(&path).unwrap()).unwrap();
-    assert!(saved.setup.completed && !saved.updates.automatic_checks);
+    assert!(!saved.updates.automatic_checks);
     assert!(!saved.updates.automatic_downloads && !saved.updates.automatic_installation);
     assert_eq!(
         cx.update(|_, app| viewer.read(app).comparison().unwrap().identity()),
@@ -3777,7 +3771,7 @@ fn older_setup_window_cannot_restore_revoked_update_consent(test_cx: &mut TestAp
     let (first, first_cx) = setup_arguments_with_settings(
         &fixture,
         args,
-        "[updates]\nautomatic_checks=true\n",
+        "[updates]\nautomatic_checks=true\nautomatic_downloads=true\n",
         test_cx,
     );
     let (arguments, settings) = first_cx.update(|_, app| {
@@ -3807,12 +3801,25 @@ fn older_setup_window_cannot_restore_revoked_update_consent(test_cx: &mut TestAp
     let path = fixture.0.join("settings.toml");
     let revoked = Settings::parse(&std::fs::read_to_string(&path).unwrap()).unwrap();
     assert!(!revoked.updates.automatic_checks);
-    // Preserve the older window's snapshot to reproduce the stale-save race.
+    second_cx.update(|_, app| {
+        second.update(app, |viewer, _| {
+            viewer.setup.updates.automatic_checks = true;
+            viewer.setup.updates.automatic_downloads = true;
+        })
+    });
+    draw(second_cx);
+    let downloads = second_cx.debug_bounds("setup-update-1").unwrap();
+    second_cx.simulate_click(downloads.center(), Default::default());
+    draw(second_cx);
+    let after_checkbox = Settings::parse(&std::fs::read_to_string(&path).unwrap()).unwrap();
+    assert!(!after_checkbox.updates.automatic_checks);
+    assert!(!after_checkbox.updates.automatic_downloads);
+    second_cx.update(|_, app| assert_eq!(second.read(app).setup.updates, after_checkbox.updates));
+    // Completion must preserve the same revocation.
     let save = second_cx.debug_bounds("setup-save").unwrap();
     second_cx.simulate_click(save.center(), Default::default());
     draw(second_cx);
     let saved = Settings::parse(&std::fs::read_to_string(&path).unwrap()).unwrap();
-    assert!(saved.setup.completed);
     assert!(!saved.updates.automatic_checks);
     assert_eq!(saved.updates, revoked.updates);
 }
@@ -4008,7 +4015,7 @@ fn first_setup_skip_returns_to_welcome_and_manual_setup_remains_available(cx: &m
     assert!(cx.update(|_, app| viewer.read(app).is_welcome()));
     let saved = Settings::parse(&std::fs::read_to_string(fixture.0.join("settings.toml")).unwrap())
         .unwrap();
-    assert!(saved.setup.seen && !saved.setup.completed);
+    assert!(fixture.0.join("settings.toml").exists());
     assert!(!saved.updates.may_check_automatically());
     cx.update(|window, app| {
         viewer.update(app, |viewer, cx| {
@@ -4262,4 +4269,57 @@ fn checkout_this_branch_uses_the_review_aggregate_while_inspecting_another_commi
             super::ComparisonScope::Revision { .. }
         ));
     });
+}
+
+#[gpui_test::test]
+fn cancelling_branch_checkout_preparation_restores_the_previous_pin(cx: &mut TestAppContext) {
+    use jaywalk::{
+        accounts::Control, commands::CommandId, local_review::checkout::branches::Catalog,
+    };
+    use std::{sync::Arc, time::Duration};
+    let fixture = Fixture::new();
+    std::fs::write(fixture.0.join(".gitignore"), "/settings.toml\n").unwrap();
+    fixture.git(&["add", "."]);
+    fixture.git(&["commit", "-m", "clean fixture"]);
+    fixture.git(&["branch", "topic"]);
+    let catalog =
+        Arc::new(Catalog::capture(&fixture.0, &Control::new(Duration::from_secs(30))).unwrap());
+    let branch = catalog
+        .branches
+        .iter()
+        .find(|branch| branch.label() == "topic")
+        .unwrap()
+        .clone();
+    let (viewer, cx) = setup(&fixture, cx);
+    let before = cx.update(|_, app| viewer.read(app).comparison().unwrap().identity());
+    for pinned in [false, true] {
+        cx.update(|window, app| {
+            viewer.update(app, |viewer, cx| {
+                viewer.execute_command(CommandId::CheckoutBranch, window, cx);
+            });
+        });
+        draw(cx);
+        cx.update(|window, app| {
+            viewer.update(app, |viewer, cx| {
+                viewer.navigation.pinned = pinned;
+                viewer.local_actions.branch.catalog = Some(catalog.clone());
+                viewer.checkout_selected_branch(branch.clone(), window, cx);
+                assert!(viewer.navigation.pinned);
+                // Escape before the queued preparation worker starts.
+                viewer.close_palette(window, cx);
+                assert_eq!(viewer.navigation.pinned, pinned);
+            });
+        });
+        draw(cx);
+        assert_eq!(
+            cx.update(|_, app| viewer.read(app).comparison().unwrap().identity()),
+            before
+        );
+        let head = std::process::Command::new("git")
+            .current_dir(&fixture.0)
+            .args(["branch", "--show-current"])
+            .output()
+            .unwrap();
+        assert_eq!(String::from_utf8(head.stdout).unwrap().trim(), "main");
+    }
 }

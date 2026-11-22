@@ -185,16 +185,12 @@ pub(crate) struct PreparedWindow {
 }
 impl PreparedWindow {
     /// Read persistence before entering the window/UI update.
-    pub(crate) fn load(arguments: Arguments, mut settings: Settings) -> Self {
-        // Persist before opening: closing/skipping the first window must not
-        // cancel this marker. This worker writes no consent or appearance choices.
-        let startup_setup = if !cfg!(test) && crate::platform::is_app_bundle() {
-            SettingsSource::resolve(arguments.config.as_deref()).and_then(|source| {
-                source.initialize()?;
-                let first = jaywalk::setup::claim_first_open(source.path())?;
-                settings = source.read()?;
-                Ok(first)
-            })
+    pub(crate) fn load(arguments: Arguments, settings: Settings) -> Self {
+        // Create the documented config before opening. Its existence is the only
+        // first-open marker; creating it grants no update consent.
+        let startup_setup = if !cfg!(test) {
+            SettingsSource::resolve(arguments.config.as_deref())
+                .and_then(|source| source.initialize())
         } else {
             Ok(false)
         };

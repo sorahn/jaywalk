@@ -119,7 +119,7 @@ Allow the release App to bypass only the `v*` tag-creation restriction. Keep ver
 
 ## Native update integration
 
-The small Objective-C bridge uses the pinned Sparkle framework; Rust owns public TOML preferences and opt-in. It does not read OAuth credentials. Automatic checks require both `setup.completed=true` and `updates.automatic_checks=true`. Manual checks require an explicit action. No telemetry/profile or release-note fetches are enabled. Update enclosures come from this repository's GitHub release paths; download-only redirects are limited to GitHub's release asset CDN.
+The small Objective-C bridge uses the pinned Sparkle framework; Rust owns public TOML preferences and opt-in. It does not read OAuth credentials. Automatic checks require an explicit `updates.automatic_checks=true` opt-in; config-file existence or Setup presentation grants no consent. Manual checks require an explicit action. No telemetry/profile or release-note fetches are enabled. Update enclosures come from this repository's GitHub release paths; download-only redirects are limited to GitHub's release asset CDN.
 
 Download-only deliberately avoids Sparkle's combined automatic-download/install setting: that setting can schedule installation on quit. Its raw cache never extracts or executes content; later installation goes through Sparkle verification and currently re-fetches the payload. The consent UI documents this distinction. Automatic installation is enabled only with its own opt-in and restart guard. A live query checks waiting CLI clients and local checkout leases at install/relaunch boundaries. The ordinary guarded restoration path still runs on app quit; interrupted receipts remain recoverable.
 

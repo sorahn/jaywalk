@@ -10,12 +10,13 @@ cleanup in separate, reviewable changes.
 
 ## Development history
 
-The user opted `viewer-prototype` into the mutable jj workflow. Use jj for
-history changes until the initial PR opens. Keep `main` as the initial Rust
-baseline and keep the prototype bookmark at the series tip. Amend the logical
-change that owns a revision and replay descendants. Keep descriptions short,
-lowercase, and without prefixes. Opening the initial PR ends mutable history;
-append review fixes normally afterward. Do not push or open a PR without
+Use jj for local history changes. Main tracks merged GitHub PRs and is the
+release source; do not keep it pinned to the original prototype baseline.
+Start feature work from current main and keep its named bookmark at the series
+tip. Before publication, amend the logical change that owns a revision and
+replay descendants. After a PR opens, append review fixes normally rather than
+rewriting published history unless the user authorizes it. Keep descriptions
+short, lowercase, and without prefixes. Do not push or open a PR without
 authorization.
 
 Record the turn-start operation and full feature-tip commit ID before edits;

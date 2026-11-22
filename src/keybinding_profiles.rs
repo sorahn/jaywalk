@@ -5,7 +5,19 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 pub const DEFAULT_BINDINGS: &str = include_str!("../config/keybindings.toml");
-pub const USER_CONFIG: &str = include_str!("../config/user.toml");
+/// Active section headers with commented defaults; omitted values inherit future defaults.
+pub fn user_config() -> String {
+    crate::settings::DEFAULT_CONFIG
+        .lines()
+        .map(|line| {
+            if line.is_empty() || line.starts_with('#') || line.starts_with('[') {
+                format!("{line}\n")
+            } else {
+                format!("# {line}\n")
+            }
+        })
+        .collect()
+}
 pub const USER_PROFILE: &str = include_str!("../config/user-keybindings.toml");
 
 #[derive(Clone, Debug, PartialEq)]
@@ -114,21 +126,25 @@ pub fn path(config: &Path, reference: &str) -> Result<PathBuf, String> {
 }
 
 /// Never overwrite user contents, including malformed or empty files.
-pub fn create_if_missing(path: &Path, contents: &str) -> Result<(), String> {
+pub fn create_if_missing(path: &Path, contents: &str) -> Result<bool, String> {
     use std::io::Write;
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)
-            .map_err(|error| format!("Could not create {}: {error}", parent.display()))?;
+    match std::fs::symlink_metadata(path) {
+        Ok(_) => return Ok(false),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => return Err(format!("Could not inspect {}: {error}", path.display())),
     }
-    match std::fs::OpenOptions::new()
-        .create_new(true)
-        .write(true)
-        .open(path)
-    {
-        Ok(mut file) => file
-            .write_all(contents.as_bytes())
-            .map_err(|error| format!("Could not write {}: {error}", path.display())),
-        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => Ok(()),
+    let parent = path.parent().unwrap_or(Path::new("."));
+    std::fs::create_dir_all(parent)
+        .map_err(|error| format!("Could not create {}: {error}", parent.display()))?;
+    let mut staged = tempfile::NamedTempFile::new_in(parent)
+        .map_err(|error| format!("Could not stage {}: {error}", path.display()))?;
+    staged
+        .write_all(contents.as_bytes())
+        .and_then(|_| staged.as_file().sync_all())
+        .map_err(|error| format!("Could not write {}: {error}", path.display()))?;
+    match staged.persist_noclobber(path) {
+        Ok(_) => Ok(true),
+        Err(error) if error.error.kind() == std::io::ErrorKind::AlreadyExists => Ok(false),
         Err(error) => Err(format!("Could not create {}: {error}", path.display())),
     }
 }
@@ -221,6 +237,16 @@ impl Selection {
         let mut document: toml_edit::DocumentMut = original
             .parse()
             .map_err(|error| format!("Could not edit {}: {error}", config_path.display()))?;
+        if document
+            .get("keyboard")
+            .and_then(|section| section.get("profile"))
+            .is_none()
+        {
+            document =
+                crate::settings_reload::activate_reference(&original, "keyboard", &["profile"])
+                    .parse()
+                    .map_err(|error| format!("Could not edit keybindings selection: {error}"))?;
+        }
         let decor = document
             .get("keyboard")
             .and_then(|item| item.get("profile"))
@@ -230,7 +256,8 @@ impl Selection {
         if let Some(decor) = decor {
             *replacement.decor_mut() = decor;
         }
-        document["keyboard"]["profile"] = toml_edit::Item::Value(replacement);
+        crate::settings_reload::standard_section(&mut document, "keyboard")["profile"] =
+            toml_edit::Item::Value(replacement);
         let updated = document.to_string();
         let settings = crate::settings::Settings::parse(&updated)?.with_keybindings(bindings)?;
         Ok(Self {
@@ -285,7 +312,33 @@ impl Selection {
 
 #[cfg(test)]
 mod storage_tests {
-    use super::{Selection, USER_PROFILE, create_if_missing, list};
+    use super::{Selection, USER_PROFILE, create_if_missing, list, path, user_config};
+    #[test]
+    fn selecting_profile_activates_the_documented_keyboard_section() {
+        let fixture = tempfile::tempdir().unwrap();
+        let config = fixture.path().join("config.toml");
+        std::fs::write(&config, user_config()).unwrap();
+        create_if_missing(
+            &path(&config, "keybindings/custom.toml").unwrap(),
+            USER_PROFILE,
+        )
+        .unwrap();
+        Selection::prepare(&config, "keybindings/custom.toml")
+            .unwrap()
+            .save()
+            .unwrap();
+        let text = std::fs::read_to_string(&config).unwrap();
+        assert!(text.contains("[keyboard]\n"));
+        assert_eq!(text.matches("[keyboard]").count(), 1);
+        assert!(text.find("[keyboard]").unwrap() < text.find("[application]").unwrap());
+        assert_eq!(
+            crate::settings::Config::parse(&text)
+                .unwrap()
+                .keyboard
+                .profile,
+            "keybindings/custom.toml"
+        );
+    }
     #[test]
     fn discovers_extra_folders_and_preserves_comments_when_selecting_an_external_profile() {
         let root = std::env::temp_dir().join(format!("jw-profile-storage-{}", std::process::id()));
