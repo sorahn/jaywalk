@@ -1,7 +1,7 @@
 # Jaywalk settings reference. Saved edits apply automatically.
 # On first open Jaywalk creates ~/.config/jaywalk/config.toml (or
-# $XDG_CONFIG_HOME/jaywalk/config.toml) with every default commented out.
-# Uncomment a section header and the values you want to override.
+# $XDG_CONFIG_HOME/jaywalk/config.toml) with section headers active and defaults commented out.
+# Uncomment only the values you want to override; section headers stay active.
 # Omitted values inherit the current built-in defaults, including after updates.
 # Dimensions are logical pixels unless noted. Colors accept a shared "#RRGGBB"
 # or { light = "#RRGGBB", dark = "#RRGGBB" }. Keybindings have their own file.

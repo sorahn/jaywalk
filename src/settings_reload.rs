@@ -46,10 +46,10 @@ pub(crate) fn activate_reference(original: &str, section: &str, keys: &[&str]) -
     let mut inside = false;
     let mut output = String::with_capacity(original.len());
     for line in original.lines() {
-        if line == format!("# [{section}]") {
+        if line == format!("# [{section}]") || line == format!("[{section}]") {
             inside = true;
-            output.push_str(line.strip_prefix("# ").expect("matched commented header"));
-        } else if inside && line.starts_with("# [") {
+            output.push_str(line.strip_prefix("# ").unwrap_or(line));
+        } else if inside && (line.starts_with("# [") || line.starts_with('[')) {
             inside = false;
             output.push_str(line);
         } else if inside
@@ -259,9 +259,9 @@ mod tests {
     fn commented_template_inherits_every_default_and_contains_no_active_values() {
         let template = profiles::user_config();
         assert!(
-            template
-                .lines()
-                .all(|line| line.trim().is_empty() || line.starts_with('#'))
+            template.lines().all(|line| line.trim().is_empty()
+                || line.starts_with('#')
+                || line.starts_with('['))
         );
         assert!(!template.contains("[setup]"));
         assert_eq!(Config::parse(&template).unwrap(), Config::default());

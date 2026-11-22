@@ -130,8 +130,13 @@ fn edit(
     let mut doc: toml_edit::DocumentMut = original
         .parse()
         .map_err(|e| format!("Could not edit setup config: {e}"))?;
-    if !doc.contains_key(section) {
-        doc = activate_reference(&original, section, keys)
+    let missing: Vec<_> = keys
+        .iter()
+        .copied()
+        .filter(|key| doc.get(section).and_then(|table| table.get(key)).is_none())
+        .collect();
+    if !missing.is_empty() {
+        doc = activate_reference(&original, section, &missing)
             .parse()
             .map_err(|e| format!("Could not edit documented settings: {e}"))?;
     }
@@ -268,8 +273,8 @@ mod tests {
         save_update_choice(&path, UpdateChoice::Checks(true)).unwrap();
         save(&path, Appearance::Dark).unwrap();
         let text = std::fs::read_to_string(&path).unwrap();
-        assert!(text.find("[ui]\n").unwrap() < text.find("# [theme]").unwrap());
-        assert!(text.find("[updates]\n").unwrap() < text.find("# [hosting]").unwrap());
+        assert!(text.find("[ui]\n").unwrap() < text.find("[theme]").unwrap());
+        assert!(text.find("[updates]\n").unwrap() < text.find("[hosting]").unwrap());
         assert_eq!(text.matches("[updates]").count(), 1);
         let config = Config::parse(&text).unwrap();
         assert!(config.updates.automatic_checks);

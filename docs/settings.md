@@ -4,9 +4,9 @@ Keyboard defaults include Linux-specific recent-repository and fullscreen bindin
 see the [keybindings guide](keybindings.md). Sparse profiles inherit the active
 platform's defaults before applying their explicit overrides.
 
-Jaywalk reads TOML settings. On first open, it creates a fully commented,
-ordered copy of the documented [default configuration](../config/default.toml).
-Uncomment a section header and the values you want to change; omitted values
+Jaywalk reads TOML settings. On first open, it creates an ordered copy of the documented [default configuration](../config/default.toml).
+Section headers are active; default values are commented. Uncomment just the
+values you want to change; omitted values
 inherit current defaults, including defaults changed by future releases.
 Existing files and explicit overrides are preserved.
 The schema and validation live in [src/settings.rs](../src/settings.rs).
@@ -804,7 +804,7 @@ section is needed; old `seen`/`completed` entries are ignored and removed the ne
 time Setup saves preferences. Explicit `--config` files must already exist.
 **Set up Jaywalk…** remains available from the command palette at any time.
 
-New files contain only comments, so creating one grants no update consent.
+New files contain empty sections and commented defaults, so creating one grants no update consent.
 Update checkboxes save individual choices immediately using ordinary TOML
 sections; Save and continue saves appearance, and Skip leaves unsaved appearance
 unchanged. Update consent comes only from the saved update options, independently

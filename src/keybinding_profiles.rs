@@ -5,12 +5,12 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 pub const DEFAULT_BINDINGS: &str = include_str!("../config/keybindings.toml");
-/// A fully commented reference; untouched installations inherit future defaults.
+/// Active section headers with commented defaults; omitted values inherit future defaults.
 pub fn user_config() -> String {
     crate::settings::DEFAULT_CONFIG
         .lines()
         .map(|line| {
-            if line.is_empty() || line.starts_with('#') {
+            if line.is_empty() || line.starts_with('#') || line.starts_with('[') {
                 format!("{line}\n")
             } else {
                 format!("# {line}\n")
@@ -237,7 +237,11 @@ impl Selection {
         let mut document: toml_edit::DocumentMut = original
             .parse()
             .map_err(|error| format!("Could not edit {}: {error}", config_path.display()))?;
-        if !document.contains_key("keyboard") {
+        if document
+            .get("keyboard")
+            .and_then(|section| section.get("profile"))
+            .is_none()
+        {
             document =
                 crate::settings_reload::activate_reference(&original, "keyboard", &["profile"])
                     .parse()
@@ -326,7 +330,7 @@ mod storage_tests {
         let text = std::fs::read_to_string(&config).unwrap();
         assert!(text.contains("[keyboard]\n"));
         assert_eq!(text.matches("[keyboard]").count(), 1);
-        assert!(text.find("[keyboard]").unwrap() < text.find("# [application]").unwrap());
+        assert!(text.find("[keyboard]").unwrap() < text.find("[application]").unwrap());
         assert_eq!(
             crate::settings::Config::parse(&text)
                 .unwrap()
