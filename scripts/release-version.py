@@ -79,5 +79,3 @@ def verify_artifacts(release, manifest, tag, source, version):
         asset = matching[0]
         if asset.get("digest") != "sha256:" + file["sha256"] or asset["size"] != file["bytes"]:
             raise ValueError("published asset does not match approved manifest")
-
-
