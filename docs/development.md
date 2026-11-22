@@ -467,7 +467,13 @@ The stream belongs to the read session and closes when preparation finishes;
 comparison/navigation snapshots retain metadata, not idle child processes or
 unbounded decoded-text caches. Oversized, binary or invalid replies reset the
 stream before another file is read. Conflicted/materialized entries retain the
-operation-pinned, bounded `jj file show` fallback.
+operation-pinned, bounded `jj file show` fallback. Missing Git selects that same
+fallback for normal jj files; only an executable-not-found error does so.
+Permission, object-store and protocol errors remain visible. The reader remembers
+Git's absence for its session, and jj history/reference discovery uses jj's own
+remote listing. Specialized evolution interdiffs still read synthesized Git
+objects directly and require Git; they cannot substitute original commit files
+without changing the comparison's meaning.
 
 ### Publisher GitHub setup and account errors
 

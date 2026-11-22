@@ -106,10 +106,12 @@ impl RecordedContents {
             let blobs = blobs.get_or_insert_with(|| {
                 BlobBatch::with_git_directory(&self.root, directory, self.limit)
             });
-            return blobs.read(object);
+            if blobs.start_if_available()? {
+                return blobs.read(object);
+            }
         }
-        // Conflicted/materialized jj content has no single object size. Retain
-        // the bounded stream and pin it to the same operation and revision.
+        // Missing Git and conflicted/materialized content use jj directly.
+        // Retain the bounded stream, pinned to the same operation and revision.
         let fileset = format!(
             "root-file:{}",
             serde_json::to_string(path).map_err(|e| e.to_string())?
@@ -130,5 +132,167 @@ impl RecordedContents {
             &fileset,
         ]);
         self.limit.text(self.limit.command(&mut command)?)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::repository::Comparison;
+    use std::process::Command;
+
+    fn jj(root: &Path, arguments: &[&str]) -> String {
+        let output = Command::new("jj")
+            .current_dir(root)
+            .args([
+                "--config",
+                "user.name=Fixture",
+                "--config",
+                "user.email=fixture@example.invalid",
+                "--config",
+                "snapshot.max-new-file-size=10485760",
+            ])
+            .args(arguments)
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        String::from_utf8(output.stdout).unwrap().trim().to_owned()
+    }
+    fn fixture() -> (tempfile::TempDir, Comparison) {
+        let root = tempfile::tempdir().unwrap();
+        jj(root.path(), &["git", "init", "--no-colocate"]);
+        std::fs::write(root.path().join("valid 漢\n.txt"), "before\n").unwrap();
+        std::fs::write(root.path().join("large.txt"), vec![b'x'; 1048577]).unwrap();
+        std::fs::write(root.path().join("binary.txt"), [0, 255]).unwrap();
+        jj(root.path(), &["bookmark", "create", "baseline"]);
+        jj(root.path(), &["new", "baseline"]);
+        for path in ["valid 漢\n.txt", "large.txt", "binary.txt"] {
+            std::fs::write(root.path().join(path), "after\n").unwrap();
+        }
+        jj(root.path(), &["status"]);
+        let comparison = Comparison::load_with_limit(
+            root.path(),
+            Some("baseline"),
+            "@",
+            TextLimit::from_mib(1).unwrap(),
+        )
+        .unwrap();
+        (root, comparison)
+    }
+    #[test]
+    fn missing_git_falls_back_without_losing_limits_or_snapshot_identity() {
+        let (root, comparison) = fixture();
+        // Recorded history and reference discovery use jj too, not Git's CLI.
+        jj(
+            root.path(),
+            &[
+                "git",
+                "remote",
+                "add",
+                "office",
+                "https://example.invalid/repository.git",
+            ],
+        );
+        let refreshed = Comparison::load(root.path(), Some("baseline"), "@").unwrap();
+        let history = refreshed.history(&Default::default()).unwrap();
+        assert_eq!(history.references.remotes, ["office"]);
+        let mut reader = comparison.file_reader();
+        reader.blobs = Some(BlobBatch::missing_for_test(
+            root.path(),
+            root.path(),
+            comparison.text_limit(),
+        ));
+        let valid = comparison.catalog().find("valid 漢\n.txt").unwrap();
+        assert_eq!(
+            reader.read_file(valid).unwrap(),
+            ("before\n".into(), "after\n".into())
+        );
+        assert!(
+            reader
+                .read_file(comparison.catalog().find("large.txt").unwrap())
+                .unwrap_err()
+                .contains("text limit")
+        );
+        assert!(
+            reader
+                .read_file(comparison.catalog().find("binary.txt").unwrap())
+                .unwrap_err()
+                .contains("Binary")
+        );
+        std::fs::write(root.path().join("valid 漢\n.txt"), "later snapshot\n").unwrap();
+        jj(root.path(), &["status"]);
+        let operation = query(
+            root.path(),
+            "@",
+            &["op", "log", "-n", "1", "--no-graph", "-T", "id"],
+        )
+        .unwrap();
+        assert_eq!(
+            reader.read_file(valid).unwrap(),
+            ("before\n".into(), "after\n".into())
+        );
+        assert!(!reader.blobs.as_mut().unwrap().start_if_available().unwrap());
+        assert_eq!(
+            query(
+                root.path(),
+                "@",
+                &["op", "log", "-n", "1", "--no-graph", "-T", "id"]
+            )
+            .unwrap(),
+            operation
+        );
+
+        // Verify jj itself can read the pinned blob with no Git on its PATH.
+        let executable = std::env::split_paths(&std::env::var_os("PATH").unwrap())
+            .map(|directory| directory.join(if cfg!(windows) { "jj.exe" } else { "jj" }))
+            .find(|path| path.is_file())
+            .unwrap();
+        let no_tools = tempfile::tempdir().unwrap();
+        let output = Command::new(executable)
+            .current_dir(root.path())
+            .env("PATH", no_tools.path())
+            .args([
+                "--ignore-working-copy",
+                "--at-op",
+                comparison.operation(),
+                "file",
+                "show",
+                "-r",
+                comparison.tip(),
+                "--",
+                "root-file:\"valid 漢\\n.txt\"",
+            ])
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert_eq!(output.stdout, b"after\n");
+    }
+    #[test]
+    fn git_reader_failures_do_not_silently_use_jj() {
+        let (root, comparison) = fixture();
+        let mut contents = RecordedContents::load(
+            root.path(),
+            comparison.operation(),
+            comparison.base(),
+            comparison.tip(),
+            comparison.text_limit(),
+        )
+        .unwrap();
+        contents.git_directory = Ok(root.path().join("absent-object-store"));
+        let mut reader = None;
+        // jj could read this file. A broken object reader must still be reported.
+        assert!(
+            contents
+                .read_path("valid 漢\n.txt", FileSide::After, &mut reader)
+                .is_err()
+        );
     }
 }
