@@ -56,7 +56,7 @@ impl Viewer {
                     let source =
                         jaywalk::settings_reload::SettingsSource::resolve(explicit.as_deref())?;
                     source.initialize()?;
-                    jaywalk::setup::save(source.path(), true, appearance)?;
+                    jaywalk::setup::save(source.path(), appearance)?;
                     source.read()
                 })
                 .await;
@@ -524,7 +524,11 @@ mod tests {
                 &std::fs::read_to_string(original.0.join("settings.toml")).unwrap(),
             )
             .unwrap();
-            assert_eq!(saved.setup.completed, completion);
+            assert!(
+                !std::fs::read_to_string(original.0.join("settings.toml"))
+                    .unwrap()
+                    .contains("[setup]")
+            );
             assert_eq!(saved.updates.automatic_checks, !completion);
         }
     }

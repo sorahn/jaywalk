@@ -7,6 +7,65 @@ use std::path::{Path, PathBuf};
 // the original text before atomic replacement.
 pub(crate) static CONFIG_WRITER: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
+pub(crate) fn standard_section<'a>(
+    doc: &'a mut toml_edit::DocumentMut,
+    name: &str,
+) -> &'a mut toml_edit::Table {
+    if let Some(toml_edit::Value::InlineTable(_)) =
+        doc.get(name).and_then(toml_edit::Item::as_value)
+    {
+        let prefix = doc
+            .key(name)
+            .and_then(|key| key.leaf_decor().prefix())
+            .cloned();
+        let old = std::mem::take(&mut doc[name]);
+        let suffix = old
+            .as_value()
+            .and_then(|value| value.decor().suffix())
+            .cloned();
+        let mut table = old.into_table().expect("matched inline table");
+        if let Some(prefix) = prefix {
+            table.decor_mut().set_prefix(prefix);
+        }
+        if let Some(suffix) = suffix {
+            table.decor_mut().set_suffix(suffix);
+        }
+        doc[name] = toml_edit::Item::Table(table);
+        doc.key_mut(name).expect("section exists").fmt();
+    } else if !doc.contains_key(name) {
+        doc[name] = toml_edit::Item::Table(toml_edit::Table::new());
+    }
+    doc[name]
+        .as_table_mut()
+        .expect("validated settings section is a table")
+}
+
+/// Activate just the edited section/fields in a newly commented reference,
+/// retaining the documented order rather than appending a duplicate section.
+pub(crate) fn activate_reference(original: &str, section: &str, keys: &[&str]) -> String {
+    let mut inside = false;
+    let mut output = String::with_capacity(original.len());
+    for line in original.lines() {
+        if line == format!("# [{section}]") {
+            inside = true;
+            output.push_str(line.strip_prefix("# ").expect("matched commented header"));
+        } else if inside && line.starts_with("# [") {
+            inside = false;
+            output.push_str(line);
+        } else if inside
+            && keys
+                .iter()
+                .any(|key| line.starts_with(&format!("# {key} =")))
+        {
+            output.push_str(line.strip_prefix("# ").expect("matched commented value"));
+        } else {
+            output.push_str(line);
+        }
+        output.push('\n');
+    }
+    output
+}
+
 #[derive(Clone, PartialEq, Eq, Hash)]
 pub struct SettingsSource {
     path: PathBuf,
@@ -35,10 +94,16 @@ impl SettingsSource {
         &self.path
     }
 
-    pub fn initialize(&self) -> Result<(), String> {
-        if self.optional {
-            profiles::create_if_missing(&self.path, profiles::USER_CONFIG)?;
-        }
+    /// Atomically create a missing default config; only its creator shows Setup.
+    pub fn initialize(&self) -> Result<bool, String> {
+        let _writer = CONFIG_WRITER.lock().expect("config writer mutex poisoned");
+        let created =
+            self.optional && profiles::create_if_missing(&self.path, &profiles::user_config())?;
+        self.initialize_profile()?;
+        Ok(created)
+    }
+
+    fn initialize_profile(&self) -> Result<(), String> {
         // Explicit configs must already exist; never create one on a mistyped path.
         let config = self.config_contents()?;
         // Keep the settings editor usable even while its TOML is invalid.
@@ -84,7 +149,8 @@ impl SettingsSource {
     }
 
     pub fn read(&self) -> Result<Settings, String> {
-        self.initialize()?;
+        // Reading configuration must not consume the first-window creation claim.
+        self.initialize_profile()?;
         self.parse(self.contents()?)
     }
 }
@@ -164,6 +230,42 @@ mod tests {
         }
     }
 
+    #[test]
+    fn concurrent_first_windows_claim_only_one_fully_written_config() {
+        let fixture = Fixture::new();
+        let source = fixture.source(true);
+        let other = source.clone();
+        let worker = std::thread::spawn(move || other.initialize().unwrap());
+        let first = source.initialize().unwrap();
+        assert_ne!(first, worker.join().unwrap());
+        assert_eq!(
+            std::fs::read_to_string(source.path()).unwrap(),
+            profiles::user_config()
+        );
+        assert_eq!(source.read().unwrap(), Settings::default());
+        // Existence is sufficient even for a deliberately empty or legacy file.
+        for contents in ["", "[setup]\ncompleted=false\nseen=false\n"] {
+            std::fs::write(source.path(), contents).unwrap();
+            assert!(!source.initialize().unwrap());
+            assert_eq!(std::fs::read_to_string(source.path()).unwrap(), contents);
+        }
+        let explicit = fixture.source(false);
+        std::fs::remove_file(explicit.path()).unwrap();
+        assert!(explicit.initialize().is_err());
+        assert!(!explicit.path().exists());
+    }
+
+    #[test]
+    fn commented_template_inherits_every_default_and_contains_no_active_values() {
+        let template = profiles::user_config();
+        assert!(
+            template
+                .lines()
+                .all(|line| line.trim().is_empty() || line.starts_with('#'))
+        );
+        assert!(!template.contains("[setup]"));
+        assert_eq!(Config::parse(&template).unwrap(), Config::default());
+    }
     #[test]
     fn watches_creation_replacement_removal_and_recovery_without_metadata_assumptions() {
         let fixture = Fixture::new();
@@ -270,13 +372,19 @@ mod profile_tests {
         assert!(watcher.poll().is_none());
     }
     #[test]
-    fn bootstraps_sparse_files_without_overwriting_existing_contents() {
+    fn bootstraps_commented_reference_without_overwriting_existing_contents() {
         let fixture = super::tests::Fixture::new();
         let source = fixture.source(true);
         source.read().unwrap();
+        assert!(
+            !source.path().exists(),
+            "reading settings must not consume first open"
+        );
+        assert!(source.initialize().unwrap());
+        assert!(!source.initialize().unwrap());
         assert_eq!(
             std::fs::read_to_string(source.path()).unwrap(),
-            profiles::USER_CONFIG
+            profiles::user_config()
         );
         let profile = profiles::path(source.path(), "keybindings/default.toml").unwrap();
         std::fs::write(&profile, "# keep this\n[keybindings]\nfind_file=[]").unwrap();

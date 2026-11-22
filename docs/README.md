@@ -11,5 +11,6 @@
 See the [project README](../README.md) for an introduction and quick-start commands.
 The [default settings](../config/default.toml) and
 [default keybindings](../config/keybindings.toml)
-are the canonical defaults. The sparse [user settings](../config/user.toml) and
-[user keybindings](../config/user-keybindings.toml) templates are generated on first use.
+are the canonical defaults. First open generates a fully commented copy of the
+settings reference and a sparse [user keybindings](../config/user-keybindings.toml)
+profile. Existing files are preserved.

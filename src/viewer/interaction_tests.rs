@@ -3734,7 +3734,7 @@ fn setup_is_optional_preserves_the_comparison_and_only_saves_explicit_choices(
     draw(cx);
     let path = fixture.0.join("settings.toml");
     let checked = Settings::parse(&std::fs::read_to_string(&path).unwrap()).unwrap();
-    assert!(checked.updates.automatic_checks && !checked.setup.completed);
+    assert!(checked.updates.automatic_checks);
     assert!(checked.updates.may_check_automatically());
     // The checkbox saves consent immediately; skipping does not undo that choice.
     let later = cx.debug_bounds("setup-later").unwrap();
@@ -3745,12 +3745,6 @@ fn setup_is_optional_preserves_the_comparison_and_only_saves_explicit_choices(
         before
     );
     let path = fixture.0.join("settings.toml");
-    assert!(
-        !Settings::parse(&std::fs::read_to_string(&path).unwrap())
-            .unwrap()
-            .setup
-            .completed
-    );
     cx.update(|w, app| viewer.update(app, |v, c| v.execute_command(CommandId::ShowSetup, w, c)));
     draw(cx);
     let checks = cx.debug_bounds("setup-update-0").unwrap();
@@ -3760,7 +3754,7 @@ fn setup_is_optional_preserves_the_comparison_and_only_saves_explicit_choices(
     cx.simulate_click(save.center(), Default::default());
     draw(cx);
     let saved = Settings::parse(&std::fs::read_to_string(&path).unwrap()).unwrap();
-    assert!(saved.setup.completed && !saved.updates.automatic_checks);
+    assert!(!saved.updates.automatic_checks);
     assert!(!saved.updates.automatic_downloads && !saved.updates.automatic_installation);
     assert_eq!(
         cx.update(|_, app| viewer.read(app).comparison().unwrap().identity()),
@@ -3826,7 +3820,6 @@ fn older_setup_window_cannot_restore_revoked_update_consent(test_cx: &mut TestAp
     second_cx.simulate_click(save.center(), Default::default());
     draw(second_cx);
     let saved = Settings::parse(&std::fs::read_to_string(&path).unwrap()).unwrap();
-    assert!(saved.setup.completed);
     assert!(!saved.updates.automatic_checks);
     assert_eq!(saved.updates, revoked.updates);
 }
@@ -4022,7 +4015,7 @@ fn first_setup_skip_returns_to_welcome_and_manual_setup_remains_available(cx: &m
     assert!(cx.update(|_, app| viewer.read(app).is_welcome()));
     let saved = Settings::parse(&std::fs::read_to_string(fixture.0.join("settings.toml")).unwrap())
         .unwrap();
-    assert!(saved.setup.seen && !saved.setup.completed);
+    assert!(fixture.0.join("settings.toml").exists());
     assert!(!saved.updates.may_check_automatically());
     cx.update(|window, app| {
         viewer.update(app, |viewer, cx| {

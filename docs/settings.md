@@ -4,8 +4,11 @@ Keyboard defaults include Linux-specific recent-repository and fullscreen bindin
 see the [keybindings guide](keybindings.md). Sparse profiles inherit the active
 platform's defaults before applying their explicit overrides.
 
-Jaywalk reads TOML settings. Keep only your overrides in your user file;
-omitted values inherit the shipped [default configuration](../config/default.toml).
+Jaywalk reads TOML settings. On first open, it creates a fully commented,
+ordered copy of the documented [default configuration](../config/default.toml).
+Uncomment a section header and the values you want to change; omitted values
+inherit current defaults, including defaults changed by future releases.
+Existing files and explicit overrides are preserved.
 The schema and validation live in [src/settings.rs](../src/settings.rs).
 
 ## Configuration file and reload
@@ -794,19 +797,18 @@ These actions prepare local review sources and optional checkout only. They do n
 
 ## First-open setup and updates
 
-`[setup] seen` defaults to `false`. The signed app records it when preparing the
-first automatic setup window. Later opens show Welcome (or an explicitly requested
-comparison), even after Skip, closing the window or quitting. This marker saves no
-draft choices and grants no network consent. **Set up Jaywalk…** remains available
-explicitly from the command palette regardless of the marker.
+The app creates a missing default settings file before showing Setup once. File
+existence is the first-open marker: later launches skip automatic Setup even if
+you skipped or closed it. Empty and older existing files count too. No `[setup]`
+section is needed; old `seen`/`completed` entries are ignored and removed the next
+time Setup saves preferences. Explicit `--config` files must already exist.
+**Set up Jaywalk…** remains available from the command palette at any time.
 
-`[setup] completed` defaults to `false` and is saved with `seen = true` by **Save
-and continue**. Skipping leaves `completed` false. Update checkboxes save immediately; skipping
-does not undo them. Other unsaved choices remain unchanged. Previously completed setups do not reappear when `seen` is absent in an
-older config. Both values are application-level in the active config; edits affect
-the next automatic open. Update consent comes only from the saved update options and is independent of
-setup completion.
-Appearance uses the existing `ui.appearance` setting.
+New files contain only comments, so creating one grants no update consent.
+Update checkboxes save individual choices immediately using ordinary TOML
+sections; Save and continue saves appearance, and Skip leaves unsaved appearance
+unchanged. Update consent comes only from the saved update options, independently
+of whether Setup was shown. Appearance uses `ui.appearance`.
 
 | `[updates]` key | Default | Accepted values / behavior |
 | --- | --- | --- |

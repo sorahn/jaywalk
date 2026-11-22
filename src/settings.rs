@@ -115,7 +115,6 @@ pub struct LiveSettings {
 #[derive(Clone, Debug, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct Config {
-    pub setup: crate::setup::SetupSettings,
     pub updates: crate::setup::UpdateSettings,
     pub accounts: Vec<crate::accounts::preferences::AccountConfig>,
     pub hosting: crate::hosting::review::Options,
@@ -580,8 +579,13 @@ impl Config {
     pub fn parse(input: &str) -> Result<Self, String> {
         let mut defaults: toml::Value = toml::from_str(DEFAULT_CONFIG)
             .expect("the shipped TOML defaults are validated in tests");
-        let overrides: toml::Value =
+        let mut overrides: toml::Value =
             toml::from_str(input).map_err(|error| format!("Invalid TOML: {error}"))?;
+        // Retired first-open markers are accepted for old configurations only.
+        // File existence now decides whether Setup is shown automatically.
+        if let Some(table) = overrides.as_table_mut() {
+            table.remove("setup");
+        }
         if overrides.get("keybindings").is_some() || overrides.get("keymap").is_some() {
             return Err("Put [keybindings] and [[keymap]] in the selected keybindings profile, not config.toml".into());
         }

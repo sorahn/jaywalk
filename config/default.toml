@@ -1,52 +1,23 @@
-# Copy this file to ~/.config/jaywalk/config.toml and edit it directly.
-# Unspecified values inherit these defaults. Saved edits apply automatically.
+# Jaywalk settings reference. Saved edits apply automatically.
+# On first open Jaywalk creates ~/.config/jaywalk/config.toml (or
+# $XDG_CONFIG_HOME/jaywalk/config.toml) with every default commented out.
+# Uncomment a section header and the values you want to override.
+# Omitted values inherit the current built-in defaults, including after updates.
+# Dimensions are logical pixels unless noted. Colors accept a shared "#RRGGBB"
+# or { light = "#RRGGBB", dark = "#RRGGBB" }. Keybindings have their own file.
+# The existence of this file skips automatic Setup; Set up Jaywalk… is always
+# available from the command palette. Creating it authorizes no network requests.
 
 # Connected account metadata is added as [[accounts]] tables. Reorder them to
 # choose account/list/request priority. Credentials stay in the OS store.
 accounts = []
 
-[keyboard]
-# Loads keybindings/default.toml beside this config.
-profile = "keybindings/default.toml"
-additional_directories = []
-
-[setup]
-completed = false
-seen = false
-
-[updates]
-automatic_checks = false
-automatic_downloads = false
-automatic_installation = false
-check_interval_hours = 24
-
-[application]
-quit_on_last_window = true
-# Reuse the current viewer for CLI, recent-repository and normal Open actions.
-single_window_mode = false
-
-# In-memory visited views per window; reducing the limit trims old entries live.
-[comparison]
-# Order newly selected pairs; explicit CLI requests keep their direction.
-pair_order = "ancestry"
-
-[picker]
-# Rank similarly relevant commands using local frequency and recency.
-adaptive_command_order = true
-
-[navigation]
-history_limit = 100
-
-[welcome]
-recent_count = 10
-
-[window]
-width = 1500
-height = 950
-
 [ui]
+# Interface typography, bars, spacing and active-control colors.
 # Application-wide active icons, control fills, selections and focus accents.
+# "system", "light", or "dark".
 appearance = "system"
+# "system", a hex color, or a light/dark pair.
 accent_color = "system"
 # Used when a native system accent is unavailable. Explicit accent_color colors override it.
 accent_color_fallback = { light = "#0066b8", dark = "#3794ff" }
@@ -68,18 +39,68 @@ ligatures = true
 # font_family = "Helvetica Neue"
 
 # Multipliers are independent of UI/editor font sizes. Applied live.
+
 [ui.spacing]
+# Logical pixels per unit (1–16); edge/interactive are multipliers (0–8).
 unit = 4
 edge = 2
 interactive = 1
 
-[editor]
-font_size = 13
-line_numbers = true
-tab_size = 4
-ligatures = true
-# Omit font_family to keep the platform's default monospace font.
-# font_family = "Menlo"
+[theme]
+# Shell colors are independent of syntax/diff colors and system accent.
+# Exact role colors override generated colors; see docs/settings.md for role names.
+overrides = {}
+
+[theme.shell_auto]
+enabled = true
+algorithm = "tonal-v1"
+# Seeds are inputs to the mode-specific recipe, not exact final backgrounds.
+seed = { light = "#575757", dark = "#121212" }
+# Surface separation (0–2.5).
+layer_strength = 1.4
+# Hue rotation in degrees (-180–180).
+hue_shift = 0.0
+# Saturation multiplier (0–3).
+chroma_scale = 1.0
+tint_strength = 1.0
+# Lightness spread (0.2–2.5).
+contrast_spread = 1.0
+lightness_shift = 0.0
+# Influence of the seed on the foundation (0–1).
+seed_lightness_influence = 1.0
+
+[theme.shell_auto.roles]
+# Optional per-surface recipe overrides; see docs/settings.md for role names.
+# Example: [theme.shell_auto.roles."shell.sidebar.files.background"]
+# lightness_shift = { light = 0.0, dark = 0.02 }
+# hue_shift = 0.0
+# chroma_scale = 1.0
+
+[window]
+# Initial window size; sidebars and content adapt to smaller viewports.
+width = 1500
+height = 950
+
+[layout]
+# Startup panel visibility and per-repository layout restoration.
+remember_per_repository = true
+history_visible = true
+files_visible = true
+bottom_height = 280
+min_bottom_height = 120
+max_bottom_height = 700
+
+[layout.placement]
+# "left" or "right"; each sidebar can be placed independently.
+history_side = "left"
+files_side = "left"
+# Left-to-right order when both sidebars share a side.
+# "history_first" or "files_first".
+sidebar_order = "history_first"
+# "sidebar" keeps each timeline below its associated list; "bottom" docks it
+# under the central workspace. Two bottom timelines appear beside each other.
+change_evolution = "sidebar"
+file_evolution = "sidebar"
 
 [panels.history]
 default_width = 280
@@ -113,52 +134,17 @@ change_map_opacity = 0.24
 min_code_width = 100
 # The before/after panes default to an even split of the remaining width.
 
-[history]
-# Page sizes count history rows, including the Git working-copy row.
-# Suggested upper starting point: 10000. Larger graphs can use much more memory.
-page_size = 5000
-# Publish this first, then fill page_size in the background. Clamped to page_size.
-initial_batch_size = 100
-page_on_scroll = false
-search_page_size = 100
-# Alternate row tint; 0 disables stripes. Updates live.
-stripe_opacity = 0.08
-# Minimum row height; larger UI fonts can require more space.
-# row_height = 30 # Optional override of ui.row_height.
-lane_spacing = 8
-show_reference_labels = true
-reference_badge_width = 110
-
-[history.remotes]
-# Applies to new remotes as well as those without an explicit override.
-default_visible = true
-# [history.remotes.overrides]
-# origin = false
-
-[overview]
-context_lines = 3
-expansion_lines = 20
-# For overviews without changed files; otherwise the message scrolls with the diff.
-message_max_height = 220
-
-[files]
-default_view = "list"
-# Cmd+P always searches the entire repository, independently of this tree filter.
-tree_scope = "changed"
-# tree_row_height = 30
-# list_row_height = 30
-# Omit to follow ui.spacing.edge × ui.spacing.unit. Explicit values remain supported.
-# indent_width = 8
-indent_guides = true
-indent_guide_opacity = 0.12
-# Shift guides relative to ancestor folder-icon centers; negative is left.
-indent_guide_offset = -2
-file_icons = true
-compact_paths = true
-list_word_wrap = false
-# Tree rows stay single-line and scroll horizontally.
+[editor]
+# Code typography; independent of interface/sidebar font settings.
+font_size = 13
+line_numbers = true
+tab_size = 4
+ligatures = true
+# Omit font_family to keep the platform's default monospace font.
+# font_family = "Menlo"
 
 [diff]
+# Viewer defaults and comparison presentation; original source bytes are preserved.
 # Line matching: "myers" or "patience".
 algorithm = "myers"
 # Comparison changes alignment only; original source bytes remain intact.
@@ -181,6 +167,7 @@ expansion_lines = 20
 
 # All colors accept a shared "#RRGGBB" or a light/dark pair.
 # Background and word hues are tinted by the viewer to preserve syntax legibility.
+
 [diff.colors]
 added = { light = "#22863a", dark = "#4ec96e" }
 removed = { light = "#cf222e", dark = "#f85149" }
@@ -202,7 +189,60 @@ word_wrap = false
 [diff.inline]
 word_wrap = false
 
+[overview]
+# Changeset overview folding and commit-message area.
+context_lines = 3
+expansion_lines = 20
+# For overviews without changed files; otherwise the message scrolls with the diff.
+message_max_height = 220
+
+[files]
+# File list/tree defaults and folder guide appearance.
+# "list" or "tree".
+default_view = "list"
+# Cmd+P always searches the entire repository, independently of this tree filter.
+# "changed" or "all".
+tree_scope = "changed"
+# tree_row_height = 30
+# list_row_height = 30
+# Omit to follow ui.spacing.edge × ui.spacing.unit. Explicit values remain supported.
+# indent_width = 8
+indent_guides = true
+indent_guide_opacity = 0.12
+# Shift guides relative to ancestor folder-icon centers; negative is left.
+indent_guide_offset = -2
+file_icons = true
+compact_paths = true
+list_word_wrap = false
+# Tree rows stay single-line and scroll horizontally.
+
+[history]
+# Bounded initial graph load, older-page loading and history search.
+# Page sizes count history rows, including the Git working-copy row.
+# Suggested upper starting point: 10000. Larger graphs can use much more memory.
+page_size = 5000
+# Publish this first, then fill page_size in the background. Clamped to page_size.
+initial_batch_size = 100
+# Load the next history page near the end, or use explicit Load older.
+page_on_scroll = false
+# Matching results per history-search page.
+search_page_size = 100
+# Alternate row tint; 0 disables stripes. Updates live.
+stripe_opacity = 0.08
+# Minimum row height; larger UI fonts can require more space.
+# row_height = 30 # Optional override of ui.row_height.
+lane_spacing = 8
+show_reference_labels = true
+reference_badge_width = 110
+
+[history.remotes]
+# Applies to new remotes as well as those without an explicit override.
+default_visible = true
+# [history.remotes.overrides]
+# origin = false
+
 [evolution]
+# jj change evolution below history (or in the bottom dock).
 visible = false
 # Current and selected versions remain visible.
 show_unchanged_rebases = false
@@ -215,59 +255,78 @@ row_height = 48
 limit = 100
 
 # Independent dock below Changed files. Shares the recorded change timeline.
+
 [file_evolution]
+# File evolution below Files (or in the bottom dock).
 visible = true
 default_height = 320
 min_height = 180
 max_height = 700
 min_files_height = 120
 
-[live]
-# Git watches saved worktree/index changes; jj follows recorded operations.
-enabled = true
-# Git fallback scan interval and jj recorded-operation polling interval.
-poll_interval_ms = 1500
+[comparison]
+# Ordering of two points selected in the history graph.
+# Order newly selected pairs; explicit CLI requests keep their direction.
+# "ancestry" puts related ancestors first; "selection" follows click order.
+pair_order = "ancestry"
 
-# Configuration reload is independent of recorded repository refresh above.
-[settings]
-poll_interval_ms = 500
-# Omit editor to use the platform's default text editor.
-# On macOS, a string selects an application by name or .app path.
-# editor = "Zed"
-# An array runs an executable with literal arguments; the config path is appended.
-# editor = ["code", "--reuse-window"]
+[navigation]
+# Back/Forward snapshots retained in each window.
+# Maximum retained Back/Forward entries per window.
+history_limit = 100
 
-# Startup defaults; remembered repository choices are stored separately.
-[layout]
-remember_per_repository = true
-history_visible = true
-files_visible = true
-bottom_height = 280
-min_bottom_height = 120
-max_bottom_height = 700
+[picker]
+# Unified command/file/repository/PR picker.
+# Rank similarly relevant commands using local frequency and recency.
+adaptive_command_order = true
 
-[layout.placement]
-history_side = "left"
-files_side = "left"
-# Left-to-right order when both sidebars share a side.
-sidebar_order = "history_first"
-# "sidebar" keeps each timeline below its associated list; "bottom" docks it
-# under the central workspace. Two bottom timelines appear beside each other.
-change_evolution = "sidebar"
-file_evolution = "sidebar"
+[welcome]
+# Recent repositories on the Welcome page.
+# Recent repositories shown on Welcome.
+recent_count = 10
 
-# Hosted review snapshots are downloaded on demand and kept only in memory.
+[keyboard]
+# Sparse keybinding profiles inherit shipped platform defaults.
+# Loads keybindings/default.toml beside this config.
+profile = "keybindings/default.toml"
+additional_directories = []
+
+[application]
+# Window reuse and application lifetime.
+quit_on_last_window = true
+# Reuse the current viewer for CLI, recent-repository and normal Open actions.
+single_window_mode = false
+
+[updates]
+# Update consent is opt-in. No automatic update traffic until checks are enabled.
+# Check the public feed automatically; manual Check for updates remains available.
+automatic_checks = false
+# Requires automatic_checks. Downloads alone do not authorize installation.
+automatic_downloads = false
+# Requires automatic_downloads; permits installation on quit when safe.
+automatic_installation = false
+# Automatic check cadence in hours (1–168).
+check_interval_hours = 24
+
 [hosting]
+# Snapshots are downloaded on demand and kept only in memory.
+# Hosted PR limits; account credentials are kept in the OS credential store.
 # Maximum independent account discoveries in flight across all windows.
 concurrent_accounts = 3
+# Commit rows per hosted PR (1–1000); API provider ceilings can be lower.
 history_limit = 200
 max_files = 3000
 max_content_mb = 128
 
 # Local PR acquisition and checkout are opt-in; project settings are separate.
+
 [local_review]
+# Optional local PR materialization; ordinary review stays hosted by default.
+# "hosted", "isolated", or "checkout_if_clean" (plain Git only).
 mode = "hosted"
+# Object-store acquisition budget in MiB.
 max_repository_mb = 512
+# Permit acquisition of missing pinned PR commits when opening locally.
 fetch_missing = true
 # Prefer an existing local PR branch, or create one from a matching remote ref.
 # Other choices: "existing" (never create), "detached".
@@ -275,21 +334,20 @@ checkout_branch = "create_from_remote"
 # Remove only Jaywalk-created, unchanged, unused branches on guarded restoration.
 cleanup_created_branch = false
 
-# Shell generation is independent of system/custom active-control accent colors.
-[theme]
-overrides = {}
-
-[theme.shell_auto]
+[live]
+# Refresh working changes separately from configuration reload.
+# Git watches saved worktree/index changes; jj follows recorded operations.
 enabled = true
-algorithm = "tonal-v1"
-# Seeds are inputs to the mode-specific recipe, not exact final backgrounds.
-seed = { light = "#575757", dark = "#121212" }
-layer_strength = 1.4
-hue_shift = 0.0
-chroma_scale = 1.0
-tint_strength = 1.0
-contrast_spread = 1.0
-lightness_shift = 0.0
-seed_lightness_influence = 1.0
+# Git fallback scan interval and jj recorded-operation polling interval.
+poll_interval_ms = 1500
 
-[theme.shell_auto.roles]
+# Configuration reload is independent of recorded repository refresh above.
+
+[settings]
+# Settings-file reload and optional external editor.
+poll_interval_ms = 500
+# Omit editor to use the platform's default text editor.
+# On macOS, a string selects an application by name or .app path.
+# editor = "Zed"
+# An array runs an executable with literal arguments; the config path is appended.
+# editor = ["code", "--reuse-window"]
