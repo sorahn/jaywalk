@@ -11,13 +11,14 @@ use jaywalk::{
 use std::{path::PathBuf, sync::Arc, time::Duration};
 #[derive(Default)]
 pub(super) struct State {
+    pub(super) branch: branch_checkout::State,
     pub(super) checkout: Option<(ComparisonIdentity, Arc<Lease>)>,
     pub(super) repositories: Vec<PathBuf>,
     pub(super) recoveries: Vec<Recovery>,
     pub(super) message: Option<String>,
-    serial: u64,
-    control: Option<Control>,
-    task: Option<Task<()>>,
+    pub(super) serial: u64,
+    pub(super) control: Option<Control>,
+    pub(super) task: Option<Task<()>>,
 }
 impl State {
     fn cancel(&mut self) {
@@ -44,7 +45,7 @@ pub(super) fn init(cx: &mut App) {
         .detach();
 }
 impl Viewer {
-    fn receipts_directory(&self) -> Result<PathBuf, String> {
+    pub(super) fn receipts_directory(&self) -> Result<PathBuf, String> {
         self.arguments
             .config
             .clone()
@@ -52,15 +53,15 @@ impl Viewer {
             .unwrap_or_else(jaywalk::settings::default_path)
             .map(|path| path.with_file_name("review-checkouts"))
     }
-    fn retained_review(&self) -> Option<jaywalk::hosting::review::Review> {
+    pub(super) fn retained_review(&self) -> Option<jaywalk::hosting::review::Review> {
         jaywalk::hosting::review::Review::retained(&self.repository.ready()?.review.aggregate)
     }
-    fn local_source(&self) -> Option<ComparisonIdentity> {
+    pub(super) fn local_source(&self) -> Option<ComparisonIdentity> {
         self.repository
             .ready()
             .map(|session| session.review.aggregate.identity())
     }
-    fn begin_local_action(
+    pub(super) fn begin_local_action(
         &mut self,
         message: &str,
         window: &mut Window,

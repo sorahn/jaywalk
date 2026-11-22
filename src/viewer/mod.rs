@@ -1,3 +1,4 @@
+mod branch_checkout;
 mod hosted;
 mod local_actions;
 mod pr_status;
