@@ -4277,3 +4277,56 @@ fn checkout_this_branch_uses_the_review_aggregate_while_inspecting_another_commi
         ));
     });
 }
+
+#[gpui_test::test]
+fn cancelling_branch_checkout_preparation_restores_the_previous_pin(cx: &mut TestAppContext) {
+    use jaywalk::{
+        accounts::Control, commands::CommandId, local_review::checkout::branches::Catalog,
+    };
+    use std::{sync::Arc, time::Duration};
+    let fixture = Fixture::new();
+    std::fs::write(fixture.0.join(".gitignore"), "/settings.toml\n").unwrap();
+    fixture.git(&["add", "."]);
+    fixture.git(&["commit", "-m", "clean fixture"]);
+    fixture.git(&["branch", "topic"]);
+    let catalog =
+        Arc::new(Catalog::capture(&fixture.0, &Control::new(Duration::from_secs(30))).unwrap());
+    let branch = catalog
+        .branches
+        .iter()
+        .find(|branch| branch.label() == "topic")
+        .unwrap()
+        .clone();
+    let (viewer, cx) = setup(&fixture, cx);
+    let before = cx.update(|_, app| viewer.read(app).comparison().unwrap().identity());
+    for pinned in [false, true] {
+        cx.update(|window, app| {
+            viewer.update(app, |viewer, cx| {
+                viewer.execute_command(CommandId::CheckoutBranch, window, cx);
+            });
+        });
+        draw(cx);
+        cx.update(|window, app| {
+            viewer.update(app, |viewer, cx| {
+                viewer.navigation.pinned = pinned;
+                viewer.local_actions.branch.catalog = Some(catalog.clone());
+                viewer.checkout_selected_branch(branch.clone(), window, cx);
+                assert!(viewer.navigation.pinned);
+                // Escape before the queued preparation worker starts.
+                viewer.close_palette(window, cx);
+                assert_eq!(viewer.navigation.pinned, pinned);
+            });
+        });
+        draw(cx);
+        assert_eq!(
+            cx.update(|_, app| viewer.read(app).comparison().unwrap().identity()),
+            before
+        );
+        let head = std::process::Command::new("git")
+            .current_dir(&fixture.0)
+            .args(["branch", "--show-current"])
+            .output()
+            .unwrap();
+        assert_eq!(String::from_utf8(head.stdout).unwrap().trim(), "main");
+    }
+}

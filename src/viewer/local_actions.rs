@@ -67,7 +67,7 @@ impl Viewer {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> (u64, Control) {
-        self.local_actions.cancel();
+        self.cancel_local_action();
         if let Some(control) = self.requests.hosted.take() {
             control.cancel();
             self.requests.comparison_task = None;
@@ -93,6 +93,7 @@ impl Viewer {
         (serial, control)
     }
     pub(super) fn cancel_local_action(&mut self) {
+        self.cancel_branch_checkout();
         if self.branch_checkout_palette_open() && self.local_actions.control.is_some() {
             self.live.notice = None;
         }

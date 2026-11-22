@@ -294,7 +294,7 @@ impl Control {
                 .unwrap_or_else(Instant::now),
         }
     }
-    /// Returns false once a credential write has crossed its commit point.
+    /// Returns false once an irreversible operation has crossed its commit point.
     /// This touches only an atomic and is safe in UI callbacks/Drop handlers.
     pub fn cancel(&self) -> bool {
         match self

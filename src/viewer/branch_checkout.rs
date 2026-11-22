@@ -21,8 +21,36 @@ pub(super) struct State {
     pub(super) catalog: Option<Arc<Catalog>>,
     intent: Option<Intent>,
     source: Option<jaywalk::repository::ComparisonIdentity>,
+    pending_pin: Option<PendingPin>,
+}
+struct PendingPin {
+    previous: bool,
+    source: Option<jaywalk::repository::ComparisonIdentity>,
 }
 impl Viewer {
+    fn pin_branch_checkout(&mut self, previous: Option<bool>) {
+        if let Some(previous) = previous {
+            self.cancel_live_refresh();
+            self.navigation.pinned = true;
+            self.local_actions.branch.pending_pin = Some(PendingPin {
+                previous,
+                source: self.local_source(),
+            });
+        }
+    }
+    pub(super) fn cancel_branch_checkout(&mut self) {
+        if let Some(pending) = self.local_actions.branch.pending_pin.take()
+            && self
+                .local_actions
+                .control
+                .as_ref()
+                .is_some_and(|control| control.cancel())
+            && self.local_source() == pending.source
+        {
+            self.navigation.pinned = pending.previous;
+        }
+    }
+
     fn checkout_intent(&self) -> Result<Intent, String> {
         let session = self
             .repository
@@ -161,10 +189,7 @@ impl Viewer {
         let fetch_missing = self.settings.local_review.fetch_missing;
         let pins_review = matches!(intent, Some(Intent::Named(_, _) | Intent::Published(_)));
         let previous_pin = pins_review.then_some(self.navigation.pinned);
-        if pins_review {
-            self.cancel_live_refresh();
-            self.navigation.pinned = true;
-        }
+        self.pin_branch_checkout(previous_pin);
         self.local_actions.task = Some(cx.spawn_in(window, async move |viewer, cx| {
             let result = cx
                 .background_spawn(async move {
@@ -194,7 +219,7 @@ impl Viewer {
                 })
                 .await;
             let _ = viewer.update_in(cx, |viewer, window, cx| {
-                viewer.finish_branch_checkout(serial, expected, previous_pin, result, window, cx);
+                viewer.finish_branch_checkout(serial, expected, result, window, cx);
             });
         }));
     }
@@ -202,7 +227,6 @@ impl Viewer {
         &mut self,
         serial: u64,
         expected: Option<jaywalk::repository::ComparisonIdentity>,
-        previous_pin: Option<bool>,
         result: Result<Prepared, String>,
         window: &mut Window,
         cx: &mut Context<Self>,
@@ -210,6 +234,7 @@ impl Viewer {
         if self.local_actions.serial != serial || self.local_source() != expected {
             return;
         }
+        let pending = self.local_actions.branch.pending_pin.take();
         self.local_actions.control = None;
         self.set_palette_loading(false, window, cx);
         match result {
@@ -228,8 +253,8 @@ impl Viewer {
                 self.live.notice = Some(live::LiveNotice::Diagnostic(format!(
                     "Checkout refused: {error}"
                 )));
-                if let Some(pinned) = previous_pin {
-                    self.navigation.pinned = pinned;
+                if let Some(pending) = pending {
+                    self.navigation.pinned = pending.previous;
                 }
                 self.local_actions.message =
                     Some(format!("Checkout refused: {error} · Escape closes"));
@@ -258,12 +283,9 @@ impl Viewer {
             }
         };
         let previous_pin = (!branch.current()).then_some(self.navigation.pinned);
-        if previous_pin.is_some() {
-            self.cancel_live_refresh();
-            self.navigation.pinned = true;
-        }
         let (serial, control) =
             self.begin_local_action("Checking out branch… · Review stays pinned", window, cx);
+        self.pin_branch_checkout(previous_pin);
         self.local_actions.task = Some(cx.spawn_in(window, async move |viewer, cx| {
             let result = cx
                 .background_spawn(async move {
@@ -272,7 +294,7 @@ impl Viewer {
                 })
                 .await;
             let _ = viewer.update_in(cx, |viewer, window, cx| {
-                viewer.finish_branch_checkout(serial, expected, previous_pin, result, window, cx);
+                viewer.finish_branch_checkout(serial, expected, result, window, cx);
             });
         }));
     }
