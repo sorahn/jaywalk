@@ -19,6 +19,19 @@ use std::{
     time::Duration,
 };
 
+/// Optional application spacing policy. None keeps toolkit defaults unchanged.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct HostSpacing {
+    pub unit: Pixels,
+    pub edge: Pixels,
+    pub interactive: Pixels,
+}
+impl HostSpacing {
+    pub fn space(self, units: f32) -> Pixels {
+        self.unit * units
+    }
+}
+
 mod color;
 mod mono_font;
 mod motion;
@@ -216,6 +229,8 @@ pub struct Theme {
     /// toolkit's neutral popup ring and tooltip border.
     #[serde(skip)]
     pub popup_outline: Option<Hsla>,
+    #[serde(skip)]
+    pub host_spacing: Option<HostSpacing>,
     pub transparent: Hsla,
     /// Show the scrollbar mode, default: Scrolling
     #[serde(alias = "scrollbar_show")]
@@ -608,7 +623,17 @@ impl Theme {
     }
 
     pub fn spacing_tokens(&self) -> SpacingTokens {
-        SpacingTokens::default()
+        let mut tokens = SpacingTokens::default();
+        if let Some(spacing) = self.host_spacing {
+            tokens.xxs = spacing.space(0.5);
+            tokens.xs = spacing.space(1.);
+            tokens.sm = spacing.space(2.);
+            tokens.md = spacing.space(3.);
+            tokens.lg = spacing.space(4.);
+            tokens.xl = spacing.space(6.);
+            tokens.xxl = spacing.space(8.);
+        }
+        tokens
     }
 
     pub fn typography_tokens(&self) -> TypographyTokens {
@@ -807,6 +832,7 @@ impl From<&ThemeColor> for Theme {
             shadow: true,
             focus_ring: true,
             popup_outline: None,
+            host_spacing: None,
             scrollbar_mode: ScrollbarMode::default(),
             notification: NotificationSettings::default(),
             list: ListSettings::default(),

@@ -305,7 +305,13 @@ impl Popover {
             .id("content")
             .occlude()
             .tab_group()
-            .when(appearance, |this| this.popover_style(cx).p_3())
+            .when(appearance, |this| {
+                this.popover_style(cx)
+                    .p_3()
+                    .when_some(cx.theme().host_spacing, |this, spacing| {
+                        this.p(spacing.edge)
+                    })
+            })
             .map(|this| match anchor {
                 Anchor::TopLeft | Anchor::TopCenter | Anchor::TopRight => this.top_1(),
                 Anchor::BottomLeft | Anchor::BottomCenter | Anchor::BottomRight => this.bottom_1(),
@@ -323,7 +329,11 @@ impl RenderOnce for Popover {
         } else {
             px(0.)
         };
-        let offset = self.offset.unwrap_or(window.rem_size() * 0.25) + arrow_size;
+        let offset = self.offset.unwrap_or_else(|| {
+            cx.theme()
+                .host_spacing
+                .map_or(window.rem_size() * 0.25, |spacing| spacing.edge)
+        }) + arrow_size;
         let resolved = Rc::new(Cell::new(None));
         let arrow_position = resolved.clone();
         let arrow = self.arrow;
@@ -353,7 +363,13 @@ impl RenderOnce for Popover {
                     .id("content")
                     .occlude()
                     .tab_group()
-                    .when(appearance, |this| this.popover_style(cx).p_3())
+                    .when(appearance, |this| {
+                        this.popover_style(cx)
+                            .p_3()
+                            .when_some(cx.theme().host_spacing, |this, spacing| {
+                                this.p(spacing.edge)
+                            })
+                    })
                     .when_some(content, |this, content| {
                         this.child((content)(state, window, cx))
                     })

@@ -1,6 +1,7 @@
 #!/bin/sh
 # Fail before a full Cargo build if the runner cannot compile the shipping icon.
 set -eu
+. "$(dirname "$0")/native-shell.sh"
 cd "$(dirname "$0")/.."
 sw_vers
 xcodebuild -version

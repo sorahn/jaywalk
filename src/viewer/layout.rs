@@ -39,8 +39,16 @@ impl Render for Viewer {
             .relative()
             .v_flex()
             .font_features(typography::features(self.settings.ui.ligatures))
-            .bg(gpui::component::Theme::global(cx).background)
-            .text_color(gpui::component::Theme::global(cx).foreground);
+            .bg(crate::appearance::surface(
+                jaywalk::theme::Surface::Window,
+                jaywalk::theme::Part::Background,
+                cx,
+            ))
+            .text_color(crate::appearance::surface(
+                jaywalk::theme::Surface::Window,
+                jaywalk::theme::Part::Foreground,
+                cx,
+            ));
         if self.page != pages::Page::Comparison {
             let body = match self.page {
                 pages::Page::Setup => {

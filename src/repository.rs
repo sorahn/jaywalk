@@ -1,3 +1,4 @@
+mod recorded;
 use crate::repository_file::{ChangeKind, FileCatalog, FileEntry, FileKind};
 use std::path::{Path, PathBuf};
 #[cfg(test)]
@@ -91,7 +92,7 @@ pub(crate) struct ComparisonMetadata {
 
 #[derive(Clone, Debug)]
 pub(crate) enum ContentSource {
-    Recorded,
+    Recorded(Arc<recorded::RecordedContents>),
     Hosted(Arc<crate::hosting::review::Contents>),
     Git(Arc<crate::git::GitContents>),
     External(Arc<crate::external::ExternalContents>),
@@ -165,7 +166,7 @@ impl Comparison {
     /// Reverse an immutable capture without reading a later working copy.
     pub fn swapped(&self) -> Result<Self, String> {
         let content = match &self.content {
-            ContentSource::Recorded => {
+            ContentSource::Recorded(_) => {
                 return Self::between(
                     self.root.clone(),
                     self.operation.clone(),
@@ -405,6 +406,9 @@ impl Comparison {
         let files = parse_changed_files(&output)
             .map_err(|error| format!("Could not read changed files: {error}"))?;
 
+        let contents = Arc::new(recorded::RecordedContents::load(
+            &root, &operation, &base, &tip, limit,
+        )?);
         Self::assemble(
             ComparisonMetadata {
                 root,
@@ -414,7 +418,7 @@ impl Comparison {
                 capture: 0,
             },
             files,
-            ContentSource::Recorded,
+            ContentSource::Recorded(contents),
             limit,
         )
     }
@@ -498,7 +502,7 @@ impl Comparison {
     pub fn supports_evolution(&self) -> bool {
         matches!(
             self.content,
-            ContentSource::Recorded | ContentSource::Evolution(_)
+            ContentSource::Recorded(_) | ContentSource::Evolution(_)
         )
     }
 
@@ -583,7 +587,10 @@ impl Comparison {
                 contents.paths(FileSide::Before)?,
                 contents.paths(FileSide::After)?,
             ),
-            ContentSource::Recorded => (self.file_kinds(&self.base)?, self.file_kinds(&self.tip)?),
+            ContentSource::Recorded(contents) => (
+                contents.paths(FileSide::Before),
+                contents.paths(FileSide::After),
+            ),
             ContentSource::Evolution(contents) => {
                 let target = self.file_kinds(&self.tip)?;
                 (
@@ -619,7 +626,7 @@ impl Comparison {
             base: self.base.clone(),
             tip: self.tip.clone(),
             source: match self.content {
-                ContentSource::Recorded => SourceIdentity::Recorded,
+                ContentSource::Recorded(_) => SourceIdentity::Recorded,
                 ContentSource::Hosted(_) => SourceIdentity::Hosted,
                 ContentSource::Git(_) => SourceIdentity::Git,
                 ContentSource::External(_) => SourceIdentity::External,
@@ -655,48 +662,21 @@ impl Comparison {
                     self.file_contents(&self.tip, path)
                 }
             }
-            ContentSource::Recorded => self.file_contents(
-                match side {
-                    FileSide::Before => &self.base,
-                    FileSide::After => &self.tip,
-                },
-                path,
-            ),
+            ContentSource::Recorded(contents) => contents.read_path(path, side, &mut None),
         }
     }
 
+    pub(crate) fn file_reader(&self) -> FileReader<'_> {
+        FileReader {
+            comparison: self,
+            blobs: None,
+        }
+    }
     pub fn read_file(&self, file: &FileEntry) -> Result<(String, String), String> {
-        if matches!(
-            file.content_kind(),
-            FileKind::Submodule | FileKind::Other(_)
-        ) {
-            return Err(format!(
-                "Text view is unavailable for {:?} entries",
-                file.content_kind()
-            ));
-        }
-        if file.kind().is_none() {
-            let after = self.read_path(file.path(), FileSide::After)?;
-            return Ok((after.clone(), after));
-        }
-        let before = if file.kind() == Some(&ChangeKind::Added) {
-            String::new()
-        } else {
-            self.read_path(file.before_path(), FileSide::Before)?
-        };
-        let after = if file.kind() == Some(&ChangeKind::Removed) {
-            String::new()
-        } else {
-            self.read_path(file.path(), FileSide::After)?
-        };
-        Ok((before, after))
+        self.file_reader().read_file(file)
     }
-
     pub fn contents(&self, file: &ChangedFile) -> Result<(String, String), String> {
-        match self.catalog.find(&file.after_path) {
-            Some(entry) => self.read_file(entry),
-            None => self.read_file(&FileEntry::from(file)),
-        }
+        self.file_reader().contents(file)
     }
 
     fn file_kinds(
@@ -766,6 +746,54 @@ impl Comparison {
                 &fileset,
             ]);
             self.text_limit.text(self.text_limit.command(&mut command)?)
+        }
+    }
+}
+
+/// A content-read session, so overview files share one bounded stream without
+/// retaining a Git process for every comparison in navigation history.
+pub(crate) struct FileReader<'a> {
+    comparison: &'a Comparison,
+    blobs: Option<crate::git::blob_batch::BlobBatch>,
+}
+impl FileReader<'_> {
+    fn read_path(&mut self, path: &str, side: FileSide) -> Result<String, String> {
+        match &self.comparison.content {
+            ContentSource::Recorded(contents) => contents.read_path(path, side, &mut self.blobs),
+            _ => self.comparison.read_path(path, side),
+        }
+    }
+    pub(crate) fn read_file(&mut self, file: &FileEntry) -> Result<(String, String), String> {
+        if matches!(
+            file.content_kind(),
+            FileKind::Submodule | FileKind::Other(_)
+        ) {
+            return Err(format!(
+                "Text view is unavailable for {:?} entries",
+                file.content_kind()
+            ));
+        }
+        if file.kind().is_none() {
+            let after = self.read_path(file.path(), FileSide::After)?;
+            return Ok((after.clone(), after));
+        }
+        let before = if file.kind() == Some(&ChangeKind::Added) {
+            String::new()
+        } else {
+            self.read_path(file.before_path(), FileSide::Before)?
+        };
+        let after = if file.kind() == Some(&ChangeKind::Removed) {
+            String::new()
+        } else {
+            self.read_path(file.path(), FileSide::After)?
+        };
+        Ok((before, after))
+    }
+
+    pub(crate) fn contents(&mut self, file: &ChangedFile) -> Result<(String, String), String> {
+        match self.comparison.catalog.find(&file.after_path) {
+            Some(entry) => self.read_file(entry),
+            None => self.read_file(&FileEntry::from(file)),
         }
     }
 }

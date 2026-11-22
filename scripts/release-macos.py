@@ -6,6 +6,7 @@ import json
 import os
 from pathlib import Path
 import plistlib
+import platform
 import re
 import shutil
 import subprocess
@@ -34,7 +35,32 @@ def checksum(path):
     with path.open("rb") as stream:
         return hashlib.file_digest(stream, "sha256").hexdigest()
 
+def verify_bundle_architecture(bundle, architecture="arm64"):
+    # Check actual Mach-O bytes, including framework/XPC helpers, before packaging
+    # or reporting release metadata. Local bundles pass their native host instead.
+    if architecture not in {"arm64", "x86_64"}:
+        raise ValueError(f"unsupported macOS architecture: {architecture}")
+    magic = {bytes.fromhex(h) for h in (
+        "feedface", "cefaedfe", "feedfacf", "cffaedfe",
+        "cafebabe", "bebafeca", "cafebabf", "bfbafeca",
+    )}
+    for name in ("jaywalk", "jw"):
+        path = bundle / "Contents/MacOS" / name
+        if not path.is_file() or run("lipo", "-archs", str(path)) != architecture:
+            raise ValueError(f"this bundle requires an {architecture} {name} executable")
+    for path in sorted(bundle.rglob("*")):
+        if path.is_symlink() or not path.is_file():
+            continue
+        with path.open("rb") as stream:
+            if stream.read(4) not in magic:
+                continue
+        architectures = run("lipo", "-archs", str(path)).split()
+        supported = {"arm64", "arm64e"} if architecture == "arm64" else {"x86_64"}
+        if not supported.intersection(architectures):
+            raise ValueError(f"bundle executable does not support {architecture}: {path.relative_to(bundle)}")
+
 def manifest(bundle, archive, dmg, official):
+    verify_bundle_architecture(bundle)
     with (bundle / "Contents/Info.plist").open("rb") as stream:
         info = plistlib.load(stream)
     if info["CFBundleIdentifier"] != "dev.jaywalk.Jaywalk":
@@ -104,6 +130,9 @@ def main():
     pack = sub.add_parser("package")
     pack.add_argument("bundle", type=Path)
     pack.add_argument("output", type=Path)
+    architecture = sub.add_parser("check-architecture")
+    architecture.add_argument("bundle", type=Path)
+    architecture.add_argument("--native", action="store_true", help="validate a local bundle against this host; releases always require arm64")
     report = sub.add_parser("manifest")
     report.add_argument("bundle", type=Path)
     report.add_argument("archive", type=Path)
@@ -116,14 +145,13 @@ def main():
         validate_tag(args.tag)
     elif args.action == "cask":
         print(cask(json.loads(args.manifest.read_text())), end="")
+    elif args.action == "check-architecture":
+        verify_bundle_architecture(args.bundle.resolve(), platform.machine() if args.native else "arm64")
     elif args.action == "manifest":
         print(json.dumps(manifest(args.bundle.resolve(), args.archive.resolve(), args.dmg.resolve(), args.official), indent=2))
     else:
         bundle, output = args.bundle.resolve(), args.output.resolve()
-        if not (bundle / "Contents/MacOS/jw").is_file():
-            raise ValueError("bundle is missing jw")
-        if run("lipo", "-archs", str(bundle / "Contents/MacOS/jaywalk")) != "arm64":
-            raise ValueError("this release path requires an arm64 bundle")
+        verify_bundle_architecture(bundle)
         output.mkdir(parents=True, exist_ok=True)
         stem = "Jaywalk-" + version() + "-macos-arm64"
         if any((output / (stem + suffix)).exists() for suffix in (".zip", ".dmg")):

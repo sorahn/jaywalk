@@ -345,7 +345,7 @@ impl Viewer {
             .items_center()
             .flex_shrink_0()
             .h_full()
-            .px_1()
+            .px(crate::spacing::interactive(cx))
             .border_r_1()
             .border_color(gpui::component::Theme::global(cx).border);
         for (id, forward, icon, command, enabled) in [

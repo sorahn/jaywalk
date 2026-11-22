@@ -254,10 +254,9 @@ impl Viewer {
                 );
                 let mut content = div()
                     .v_flex()
-                    .gap_1()
-                    .p_2()
+                    .gap(crate::spacing::interactive(cx))
                     .w(width)
-                    .max_w(window.viewport_size().width - px(24.))
+                    .max_w(window.viewport_size().width - crate::spacing::edge(cx) * 2.)
                     .text_left()
                     .max_h(px(450.))
                     .id("remote-sources-list")
@@ -421,6 +420,7 @@ pub(super) fn reference_row(
     inspected: Option<&jaywalk::history::Reference>,
     viewer: WeakEntity<Viewer>,
     popup: WeakEntity<gpui::component::popover::PopoverState>,
+    cx: &App,
 ) -> AnyElement {
     let target = reference.target.clone();
     let label = reference.display_name();
@@ -457,7 +457,7 @@ pub(super) fn reference_row(
         )))
         .h_flex()
         .items_center()
-        .gap_1()
+        .gap(crate::spacing::interactive(cx))
         .context_menu(move |menu, _, _| {
             let owner = menu_owner.clone();
             let reference = review_name.clone();
@@ -479,6 +479,8 @@ pub(super) fn reference_row(
             Button::new(SharedString::from(format!("open:{label}:{target}")))
                 .ghost()
                 .small()
+                .py(crate::spacing::interactive(cx))
+                .min_h(px(0.))
                 .selected(selected)
                 .flex_1()
                 .min_w_0()
@@ -581,20 +583,20 @@ pub(super) fn reference_badge(
                     .max_w(px(badge_width))
                     .flex_shrink_0()
                     .p_0()
-                    .mr_1()
+                    .mr(crate::spacing::interactive(cx))
                     .child(
                         Tag::custom(tint.opacity(0.14), tint, tint.opacity(0.5))
                             .small()
                             .max_w(px(badge_width))
                             .min_w_0()
-                            .px_1()
-                            .py_0p5()
+                            .px(crate::spacing::interactive(cx))
+                            .py(crate::spacing::space(0.5, cx))
                             .text_size(px(font_size * 0.75))
                             .child(
                                 div()
                                     .h_flex()
                                     .items_center()
-                                    .gap_0p5()
+                                    .gap(crate::spacing::space(0.5, cx))
                                     .min_w_0()
                                     .child(leading_icon)
                                     .when(!stacked, |row| {
@@ -656,7 +658,9 @@ pub(super) fn reference_popup_width(
             .text_system()
             .shape_line(label.into(), size, &[run], None)
             .width
-            + px(64.);
+            + crate::spacing::edge(cx) * 4.
+            + crate::spacing::interactive(cx) * 4.
+            + px(16.);
         width = width.max(measured);
         if width >= px(640.) {
             return px(640.);

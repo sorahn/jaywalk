@@ -53,7 +53,7 @@ accent_color_fallback = { light = "#0066b8", dark = "#3794ff" }
 # Floating accent edges do not reserve layout space. Applies live.
 accent_floating_outlines = true
 # Suppress transient loading indicators; 0 shows them immediately.
-loading_delay_ms = 200
+loading_delay_ms = 400
 # Shared minimum for history, flat files and directory-tree rows.
 row_height = 26
 panel_header_height = 30
@@ -66,6 +66,12 @@ comparison_bar_height = 30
 font_size = 16
 ligatures = true
 # font_family = "Helvetica Neue"
+
+# Multipliers are independent of UI/editor font sizes. Applied live.
+[ui.spacing]
+unit = 4
+edge = 2
+interactive = 1
 
 [editor]
 font_size = 13
@@ -141,7 +147,8 @@ default_view = "list"
 tree_scope = "changed"
 # tree_row_height = 30
 # list_row_height = 30
-indent_width = 12
+# Omit to follow ui.spacing.edge × ui.spacing.unit. Explicit values remain supported.
+# indent_width = 8
 indent_guides = true
 indent_guide_opacity = 0.12
 # Shift guides relative to ancestor folder-icon centers; negative is left.
@@ -267,3 +274,22 @@ fetch_missing = true
 checkout_branch = "create_from_remote"
 # Remove only Jaywalk-created, unchanged, unused branches on guarded restoration.
 cleanup_created_branch = false
+
+# Shell generation is independent of system/custom active-control accent colors.
+[theme]
+overrides = {}
+
+[theme.shell_auto]
+enabled = true
+algorithm = "tonal-v1"
+# Seeds are inputs to the mode-specific recipe, not exact final backgrounds.
+seed = { light = "#575757", dark = "#121212" }
+layer_strength = 1.4
+hue_shift = 0.0
+chroma_scale = 1.0
+tint_strength = 1.0
+contrast_spread = 1.0
+lightness_shift = 0.0
+seed_lightness_influence = 1.0
+
+[theme.shell_auto.roles]

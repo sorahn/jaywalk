@@ -58,10 +58,7 @@ fn record(reader: &mut impl BufRead, format: Format) -> Result<Option<Revision>,
             let Some(line) = field(reader, b'\n')? else {
                 return Ok(None);
             };
-            Ok(super::History::parse(&line)?
-                .revisions
-                .pop()
-                .map(std::sync::Arc::unwrap_or_clone))
+            Revision::parse_jj(&line).map(Some)
         }
     }
 }
@@ -186,5 +183,33 @@ mod tests {
         assert!(field(&mut too_large, 0).unwrap_err().contains("1 MiB"));
         assert!(record(&mut std::io::Cursor::new(b"abcd\0parent\0"), Format::Git).is_err());
         assert!(record(&mut std::io::Cursor::new(b"incomplete"), Format::Jj).is_err());
+    }
+
+    #[test]
+    fn jj_stream_preserves_metadata_and_validates_each_record() {
+        let input = concat!(
+            "[\"abc\",\"change\",\"title\\nbody\",\"author\",[\"main\"],[\"def\"],true,false,\"timestamp\"]\n",
+            "[\"def\",\"parent\",\"older\",\"author\",[],[]]\n"
+        );
+        let mut reader = std::io::Cursor::new(input);
+        let first = record(&mut reader, Format::Jj).unwrap().unwrap();
+        assert_eq!(first.description, "title\nbody");
+        assert_eq!(first.timestamp, "timestamp");
+        assert_eq!(first.parents, ["def"]);
+        assert_eq!(first.references[0].name, "main");
+        assert_eq!(first.references[0].target, "abc");
+        assert!(first.working_copy && !first.empty);
+        let second = record(&mut reader, Format::Jj).unwrap().unwrap();
+        assert_eq!(second.commit_id, "def");
+        assert!(second.timestamp.is_empty());
+        assert!(!second.working_copy);
+        assert!(record(&mut reader, Format::Jj).unwrap().is_none());
+        for invalid in [
+            "[\"invalid\",\"change\",\"title\",\"author\",[],[]]\n",
+            "[\"abc\",\"change\",\"title\",\"author\",[],[\"invalid\"]]\n",
+            "not json\n",
+        ] {
+            assert!(record(&mut std::io::Cursor::new(invalid), Format::Jj).is_err());
+        }
     }
 }

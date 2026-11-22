@@ -129,6 +129,9 @@ impl Render for Tooltip {
                 .px_2()
                 .text_sm()
                 .gap_3()
+                .when_some(cx.theme().host_spacing, |this, spacing| {
+                    this.p(spacing.edge).gap(spacing.edge).m(spacing.edge)
+                })
                 .refine_style(&self.style)
                 .map(|this| {
                     this.child(

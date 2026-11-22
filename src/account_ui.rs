@@ -244,7 +244,7 @@ impl AccountPanel {
             ConnectionState::NeedsSignIn => "Needs sign-in".into(),
             ConnectionState::Unavailable(error) => error.to_string(),
         };
-        let mut actions = div().h_flex().gap_2();
+        let mut actions = div().h_flex().gap(crate::spacing::edge(cx));
         if matches!(self.mode, Mode::Accounts | Mode::Verify) {
             let key = key.clone();
             actions = actions.child(
@@ -342,8 +342,8 @@ impl AccountPanel {
         }
         div()
             .v_flex()
-            .gap_2()
-            .py_3()
+            .gap(crate::spacing::edge(cx))
+            .py(crate::spacing::edge(cx))
             .border_b_1()
             .border_color(theme.border)
             .child(
@@ -378,8 +378,16 @@ impl Render for AccountPanel {
         let theme = gpui::component::Theme::global(cx);
         let muted = theme.muted_foreground;
         let border = theme.border;
-        let background = theme.background;
-        let foreground = theme.foreground;
+        let background = crate::appearance::surface(
+            jaywalk::theme::Surface::Window,
+            jaywalk::theme::Part::Background,
+            cx,
+        );
+        let foreground = crate::appearance::surface(
+            jaywalk::theme::Surface::Window,
+            jaywalk::theme::Part::Foreground,
+            cx,
+        );
         let danger = theme.danger;
         let state = self.state.read(cx);
         let busy = state.operation.is_some();
@@ -388,13 +396,13 @@ impl Render for AccountPanel {
         let notice = state.notice.clone();
         let snapshot = state.snapshot.clone();
         let listing = state.workspaces.clone();
-        let mut content = div().v_flex().gap_3();
+        let mut content = div().v_flex().gap(crate::spacing::edge(cx));
         if let Some(label) = working {
             content = content
                 .child(
                     div()
                         .h_flex()
-                        .gap_2()
+                        .gap(crate::spacing::edge(cx))
                         .items_center()
                         .child(Spinner::new())
                         .child(label),
@@ -402,7 +410,7 @@ impl Render for AccountPanel {
                 .child(
                     div()
                         .h_flex()
-                        .gap_2()
+                        .gap(crate::spacing::edge(cx))
                         .when(phase == Some(Phase::WaitingForBrowser), |row| {
                             row.child(
                                 Button::new("accounts-reopen-browser")
@@ -431,7 +439,7 @@ impl Render for AccountPanel {
                     .text_sm()
                     .text_color(if notice.error { danger } else { muted })
                     .child(if notice.error {
-                        crate::feedback::error_message("accounts-notice", &notice.text)
+                        crate::feedback::error_message("accounts-notice", &notice.text, cx)
                     } else {
                         div().child(notice.text).into_any_element()
                     }),
@@ -441,7 +449,11 @@ impl Render for AccountPanel {
             content =
                 content
                     .child(div().text_sm().text_color(danger).child(
-                        crate::feedback::error_message("accounts-store-error", &error.to_string()),
+                        crate::feedback::error_message(
+                            "accounts-store-error",
+                            &error.to_string(),
+                            cx,
+                        ),
                     ))
                     .child(
                         Button::new("accounts-retry")
@@ -457,7 +469,7 @@ impl Render for AccountPanel {
                 .child(div().text_sm().child(
                     "Reuse developer app registrations saved by the local authentication probe. Account tokens are not imported.",
                 ))
-                .child(Button::new("accounts-import-setup")
+                .child(Button::new("accounts-import-setup").self_start()
                     .label("Import development setup")
                     .disabled(busy)
                     .on_click(cx.listener(|view, _, _, cx| view.start(AccountAction::ImportDevelopment, cx))));
@@ -470,12 +482,12 @@ impl Render for AccountPanel {
                     .find(|account| account.identity.key == key)
                     .map_or("this account", |account| account.label())
                     .to_owned();
-                let confirmation = div().v_flex().gap_2().p_3().border_1().border_color(border)
+                let confirmation = div().v_flex().gap(crate::spacing::edge(cx)).p(crate::spacing::edge(cx)).border_1().border_color(border)
                     .child(format!("Disconnect {label}?"))
                     .child(div().text_sm().text_color(muted).child(
                         "This removes the local connection. Authorization on the provider stays unchanged.",
                     ))
-                    .child(div().h_flex().gap_2()
+                    .child(div().h_flex().gap(crate::spacing::edge(cx))
                         .child(Button::new("accounts-keep").ghost().label("Keep account")
                             .on_click(cx.listener(|view, _, _, cx| {
                                 view.disconnect = None;
@@ -559,8 +571,8 @@ impl Render for AccountPanel {
                 div()
                     .h_flex()
                     .flex_wrap()
-                    .gap_2()
-                    .mt_2()
+                    .gap(crate::spacing::edge(cx))
+                    .mt(crate::spacing::edge(cx))
                     .child(
                         Button::new("accounts-connect-github")
                             .label("Connect with browser…")
@@ -595,8 +607,10 @@ impl Render for AccountPanel {
                     ),
             );
             content = content.child(
-                div().child(
+                div().h_flex().items_start().child(
                     Button::new("accounts-connect-bitbucket")
+                        .self_start()
+                        .debug_selector(|| "accounts-connect-bitbucket".into())
                         .label("Connect Bitbucket…")
                         .disabled(busy)
                         .on_click(cx.listener(|view, _, _, cx| {
@@ -621,11 +635,11 @@ impl Render for AccountPanel {
             if let Some(form) = &self.token_form {
                 let replace = form.replace.clone();
                 let gh_replace = replace.clone();
-                content=content.child(div().v_flex().gap_2().p_3().border_1().border_color(border)
+                content=content.child(div().v_flex().gap(crate::spacing::edge(cx)).p(crate::spacing::edge(cx)).border_1().border_color(border)
                     .child(if replace.is_some() {"Replace this account's connection with a token"} else {"Connect with a GitHub token"})
                     .child(div().text_sm().text_color(muted).child("Stored securely in the system credential store. The token's permissions determine which repositories and review features are available."))
                     .child(div().id("accounts-token-input").debug_selector(||"accounts-token-input".into()).child(Input::new(&form.input)))
-                    .child(div().h_flex().gap_2()
+                    .child(div().h_flex().gap(crate::spacing::edge(cx))
                         .child(Button::new("accounts-save-token").debug_selector(||"accounts-save-token".into()).label(if replace.is_some(){"Replace connection"}else{"Connect"}).disabled(busy).on_click(cx.listener(|view,_,_,cx|view.submit_token(cx))))
                         .child(Button::new("accounts-token-from-gh").label("Use GitHub CLI token").disabled(busy || self.gh_path.is_none()).on_click(cx.listener(move|view,_,_,cx|view.import_token(gh_replace.clone(),cx))))
                         .child(Button::new("accounts-token-cancel").ghost().label("Cancel").on_click(cx.listener(|view,_,_,cx|{view.token_form=None;view.token_error=None;cx.notify();})))));
@@ -634,17 +648,20 @@ impl Render for AccountPanel {
                 content = content.child(crate::feedback::error_message(
                     "accounts-token-error",
                     error,
+                    cx,
                 ));
             }
             if let Some(url) = jaywalk::accounts::publisher::github_install_url() {
                 content = content.child(
-                    div().v_flex().gap_1()
+                    div().v_flex().gap(crate::spacing::interactive(cx))
                         .child(div().text_sm().text_color(muted).child("For browser connections, choose which GitHub repositories Jaywalk can access."))
-                        .child(div().child(Button::new("accounts-github-repositories").ghost().label("Choose GitHub repositories…").on_click(move |_, _, cx| cx.open_url(&url))))
+                        .child(div().child(Button::new("accounts-github-repositories").self_start().ghost().label("Choose GitHub repositories…").on_click(move |_, _, cx| cx.open_url(&url))))
                 );
             }
             content = content.child(
                 Button::new("accounts-developer-setup")
+                    .self_start()
+                    .debug_selector(|| "accounts-developer-setup".into())
                     .ghost()
                     .label("Import development setup…")
                     .disabled(busy)
@@ -670,7 +687,7 @@ impl Render for AccountPanel {
                     .flex_1()
                     .min_h_0()
                     .overflow_y_scroll()
-                    .p_8()
+                    .p(crate::spacing::space(8., cx))
                     .child(
                         div()
                             .mx_auto()
@@ -681,8 +698,8 @@ impl Render for AccountPanel {
                                     div()
                                         .h_flex()
                                         .items_center()
-                                        .gap_3()
-                                        .mb_4()
+                                        .gap(crate::spacing::edge(cx))
+                                        .mb(crate::spacing::space(4., cx))
                                         .child(
                                             Button::new("accounts-back")
                                                 .ghost()
@@ -703,8 +720,8 @@ impl Render for AccountPanel {
             )
             .child(
                 div()
-                    .px_5()
-                    .py_3()
+                    .px(crate::spacing::space(5., cx))
+                    .py(crate::spacing::edge(cx))
                     .border_t_1()
                     .border_color(border)
                     .h_flex()

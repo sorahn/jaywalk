@@ -758,51 +758,65 @@ impl Viewer {
 
     pub(super) fn render_comparison_header(&self, cx: &mut Context<Self>) -> AnyElement {
         let presentation = self.evolution_header_presentation();
-        let mut bar =
-            div()
-                .debug_selector(|| "comparison-header".into())
-                .h_flex()
-                .items_stretch()
-                .h(px(self
-                    .settings
-                    .ui
-                    .comparison_bar_height
-                    .max(self.settings.ui.toolbar_height)
-                    .max(self.settings.ui.font_size * 1.5 + 4.)))
-                .flex_shrink_0()
-                .overflow_hidden()
-                .border_b_1()
-                .border_color(gpui::component::Theme::global(cx).border)
-                .bg(gpui::component::Theme::global(cx).sidebar)
-                .child(self.render_navigation_buttons(cx))
-                .child(
-                    div()
-                        .h_flex()
-                        .items_center()
-                        .h_full()
-                        .pl_1()
-                        .flex_shrink_0()
-                        .child(self.render_overview_button(cx)),
-                )
-                .child(
-                    // Let the selector use its intrinsic width, capped by the
-                    // slot, so its hover target follows the visible caption.
-                    div()
-                        .v_flex()
-                        .items_start()
-                        .justify_center()
-                        .h_full()
-                        .px_2()
-                        .flex_1()
-                        .min_w_0()
-                        .child(self.render_review_source(
-                            self.overview_comparison_label(presentation.label),
-                        )),
-                );
+        let mut bar = div()
+            .debug_selector(|| "comparison-header".into())
+            .h_flex()
+            .items_stretch()
+            .h(px(self
+                .settings
+                .ui
+                .comparison_bar_height
+                .max(self.settings.ui.toolbar_height)
+                .max(self.settings.panel_header_height())
+                .max(self.settings.ui.font_size * 1.5 + 4.)))
+            .flex_shrink_0()
+            .overflow_hidden()
+            .border_b_1()
+            .border_color(gpui::component::Theme::global(cx).border)
+            .bg(crate::appearance::surface(
+                jaywalk::theme::Surface::Header,
+                jaywalk::theme::Part::Background,
+                cx,
+            ))
+            .text_color(crate::appearance::surface(
+                jaywalk::theme::Surface::Header,
+                jaywalk::theme::Part::Foreground,
+                cx,
+            ))
+            .child(self.render_navigation_buttons(cx))
+            .child(
+                div()
+                    .h_flex()
+                    .items_center()
+                    .h_full()
+                    .pl(crate::spacing::interactive(cx))
+                    .flex_shrink_0()
+                    .child(self.render_overview_button(cx)),
+            )
+            .child(
+                // Let the selector use its intrinsic width, capped by the
+                // slot, so its hover target follows the visible caption.
+                div()
+                    .v_flex()
+                    .items_start()
+                    .justify_center()
+                    .h_full()
+                    .px(crate::spacing::edge(cx))
+                    .flex_1()
+                    .min_w_0()
+                    .child(self.render_review_source(
+                        self.overview_comparison_label(presentation.label),
+                        cx,
+                    )),
+            );
         if let Some(controls) = presentation.controls {
             let kind = controls.kind;
             let index = controls.index;
-            let mut modes = div().h_flex().items_center().px_1().gap_1();
+            let mut modes = div()
+                .h_flex()
+                .items_center()
+                .px(crate::spacing::interactive(cx))
+                .gap(crate::spacing::interactive(cx));
             for (id, mode, label, tooltip) in [
                 (
                     "evolution-patch",
@@ -876,7 +890,14 @@ impl Viewer {
         };
         let state = self.evolution_panel(kind);
         let theme = gpui::component::Theme::global(cx);
-        let surface = theme.sidebar;
+        let surface = crate::appearance::surface(
+            match kind {
+                EvolutionKind::Change => jaywalk::theme::Surface::History,
+                EvolutionKind::File => jaywalk::theme::Surface::Files,
+            },
+            jaywalk::theme::Part::Background,
+            cx,
+        );
         let selection = theme.list_active;
         let hover = theme.secondary_hover;
         let previous_surface = theme.secondary;
@@ -884,6 +905,11 @@ impl Viewer {
             EvolutionKind::Change => jaywalk::panel_layout::PanelId::ChangeEvolution,
             EvolutionKind::File => jaywalk::panel_layout::PanelId::FileEvolution,
         };
+        let muted_foreground = crate::appearance::surface(
+            chrome::panel_surface(panel_id),
+            jaywalk::theme::Part::MutedForeground,
+            cx,
+        );
         let header = self
             .panel_header(panel_id, font_size, cx)
             .child(div().flex_1().min_w_0().truncate().child(match kind {
@@ -894,7 +920,7 @@ impl Viewer {
                 div()
                     .h_flex()
                     .items_center()
-                    .gap_1()
+                    .gap(crate::spacing::interactive(cx))
                     .child(self.panel_menu(panel_id))
                     .child(
                         Button::new("close-evolution")
@@ -910,9 +936,9 @@ impl Viewer {
             );
         let filters = div()
             .h_flex()
-            .gap_1()
-            .px(px(super::chrome::PANEL_INSET))
-            .py_1()
+            .gap(crate::spacing::interactive(cx))
+            .px(crate::spacing::edge(cx))
+            .py(crate::spacing::interactive(cx))
             .child(
                 Button::new("group-repeats")
                     .ghost()
@@ -940,12 +966,16 @@ impl Viewer {
         let mut panel = super::chrome::Panel::new(
             ("evolution-panel", kind.id()),
             div().v_flex().child(header).child(filters),
-            div().bg(surface),
+            div().bg(surface).text_color(crate::appearance::surface(
+                chrome::panel_surface(panel_id),
+                jaywalk::theme::Part::Foreground,
+                cx,
+            )),
         );
         let (evolution, file_path, scroll) = match &state.state {
             TimelineState::Unselected => {
                 return panel
-                    .child(div().p_3().text_size(px(font_size)).child(match kind {
+                    .child(div().p(crate::spacing::edge(cx)).text_size(px(font_size)).child(match kind {
                         EvolutionKind::Change => {
                             "Select a change in history to explore its versions."
                         }
@@ -965,20 +995,23 @@ impl Viewer {
             ),
             TimelineState::Loading { previous: None, .. } => {
                 return panel
-                    .child(div().p_3().text_size(px(font_size)).child(
-                        if self.loading_visible(LoadingKind::Evolution) {
-                            "Loading recorded versions…"
-                        } else {
-                            ""
-                        },
-                    ))
+                    .child(
+                        div()
+                            .p(crate::spacing::edge(cx))
+                            .text_size(px(font_size))
+                            .child(if self.loading_visible(LoadingKind::Evolution) {
+                                "Loading recorded versions…"
+                            } else {
+                                ""
+                            }),
+                    )
                     .into_any_element();
             }
             TimelineState::Failed(error) => {
                 return panel
                     .child(
                         div()
-                            .p_3()
+                            .p(crate::spacing::edge(cx))
                             .text_size(px(font_size))
                             .child(feedback::error_message(
                                 if kind == evolution::EvolutionKind::Change {
@@ -987,6 +1020,7 @@ impl Viewer {
                                     "file-evolution-error"
                                 },
                                 error,
+                                cx,
                             )),
                     )
                     .into_any_element();
@@ -1015,10 +1049,10 @@ impl Viewer {
             panel = panel.child(
                 div()
                     .id("evolution-file-context")
-                    .px_3()
-                    .pb_1()
+                    .px(crate::spacing::edge(cx))
+                    .pb(crate::spacing::interactive(cx))
                     .text_size(px(font_size * 0.85))
-                    .text_color(gpui::component::Theme::global(cx).muted_foreground)
+                    .text_color(muted_foreground)
                     .truncate()
                     .child(context)
                     .tooltip(move |window, cx| Tooltip::new(tooltip.clone()).build(window, cx)),
@@ -1026,10 +1060,10 @@ impl Viewer {
         } else {
             panel = panel.child(
                 div()
-                    .px_3()
-                    .pb_1()
+                    .px(crate::spacing::edge(cx))
+                    .pb(crate::spacing::interactive(cx))
                     .text_size(px(font_size * 0.85))
-                    .text_color(gpui::component::Theme::global(cx).muted_foreground)
+                    .text_color(muted_foreground)
                     .child("Timeline · changes since previous"),
             );
         }
@@ -1067,8 +1101,7 @@ impl Viewer {
         let grouping_enabled = state.collapse_repeats;
         let operation = evolution.operation.clone();
         let menu_focus = self.focus.clone();
-        let muted_foreground = gpui::component::Theme::global(cx).muted_foreground;
-        let rows = uniform_list(("evolution-rows", kind.id()), presentation.rows.len(), move |visible, _, _| {
+        let rows = uniform_list(("evolution-rows", kind.id()), presentation.rows.len(), move |visible, _, cx| {
             let width = 20. + (presentation.graph.visible_lane_count(visible.clone()) - 1) as f32 * spacing;
             visible
                 .map(|row_index| {
@@ -1156,6 +1189,7 @@ impl Viewer {
                         .h_flex()
                         .items_center()
                         .cursor_pointer()
+                        .rounded(crate::spacing::interactive(cx))
                         .bg(if row_selected { selection } else if previous { previous_surface } else { surface })
                         .hover(move |style| style.bg(hover))
                         .child(
@@ -1165,13 +1199,9 @@ impl Viewer {
                                     let row = &graph.graph.graph[row_index];
                                     let x = |lane| bounds.left() + px(10. + lane as f32 * spacing);
                                     let middle = bounds.center().y;
-                                    let color = rgb(if row_selected || previous {
-                                        if gpui::component::Theme::global(cx).is_dark() { 0x9dcaff } else { 0x0969da }
-                                    } else {
-                                        if gpui::component::Theme::global(cx).is_dark() { 0x7797bd } else { 0x57606a }
-                                    });
+                                    let color = crate::appearance::color(if row_selected || previous { jaywalk::theme::Role::EvolutionCurrent } else { jaywalk::theme::Role::EvolutionMuted }, cx);
                                     for stroke in &row.strokes {
-                                        super::history::paint_graph_stroke(stroke,bounds,spacing,color.into(),1.,window);
+                                        super::history::paint_graph_stroke(stroke,bounds,spacing,color,1.,window);
                                     }
                                     let mut marker = PathBuilder::stroke(px(1.));
                                     let center = x(row.lane);
@@ -1223,7 +1253,7 @@ impl Viewer {
                                 .justify_center()
                                 .flex_1()
                                 .min_w_0()
-                                .pr_2()
+                                .pr(crate::spacing::edge(cx))
                                 .child(div().text_size(px(font_size)).truncate().child(title))
                                 .child(
                                     div()
@@ -1249,12 +1279,13 @@ impl Viewer {
                 .collect()
         })
         .size_full()
-        .track_scroll(scroll);
+        .track_scroll(scroll)
+        .px(crate::spacing::edge(cx));
         let mut details = div()
-            .px_3()
-            .py_2()
+            .px(crate::spacing::edge(cx))
+            .py(crate::spacing::edge(cx))
             .text_size(px(font_size * 0.85))
-            .text_color(gpui::component::Theme::global(cx).muted_foreground)
+            .text_color(muted_foreground)
             .child(format!(
                 "{} versions · {} {} · {} hidden{}",
                 count,

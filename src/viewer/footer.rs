@@ -4,9 +4,7 @@ use gpui::component::Sizable;
 use gpui::component::menu::DropdownMenu as _;
 use gpui::prelude::FluentBuilder;
 use jaywalk::panel_layout::Side;
-
-const INSET: f32 = 8.;
-const GAP: f32 = 4.;
+use jaywalk::theme::{Part, Surface};
 
 /// Allocate from the outside edge toward the viewer. Closed toggles share the
 /// next visible drawer's footer, rather than shifting the viewer by their width.
@@ -37,8 +35,21 @@ impl Viewer {
             .h(px(self.settings.footer_height()))
             .flex_shrink_0()
             .border_t_1()
-            .border_color(gpui::component::Theme::global(cx).border)
-            .bg(gpui::component::Theme::global(cx).muted)
+            .border_color(crate::appearance::surface(
+                Surface::Footer,
+                Part::Border,
+                cx,
+            ))
+            .bg(crate::appearance::surface(
+                Surface::Footer,
+                Part::Background,
+                cx,
+            ))
+            .text_color(crate::appearance::surface(
+                Surface::Footer,
+                Part::Foreground,
+                cx,
+            ))
             .text_size(px(self.settings.ui.footer_font_size))
             .whitespace_nowrap()
             .child(self.render_drawer_footer(Side::Left, cx))
@@ -49,13 +60,13 @@ impl Viewer {
                     .items_center()
                     .flex_1()
                     .min_w_0()
-                    .px(px(INSET))
-                    .gap(px(GAP))
+                    .px(crate::spacing::edge(cx))
+                    .gap(crate::spacing::interactive(cx))
                     .child(
                         div()
                             .h_flex()
                             .items_center()
-                            .gap_3()
+                            .gap(crate::spacing::edge(cx))
                             .flex_1()
                             .min_w_0()
                             .child(div().min_w_0().truncate().child(format!(
@@ -101,7 +112,10 @@ impl Viewer {
             .iter()
             .map(|panel| self.measured_sidebar_width(*panel, cx))
             .collect();
-        let widths = drawer_slots(&widths, self.settings.ui.footer_control_height + GAP);
+        let widths = drawer_slots(
+            &widths,
+            self.settings.ui.footer_control_height + f32::from(crate::spacing::interactive(cx)),
+        );
         let mut slots: Vec<_> = panels.into_iter().zip(widths).collect();
         if side == Side::Right {
             slots.reverse();
@@ -117,17 +131,32 @@ impl Viewer {
             .flex_shrink_0()
             .children(slots.into_iter().map(|(panel, width)| {
                 let visible = self.measured_sidebar_width(panel, cx).is_some();
+                let surface = match chrome::panel_surface(panel) {
+                    Surface::History => Surface::HistoryFooter,
+                    _ => Surface::FilesFooter,
+                };
                 div()
                     .h_flex()
+                    .h_full()
+                    .when(visible, |slot| {
+                        slot.bg(crate::appearance::surface(surface, Part::Background, cx))
+                            .text_color(crate::appearance::surface(surface, Part::Foreground, cx))
+                    })
                     .items_center()
-                    .gap(px(GAP))
+                    .gap(crate::spacing::interactive(cx))
                     .w(px(width))
                     .min_w_0()
                     .flex_shrink_0()
-                    .when(side == Side::Left, |slot| slot.pl(px(INSET)))
-                    .when(side == Side::Right, |slot| slot.pr(px(INSET)))
-                    .when(visible && side == Side::Right, |slot| slot.pl(px(INSET)))
-                    .when(visible && side == Side::Left, |slot| slot.pr(px(INSET)))
+                    .when(side == Side::Left, |slot| slot.pl(crate::spacing::edge(cx)))
+                    .when(side == Side::Right, |slot| {
+                        slot.pr(crate::spacing::edge(cx))
+                    })
+                    .when(visible && side == Side::Right, |slot| {
+                        slot.pl(crate::spacing::edge(cx))
+                    })
+                    .when(visible && side == Side::Left, |slot| {
+                        slot.pr(crate::spacing::edge(cx))
+                    })
                     .when(side == Side::Left, |slot| {
                         slot.child(self.render_panel_toggle(panel, cx))
                     })
@@ -148,7 +177,11 @@ impl Viewer {
                                 .min_w_0()
                                 .truncate()
                                 .debug_selector(move || format!("drawer-status-{panel:?}"))
-                                .text_color(gpui::component::Theme::global(cx).muted_foreground)
+                                .text_color(crate::appearance::surface(
+                                    surface,
+                                    Part::MutedForeground,
+                                    cx,
+                                ))
                                 .child(status),
                         )
                         .children(
@@ -186,11 +219,14 @@ impl Viewer {
             .flat_map(|side| self.drawer_footer_slots(side, cx))
             .map(|(_, width)| width)
             .sum();
-        let available = f32::from(window.bounds().size.width) - drawer_width - 2. * INSET;
+        let available = f32::from(window.bounds().size.width)
+            - drawer_width
+            - 2. * f32::from(crate::spacing::edge(cx));
         let compact = available
             < self.settings.ui.footer_font_size * 30.
                 + self.settings.ui.footer_control_height * 5.
-                + 8.;
+                + self.settings.ui.spacing.interactive_px() * 4.
+                + self.settings.ui.spacing.edge_px();
         let focus = self.focus.clone();
         let view = self.view.effective();
         let wrap = self.wrapping.enabled(view);
@@ -214,7 +250,7 @@ impl Viewer {
             .h_flex()
             .items_center()
             .flex_shrink_0()
-            .gap_2()
+            .gap(crate::spacing::edge(cx))
             .when(compact, |controls| {
                 controls.child(
                     Button::new("diff-controls-menu")
@@ -241,8 +277,8 @@ impl Viewer {
                         div()
                             .h_flex()
                             .items_center()
-                            .gap_1()
-                            .mr(px(8.))
+                            .gap(crate::spacing::interactive(cx))
+                            .mr(crate::spacing::edge(cx))
                             .child(self.render_word_wrap_toggle(wrap, cx))
                             .when(
                                 view != ViewMode::Fluid

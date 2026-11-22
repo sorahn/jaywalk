@@ -61,6 +61,20 @@ pub(crate) fn configured_remotes(root: &Path) -> Result<Vec<String>, String> {
         .collect())
 }
 
+fn recorded_remotes(root: &Path, operation: &str) -> Result<Vec<String>, String> {
+    query(root, operation, &["git", "remote", "list"])?
+        .lines()
+        .map(|line| {
+            // Git remote names cannot contain ASCII spaces; URLs may contain them.
+            // Keep names only, never URLs in snapshots or error messages.
+            line.split_once(' ')
+                .filter(|(name, _)| !name.is_empty())
+                .map(|(name, _)| name.to_owned())
+                .ok_or_else(|| "Invalid jj remote entry".to_owned())
+        })
+        .collect()
+}
+
 pub(crate) fn recorded(root: &Path, operation: &str) -> Result<ReferenceSnapshot, String> {
     let template = r#""[" ++ json(name) ++ "," ++ json(if(remote, remote, "")) ++ "," ++ json(tracked) ++ "," ++ json(conflict) ++ ",[" ++ added_targets.map(|c| if(c, json(c.commit_id()), "null")).join(",") ++ "]]\n""#;
     let output = query(
@@ -69,7 +83,7 @@ pub(crate) fn recorded(root: &Path, operation: &str) -> Result<ReferenceSnapshot
         &["bookmark", "list", "--all-remotes", "-T", template],
     )?;
     let mut snapshot = ReferenceSnapshot {
-        remotes: configured_remotes(root)?,
+        remotes: recorded_remotes(root, operation)?,
         operation: Some(operation.into()),
         ..Default::default()
     };
@@ -297,10 +311,11 @@ impl ReferenceStamp {
     }
     pub fn read(root: &Path, recorded: bool) -> Result<Self, String> {
         if recorded {
-            let mut remotes = configured_remotes(root)?;
+            let operation = Comparison::current_operation(root)?;
+            let mut remotes = recorded_remotes(root, &operation)?;
             remotes.sort();
             Ok(Self {
-                operation: Some(Comparison::current_operation(root)?),
+                operation: Some(operation),
                 remotes,
                 git_fingerprint: None,
             })

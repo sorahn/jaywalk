@@ -1,6 +1,7 @@
 #!/bin/sh
 # Build a local native RPM with the current host's Rust toolchain and libraries.
 set -eu
+. "$(dirname "$0")/native-shell.sh"
 cd "$(dirname "$0")/.."
 if [ "$(uname -s)" != Linux ]; then
     echo 'RPM packaging requires a Linux build host.' >&2

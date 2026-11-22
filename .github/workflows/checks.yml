@@ -35,7 +35,7 @@ jobs:
           env-vars: CARGO CC CFLAGS CXX CMAKE RUST DEVELOPER_DIR MACOSX_DEPLOYMENT_TARGET
           cache-bin: false
       - name: Metadata and packaging tests
-        run: python3 -m unittest discover -s scripts -p 'test_*.py'
+        run: scripts/python.sh -m unittest discover -s scripts -p 'test_*.py'
       - name: Generated Homebrew cask style
         run: scripts/test-release-cask.sh
       - name: Rust checks
@@ -50,7 +50,7 @@ jobs:
         run: cargo +1.100.0 test --locked --test build_version --test versioning
       - name: Verify updater bridge compiles
         run: |
-          python3 scripts/fetch-sparkle.py target/sparkle
+          scripts/python.sh scripts/fetch-sparkle.py target/sparkle
           JAYWALK_SPARKLE_DIR="$PWD/target/sparkle" scripts/test-updater-macos.sh
           JAYWALK_SPARKLE_DIR="$PWD/target/sparkle" scripts/test-sparkle-feed.sh
           JAYWALK_SPARKLE_DIR="$PWD/target/sparkle" DYLD_FRAMEWORK_PATH="$PWD/target/sparkle" cargo +1.100.0 test --locked --features macos-updater

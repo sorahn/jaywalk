@@ -114,7 +114,7 @@ impl Comparison {
             ContentSource::Git(contents) => {
                 return git_series(self, &contents.recorded_tip, contents.working_changes);
             }
-            ContentSource::Recorded => {
+            ContentSource::Recorded(_) => {
                 let range = format!("{}..{}", self.base(), self.tip());
                 let template = r#""{" ++ '"id":' ++ json(commit_id) ++ ',"message":' ++ json(description) ++ ',"author":' ++ json(author.name()) ++ ',"timestamp":' ++ json(author.timestamp().local().format("%Y-%m-%d %H:%M:%S")) ++ ',"working_copy":' ++ json(current_working_copy) ++ ',"change_id":' ++ json(change_id) ++ ',"parents":[' ++ parents.map(|p| json(p.commit_id())).join(",") ++ '],"empty":' ++ json(empty) ++ "}\n""#;
                 let output = query(
@@ -219,6 +219,7 @@ impl Comparison {
             Ok(commit) => (commit, None),
             Err(error) => (None, Some(error)),
         };
+        let mut reader = self.file_reader();
         let mut files: Vec<_> = self
             .files()
             .iter()
@@ -228,11 +229,11 @@ impl Comparison {
                     .find(file.after_path())
                     .and_then(|entry| entry.metadata_change_notice());
                 let mut alignment = None;
-                let (patch, notice) = match self
-                    .catalog()
-                    .find(file.after_path())
-                    .map_or_else(|| self.contents(file), |entry| self.read_file(entry))
-                {
+                let contents = match self.catalog().find(file.after_path()) {
+                    Some(entry) => reader.read_file(entry),
+                    None => reader.contents(file),
+                };
+                let (patch, notice) = match contents {
                     Ok((before, after)) => {
                         if options != Default::default() {
                             alignment = Some(options.alignment(&before, &after, algorithm));

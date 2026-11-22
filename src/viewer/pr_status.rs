@@ -163,15 +163,15 @@ pub(super) fn render(
     let refresh = viewer.clone();
     let mut panel = div()
         .v_flex()
-        .gap_1()
+        .gap(crate::spacing::interactive(cx))
         .text_sm()
-        .py_1()
+        .py(crate::spacing::interactive(cx))
         .debug_selector(|| "pr-status".into());
     panel = panel.child(
         div()
             .h_flex()
             .items_center()
-            .gap_2()
+            .gap(crate::spacing::edge(cx))
             .child(
                 Button::new("pr-status-details")
                     .ghost()
@@ -213,7 +213,7 @@ pub(super) fn render(
         panel = panel.child(
             div()
                 .h_flex()
-                .gap_2()
+                .gap(crate::spacing::edge(cx))
                 .text_color(muted)
                 .child(gpui::component::spinner::Spinner::new())
                 .child("Loading PR status…"),
@@ -268,7 +268,7 @@ pub(super) fn render(
                         .into_any_element()
                 } else {
                     div()
-                        .pl_3()
+                        .pl(crate::spacing::edge(cx))
                         .text_color(muted)
                         .whitespace_normal()
                         .child(label)
@@ -276,7 +276,7 @@ pub(super) fn render(
                 });
             }
             if list.items.len() > 8 {
-                panel = panel.child(div().pl_3().text_color(muted).child(format!(
+                panel = panel.child(div().pl(crate::spacing::edge(cx)).text_color(muted).child(format!(
                     "Showing 8 of {} observations; open the PR in your browser for the full list",
                     list.items.len()
                 )));
@@ -301,7 +301,7 @@ pub(super) fn render(
             };
             panel = panel.child(
                 div()
-                    .pl_3()
+                    .pl(crate::spacing::edge(cx))
                     .text_color(muted)
                     .whitespace_normal()
                     .child(format!(
@@ -318,10 +318,9 @@ pub(super) fn render(
             );
         }
         if list.items.len() > 12 {
-            panel = panel.child(div().pl_3().text_color(muted).child(format!(
-                "Showing 12 of {} reviewer observations",
-                list.items.len()
-            )));
+            panel = panel.child(div().pl(crate::spacing::edge(cx)).text_color(muted).child(
+                format!("Showing 12 of {} reviewer observations", list.items.len()),
+            ));
         }
     }
     panel.into_any_element()

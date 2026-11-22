@@ -15,7 +15,7 @@ use gpui::{
     AnyElement, App, Background, ClickEvent, Corners, Edges, ElementId, FocusHandle, Hsla,
     InteractiveElement, Interactivity, IntoElement, MouseButton, ParentElement, Pixels, RenderOnce,
     Role, SharedString, StatefulInteractiveElement as _, StyleRefinement, Styled, Window, div,
-    prelude::FluentBuilder as _, relative, transparent_white,
+    prelude::FluentBuilder as _, px, relative, transparent_white,
 };
 
 /// Ink of the focus line a filled button draws inside its fill: its own
@@ -718,6 +718,26 @@ impl RenderOnce for Button {
                     }
                 }
             })
+            .when_some(
+                cx.theme().host_spacing.filter(|_| !style.no_padding()),
+                |this, spacing| {
+                    if matches!(self.size, Size::Size(_)) {
+                        return this;
+                    }
+                    if self.label.is_none() && children.is_empty() {
+                        let glyph = match self.size {
+                            Size::XSmall => px(12.),
+                            Size::Small => px(14.),
+                            _ => px(16.),
+                        };
+                        this.size(glyph + spacing.interactive * 2.)
+                    } else {
+                        this.px(spacing.interactive).h_auto().min_h(
+                            window.rem_size() * 0.875 * 1.5 + spacing.interactive * 2. + px(2.),
+                        )
+                    }
+                },
+            )
             .when(border_corners.top_left, |this| this.rounded_tl(rounding))
             .when(border_corners.top_right, |this| this.rounded_tr(rounding))
             .when(border_corners.bottom_left, |this| this.rounded_bl(rounding))
@@ -797,6 +817,9 @@ impl RenderOnce for Button {
                 Size::XSmall => this.gap_1(),
                 Size::Small => this.gap_1(),
                 _ => this.gap_2(),
+            })
+            .when_some(cx.theme().host_spacing, |this, spacing| {
+                this.gap(spacing.interactive)
             })
             .refine_style(&self.content_style)
             .when_some(icon, |this, icon| {

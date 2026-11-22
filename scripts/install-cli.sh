@@ -1,6 +1,7 @@
 #!/bin/sh
 # Install a development CLI, pointing at this checkout's chosen native profile.
 set -eu
+. "$(dirname "$0")/native-shell.sh"
 cd "$(dirname "$0")/.."
 prefix=${1:-"$HOME/.local/bin"}
 profile=${2:-debug}

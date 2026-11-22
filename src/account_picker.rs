@@ -447,12 +447,14 @@ impl Render for AccountPicker {
         let context = [title.clone(), message];
         let command = Command::new(&self.input)
             .bordered(false)
+            .whole_row_viewport(true)
+            .bg(gpui::hsla(0., 0., 0., 0.))
             .filterable(false)
             .max_h(px(360.))
             .placeholder(title)
             .description(move |_, _, cx| crate::picker_ui::context(context.clone(), cx))
-            .empty(|_, _, _| {
-                div().p_3().child(
+            .empty(|_, _, cx| {
+                div().p(crate::spacing::edge(cx)).child(
                     "No matching accounts or actions. Use Connect account, or Escape to go back.",
                 )
             })

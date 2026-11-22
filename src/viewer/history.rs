@@ -1,3 +1,4 @@
+use jaywalk::theme::{Part, Surface};
 mod paging;
 use super::*;
 use gpui::component::Sizable;
@@ -15,6 +16,7 @@ struct RowMetrics {
     height: f32,
     spacing: f32,
     font_size: f32,
+    edge: f32,
 }
 
 #[derive(Clone, Copy)]
@@ -43,6 +45,7 @@ fn history_row(
         height,
         spacing,
         font_size,
+        edge,
     } = metrics;
     let revision = &history.revisions[index];
     let commit_id = revision.commit_id.clone();
@@ -67,17 +70,15 @@ fn history_row(
                     let graph = &history.graph[index];
                     let x = |lane| bounds.left() + px(GRAPH_MARGIN + lane as f32 * spacing);
                     let middle = bounds.center().y;
-                    let palette = if gpui::component::Theme::global(cx).is_dark() {
-                        [0x5b9bd5, 0x7dc67c, 0xd9a066, 0xb18add, 0x66c4c7]
-                    } else {
-                        [0x0969da, 0x1a7f37, 0x9a6700, 0x8250df, 0x0e7490]
-                    };
+                    let palette = std::array::from_fn::<_, 5, _>(|i| {
+                        crate::appearance::color(jaywalk::theme::Role::GraphLane(i as u8), cx)
+                    });
                     for stroke in &graph.strokes {
                         paint_graph_stroke(
                             stroke,
                             bounds,
                             spacing,
-                            rgb(palette[stroke.color % palette.len()]).into(),
+                            palette[stroke.color % palette.len()],
                             1.5,
                             window,
                         );
@@ -88,7 +89,7 @@ fn history_row(
                                 point(x(graph.lane) - px(NODE_RADIUS), middle - px(NODE_RADIUS)),
                                 size(px(NODE_RADIUS * 2.), px(NODE_RADIUS * 2.)),
                             ),
-                            rgb(palette[graph.color % palette.len()]),
+                            palette[graph.color % palette.len()],
                         )
                         .corner_radii(px(NODE_RADIUS)),
                     );
@@ -102,7 +103,7 @@ fn history_row(
             div()
                 .flex_1()
                 .min_w_0()
-                .pr_2()
+                .pr(px(edge))
                 .text_size(px(font_size))
                 .truncate()
                 .child(description),
@@ -146,7 +147,7 @@ fn history_row(
 
 /// Uses the loaded history snapshot; hovering never queries or snapshots a repository.
 fn revision_hover(revision: &jaywalk::history::Revision, cx: &App) -> AnyElement {
-    let muted = gpui::component::Theme::global(cx).muted_foreground;
+    let muted = crate::appearance::surface(Surface::Floating, Part::MutedForeground, cx);
     let mut details = Vec::new();
     if revision.is_virtual_working_copy() {
         details.push("Uncommitted working changes against HEAD".to_owned());
@@ -193,14 +194,14 @@ fn revision_hover(revision: &jaywalk::history::Revision, cx: &App) -> AnyElement
         .debug_selector(|| "commit-hover".into())
         .text_left()
         .v_flex()
-        .gap_2()
+        .gap(crate::spacing::edge(cx))
         .min_w_0()
         .max_w(rems(34.))
         .child(div().max_h(rems(16.)).overflow_hidden().child(message))
         .child(
             div()
                 .v_flex()
-                .gap_1()
+                .gap(crate::spacing::interactive(cx))
                 .text_xs()
                 .text_color(muted)
                 .children(details.into_iter().map(|line| div().child(line))),
@@ -259,7 +260,7 @@ impl Viewer {
 
     pub(super) fn render_history(&self, cx: &mut Context<Self>) -> AnyElement {
         let theme = gpui::component::Theme::global(cx);
-        let surface = theme.sidebar;
+        let surface = crate::appearance::surface(Surface::History, Part::Background, cx);
         let stripe = surface.blend(
             theme
                 .foreground
@@ -290,7 +291,7 @@ impl Viewer {
                 div()
                     .h_flex()
                     .items_center()
-                    .gap_1()
+                    .gap(crate::spacing::interactive(cx))
                     .child(self.panel_menu(jaywalk::panel_layout::PanelId::History))
                     .child(
                         Button::new("search-history")
@@ -326,40 +327,43 @@ impl Viewer {
                         },
                     ),
             ),
-            div().bg(surface),
+            div().bg(surface).text_color(crate::appearance::surface(
+                Surface::History,
+                Part::Foreground,
+                cx,
+            )),
         );
-        let session =
-            match &self.repository {
-                LoadState::Loaded(session) => session,
-                LoadState::Loading => {
-                    return panel
-                        .child(div().p_3().child(
-                            if self.loading_visible(LoadingKind::Comparison) {
-                                "Loading repository…"
-                            } else {
-                                ""
-                            },
-                        ))
-                        .into_any_element();
-                }
-                LoadState::Failed(error) => {
-                    return panel
-                        .child(
-                            div()
-                                .p_3()
-                                .child(feedback::error_message("history-error", error)),
-                        )
-                        .into_any_element();
-                }
-            };
+        let session = match &self.repository {
+            LoadState::Loaded(session) => session,
+            LoadState::Loading => {
+                return panel
+                    .child(div().p(crate::spacing::edge(cx)).child(
+                        if self.loading_visible(LoadingKind::Comparison) {
+                            "Loading repository…"
+                        } else {
+                            ""
+                        },
+                    ))
+                    .into_any_element();
+            }
+            LoadState::Failed(error) => {
+                return panel
+                    .child(
+                        div()
+                            .p(crate::spacing::edge(cx))
+                            .child(feedback::error_message("history-error", error, cx)),
+                    )
+                    .into_any_element();
+            }
+        };
         let history = match &session.history {
             Ok(history) => history.clone(),
             Err(error) => {
                 return panel
                     .child(
                         div()
-                            .p_3()
-                            .child(feedback::error_message("history-error", error)),
+                            .p(crate::spacing::edge(cx))
+                            .child(feedback::error_message("history-error", error, cx)),
                     )
                     .into_any_element();
             }
@@ -397,6 +401,7 @@ impl Viewer {
             }) => Some((left.clone(), right.clone())),
             _ => None,
         };
+        let row_edge = self.settings.ui.spacing.edge_px();
         let rows = uniform_list("history-rows", count, move |visible, window, cx| {
             if automatic && history.has_more() && visible.end >= commit_count && !loading {
                 let owner = viewer.clone();
@@ -450,6 +455,7 @@ impl Viewer {
                             height,
                             spacing,
                             font_size,
+                            edge: row_edge,
                         },
                         selected,
                         viewer.clone(),
@@ -466,7 +472,7 @@ impl Viewer {
                             div()
                                 .h_flex()
                                 .items_center()
-                                .gap_1()
+                                .gap(crate::spacing::interactive(cx))
                                 .children(endpoints.as_ref().and_then(|(left, right)| {
                                     let id = &history.revisions[index].commit_id;
                                     let marker = match (id == left, id == right) {
@@ -475,7 +481,13 @@ impl Viewer {
                                         (false, true) => "R",
                                         _ => return None,
                                     };
-                                    Some(div().text_xs().text_color(accent).px_1().child(marker))
+                                    Some(
+                                        div()
+                                            .text_xs()
+                                            .text_color(accent)
+                                            .px(crate::spacing::interactive(cx))
+                                            .child(marker),
+                                    )
                                 }))
                                 .children(if labels {
                                     super::references::reference_badge(

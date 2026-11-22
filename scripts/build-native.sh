@@ -1,6 +1,7 @@
 #!/bin/sh
 # Packaging and installation consume only artifacts from this native build.
 set -eu
+. "$(dirname "$0")/native-shell.sh"
 cd "$(dirname "$0")/.."
 profile=${1:-debug}
 case "$profile" in
@@ -10,6 +11,11 @@ esac
 host=$(rustc -vV | sed -n 's/^host: //p')
 if [ -z "$host" ]; then
     echo 'Could not determine the native Rust target.' >&2
+    exit 1
+fi
+# An Intel Rust installation must not silently produce a Rosetta app on ARM Macs.
+if [ "$(uname -s)" = Darwin ] && [ "$(/usr/sbin/sysctl -n hw.optional.arm64 2>/dev/null || true)" = 1 ] && [ "$host" != aarch64-apple-darwin ]; then
+    echo 'Apple Silicon builds require a native aarch64-apple-darwin Rust toolchain.' >&2
     exit 1
 fi
 output=${2:-"$(pwd)/target"}

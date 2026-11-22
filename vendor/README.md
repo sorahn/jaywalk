@@ -102,6 +102,13 @@ results in `src/command/command.rs` and `src/command/state.rs`. It lets the host
 show compact status without putting controls above search or inserting fake
 results. Host interaction tests verify slot order and keyboard confirmation.
 
+`Command::whole_row_viewport` is an opt-in host extension for floating palettes.
+It caps the list height at the last complete measured item within its maximum
+(including variable heights/headings), and keeps the existing vertical inset
+outside the scrolling viewport so clipped rows cannot hover into that strip.
+Continuous scrolling and oversized first rows remain available; default toolkit
+lists keep their original behavior. This does not change the spacing tokens.
+
 `CommandItem::key` supplies an optional stable identity. Command selection follows
 that identity across label changes and reordered refresh results; unkeyed models
 retain their previous index-path behavior. A removed keyed result falls back to
@@ -121,3 +128,11 @@ or clipboard text. Configurable whitespace-error color is part of `DiffColors`.
 Popover/menu shadow rings and existing tooltip edges use it without changing
 layout metrics; `None` retains the upstream neutral edges. Jaywalk resolves this
 from its live accent setting and `ui.accent_floating_outlines`.
+
+`Theme::host_spacing` optionally supplies a logical-pixel unit and edge/interactive
+roles. Jaywalk projects its live `[ui.spacing]` settings into this policy.
+Command rows/measurement/insets, popovers, menus, tooltips, inputs/search and named
+button sizes consume it while preserving toolkit defaults when absent. Explicit
+control size/style overrides still win. Spacing changes invalidate measured
+command rows independently of typography. The existing spacing-token projection
+uses the same unit; application files and history keep full-width square rows.

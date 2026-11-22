@@ -1,6 +1,7 @@
 #!/bin/sh
 # Test dependencies only; jj is not bundled with the end-user app.
 set -eu
+. "$(dirname "$0")/native-shell.sh"
 cd "$(dirname "$0")/.."
 if [ "$(uname -s)" != Darwin ] || [ "$(uname -m)" != arm64 ]; then
     echo 'This CI toolchain requires macOS ARM64.' >&2

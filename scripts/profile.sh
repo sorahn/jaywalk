@@ -1,6 +1,7 @@
 #!/bin/sh
 # Pin the host and output path, as packaging does: never time a stale cross build.
 set -eu
+. "$(dirname "$0")/native-shell.sh"
 cd "$(dirname "$0")/.."
 host=$(rustc -vV | sed -n 's/^host: //p')
 if [ -z "$host" ]; then

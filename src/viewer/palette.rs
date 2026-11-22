@@ -409,6 +409,12 @@ impl Viewer {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if self.references.open {
+            self.references.open = false;
+            // Escape from the palette must return to the viewer, not the
+            // reference search input that is about to leave the focus tree.
+            self.focus.focus(window, cx);
+        }
         if !matches!(
             kind,
             PaletteKind::LocalRepositories | PaletteKind::CheckoutRecovery
@@ -591,11 +597,12 @@ impl Viewer {
                     .debug_selector(|| "palette-overlay".into())
                     .absolute()
                     .inset_0()
-                    .bg(rgba(0x00000070))
+                    .bg(crate::appearance::color(jaywalk::theme::Role::Backdrop, cx))
                     .flex()
                     .justify_center()
                     .items_start()
-                    .pt_12()
+                    .pt(crate::spacing::space(12.0, cx))
+                    .px(crate::spacing::edge(cx))
                     .on_mouse_down(
                         MouseButton::Left,
                         cx.listener(|viewer, _, window, cx| viewer.close_palette(window, cx)),
@@ -860,6 +867,8 @@ impl Viewer {
         let command =
             Command::new(&self.palette.state)
                 .bordered(false)
+                .whole_row_viewport(true)
+                .bg(gpui::hsla(0., 0., 0., 0.))
                 .filterable(false)
                 .placeholder(match kind {
                     PaletteKind::PullRequests | PaletteKind::Accounts => {
@@ -979,12 +988,12 @@ impl Viewer {
                         })
                 }))
                 .when(matches!(kind, PaletteKind::Repositories), |command| {
-                    command.footer(|_, window, _| {
+                    command.footer(|_, window, cx| {
                         div()
                             .h_flex()
-                            .gap_2()
-                            .px_3()
-                            .py_2()
+                            .gap(crate::spacing::edge(cx))
+                            .px(crate::spacing::edge(cx))
+                            .py(crate::spacing::edge(cx))
                             .text_sm()
                             .children(gpui::component::kbd::Kbd::binding_for_action(
                                 &commands::ExecuteCommand {
@@ -1003,7 +1012,7 @@ impl Viewer {
                 .max_h(px(360.))
                 .empty({
                     let message = self.picker_empty(kind);
-                    move |_, _, _| div().p_3().child(message)
+                    move |_, _, cx| div().p(crate::spacing::edge(cx)).child(message)
                 })
                 .on_query(cx.listener(|this, query: &str, window, cx| {
                     this.palette_query_changed(query, window, cx)
@@ -1064,11 +1073,12 @@ impl Viewer {
                 })
                 .absolute()
                 .inset_0()
-                .bg(rgba(0x00000070))
+                .bg(crate::appearance::color(jaywalk::theme::Role::Backdrop, cx))
                 .flex()
                 .justify_center()
                 .items_start()
-                .pt_12()
+                .pt(crate::spacing::space(12.0, cx))
+                .px(crate::spacing::edge(cx))
                 .on_mouse_down(
                     MouseButton::Left,
                     cx.listener(|this, _, window, cx| this.close_palette(window, cx)),
@@ -1083,7 +1093,9 @@ impl Viewer {
                             matches!(kind, PaletteKind::Repositories)
                                 .then(|| cx.global::<crate::recents::Recents>().error.as_ref())
                                 .flatten()
-                                .map(|error| feedback::error_message("recent-picker-error", error)),
+                                .map(|error| {
+                                    feedback::error_message("recent-picker-error", error, cx)
+                                }),
                         ),
                 )
                 .into_any_element(),

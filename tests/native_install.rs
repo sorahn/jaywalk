@@ -15,7 +15,7 @@ fn installs_fresh_native_outputs_and_upgrades_only_its_own_legacy_link() {
     for directory in ["bin", "target/debug", "target/release", "result", "blocked"] {
         fs::create_dir_all(root.join(directory)).unwrap();
     }
-    for script in ["install-cli.sh", "build-native.sh"] {
+    for script in ["install-cli.sh", "build-native.sh", "native-shell.sh"] {
         fs::copy(
             Path::new(env!("CARGO_MANIFEST_DIR"))
                 .join("scripts")

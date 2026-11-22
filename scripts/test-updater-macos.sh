@@ -1,5 +1,6 @@
 #!/bin/sh
 set -eu
+. "$(dirname "$0")/native-shell.sh"
 cd "$(dirname "$0")/.."
 : "${JAYWALK_SPARKLE_DIR:?Fetch the pinned Sparkle SDK first}"
 workspace=$(mktemp -d)

@@ -1,20 +1,21 @@
 #!/bin/sh
 # Protected CI only. Secret values are never printed or stored in the source tree.
 set -eu
+. "$(dirname "$0")/native-shell.sh"
 automation=$(CDPATH= cd -- "$(dirname "$0")" && pwd)
 cd "${JAYWALK_RELEASE_SOURCE:-$automation/..}"
 for name in MACOS_CERTIFICATE_P12_BASE64 MACOS_CERTIFICATE_PASSWORD MACOS_SIGNING_IDENTITY APPLE_NOTARY_KEY_BASE64 APPLE_NOTARY_KEY_ID APPLE_NOTARY_ISSUER_ID SPARKLE_PRIVATE_KEY SPARKLE_PUBLIC_KEY UPDATE_FEED_URL JAYWALK_GITHUB_CLIENT_ID JAYWALK_GITHUB_CLIENT_SECRET JAYWALK_GITHUB_APP_SLUG; do
-    python3 -c 'import os,sys; name=sys.argv[1]; sys.exit(0 if os.environ.get(name) else "Missing release credential/configuration: "+name)' "$name"
+    "$automation/python.sh" -c 'import os,sys; name=sys.argv[1]; sys.exit(0 if os.environ.get(name) else "Missing release credential/configuration: "+name)' "$name"
 done
 release_tag=${JAYWALK_RELEASE_TAG:-${GITHUB_REF_NAME:?Run on a release tag}}
-python3 "$automation/release-macos.py" check-tag "$release_tag"
+"$automation/python.sh" "$automation/release-macos.py" check-tag "$release_tag"
 case "$UPDATE_FEED_URL" in https://*) ;; *) echo 'Update feed must use HTTPS' >&2;exit 2;; esac
 workspace=$(mktemp -d)
 keychain="$workspace/release.keychain-db"
 cleanup() {
     # Restore the runner's exact original search list before deleting our keychain.
     if [ -f "$workspace/search-list.json" ]; then
-        if python3 - "$workspace/search-list.json" <<'RESTORE'
+        if "$automation/python.sh" - "$workspace/search-list.json" <<'RESTORE'
 import json,subprocess,sys
 subprocess.run(['security','list-keychains','-d','user','-s',*json.load(open(sys.argv[1]))],check=True)
 RESTORE
@@ -25,7 +26,7 @@ RESTORE
 }
 trap cleanup EXIT
 export JAYWALK_SECRET_DIRECTORY="$workspace"
-python3 - <<'SECRETS'
+"$automation/python.sh" - <<'SECRETS'
 import base64,os
 from pathlib import Path
 root=Path(os.environ['JAYWALK_SECRET_DIRECTORY'])
@@ -36,7 +37,7 @@ SECRETS
 # Build subprocesses do not need the original credential values in their env.
 unset MACOS_CERTIFICATE_P12_BASE64 APPLE_NOTARY_KEY_BASE64 SPARKLE_PRIVATE_KEY
 password=$(openssl rand -hex 24)
-python3 - "$workspace/search-list.json" <<'SEARCH'
+"$automation/python.sh" - "$workspace/search-list.json" <<'SEARCH'
 import json,shlex,subprocess,sys
 paths=shlex.split(subprocess.check_output(['security','list-keychains','-d','user'],text=True))
 with open(sys.argv[1],'w') as output: json.dump(paths,output)
@@ -44,7 +45,7 @@ SEARCH
 security create-keychain -p "$password" "$keychain"
 security set-keychain-settings -lut 21600 "$keychain"
 security unlock-keychain -p "$password" "$keychain"
-python3 - "$workspace/search-list.json" "$keychain" <<'SEARCH'
+"$automation/python.sh" - "$workspace/search-list.json" "$keychain" <<'SEARCH'
 import json,subprocess,sys
 subprocess.run(['security','list-keychains','-d','user','-s',sys.argv[2],*json.load(open(sys.argv[1]))],check=True)
 SEARCH
@@ -66,24 +67,24 @@ xcrun clang -mmacosx-version-min=15.0 "$workspace/signing-probe.c" -o "$workspac
 scripts/sign-macos.sh "$workspace/signing-probe" dev.jaywalk.signing-probe
 export JAYWALK_MACOS_UPDATER=1
 export JAYWALK_SPARKLE_DIR="$(pwd)/target/sparkle"
-python3 scripts/fetch-sparkle.py "$JAYWALK_SPARKLE_DIR"
+"$automation/python.sh" scripts/fetch-sparkle.py "$JAYWALK_SPARKLE_DIR"
 scripts/bundle-macos.sh release
 bundle=target/release/Jaywalk.app
 # Fresh installs must have a real publisher client, not a developer Keychain import.
-"$bundle/Contents/MacOS/jaywalk" --hosting-capabilities | python3 -c 'import json,sys; sys.exit(0 if json.load(sys.stdin).get("github_browser") is True else "Release binary has no configured GitHub publisher client")'
+"$bundle/Contents/MacOS/jaywalk" --hosting-capabilities | "$automation/python.sh" -c 'import json,sys; sys.exit(0 if json.load(sys.stdin).get("github_browser") is True else "Release binary has no configured GitHub publisher client")'
 # Submit the signed app, staple it, THEN produce end-user payloads.
 ditto -c -k --sequesterRsrc --keepParent "$bundle" "$workspace/notarize.zip"
 xcrun notarytool submit "$workspace/notarize.zip" --key "$workspace/notary.p8" --key-id "$APPLE_NOTARY_KEY_ID" --issuer "$APPLE_NOTARY_ISSUER_ID" --wait --output-format json > "$workspace/notary-app.json"
-python3 -c 'import json,sys;sys.exit(0 if json.load(open(sys.argv[1]))["status"]=="Accepted" else "App notarization was not accepted")' "$workspace/notary-app.json"
+"$automation/python.sh" -c 'import json,sys;sys.exit(0 if json.load(open(sys.argv[1]))["status"]=="Accepted" else "App notarization was not accepted")' "$workspace/notary-app.json"
 xcrun stapler staple "$bundle"
-python3 "$automation/release-macos.py" package "$bundle" target/distribution
+"$automation/python.sh" "$automation/release-macos.py" package "$bundle" target/distribution
 stem="target/distribution/Jaywalk-$("$bundle/Contents/MacOS/jaywalk" --package-version)-macos-arm64"
 codesign --force --sign "$JAYWALK_SIGNING_IDENTITY" --keychain "$keychain" --timestamp "$stem.dmg"
 xcrun notarytool submit "$stem.dmg" --key "$workspace/notary.p8" --key-id "$APPLE_NOTARY_KEY_ID" --issuer "$APPLE_NOTARY_ISSUER_ID" --wait --output-format json > "$workspace/notary-dmg.json"
-python3 -c 'import json,sys;sys.exit(0 if json.load(open(sys.argv[1]))["status"]=="Accepted" else "DMG notarization was not accepted")' "$workspace/notary-dmg.json"
+"$automation/python.sh" -c 'import json,sys;sys.exit(0 if json.load(open(sys.argv[1]))["status"]=="Accepted" else "DMG notarization was not accepted")' "$workspace/notary-dmg.json"
 xcrun stapler staple "$stem.dmg"
-python3 "$automation/release-macos.py" manifest "$bundle" "$stem.zip" "$stem.dmg" --official > target/distribution/manifest.json
-python3 "$automation/release-macos.py" cask target/distribution/manifest.json > target/distribution/jaywalk.rb
+"$automation/python.sh" "$automation/release-macos.py" manifest "$bundle" "$stem.zip" "$stem.dmg" --official > target/distribution/manifest.json
+"$automation/python.sh" "$automation/release-macos.py" cask target/distribution/manifest.json > target/distribution/jaywalk.rb
 # Feed entries and update archives are signed with the separate Sparkle key.
 mkdir "$workspace/feed"
 cp "$stem.zip" "$workspace/feed/"

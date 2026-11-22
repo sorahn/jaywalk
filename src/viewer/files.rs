@@ -6,11 +6,10 @@ use gpui::component::scroll::ScrollableMask;
 use gpui::component::tree::{Tree, TreeItem, TreeState};
 use gpui::prelude::FluentBuilder;
 use jaywalk::file_browser::{CompactPath, FileNode, present_paths};
+use jaywalk::theme::{Part, Surface};
 use std::collections::HashMap;
 
 use jaywalk::settings::{FileView as FileListMode, TreeScope};
-
-use super::chrome::PANEL_INSET;
 
 /// Canvas bounds start inside the row's indentation padding. Subtract the
 /// current depth before locating ancestor icon centers in window coordinates.
@@ -81,24 +80,36 @@ impl FileBrowser {
     }
 }
 
-fn file_style(status: &str, dark: bool) -> (&'static str, u32) {
-    if !dark {
-        return match status {
-            "added" => ("A", 0x22863a),
-            "removed" => ("D", 0xc12e2a),
-            "renamed" => ("R", 0x0969da),
-            "copied" => ("C", 0x0969da),
-            "unchanged" => ("", 0x57606a),
-            _ => ("M", 0x8a6116),
-        };
+#[derive(Clone, Copy)]
+struct FileColors {
+    added: Hsla,
+    removed: Hsla,
+    modified: Hsla,
+    renamed: Hsla,
+    copied: Hsla,
+    neutral: Hsla,
+}
+impl FileColors {
+    fn new(cx: &App) -> Self {
+        let diff = crate::appearance::diff_colors(cx);
+        Self {
+            added: diff.added,
+            removed: diff.removed,
+            modified: diff.modified,
+            renamed: crate::appearance::color(jaywalk::theme::Role::Renamed, cx),
+            copied: crate::appearance::color(jaywalk::theme::Role::Copied, cx),
+            neutral: crate::appearance::surface(Surface::Files, Part::MutedForeground, cx),
+        }
     }
-    match status {
-        "added" => ("A", 0x7dc67c),
-        "removed" => ("D", 0xe58a83),
-        "renamed" => ("R", 0x86b4ed),
-        "copied" => ("C", 0x86b4ed),
-        "unchanged" => ("", 0xa4b4c2),
-        _ => ("M", 0xe5c07b),
+    fn style(self, status: &str) -> (&'static str, Hsla) {
+        match status {
+            "added" => ("A", self.added),
+            "removed" => ("D", self.removed),
+            "renamed" => ("R", self.renamed),
+            "copied" => ("C", self.copied),
+            "unchanged" => ("", self.neutral),
+            _ => ("M", self.modified),
+        }
     }
 }
 
@@ -286,7 +297,7 @@ impl Viewer {
             &mut self.browser.tree_indices,
             &mut self.browser.tree_width,
             self.settings.panels.files.font.size * 0.5,
-            self.settings.files.indent_width,
+            self.settings.file_indent_width(),
             self.browser.scope == TreeScope::Changed,
         );
         preserve_expansion(&items, &self.browser.roots, &mut self.browser.expansion);
@@ -366,7 +377,7 @@ impl Viewer {
 
     pub(super) fn refresh_browser_metrics(&mut self) {
         let glyph_width = self.settings.panels.files.font.size * 0.5;
-        let indent = self.settings.files.indent_width;
+        let indent = self.settings.file_indent_width();
         self.browser.tree_width = self
             .browser
             .files
@@ -420,8 +431,8 @@ impl Viewer {
             .then(|| self.reading_tree_target(cx))
             .flatten();
         let reading_tint = gpui::component::Theme::global(cx).secondary;
-        let dark = gpui::component::Theme::global(cx).is_dark();
-        let neutral = if dark { 0xa4b4c2 } else { 0x57606a };
+        let colors = FileColors::new(cx);
+        let neutral = colors.neutral;
         let files = self.browser.files.clone();
         let retained = self.browser.retained;
         let indices = self.browser.tree_indices.clone();
@@ -429,7 +440,7 @@ impl Viewer {
             self.settings.files.tree_row_height,
             self.settings.panels.files.font.size,
         );
-        let indent_width = self.settings.files.indent_width;
+        let indent_width = self.settings.file_indent_width();
         let font_size = self.settings.panels.files.font.size;
         let viewer = cx.entity().downgrade();
         let source = self
@@ -446,7 +457,8 @@ impl Viewer {
             .opacity(self.settings.files.indent_guide_opacity);
         let click_viewer = viewer.clone();
         let click_source = source.as_ref().map(|(identity, _)| identity.clone());
-        let tree = Tree::new(&self.browser.tree, move |_, entry, _, _, _| {
+        let row_edge = self.settings.ui.spacing.edge_px();
+        let tree = Tree::new(&self.browser.tree, move |_, entry, _, _, cx| {
             let file_index = indices.get(&entry.item().id).copied();
             let temporary = file_index.is_some() && file_index == retained;
             let color = if temporary {
@@ -455,7 +467,7 @@ impl Viewer {
                 file_index
                     .and_then(|index| files.get(index))
                     .map_or(neutral, |file| {
-                        file_style(file.status().unwrap_or("unchanged"), dark).1
+                        colors.style(file.status().unwrap_or("unchanged")).1
                     })
             };
             let selector = format!("browser-tree:{}", entry.item().id);
@@ -463,7 +475,7 @@ impl Viewer {
                 .debug_selector(move || selector.clone())
                 .h_flex()
                 .items_center()
-                .gap_1()
+                .gap(crate::spacing::interactive(cx))
                 .whitespace_nowrap();
             let icon = if entry.is_folder() {
                 Some(if entry.is_expanded() {
@@ -496,11 +508,12 @@ impl Viewer {
             let click_viewer = click_viewer.clone();
             let click_source = click_source.clone();
             ListItem::new(entry.item().id.clone())
+                .rounded_none()
                 .h(px(row_height))
                 .py_0()
                 .text_size(px(font_size))
-                .pl(px(entry.depth() as f32 * indent_width + PANEL_INSET))
-                .text_color(rgb(color))
+                .pl(px(entry.depth() as f32 * indent_width + row_edge))
+                .text_color(color)
                 .when(
                     reading.as_deref() == Some(entry.item().id.as_ref()),
                     |row| row.bg(reading_tint),
@@ -615,7 +628,7 @@ impl Viewer {
     }
 
     pub(super) fn render_files(&self, cx: &mut Context<Self>) -> AnyElement {
-        let dark = gpui::component::Theme::global(cx).is_dark();
+        let colors = FileColors::new(cx);
         let toggle_icon =
             |name: IconName, active: bool| crate::appearance::active_icon(name, active, cx);
         let mut panel = super::chrome::Panel::new(
@@ -637,7 +650,7 @@ impl Viewer {
             .child(
                 div()
                     .h_flex()
-                    .gap_1()
+                    .gap(crate::spacing::interactive(cx))
                     .child(self.panel_menu(jaywalk::panel_layout::PanelId::Files))
                     .child(self.render_find_file_button(cx))
                     .children((self.browser.mode == FileListMode::Tree).then(|| {
@@ -668,54 +681,66 @@ impl Viewer {
                             }))
                     }))
                     .child(
-                        Button::new("file-list-mode")
-                            .ghost()
-                            .small()
-                            .compact()
-                            .icon(toggle_icon(
-                                IconName::List,
-                                self.browser.mode == FileListMode::List,
-                            ))
-                            .tooltip("File list")
-                            .toggled(self.browser.mode == FileListMode::List)
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                this.browser.mode = FileListMode::List;
-                                this.rebuild_browser(cx);
-                                this.save_layout(cx);
-                                cx.notify();
-                            })),
-                    )
-                    .child(
-                        Button::new("file-tree-mode")
-                            .ghost()
-                            .small()
-                            .compact()
-                            .icon(toggle_icon(
-                                IconName::FolderTree,
-                                self.browser.mode == FileListMode::Tree,
-                            ))
-                            .tooltip("Directory tree")
-                            .toggled(self.browser.mode == FileListMode::Tree)
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                this.browser.mode = FileListMode::Tree;
-                                this.rebuild_browser(cx);
-                                this.save_layout(cx);
-                                cx.notify();
-                            })),
+                        crate::spacing::toggle_group(Surface::FilesHeader, cx)
+                            .child(
+                                Button::new("file-list-mode")
+                                    .ghost()
+                                    .small()
+                                    .compact()
+                                    .icon(toggle_icon(
+                                        IconName::List,
+                                        self.browser.mode == FileListMode::List,
+                                    ))
+                                    .tooltip("File list")
+                                    .toggled(self.browser.mode == FileListMode::List)
+                                    .on_click(cx.listener(|this, _, _, cx| {
+                                        this.browser.mode = FileListMode::List;
+                                        this.rebuild_browser(cx);
+                                        this.save_layout(cx);
+                                        cx.notify();
+                                    })),
+                            )
+                            .child(
+                                Button::new("file-tree-mode")
+                                    .ghost()
+                                    .small()
+                                    .compact()
+                                    .icon(toggle_icon(
+                                        IconName::FolderTree,
+                                        self.browser.mode == FileListMode::Tree,
+                                    ))
+                                    .tooltip("Directory tree")
+                                    .toggled(self.browser.mode == FileListMode::Tree)
+                                    .on_click(cx.listener(|this, _, _, cx| {
+                                        this.browser.mode = FileListMode::Tree;
+                                        this.rebuild_browser(cx);
+                                        this.save_layout(cx);
+                                        cx.notify();
+                                    })),
+                            ),
                     ),
             ),
             div()
                 .track_focus(&self.browser.focus)
                 .key_context("JaywalkFiles")
                 .relative()
-                .bg(gpui::component::Theme::global(cx).sidebar),
+                .bg(crate::appearance::surface(
+                    Surface::Files,
+                    Part::Background,
+                    cx,
+                ))
+                .text_color(crate::appearance::surface(
+                    Surface::Files,
+                    Part::Foreground,
+                    cx,
+                )),
         );
         match self.comparison_state() {
             LoadState::Failed(error) => {
                 panel = panel.child(
                     div()
-                        .p_3()
-                        .child(feedback::error_message("files-error", &error)),
+                        .p(crate::spacing::edge(cx))
+                        .child(feedback::error_message("files-error", &error, cx)),
                 )
             }
             LoadState::Loaded(comparison)
@@ -723,7 +748,7 @@ impl Viewer {
                     && !(self.browser.mode == FileListMode::Tree
                         && self.browser.scope == TreeScope::All) =>
             {
-                panel = panel.child(div().p_3().child("No changed files"));
+                panel = panel.child(div().p(crate::spacing::edge(cx)).child("No changed files"));
             }
             _ => {}
         }
@@ -745,9 +770,9 @@ impl Viewer {
                 for (index, file) in self.browser.files.iter().enumerate() {
                     let temporary = self.browser.retained == Some(index);
                     let (marker, color) = if temporary {
-                        ("·", if dark { 0xa4b4c2 } else { 0x57606a })
+                        ("·", colors.neutral)
                     } else {
-                        file_style(file.status().unwrap_or("unchanged"), dark)
+                        colors.style(file.status().unwrap_or("unchanged"))
                     };
                     let label = self.browser.labels.get(index).map_or_else(
                         || file.path().to_owned(),
@@ -774,9 +799,9 @@ impl Viewer {
                             })
                             .h_flex()
                             .items_center()
-                            .gap_2()
-                            .pl(px(PANEL_INSET))
-                            .pr_3()
+                            .gap(crate::spacing::edge(cx))
+                            .pl(px(self.settings.ui.spacing.edge_px()))
+                            .pr(crate::spacing::edge(cx))
                             .min_h(px(self.settings.row_height(
                                 self.settings.files.list_row_height,
                                 self.settings.panels.files.font.size,
@@ -792,14 +817,14 @@ impl Viewer {
                             {
                                 gpui::component::Theme::global(cx).secondary
                             } else {
-                                gpui::component::Theme::global(cx).sidebar
+                                crate::appearance::surface(Surface::Files, Part::Background, cx)
                             })
                             .hover(|style| {
                                 style.bg(gpui::component::Theme::global(cx).secondary_hover)
                             })
                             .text_size(px(self.settings.panels.files.font.size))
                             .cursor_pointer()
-                            .text_color(rgb(color))
+                            .text_color(color)
                             .child(div().w(px(14.)).flex_shrink_0().child(marker))
                             .when(self.settings.files.file_icons, |row| {
                                 row.child(

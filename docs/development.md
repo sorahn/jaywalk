@@ -46,6 +46,20 @@ remain usable directly. The justfile delegates bundling and launcher installatio
 to those scripts rather than duplicating them. Recipe arguments use quoted shell
 positional parameters, preserving paths with spaces and literal special characters.
 
+On Apple Silicon, run Python tooling through `scripts/python.sh` (for example,
+`scripts/python.sh -m unittest discover -s scripts -p 'test_*.py'`). Repository
+recipes and workflows use this wrapper. It selects and explicitly launches an
+ARM64 Python 3.11+ interpreter even when PATH contains an Intel Python, preventing
+its Apple tool subprocesses from inheriting Rosetta. Shell entry points also
+re-launch natively when started by an Intel parent.
+These guards leave other platforms unchanged.
+Native bundle builds reject an Intel Rust host on Apple Silicon. Local bundles
+validate both app executables and every nested Mach-O against the native host,
+so Intel Macs can still build and install locally. Release bundles, packaging and
+release manifests retain an ARM64 requirement; Intel-only helpers are rejected,
+while universal helpers with ARM slices work. The `check-architecture --native`
+option applies only to local bundle validation, never release metadata.
+
 ## Profile PR opening
 
 Normal PR opens and updates emit `PR open:` timing lines to stderr (`jaywalk.log` in the default config directory for normal detached launches; an explicit `--config` uses that config path with a `.log` extension). They report account-loading time, manifest resolution, repository matching, Git acquisition, file metadata, verification and optional checkout, plus a logical review-API request count. Token refresh, identity validation and HTTP retries are not separate entries in that request count. The diagnostics omit account/repository identifiers, URLs, paths, commits and tokens. Cancellation and failures also record completed stages.
@@ -442,6 +456,24 @@ caches, page position, graph fanout and other running workloads affect timings.
 Keep private real-repository results in the personal notes store; repository
 regressions use disposable synthetic fixtures only. Streamed metadata fields
 are bounded to 1 MiB and query stderr to 64 KiB; errors retain the current view.
+
+### Recorded jj overview content
+
+A recorded comparison captures file kinds and object IDs for both immutable
+endpoints once, using the pinned jj operation. It resolves the Git object-store
+directory once, including for non-colocated repositories. Overview preparation
+then reads normal blobs through one size-checked `git cat-file --batch` stream.
+The stream belongs to the read session and closes when preparation finishes;
+comparison/navigation snapshots retain metadata, not idle child processes or
+unbounded decoded-text caches. Oversized, binary or invalid replies reset the
+stream before another file is read. Conflicted/materialized entries retain the
+operation-pinned, bounded `jj file show` fallback. Missing Git selects that same
+fallback for normal jj files; only an executable-not-found error does so.
+Permission, object-store and protocol errors remain visible. The reader remembers
+Git's absence for its session, and jj history/reference discovery uses jj's own
+remote listing. Specialized evolution interdiffs still read synthesized Git
+objects directly and require Git; they cannot substitute original commit files
+without changing the comparison's meaning.
 
 ### Publisher GitHub setup and account errors
 

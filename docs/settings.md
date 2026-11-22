@@ -146,7 +146,7 @@ Appearance and accent share the existing application-wide, last-successfully-app
 | `ui.accent_color` | `"system"` | Application-wide accent: `"system"`, a shared `#RRGGBB` string or a light/dark pair (see below), case-insensitive hex. On macOS, system reads AppKit’s user accent preference for the app’s selected light/dark appearance and follows system-color notifications. Explicit hex/pair values override the system. Updates active icons, primary controls (including checkboxes/switches), focus rings, links and selection tints live in all windows; filled controls choose a light/dark foreground. Git statuses, diff colors and graph lanes stay semantic. Invalid edits retain the last valid config. |
 | `ui.accent_color_fallback` | `{ light = "#0066b8", dark = "#3794ff" }` | Color used by `"system"` when native accent lookup is unavailable, including unsupported platforms. Accepts one shared hex color or a light/dark pair and applies live. |
 | `ui.accent_floating_outlines` | `true` | Use the resolved accent for palette, popover, menu and tooltip edges. Applies live; `false` restores neutral theme edges. Does not change layout dimensions. |
-| `ui.loading_delay_ms` | `200` | Delay before showing loading feedback; 0–5000. `0` shows it immediately; fast operations never expose a loading label. |
+| `ui.loading_delay_ms` | `400` | Delay before showing loading feedback; 0–5000. `0` shows it immediately; fast operations never expose a loading label. |
 | `ui.row_height` | `26` | Shared minimum for history, tree and list rows; 12–160. Per-view overrides below take precedence; fonts establish a readable minimum. |
 | `ui.panel_header_height` | `30` | Minimum panel-header height; 24–120. |
 | `ui.toolbar_height` | `28` | Minimum review-control height within the single comparison header; 28–120. The header fits the greater of this value, `ui.comparison_bar_height`, and its font minimum. No separate application-toolbar row. Applies live. |
@@ -155,8 +155,28 @@ Appearance and accent share the existing application-wide, last-successfully-app
 | `ui.footer_control_height` | `22` | Footer control height; 16–80. |
 | `ui.comparison_bar_height` | `30` | Reserved comparison/evolution toolbar height, including compact back/forward controls; 24–120. Grows to fit the UI font. |
 | `ui.font_size` | `16` | Application control font size; 8–48. Does not replace independent source/sidebar sizes. |
+| `ui.spacing.unit` | `4` | Logical pixels per spacing unit; 1–16. Independent of UI/source font sizes. Applies live to app chrome, pages, and floating controls. |
+| `ui.spacing.edge` | `2` | Unit multiplier for edges, section gaps, and default tree indentation; 0–8. Default 8px. |
+| `ui.spacing.interactive` | `1` | Unit multiplier for padding within hover/selection targets and tight control gaps; 0–8. Default 4px. |
 | `ui.ligatures` | `true` | Enable ligatures and contextual alternates for application text. |
 | `ui.font_family` | omitted | Installed family name; defaults to the theme/system UI font. Must be nonempty when supplied. |
+
+Spacing uses one scale: `space(1)` = 4px, `space(2)` = 8px,
+`space(3)` = 12px, `space(4)` = 16px, and `space(6)` = 24px at defaults.
+Edges normally use two units and interactive content one. Larger page margins
+use multiples of the same unit. History/file row backgrounds span their panels
+with square edges; floating selection targets and toggle groups are rounded. Toggle groups share
+their buttons' hover boundary: the interactive inset is applied once, inside
+each button, without additional group padding.
+Bars grow beyond their configured minimum when controls/padding need more room.
+Border widths, icon sizes, and corner radii keep their own geometry.
+
+```toml
+[ui.spacing]
+unit = 4
+edge = 2
+interactive = 1
+```
 
 All configurable colors accept the same hex formats; `ui.accent_color` additionally accepts `"system"`. A hex string applies in both modes;
 a table selects a color for the active appearance. Omitted table members inherit
@@ -319,7 +339,7 @@ origin = true
 | `files.indent_guide_offset` | `-2` | Horizontal guide offset from ancestor icon centers in pixels; −48–48. Negative moves left. Applies live. |
 | `files.indent_guide_opacity` | `0.12` | Guide opacity using the theme foreground; 0–1. Applies live. |
 | `files.file_icons` | `true` | File-type glyphs in list/tree views; unknown types use a generic file. Folder icons always indicate open/closed state. Applies live. |
-| `files.indent_width` | `12` | Directory-tree indentation per level; 8–48. |
+| `files.indent_width` | omitted (8px derived) | Directory-tree indentation follows `ui.spacing.unit × ui.spacing.edge`. An explicit 1–128px override remains supported. |
 | `files.compact_paths` | `true` | Condense directory components in unwrapped flat-list labels as space runs out; filenames remain intact. |
 | `files.list_word_wrap` | `false` | Wrap flat-list paths instead of scrolling them horizontally. Tree rows always remain single-line. |
 | `files.tree_row_height` | omitted | Override ui.row_height for tree rows; 12–200. Font size can raise the effective minimum. |
@@ -799,3 +819,84 @@ installation uses that client automatically. A stored session keeps resolving
 its own client ID after restart; explicit development registrations keep
 working. Publisher build credentials do not go in user settings. Repository
 installation is available from **Choose GitHub repositories…** on Accounts.
+
+## Shell themes
+
+The shell palette resolves once when settings load, for both light and dark
+appearance. Changing colors live preserves the open comparison. Appearance
+still uses `ui.appearance = "system"`, `"light"`, or `"dark"`; the system accent
+and `ui.accent_color` remain independent of the shell seed.
+
+The neutral default follows the selected Layered shell prototype: a dark viewer
+at `#121212`, History at `#1f1f1f`, Files at `#181818`, and app bars at `#2b2b2b`.
+The soft neutral light counterpart uses `#f7f7f7`, `#e4e4e4`, `#eeeeee`,
+and `#d4d4d4`, respectively, with the same Layered 1.4 offsets in reverse. Panel colors follow History/Files identity when moved.
+No focused docked-panel outlines are added.
+
+`[theme.shell_auto]` controls the versioned `tonal-v1` OKLCH recipe. Every numeric
+knob accepts either one number or `{ light = ..., dark = ... }`. Seeds and exact
+color overrides accept one `"#rrggbb"` string for both modes, or separate
+`{ light = "#rrggbb", dark = "#rrggbb" }` colors.
+
+| Setting | Default | Range / effect |
+| --- | --- | --- |
+| `enabled` | `true` | `false` uses fixed built-in shell colors; exact overrides still apply |
+| `algorithm` | `"tonal-v1"` | Versioned recipe; unknown versions are rejected |
+| `seed` | `{ light = "#575757", dark = "#121212" }` | Independent primary colors; colored seeds tint the actual surfaces |
+| `layer_strength` | `1.4` | 0–2.5; separation between viewer, sidebars and bars |
+| `hue_shift` | `0.0` | −180–180 degrees |
+| `chroma_scale` | `1.0` | 0–3; saturation multiplier |
+| `tint_strength` | `1.0` | 0–1; blend toward a neutral palette |
+| `contrast_spread` | `1.0` | 0.2–2.5; spread of reference surface lightness |
+| `lightness_shift` | `0.0` | −0.15–0.15; overall OKLCH lightness adjustment |
+| `seed_lightness_influence` | `1.0` | 0–1; how strongly seed lightness shifts the foundation |
+
+Out-of-gamut colors reduce chroma before conversion to sRGB. Foregrounds and
+muted text are chosen against each resolved surface with a 4.5:1 contrast
+target. Exact foreground overrides are honored even at lower contrast; the
+resolved palette retains contrast warnings for diagnostics. Semantic diff and
+graph colors are independent of the seed.
+
+Per-surface adjustments live under `[theme.shell_auto.roles."ROLE.background"]`:
+`lightness_shift` (−0.2–0.2, default 0), `hue_shift` (−180–180, default 0), and
+`chroma_scale` (0–3, default 1). Adjustments apply after global controls. Exact
+colors in `[theme.overrides]` apply last; foregrounds automatically adapt to
+an overridden background unless they are explicitly overridden too.
+
+```toml
+[theme.shell_auto]
+seed = { light = "#575757", dark = "#153049" }
+layer_strength = 1.4
+
+[theme.shell_auto.roles."shell.sidebar.files.background"]
+lightness_shift = { light = 0.0, dark = 0.02 }
+
+[theme.overrides]
+"shell.sidebar.history.background" = { light = "#e6e6e6", dark = "#202832" }
+"shell.sidebar.files.background" = { light = "#efefef", dark = "#19212b" }
+"graph.lanes.0" = "#729dcc"
+```
+
+Surface prefixes are `shell.window`, `shell.header`, `shell.footer`,
+`shell.sidebar.history`, `shell.sidebar.files`, each sidebar's `.header` and
+`.footer`, `shell.floating`, `editor`, and `editor.header`. Each has
+`.background`, `.foreground`, `.foreground.muted`, `.border`, and `.group.background`.
+Toggle groups derive their fill by blending that surface background 6% toward its
+foreground; per-surface exact `.group.background` overrides are supported. The window
+foreground/muted/border names are shortened to `shell.foreground`,
+`shell.foreground.muted`, and `shell.border`.
+
+Additional exact roles are `graph.lanes.0` through `graph.lanes.4`,
+`graph.evolution.current`, `graph.evolution.muted`, `status.success`,
+`status.warning`, `status.error`, `status.info`, `diff.renamed.marker`,
+`diff.copied.marker`, `shell.control.background`, `shell.control.hover`,
+`shell.control.foreground`, and `shell.backdrop`. The default backdrop is
+translucent black; an explicit RGB override is opaque. Existing `[diff.colors]`
+settings continue to control added/removed/modified markers and diff highlights.
+Unknown role names are rejected to catch typos. Floating borders follow the accent
+while `ui.accent_floating_outlines` is enabled; disable it to use
+`"shell.floating.border"` instead.
+
+This shell slice retains the existing syntax palette. VS Code theme imports,
+independent diff-theme files, theme selection/preview commands, and custom
+native titlebar coloring remain separate work.

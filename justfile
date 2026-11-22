@@ -79,6 +79,6 @@ test-updater:
 # Produce an ad hoc, feed-free bundle without replacing the development app.
 [macos]
 rehearse-macos:
-    python3 scripts/fetch-sparkle.py target/sparkle
+    scripts/python.sh scripts/fetch-sparkle.py target/sparkle
     JAYWALK_MACOS_UPDATER=1 JAYWALK_SIGNING_IDENTITY=- JAYWALK_SPARKLE_DIR="$PWD/target/sparkle" JAYWALK_BUNDLE_OUTPUT="$PWD/target/rehearsal/Jaywalk.app" JAYWALK_REGISTER_BUNDLE=0 scripts/bundle-macos.sh release
-    python3 scripts/release-macos.py package target/rehearsal/Jaywalk.app target/rehearsal-assets
+    scripts/python.sh scripts/release-macos.py package target/rehearsal/Jaywalk.app target/rehearsal-assets

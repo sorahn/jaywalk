@@ -16,8 +16,8 @@ Local checks:
 
 ```sh
 just check
-python3 -m unittest discover -s scripts -p 'test_*.py'
-python3 scripts/fetch-sparkle.py target/sparkle
+scripts/python.sh -m unittest discover -s scripts -p 'test_*.py'
+scripts/python.sh scripts/fetch-sparkle.py target/sparkle
 JAYWALK_SPARKLE_DIR="$PWD/target/sparkle" just test-updater
 JAYWALK_SPARKLE_DIR="$PWD/target/sparkle" DYLD_FRAMEWORK_PATH="$PWD/target/sparkle" just test --features macos-updater
 ```
@@ -31,11 +31,11 @@ JAYWALK_SPARKLE_DIR="$PWD/target/sparkle" \
 JAYWALK_MACOS_UPDATER=1 JAYWALK_SIGNING_IDENTITY=- \
 JAYWALK_BUNDLE_OUTPUT="$PWD/target/rehearsal/Jaywalk.app" \
 JAYWALK_REGISTER_BUNDLE=0 just bundle
-python3 scripts/release-macos.py package target/rehearsal/Jaywalk.app target/rehearsal-assets
-python3 scripts/release-macos.py manifest target/rehearsal/Jaywalk.app target/rehearsal-assets/*.zip target/rehearsal-assets/*.dmg
+scripts/python.sh scripts/release-macos.py package target/rehearsal/Jaywalk.app target/rehearsal-assets
+scripts/python.sh scripts/release-macos.py manifest target/rehearsal/Jaywalk.app target/rehearsal-assets/*.zip target/rehearsal-assets/*.dmg
 ```
 
-Use a fresh output directory for each packaging rehearsal; existing versioned payloads are never overwritten. A rehearsal manifest has `official:false`; cask generation rejects it. `JAYWALK_RELEASE_VERSION=2026.11.1 python3 scripts/release-macos.py check-tag v2026.11.1` validates a tag against the injected app version. Packaging validates the native ARM64 slice, preserves framework symlinks, includes the app/CLI and a DMG Applications link. Final checksums are produced after all signing/notarization/stapling operations. Never label an ad hoc artifact an official signed release.
+Use a fresh output directory for each packaging rehearsal; existing versioned payloads are never overwritten. A rehearsal manifest has `official:false`; cask generation rejects it. `JAYWALK_RELEASE_VERSION=2026.11.1 scripts/python.sh scripts/release-macos.py check-tag v2026.11.1` validates a tag against the injected app version. Packaging validates both ARM64 app/CLI executables and rejects Intel-only nested Mach-O helpers, preserves framework symlinks, includes the app/CLI and a DMG Applications link. Final checksums are produced after all signing/notarization/stapling operations. Never label an ad hoc artifact an official signed release.
 
 ## Protected production configuration
 

@@ -943,6 +943,127 @@ fn reference_browser_bounds_work_and_supports_search_keyboard_and_reopen(cx: &mu
 }
 
 #[gpui_test::test]
+fn spacing_reloads_without_scaling_fonts_or_losing_the_open_picker(cx: &mut TestAppContext) {
+    let fixture = Fixture::new();
+    let (viewer, cx) = setup(&fixture, cx);
+    let identity = cx.update(|_, app| viewer.read(app).comparison().unwrap().identity());
+    cx.simulate_keystrokes("secondary-p");
+    draw(cx);
+    let old_font = cx.update(|_, app| gpui::component::Theme::global(app).font_size);
+    cx.update(|window, app| {
+        let mut settings = viewer.read(app).settings.clone();
+        settings.ui.spacing.unit = 6.;
+        settings.ui.spacing.interactive = 2.;
+        // Match the shared settings service: project global appearance first,
+        // then deliver the same settings snapshot to each viewer.
+        crate::appearance::apply(&settings, app);
+        viewer.update(app, |viewer, cx| {
+            viewer.apply_settings(settings, window, cx)
+        });
+    });
+    draw(cx);
+    cx.update(|_, app| {
+        let theme = gpui::component::Theme::global(app);
+        let spacing = theme.host_spacing.unwrap();
+        assert_eq!(theme.font_size, old_font);
+        assert_eq!(spacing.edge, px(12.));
+        assert_eq!(spacing.interactive, px(12.));
+        assert_eq!(viewer.read(app).settings.file_indent_width(), 12.);
+        assert_eq!(viewer.read(app).comparison().unwrap().identity(), identity);
+        assert_eq!(viewer.read(app).palette_test_state(app).1, ">");
+    });
+    let results = cx.debug_bounds("command-results").unwrap();
+    let selected = cx.update(|_, app| viewer.read(app).palette_test_state(app).2);
+    cx.simulate_mouse_move(
+        point(results.center().x, results.bottom() - px(1.)),
+        None,
+        Default::default(),
+    );
+    draw(cx);
+    assert_eq!(
+        cx.update(|_, app| viewer.read(app).palette_test_state(app).2),
+        selected
+    );
+    cx.simulate_keystrokes("escape");
+    draw(cx);
+    assert!(cx.update(|window, app| viewer.read(app).focus.is_focused(window)));
+}
+
+#[gpui_test::test]
+fn palette_bottom_inset_never_selects_a_clipped_row(cx: &mut TestAppContext) {
+    let fixture = Fixture::new();
+    let (viewer, cx) = setup(&fixture, cx);
+    cx.simulate_keystrokes("secondary-p");
+    draw(cx);
+    let results = cx.debug_bounds("command-results").unwrap();
+    let selected = cx.update(|_, app| viewer.read(app).palette_test_state(app).2);
+    cx.simulate_mouse_move(
+        point(results.center().x, results.bottom() - px(1.)),
+        None,
+        Default::default(),
+    );
+    draw(cx);
+    assert_eq!(
+        cx.update(|_, app| viewer.read(app).palette_test_state(app).2),
+        selected,
+        "the bottom breathing room must not belong to a hidden row"
+    );
+    for _ in 0..12 {
+        cx.simulate_keystrokes("down");
+    }
+    draw(cx);
+    let selected = cx.update(|_, app| viewer.read(app).palette_test_state(app).2);
+    cx.simulate_mouse_move(
+        point(results.center().x, results.bottom() + px(1.)),
+        None,
+        Default::default(),
+    );
+    cx.simulate_mouse_move(
+        point(results.center().x, results.bottom() - px(1.)),
+        None,
+        Default::default(),
+    );
+    draw(cx);
+    assert_eq!(
+        cx.update(|_, app| viewer.read(app).palette_test_state(app).2),
+        selected,
+        "scrolling must not turn the inset into a row hit target"
+    );
+}
+
+#[gpui_test::test]
+fn main_palette_dismisses_reference_browser_and_restores_viewer_focus(cx: &mut TestAppContext) {
+    let fixture = Fixture::new();
+    let (viewer, cx) = setup(&fixture, cx);
+    cx.update(|_, app| {
+        viewer.update(app, |viewer, cx| {
+            viewer.references.open = true;
+            cx.notify();
+        })
+    });
+    draw(cx);
+    assert!(cx.debug_bounds("reference-browser").is_some());
+    cx.simulate_keystrokes("secondary-p");
+    draw(cx);
+    assert!(!cx.update(|_, app| viewer.read(app).references.open));
+    assert!(cx.debug_bounds("reference-browser").is_none());
+    assert_eq!(
+        cx.update(|_, app| viewer.read(app).palette_test_state(app).0),
+        Some(palette::PaletteKind::Commands)
+    );
+    cx.simulate_input("refresh");
+    draw(cx);
+    assert_eq!(
+        cx.update(|_, app| viewer.read(app).palette_test_state(app).1),
+        ">refresh"
+    );
+    cx.simulate_keystrokes("escape");
+    draw(cx);
+    assert!(cx.update(|_, app| viewer.read(app).palette_test_state(app).0.is_none()));
+    assert!(cx.update(|window, app| viewer.read(app).focus.is_focused(window)));
+}
+
+#[gpui_test::test]
 fn history_scrollbar_drags_without_changing_the_comparison(cx: &mut TestAppContext) {
     let fixture = Fixture::new();
     for index in 0..70 {
@@ -3648,6 +3769,55 @@ fn setup_is_optional_preserves_the_comparison_and_only_saves_explicit_choices(
 }
 
 #[gpui_test::test]
+fn older_setup_window_cannot_restore_revoked_update_consent(test_cx: &mut TestAppContext) {
+    use jaywalk::commands::CommandId;
+    let fixture = Fixture::new();
+    let args = Arguments::parse_from(["jaywalk", fixture.0.to_str().unwrap()]);
+    let mut other_context = test_cx.clone();
+    let (first, first_cx) = setup_arguments_with_settings(
+        &fixture,
+        args,
+        "[updates]\nautomatic_checks=true\n",
+        test_cx,
+    );
+    let (arguments, settings) = first_cx.update(|_, app| {
+        let viewer = first.read(app);
+        (viewer.arguments.clone(), viewer.settings.clone())
+    });
+    let mut second = None;
+    let (_, second_cx) = other_context.add_window_view(|window, app| {
+        let layout = SessionLayout::load(&arguments, &settings);
+        let view = app.new(|cx| Viewer::new(arguments, settings, layout, Ok(false), window, cx));
+        second = Some(view.clone());
+        Root::new(view, window, app)
+    });
+    let second = second.unwrap();
+    for (viewer, cx) in [(&first, &mut *first_cx), (&second, &mut *second_cx)] {
+        cx.simulate_resize(size(px(1500.), px(1400.)));
+        cx.update(|window, app| {
+            viewer.update(app, |viewer, cx| {
+                viewer.execute_command(CommandId::ShowSetup, window, cx);
+            })
+        });
+        draw(cx);
+    }
+    let checks = first_cx.debug_bounds("setup-update-0").unwrap();
+    first_cx.simulate_click(checks.center(), Default::default());
+    draw(first_cx);
+    let path = fixture.0.join("settings.toml");
+    let revoked = Settings::parse(&std::fs::read_to_string(&path).unwrap()).unwrap();
+    assert!(!revoked.updates.automatic_checks);
+    // Preserve the older window's snapshot to reproduce the stale-save race.
+    let save = second_cx.debug_bounds("setup-save").unwrap();
+    second_cx.simulate_click(save.center(), Default::default());
+    draw(second_cx);
+    let saved = Settings::parse(&std::fs::read_to_string(&path).unwrap()).unwrap();
+    assert!(saved.setup.completed);
+    assert!(!saved.updates.automatic_checks);
+    assert_eq!(saved.updates, revoked.updates);
+}
+
+#[gpui_test::test]
 fn setup_fits_one_normal_viewport_and_stacks_in_narrow_windows(cx: &mut TestAppContext) {
     use jaywalk::commands::CommandId;
     let fixture = Fixture::new();
@@ -3847,4 +4017,70 @@ fn first_setup_skip_returns_to_welcome_and_manual_setup_remains_available(cx: &m
     });
     draw(cx);
     assert!(cx.debug_bounds("setup-page").is_some());
+}
+
+#[gpui_test::test]
+fn shell_theme_reload_preserves_open_diff_entities_focus_and_geometry(cx: &mut TestAppContext) {
+    use jaywalk::theme::{Part, Surface};
+    let fixture = Fixture::new();
+    let (viewer, cx) = setup(&fixture, cx);
+    let (before, after, model) = cx.update(|_, app| {
+        let code = viewer.read(app).code().unwrap();
+        (code.before.clone(), code.after.clone(), code.model.clone())
+    });
+    let bounds = cx.update(|_, app| before.read(app).input_bounds());
+    cx.simulate_click(bounds.center(), Default::default());
+    draw(cx);
+    let header = cx.debug_bounds("file-header").unwrap();
+    let settings = Settings::parse(
+        r##"
+[local_review]
+fetch_missing=false
+[live]
+enabled=false
+[layout]
+remember_per_repository=false
+[layout.placement]
+history_side='left'
+files_side='left'
+[ui]
+appearance="dark"
+[theme.shell_auto]
+seed="#153049"
+[theme.overrides]
+"shell.sidebar.files.background"="#273543"
+"##,
+    )
+    .unwrap();
+    cx.update(|window, app| {
+        crate::appearance::apply(&settings, app);
+        viewer.update(app, |v, cx| v.apply_settings(settings, window, cx));
+        let code = viewer.read(app).code().unwrap();
+        assert_eq!(code.before.entity_id(), before.entity_id());
+        assert_eq!(code.after.entity_id(), after.entity_id());
+        assert!(std::rc::Rc::ptr_eq(&code.model, &model));
+        assert_eq!(
+            crate::appearance::surface(Surface::Files, Part::Background, app),
+            gpui::Hsla::from(gpui::rgb(0x273543))
+        );
+        assert_ne!(
+            crate::appearance::surface(Surface::History, Part::Background, app),
+            crate::appearance::surface(Surface::Files, Part::Background, app)
+        );
+        assert_eq!(
+            gpui::component::Theme::global(app)
+                .highlight_theme
+                .style
+                .editor_background,
+            Some(crate::appearance::surface(
+                Surface::Viewer,
+                Part::Background,
+                app
+            ))
+        );
+    });
+    draw(cx);
+    assert_eq!(cx.debug_bounds("file-header").unwrap(), header);
+    assert_eq!(cx.update(|_, app| before.read(app).input_bounds()), bounds);
+    assert!(cx.update(|window, app| before.focus_handle(app).is_focused(window)));
 }

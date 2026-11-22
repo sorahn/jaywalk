@@ -39,6 +39,7 @@ pub(super) struct ReferenceBrowser {
     rows: Vec<Row>,
     selected: Option<usize>,
     content_width: Option<Pixels>,
+    content_style: Option<(Pixels, SharedString, Option<gpui::component::HostSpacing>)>,
     input: Entity<InputState>,
     scroll: UniformListScrollHandle,
     owner: WeakEntity<Viewer>,
@@ -72,6 +73,7 @@ impl ReferenceBrowser {
             rows: vec![],
             selected: None,
             content_width: None,
+            content_style: None,
             input,
             scroll: UniformListScrollHandle::new(),
             owner,
@@ -181,6 +183,16 @@ impl ReferenceBrowser {
 }
 impl Render for ReferenceBrowser {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let theme = gpui::component::Theme::global(cx);
+        let style = (
+            theme.font_size,
+            theme.font_family.clone(),
+            theme.host_spacing,
+        );
+        if self.content_style.as_ref() != Some(&style) {
+            self.content_style = Some(style);
+            self.content_width = None;
+        }
         let width = *self.content_width.get_or_insert_with(|| {
             super::references::reference_popup_width(
                 self.snapshot
@@ -202,10 +214,15 @@ impl Render for ReferenceBrowser {
                 cx,
             )
         });
+        let row_height = px(f32::from(
+            window.rem_size() * 0.875 * 1.5 + crate::spacing::interactive(cx) * 2.,
+        )
+        .ceil())
+        .max(px(14.) + crate::spacing::interactive(cx) * 2.);
         let rows = uniform_list(
             "reference-rows",
             self.rows.len(),
-            cx.processor(|this, visible: std::ops::Range<usize>, _, cx| {
+            cx.processor(move |this, visible: std::ops::Range<usize>, _, cx| {
                 #[cfg(test)]
                 {
                     this.rendered_rows += visible.len();
@@ -214,10 +231,11 @@ impl Render for ReferenceBrowser {
                 visible
                     .map(|index| match &this.rows[index] {
                         Row::Heading(label) => div()
-                            .h(px(30.))
+                            .h(row_height)
                             .flex_shrink_0()
                             .items_center()
                             .h_flex()
+                            .px(crate::spacing::interactive(cx))
                             .text_size(px(12.))
                             .child(label.clone())
                             .into_any_element(),
@@ -227,13 +245,15 @@ impl Render for ReferenceBrowser {
                                 this.inspected.as_ref(),
                                 this.owner.clone(),
                                 this.popup.clone(),
+                                cx,
                             );
                             let selected = this.selected == Some(index);
                             div()
-                                .h(px(30.))
+                                .h(row_height)
                                 .flex_shrink_0()
                                 .min_w_0()
                                 .overflow_hidden()
+                                .rounded(crate::spacing::interactive(cx))
                                 .when(selected, |row| {
                                     row.bg(gpui::component::Theme::global(cx).list_active)
                                 })
@@ -245,35 +265,39 @@ impl Render for ReferenceBrowser {
             }),
         )
         .track_scroll(&self.scroll)
-        .h(px((self.rows.len().clamp(1, 14) * 30) as f32))
+        .h(row_height * self.rows.len().clamp(1, 14) as f32)
         .w_full();
-        crate::picker_ui::frame(cx)
+        div()
+            .min_w_0()
             .id("reference-browser")
             .debug_selector(|| "reference-browser".to_owned())
             .key_context("ReferenceBrowser")
             .v_flex()
-            .gap_1()
+            .gap(crate::spacing::interactive(cx))
             .w(width)
-            .max_w(window.viewport_size().width - px(24.))
+            .max_w(window.viewport_size().width - crate::spacing::edge(cx) * 2.)
             .text_left()
             .on_action(cx.listener(|this, _: &SelectDown, _, cx| this.step(1, cx)))
             .on_action(cx.listener(|this, _: &SelectUp, _, cx| this.step(-1, cx)))
             .on_action(cx.listener(|this, _: &Confirm, window, cx| this.confirm(window, cx)))
             .on_action(cx.listener(|this, _: &Cancel, window, cx| this.cancel(window, cx)))
             .child(Input::new(&self.input))
-            .child(crate::picker_ui::context(
-                [format!(
-                    "{} references · Up/Down selects · Enter opens · Escape closes",
-                    self.rows
-                        .iter()
-                        .filter(|row| matches!(row, Row::Reference(_)))
-                        .count()
-                )],
-                cx,
-            ))
+            .child(
+                crate::picker_ui::context(
+                    [format!(
+                        "{} references · Up/Down selects · Enter opens · Escape closes",
+                        self.rows
+                            .iter()
+                            .filter(|row| matches!(row, Row::Reference(_)))
+                            .count()
+                    )],
+                    cx,
+                )
+                .px(crate::spacing::interactive(cx)),
+            )
             .child(if self.rows.is_empty() {
                 div()
-                    .p_2()
+                    .p(crate::spacing::edge(cx))
                     .child("No matching references")
                     .into_any_element()
             } else {
