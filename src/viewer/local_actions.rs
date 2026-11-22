@@ -93,6 +93,9 @@ impl Viewer {
         (serial, control)
     }
     pub(super) fn cancel_local_action(&mut self) {
+        if self.branch_checkout_palette_open() && self.local_actions.control.is_some() {
+            self.live.notice = None;
+        }
         self.local_actions.cancel();
     }
     pub(super) fn release_inactive_checkout(&mut self) {

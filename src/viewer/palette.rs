@@ -370,6 +370,10 @@ fn history_step(current: Option<usize>, delta: i32, count: usize) -> Option<Hist
 }
 
 impl Viewer {
+    pub(super) fn branch_checkout_palette_open(&self) -> bool {
+        self.palette.open == Some(PaletteKind::CheckoutBranches)
+    }
+
     #[cfg(test)]
     pub(super) fn palette_test_state(
         &self,

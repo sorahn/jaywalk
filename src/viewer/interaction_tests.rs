@@ -4154,6 +4154,12 @@ fn branch_checkout_picker_switches_a_remote_branch_and_keeps_the_review_pinned(
         cx.update(|_, app| viewer.read(app).palette_test_count(app)),
         703
     );
+    cx.update(|_, app| {
+        assert!(
+            viewer.read(app).live.notice.is_none(),
+            "completed branch listing must clear loading feedback"
+        )
+    });
     cx.simulate_input("origin/remote-topic");
     draw(cx);
     assert_eq!(

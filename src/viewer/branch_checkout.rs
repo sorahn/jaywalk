@@ -105,6 +105,7 @@ impl Viewer {
                             viewer.choose_checkout_repository(found.matches[0].clone(), window, cx)
                         }
                         Ok(found) => {
+                            viewer.live.notice = None;
                             let empty = found.matches.is_empty();
                             viewer.local_actions.branch.repositories = found.matches;
                             viewer.local_actions.message = Some(if empty {
@@ -114,7 +115,10 @@ impl Viewer {
                                 "Choose a matching known repository · Checkout is permanent".into()
                             });
                         }
-                        Err(error) => viewer.local_actions.message = Some(error),
+                        Err(error) => {
+                            viewer.live.notice = Some(live::LiveNotice::Diagnostic(error.clone()));
+                            viewer.local_actions.message = Some(error);
+                        }
                     }
                     cx.notify();
                 });
@@ -210,6 +214,7 @@ impl Viewer {
         self.set_palette_loading(false, window, cx);
         match result {
             Ok(Prepared::Branches(catalog)) => {
+                self.live.notice = None;
                 self.local_actions.branch.catalog = Some(catalog);
                 self.local_actions.message = Some(
                     "Local branches first · Enter checks out · Checkout stays after closing".into(),
@@ -220,6 +225,9 @@ impl Viewer {
                 self.live.notice = Some(live::LiveNotice::Diagnostic(message));
             }
             Err(error) => {
+                self.live.notice = Some(live::LiveNotice::Diagnostic(format!(
+                    "Checkout refused: {error}"
+                )));
                 if let Some(pinned) = previous_pin {
                     self.navigation.pinned = pinned;
                 }
