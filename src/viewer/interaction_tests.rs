@@ -4084,3 +4084,182 @@ seed="#153049"
     assert_eq!(cx.update(|_, app| before.read(app).input_bounds()), bounds);
     assert!(cx.update(|window, app| before.focus_handle(app).is_focused(window)));
 }
+
+#[gpui_test::test]
+fn branch_checkout_picker_switches_a_remote_branch_and_keeps_the_review_pinned(
+    cx: &mut TestAppContext,
+) {
+    use jaywalk::commands::CommandId;
+    let fixture = Fixture::new();
+    std::fs::write(fixture.0.join(".gitignore"), "/settings.toml\n").unwrap();
+    fixture.git(&["add", "."]);
+    fixture.git(&["commit", "-m", "clean fixture"]);
+    fixture.git(&["switch", "-c", "local-topic"]);
+    std::fs::write(fixture.0.join("file.txt"), "branch topic\n").unwrap();
+    fixture.git(&["add", "file.txt"]);
+    fixture.git(&["commit", "-m", "topic"]);
+    fixture.git(&[
+        "remote",
+        "add",
+        "origin",
+        "https://example.invalid/repository.git",
+    ]);
+    fixture.git(&["update-ref", "refs/remotes/origin/remote-topic", "HEAD"]);
+    fixture.git(&[
+        "symbolic-ref",
+        "refs/remotes/origin/HEAD",
+        "refs/remotes/origin/remote-topic",
+    ]);
+    fixture.git(&["switch", "main"]);
+    // Keep a selectable remote beyond the old 200-row prototype cutoff.
+    let tip = std::process::Command::new("git")
+        .current_dir(&fixture.0)
+        .args(["rev-parse", "local-topic"])
+        .output()
+        .unwrap();
+    let tip = String::from_utf8(tip.stdout).unwrap();
+    let mut updates = std::process::Command::new("git")
+        .current_dir(&fixture.0)
+        .args(["update-ref", "--stdin"])
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::null())
+        .spawn()
+        .unwrap();
+    {
+        use std::io::Write;
+        let mut input = updates.stdin.take().unwrap();
+        for index in 0..700 {
+            writeln!(
+                input,
+                "update refs/remotes/origin/branch-{index:04} {}",
+                tip.trim()
+            )
+            .unwrap();
+        }
+    }
+    assert!(updates.wait().unwrap().success());
+    let (viewer, cx) = setup(&fixture, cx);
+    let before = cx.update(|_, app| viewer.read(app).comparison().unwrap().identity());
+    cx.update(|window, app| {
+        viewer.update(app, |viewer, cx| {
+            viewer.execute_command(CommandId::CheckoutBranch, window, cx)
+        })
+    });
+    draw(cx);
+    assert_eq!(
+        cx.update(|_, app| viewer.read(app).palette_test_state(app).0),
+        Some(palette::PaletteKind::CheckoutBranches)
+    );
+    assert_eq!(
+        cx.update(|_, app| viewer.read(app).palette_test_count(app)),
+        703
+    );
+    cx.update(|_, app| {
+        assert!(
+            viewer.read(app).live.notice.is_none(),
+            "completed branch listing must clear loading feedback"
+        )
+    });
+    cx.simulate_input("origin/remote-topic");
+    draw(cx);
+    assert_eq!(
+        cx.update(|_, app| viewer.read(app).palette_test_count(app)),
+        1
+    );
+    cx.simulate_keystrokes("enter");
+    draw(cx);
+    let branch = std::process::Command::new("git")
+        .current_dir(&fixture.0)
+        .args(["branch", "--show-current"])
+        .output()
+        .unwrap();
+    assert_eq!(
+        String::from_utf8(branch.stdout).unwrap().trim(),
+        "remote-topic"
+    );
+    assert_eq!(
+        std::fs::read_to_string(fixture.0.join("file.txt")).unwrap(),
+        "branch topic\n"
+    );
+    cx.update(|_, app| {
+        let viewer = viewer.read(app);
+        assert_eq!(viewer.comparison().unwrap().identity(), before);
+        assert!(viewer.navigation.pinned);
+        assert!(viewer.palette_test_state(app).0.is_none());
+    });
+}
+
+#[gpui_test::test]
+fn checkout_this_branch_uses_the_review_aggregate_while_inspecting_another_commit(
+    cx: &mut TestAppContext,
+) {
+    use jaywalk::{
+        branch_review::{RefName, Target, Tip},
+        commands::CommandId,
+    };
+    let fixture = Fixture::new();
+    std::fs::write(fixture.0.join(".gitignore"), "/settings.toml\n").unwrap();
+    fixture.git(&["add", "."]);
+    fixture.git(&["commit", "-m", "clean fixture"]);
+    fixture.git(&["switch", "-c", "topic"]);
+    std::fs::write(fixture.0.join("file.txt"), "topic\n").unwrap();
+    fixture.git(&["add", "file.txt"]);
+    fixture.git(&["commit", "-m", "topic"]);
+    fixture.git(&["switch", "main"]);
+    let (viewer, cx) = setup(&fixture, cx);
+    cx.update(|window, app| {
+        viewer.update(app, |viewer, cx| {
+            viewer.open_review_target(
+                Target::Branch {
+                    tip: Tip::Reference(RefName {
+                        name: "topic".into(),
+                        remote: None,
+                    }),
+                    base: RefName {
+                        name: "main".into(),
+                        remote: None,
+                    },
+                },
+                window,
+                cx,
+            )
+        })
+    });
+    draw(cx);
+    let base = cx.update(|_, app| {
+        viewer
+            .read(app)
+            .repository
+            .ready()
+            .unwrap()
+            .review
+            .aggregate
+            .base()
+            .to_owned()
+    });
+    cx.update(|window, app| {
+        viewer.update(app, |viewer, cx| viewer.select_revision(&base, window, cx))
+    });
+    draw(cx);
+    let before = cx.update(|_, app| viewer.read(app).comparison().unwrap().identity());
+    cx.update(|window, app| {
+        viewer.update(app, |viewer, cx| {
+            viewer.execute_command(CommandId::CheckoutThisBranch, window, cx)
+        })
+    });
+    draw(cx);
+    let branch = std::process::Command::new("git")
+        .current_dir(&fixture.0)
+        .args(["branch", "--show-current"])
+        .output()
+        .unwrap();
+    assert_eq!(String::from_utf8(branch.stdout).unwrap().trim(), "topic");
+    cx.update(|_, app| {
+        let viewer = viewer.read(app);
+        assert_eq!(viewer.comparison().unwrap().identity(), before);
+        assert!(matches!(
+            viewer.repository.ready().unwrap().scope,
+            super::ComparisonScope::Revision { .. }
+        ));
+    });
+}

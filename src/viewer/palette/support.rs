@@ -145,7 +145,7 @@ impl Viewer {
         match kind {
             PaletteKind::Commands => "Suggestions for this view and frequently used actions · Type to search · ? lists modes".into(),
             PaletteKind::Files if self.palette.files.total > self.palette.files.shown => format!("Showing {} of {} matching files · Type to narrow · ? lists modes", self.palette.files.shown, self.palette.files.total),
-            PaletteKind::LocalRepositories | PaletteKind::CheckoutRecovery => self
+            PaletteKind::LocalRepositories | PaletteKind::CheckoutRecovery | PaletteKind::CheckoutBranches => self
                 .local_actions
                 .message
                 .clone()
@@ -182,7 +182,9 @@ impl Viewer {
     }
     pub(super) fn picker_empty(&self, kind: PaletteKind) -> &'static str {
         match kind {
-            PaletteKind::LocalRepositories | PaletteKind::CheckoutRecovery => {
+            PaletteKind::LocalRepositories
+            | PaletteKind::CheckoutRecovery
+            | PaletteKind::CheckoutBranches => {
                 "No matching actions; see status above. Escape closes."
             }
             PaletteKind::Files if !self.picker_mode_available(Mode::Files) => {

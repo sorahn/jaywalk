@@ -20,6 +20,7 @@ pub(super) enum PaletteKind {
     Profiles,
     LocalRepositories,
     CheckoutRecovery,
+    CheckoutBranches,
     Reviews,
     References,
     Remotes,
@@ -49,7 +50,8 @@ impl PaletteKind {
             | Self::Profiles
             | Self::Accounts
             | Self::LocalRepositories
-            | Self::CheckoutRecovery => return None,
+            | Self::CheckoutRecovery
+            | Self::CheckoutBranches => return None,
         })
     }
     fn from_mode(mode: Mode) -> Self {
@@ -104,6 +106,8 @@ enum Choice {
     Profile(String),
     LocalRepository(std::path::PathBuf),
     RestoreCheckout(std::path::PathBuf),
+    CheckoutRepository(std::path::PathBuf),
+    CheckoutBranch(jaywalk::local_review::checkout::branches::Branch),
     Repository {
         directory: std::path::PathBuf,
         order: usize,
@@ -294,7 +298,11 @@ fn rank_choices(
                 }
                 Choice::Line { .. } | Choice::History { .. } => Some((0, 0, false)),
                 Choice::HistoryMore => Some((1, 0, false)),
-                Choice::LocalRepository(_) | Choice::RestoreCheckout(_) => {
+                Choice::CheckoutBranch(branch) => fuzzy_score(query, &label)
+                    .map(|score| (usize::from(branch.remote().is_some()), score, false)),
+                Choice::CheckoutRepository(_)
+                | Choice::LocalRepository(_)
+                | Choice::RestoreCheckout(_) => {
                     fuzzy_score(query, &label).map(|score| (0, score, false))
                 }
                 Choice::Remote { remote: None, .. } => {
@@ -362,6 +370,10 @@ fn history_step(current: Option<usize>, delta: i32, count: usize) -> Option<Hist
 }
 
 impl Viewer {
+    pub(super) fn branch_checkout_palette_open(&self) -> bool {
+        self.palette.open == Some(PaletteKind::CheckoutBranches)
+    }
+
     #[cfg(test)]
     pub(super) fn palette_test_state(
         &self,
@@ -388,7 +400,11 @@ impl Viewer {
     pub(super) fn close_local_palette(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if matches!(
             self.palette.open,
-            Some(PaletteKind::LocalRepositories | PaletteKind::CheckoutRecovery)
+            Some(
+                PaletteKind::LocalRepositories
+                    | PaletteKind::CheckoutRecovery
+                    | PaletteKind::CheckoutBranches
+            )
         ) {
             self.close_palette(window, cx);
         }
@@ -417,7 +433,9 @@ impl Viewer {
         }
         if !matches!(
             kind,
-            PaletteKind::LocalRepositories | PaletteKind::CheckoutRecovery
+            PaletteKind::LocalRepositories
+                | PaletteKind::CheckoutRecovery
+                | PaletteKind::CheckoutBranches
         ) {
             self.cancel_local_action();
         }
@@ -506,7 +524,9 @@ impl Viewer {
         if next != current {
             if matches!(
                 current,
-                PaletteKind::LocalRepositories | PaletteKind::CheckoutRecovery
+                PaletteKind::LocalRepositories
+                    | PaletteKind::CheckoutRecovery
+                    | PaletteKind::CheckoutBranches
             ) {
                 self.cancel_local_action();
             }
@@ -656,6 +676,25 @@ impl Viewer {
                     )
                 })
                 .collect(),
+            PaletteKind::CheckoutBranches => match &self.local_actions.branch.catalog {
+                Some(catalog) => catalog
+                    .branches
+                    .iter()
+                    .map(|branch| (branch.label(), Choice::CheckoutBranch(branch.clone())))
+                    .collect(),
+                None => self
+                    .local_actions
+                    .branch
+                    .repositories
+                    .iter()
+                    .map(|path| {
+                        (
+                            path.display().to_string(),
+                            Choice::CheckoutRepository(path.clone()),
+                        )
+                    })
+                    .collect(),
+            },
             PaletteKind::CheckoutRecovery => self
                 .local_actions
                 .recoveries
@@ -806,6 +845,17 @@ impl Viewer {
                     this.load_more_history_matches(window, cx);
                     return;
                 }
+                match &choice {
+                    Choice::CheckoutRepository(path) => {
+                        this.choose_checkout_repository(path.clone(), window, cx);
+                        return;
+                    }
+                    Choice::CheckoutBranch(branch) => {
+                        this.checkout_selected_branch(branch.clone(), window, cx);
+                        return;
+                    }
+                    _ => {}
+                }
                 this.close_palette(window, cx);
                 match choice {
                     Choice::HistoryMore => unreachable!("search pagination keeps the picker open"),
@@ -854,6 +904,9 @@ impl Viewer {
                     }
                     Choice::Review(choice) => this.apply_review_choice(choice, window, cx),
                     Choice::LocalRepository(path) => this.open_review_locally(path, window, cx),
+                    Choice::CheckoutRepository(_) | Choice::CheckoutBranch(_) => {
+                        unreachable!("checkout choices retain the picker until success")
+                    }
                     Choice::RestoreCheckout(path) => this.restore_checkout(path, window, cx),
                     Choice::Profile(name) => this.select_keybindings_profile(name, window, cx),
                     Choice::Repository { directory, .. } => this.open_repository_path(
@@ -876,6 +929,7 @@ impl Viewer {
                     }
                     PaletteKind::LocalRepositories => "Choose a local repository…",
                     PaletteKind::CheckoutRecovery => "Choose a checkout to restore…",
+                    PaletteKind::CheckoutBranches => "Checkout branch…",
                     PaletteKind::Help => "Search picker modes…",
                     PaletteKind::History => "Find SHA, change ID, message, author or reference…",
                     PaletteKind::Line => "Go to source line…",
@@ -909,8 +963,10 @@ impl Viewer {
                     };
                     let disabled =
                         matches!(choice, Choice::Mode(mode) if !self.picker_mode_available(*mode))
-                            || matches!(choice, Choice::HistoryMore) && self.palette.history.loading;
+                            || matches!(choice, Choice::HistoryMore) && self.palette.history.loading
+                            || matches!(choice, Choice::CheckoutBranch(_) | Choice::CheckoutRepository(_)) && self.local_actions.control.is_some();
                     let status = match choice {
+                        Choice::CheckoutBranch(branch) => Some(if branch.current() { "Current branch".into() } else if branch.remote().is_some() { "Remote · creates or reuses a local branch".into() } else { "Local".into() }),
                         Choice::File { status, .. } => status.clone(),
                         Choice::History { revision, .. } => Some(format!("{} · {}", revision.author, revision.timestamp.get(..10).unwrap_or(""))),
                         Choice::Reference { reference, .. } => {
