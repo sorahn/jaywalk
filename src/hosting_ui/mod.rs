@@ -2,6 +2,7 @@
 //! refresh and lookup actions start I/O. Main-window ownership cancels waits.
 mod filters;
 mod recent;
+use crate::command_ui::CommandButtonExt;
 use filters::Step;
 use gpui::component::{
     Disableable, Selectable, StyledExt,
@@ -1289,6 +1290,7 @@ impl Render for PullRequestsPage {
             .child(
                 Button::new("pr-refresh")
                     .label("Refresh")
+                    .command_hint(jaywalk::commands::CommandId::Refresh)
                     .disabled(busy)
                     .on_click(cx.listener(|page, _, window, cx| page.force_refresh(window, cx))),
             )
@@ -1304,6 +1306,7 @@ impl Render for PullRequestsPage {
                 Button::new("pr-accounts")
                     .ghost()
                     .label("Accounts…")
+                    .command_hint(jaywalk::commands::CommandId::Accounts)
                     .on_click(cx.listener(|_, _, _, cx| cx.emit(Event::Accounts))),
             );
         let help = format!(

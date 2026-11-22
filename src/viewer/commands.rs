@@ -11,7 +11,20 @@ pub(crate) struct ExecuteCommand {
 pub(crate) fn init(arguments: &Arguments, settings: &Settings, cx: &mut App) -> Result<(), String> {
     install_bindings(settings, cx)?;
     let arguments = arguments.clone();
+    let settings = settings.clone();
     cx.on_action(move |action: &ExecuteCommand, cx| match action.command {
+        CommandId::ShowSettings | CommandId::ShowDefaultSettings => {
+            let arguments = arguments.clone();
+            let settings = settings.clone();
+            let defaults = action.command == CommandId::ShowDefaultSettings;
+            cx.defer(move |cx| {
+                if let Err(error) =
+                    crate::preferences_window::show(arguments, settings, defaults, cx)
+                {
+                    eprintln!("Could not open Settings: {error}");
+                }
+            });
+        }
         CommandId::ShowSetup
         | CommandId::InstallCli
         | CommandId::CheckUpdates
@@ -350,6 +363,18 @@ impl Viewer {
             CommandId::ShowSetup => self.show_setup(window, cx),
             CommandId::InstallCli => self.install_cli(window, cx),
             CommandId::CheckUpdates => crate::updater::check(window, cx),
+            CommandId::ShowSettings | CommandId::ShowDefaultSettings => {
+                let arguments = self.arguments.clone();
+                let settings = self.settings.clone();
+                let defaults = command == CommandId::ShowDefaultSettings;
+                cx.defer(move |cx| {
+                    if let Err(error) =
+                        crate::preferences_window::show(arguments, settings, defaults, cx)
+                    {
+                        eprintln!("Could not open Settings: {error}");
+                    }
+                });
+            }
             CommandId::OpenSettings => {
                 self.edit_configuration_file(keyboard::ConfigurationFile::Settings, window, cx)
             }

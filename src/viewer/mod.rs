@@ -19,6 +19,7 @@ use std::rc::Rc;
 use std::sync::Arc;
 
 use crate::Arguments;
+use crate::command_ui::CommandButtonExt;
 
 mod chrome;
 pub(crate) mod commands;
@@ -156,6 +157,7 @@ struct SelectedFile {
 
 pub(crate) fn init(arguments: &Arguments, settings: &Settings, cx: &mut App) -> Result<(), String> {
     reference_browser::init(cx);
+    crate::preferences_ui::init(cx);
     local_actions::init(cx);
     commands::init(arguments, settings, cx)
 }

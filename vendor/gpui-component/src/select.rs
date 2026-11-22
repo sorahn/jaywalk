@@ -1,20 +1,20 @@
 use gpui::{
     AnyElement, App, ClickEvent, Context, DismissEvent, Edges, ElementId, Entity, EventEmitter,
     FocusHandle, Focusable, Hsla, InteractiveElement, IntoElement, Length, ParentElement, Render,
-    RenderOnce, SharedString, StatefulInteractiveElement, StyleRefinement, Styled, Window,
+    RenderOnce, SharedString, StyleRefinement, Styled, Window,
     deferred, div, prelude::FluentBuilder, px, rems,
 };
 use gpui_base::LogicalStyledExt as _;
-use gpui_base::TestSupportExt as _;
 use rust_i18n::t;
 
 use crate::ThemeStyled as _;
 use crate::{
     ActiveTheme, Disableable, ElementExt as _, Icon, IconName, IndexPath, Sizable, Size,
-    StyleSized, StyledExt,
+    StyledExt, FocusableExt, StyleSized,
     actions::Cancel,
     h_flex,
-    input::{clear_button, input_style},
+    input::clear_button,
+    button::{Button, ButtonVariants},
     list::List,
     searchable_list::{
         SearchableListChange, SearchableListDelegate, SearchableListItem, SearchableListState,
@@ -395,6 +395,11 @@ where
         cx.notify();
     }
 
+    /// Whether the searchable menu is currently open.
+    pub fn is_open(&self) -> bool {
+        self.state.open
+    }
+
     /// Get the current selected index.
     pub fn selected_index(&self, cx: &App) -> Option<IndexPath> {
         self.state.list.read(cx).selected_index()
@@ -558,8 +563,6 @@ where
         let allow_open = !(self.state.open || self.state.disabled);
         let outline_visible = self.state.open || (is_focused && !self.state.disabled);
 
-        let (bg, fg) = input_style(self.state.disabled, cx);
-
         self.state.list.update(cx, |list, cx| {
             list.set_searchable(searchable, cx);
             list.delegate_mut().size = self.state.size;
@@ -574,27 +577,21 @@ where
                     move |bounds, _, cx| state.update(cx, |r, _| r.state.bounds = bounds)
                 })
                 .child(
-                    div()
-                        .id("input")
-                        .test_support()
-                        .relative()
-                        .flex()
-                        .items_center()
-                        .justify_between()
-                        .border_1()
-                        .border_color(cx.theme().transparent)
-                        .when(self.state.appearance, |this| {
-                            this.bg(bg)
-                                .text_color(fg)
-                                .when(self.state.disabled, |this| this.opacity(0.5))
-                                .border_color(cx.theme().input)
-                                .rounded(cx.theme().radius)
-                        })
-                        .input_size(self.state.size)
-                        .input_text_size(self.state.size)
+                    Button::new("input")
+                        // BaseSelect owns the combobox semantics and keyboard
+                        // focus. This Button supplies its shared trigger skin.
+                        .role(None)
+                        .tab_stop(false)
+                        .focus_ring(false)
+                        .with_size(self.state.size)
+                        .w_full()
+                        .min_w_0()
+                        .disabled(self.state.disabled)
+                        .when(!self.state.appearance, |this| this.ghost())
+                        .dropdown_caret(!show_clean && self.icon.is_none())
                         .refine_style(&self.state.style)
                         .when(outline_visible && self.state.appearance, |this| {
-                            this.border_1().border_color(cx.theme().ring)
+                            this.border_color(cx.theme().ring)
                         })
                         .when(
                             outline_visible && self.state.appearance && self.focus_ring_enabled,
@@ -607,9 +604,8 @@ where
                             h_flex()
                                 .flex_row_dir(cx)
                                 .id("inner")
-                                .w_full()
+                                .flex_1()
                                 .min_w_0()
-                                .overflow_hidden()
                                 .whitespace_nowrap()
                                 .items_center()
                                 .justify_between()
@@ -617,6 +613,8 @@ where
                                 .child(
                                     div()
                                         .id("title")
+                                        .debug_selector(|| "select-trigger-title".into())
+                                        .button_text_size(self.state.size)
                                         .flex_1()
                                         .min_w_0()
                                         .overflow_hidden()
@@ -633,18 +631,8 @@ where
                                         }
                                     }))
                                 })
-                                .when(!show_clean, |this| {
-                                    let icon = match self.icon.clone() {
-                                        Some(icon) => icon
-                                            .xsmall()
-                                            .text_color(cx.theme().muted_foreground)
-                                            .into_any_element(),
-                                        None => Caret::new(self.state.size)
-                                            .text_color(cx.theme().muted_foreground)
-                                            .into_any_element(),
-                                    };
-
-                                    this.child(icon)
+                                .when_some(self.icon.clone().filter(|_| !show_clean), |this, icon| {
+                                    this.child(icon.with_size(self.state.size).flex_shrink_0())
                                 }),
                         ),
                 )

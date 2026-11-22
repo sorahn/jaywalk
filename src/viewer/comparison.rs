@@ -42,6 +42,7 @@ impl Viewer {
             .ghost()
             .small()
             .compact()
+            .dropdown_caret(true)
             .max_w_full()
             .min_w_0()
             .justify_start()
@@ -52,7 +53,6 @@ impl Viewer {
                     .items_center()
                     .gap(crate::spacing::interactive(cx))
                     .min_w_0()
-                    .child(Icon::new(IconName::ChevronDown).small().flex_shrink_0())
                     .child(
                         div()
                             .debug_selector(|| "review-source-label".into())
@@ -61,7 +61,10 @@ impl Viewer {
                             .child(caption),
                     ),
             )
-            .tooltip("Choose comparison: all changes, current work, branch or base")
+            .command_tooltip(
+                "Choose comparison: all changes, current work, branch or base",
+                jaywalk::commands::CommandId::ChooseReview,
+            )
             .disabled(self.repository.ready().is_none())
             .dropdown_menu(move |menu, _, _| {
                 let mut entries = vec![(CommandId::AllChanges, aggregate)];
@@ -503,7 +506,14 @@ impl Viewer {
                         self.view.effective() == mode,
                         cx,
                     ))
-                    .tooltip(label)
+                    .command_tooltip(
+                        label,
+                        match mode {
+                            ViewMode::Inline => jaywalk::commands::CommandId::ViewInline,
+                            ViewMode::SideBySide => jaywalk::commands::CommandId::ViewSideBySide,
+                            ViewMode::Fluid => jaywalk::commands::CommandId::ViewFluid,
+                        },
+                    )
                     .toggled(self.view.effective() == mode)
                     .on_click(cx.listener(move |this, _, _, cx| this.set_view_mode(mode, cx))),
             );

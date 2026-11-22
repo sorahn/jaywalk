@@ -299,7 +299,10 @@ impl Viewer {
                             .small()
                             .compact()
                             .icon(IconName::Search)
-                            .tooltip("Find in history")
+                            .command_tooltip(
+                                "Find in history",
+                                jaywalk::commands::CommandId::SearchHistory,
+                            )
                             .on_click(cx.listener(|viewer, _, window, cx| {
                                 viewer.open_palette(palette::PaletteKind::History, window, cx)
                             })),
@@ -319,7 +322,10 @@ impl Viewer {
                                     .small()
                                     .compact()
                                     .icon(IconName::ArrowUp)
-                                    .tooltip("Show latest history")
+                                    .command_tooltip(
+                                        "Show latest history",
+                                        jaywalk::commands::CommandId::LatestHistory,
+                                    )
                                     .on_click(cx.listener(|viewer, _, window, cx| {
                                         viewer.latest_history(window, cx)
                                     })),

@@ -27,6 +27,7 @@ pub struct NumberInput {
     appearance: bool,
     focus_ring_enabled: bool,
     disabled: bool,
+    readonly: bool,
     accessibility_label: Option<SharedString>,
     stepper: bool,
     style: StyleRefinement,
@@ -44,10 +45,17 @@ impl NumberInput {
             appearance: true,
             focus_ring_enabled: true,
             disabled: false,
+            readonly: false,
             accessibility_label: None,
             stepper: true,
             style: StyleRefinement::default(),
         }
+    }
+
+    /// Preserve selection and appearance while preventing edits and stepping.
+    pub fn readonly(mut self, readonly: bool) -> Self {
+        self.readonly = readonly;
+        self
     }
 
     /// Set the placeholder text of the number input.
@@ -154,7 +162,7 @@ impl RenderOnce for NumberInput {
         };
         let base_state = self.state.clone();
         let content = BaseNumberInput::new(&base_state)
-            .disabled(self.disabled)
+            .disabled(self.disabled || self.readonly)
             .stepper(self.stepper)
             .when_some(self.accessibility_label, |this, label| {
                 this.accessibility_label(label)
@@ -189,9 +197,10 @@ impl RenderOnce for NumberInput {
                     .with_size(button_size)
                     .h_full()
                     .disabled(self.disabled)
+                    .readonly(self.readonly)
                     .gap_0()
                     .rounded_none()
-                    .text_align(TextAlign::Center)
+                    .text_align(self.style.text.text_align.unwrap_or(TextAlign::Center))
                     .when_some(self.prefix, |this, prefix| this.prefix(prefix))
                     .when_some(self.suffix, |this, suffix| this.suffix(suffix)),
             )

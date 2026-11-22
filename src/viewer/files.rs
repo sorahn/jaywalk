@@ -691,7 +691,10 @@ impl Viewer {
                                         IconName::List,
                                         self.browser.mode == FileListMode::List,
                                     ))
-                                    .tooltip("File list")
+                                    .command_tooltip(
+                                        "File list",
+                                        jaywalk::commands::CommandId::FileList,
+                                    )
                                     .toggled(self.browser.mode == FileListMode::List)
                                     .on_click(cx.listener(|this, _, _, cx| {
                                         this.browser.mode = FileListMode::List;
@@ -709,7 +712,10 @@ impl Viewer {
                                         IconName::FolderTree,
                                         self.browser.mode == FileListMode::Tree,
                                     ))
-                                    .tooltip("Directory tree")
+                                    .command_tooltip(
+                                        "Directory tree",
+                                        jaywalk::commands::CommandId::FileTree,
+                                    )
                                     .toggled(self.browser.mode == FileListMode::Tree)
                                     .on_click(cx.listener(|this, _, _, cx| {
                                         this.browser.mode = FileListMode::Tree;

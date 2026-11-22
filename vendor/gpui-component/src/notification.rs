@@ -1082,7 +1082,7 @@ impl Render for NotificationList {
                 })
         });
 
-        div().size_full().children(stacks)
+        crate::root::overlay_container().size_full().children(stacks)
     }
 }
 

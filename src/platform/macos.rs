@@ -16,6 +16,7 @@ pub(super) fn update_menus(cx: &mut App) {
             item(ShowSetup),
             item(InstallCli),
             MenuItem::separator(),
+            item(ShowSettings),
             item(OpenSettings),
             item(OpenKeybindings),
             item(SelectKeybindings),

@@ -456,7 +456,7 @@ impl Button {
         self
     }
 
-    /// Set the button to compact mode, then padding will be reduced.
+    /// Reduce padding; host spacing uses interactive horizontally and half vertically.
     pub fn compact(mut self) -> Self {
         self.compact = true;
         self
@@ -724,16 +724,19 @@ impl RenderOnce for Button {
                     if matches!(self.size, Size::Size(_)) {
                         return this;
                     }
+                    let horizontal = if self.compact && !self.dropdown_caret { spacing.interactive } else { spacing.edge };
+                    let vertical = if self.compact { spacing.interactive * 0.5 } else { spacing.interactive };
                     if self.label.is_none() && children.is_empty() {
                         let glyph = match self.size {
                             Size::XSmall => px(12.),
                             Size::Small => px(14.),
                             _ => px(16.),
                         };
-                        this.size(glyph + spacing.interactive * 2.)
+                        this.px(horizontal).py(vertical)
+                            .w(glyph + horizontal * 2.).h(glyph + vertical * 2.)
                     } else {
-                        this.px(spacing.interactive).h_auto().min_h(
-                            window.rem_size() * 0.875 * 1.5 + spacing.interactive * 2. + px(2.),
+                        this.px(horizontal).py(vertical).h_auto().min_h(
+                            window.rem_size() * 0.875 * if self.compact { 1.2 } else { 1.25 } + vertical * 2. + px(2.),
                         )
                     }
                 },
@@ -783,7 +786,7 @@ impl RenderOnce for Button {
                     .border_color(hover_style.border)
                     .text_color(hover_style.fg)
             })
-            .line_height(relative(1.25))
+            .line_height(relative(if self.compact { 1.2 } else { 1.25 }))
             .refine_style(&instance_style);
 
         // The explicit name wins: it exists precisely for the cases where the
@@ -841,7 +844,10 @@ impl RenderOnce for Button {
             .children(children)
             .when(self.dropdown_caret, |this| {
                 this.when(has_content, |this| this.justify_between())
-                    .child(Caret::new(self.size).text_color(normal_style.fg.opacity(0.75)))
+                    .child(div().debug_selector(|| "dropdown-trigger-caret".into())
+                        .flex_shrink_0().child(
+                            Caret::new(self.size).text_color(normal_style.fg.opacity(0.75)),
+                        ))
             });
         root.role(self.role.resolve(|| {
             if self.variant.is_link() {
@@ -1122,7 +1128,7 @@ impl ButtonVariant {
 
     fn border_color(&self, outline: bool, cx: &mut App) -> Hsla {
         match self {
-            Self::Default => cx.theme().input,
+            Self::Default => if cx.theme().host_spacing.is_some() { cx.theme().border } else { cx.theme().input },
             Self::Secondary => cx.theme().border,
             Self::Primary => cx.theme().primary,
             Self::Danger => {
@@ -1258,7 +1264,11 @@ impl ButtonVariant {
             Self::Text => cx.theme().transparent.into(),
         };
 
-        let border = self.border_color(outline, cx);
+        let border = match self {
+            Self::Default if cx.theme().host_spacing.is_some() =>
+                cx.theme().border.mix_oklab(cx.theme().foreground, 0.25),
+            _ => self.border_color(outline, cx),
+        };
         let fg = match self {
             Self::Link => cx.theme().link_hover,
             Self::Text => cx.theme().foreground,

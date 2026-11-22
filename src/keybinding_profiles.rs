@@ -104,7 +104,29 @@ impl Profile {
             .map_err(|error| format!("Invalid keybindings profile: {error}"))?;
         let keymap = file.keymap.clone();
         let mut keybindings = default_bindings_for(platform);
-        keybindings.extend(file.bindings(platform));
+        let overrides = file.bindings(platform);
+        if let Some(file_shortcuts) = overrides.get(&CommandId::OpenSettings)
+            && !overrides.contains_key(&CommandId::ShowSettings)
+        {
+            let normalized = |binding: &str| {
+                binding
+                    .split_whitespace()
+                    .map(|stroke| {
+                        gpui_kit::Keystroke::parse_with_os(stroke, crate::keymap::native_os())
+                            .map(|key| key.unparse(crate::keymap::native_os()))
+                    })
+                    .collect::<Result<Vec<_>, _>>()
+                    .ok()
+            };
+            if let Some(defaults) = keybindings.get_mut(&CommandId::ShowSettings) {
+                defaults.retain(|binding| {
+                    !file_shortcuts
+                        .iter()
+                        .any(|explicit| normalized(explicit) == normalized(binding))
+                });
+            }
+        }
+        keybindings.extend(overrides);
         let profile = Self {
             keybindings,
             keymap,
@@ -306,6 +328,7 @@ impl Selection {
                 self.config_path.display()
             ));
         }
+        crate::preferences::record_commit();
         Ok(self.settings)
     }
 }
@@ -313,6 +336,16 @@ impl Selection {
 #[cfg(test)]
 mod storage_tests {
     use super::{Selection, USER_PROFILE, create_if_missing, list, path, user_config};
+    #[test]
+    fn explicit_legacy_settings_shortcut_keeps_opening_the_file() {
+        let profile =
+            super::Profile::parse("[keybindings]\nopen_settings=['secondary-,']\n").unwrap();
+        assert_eq!(
+            profile.keybindings[&crate::commands::CommandId::OpenSettings],
+            ["secondary-,"]
+        );
+        assert!(profile.keybindings[&crate::commands::CommandId::ShowSettings].is_empty());
+    }
     #[test]
     fn selecting_profile_activates_the_documented_keyboard_section() {
         let fixture = tempfile::tempdir().unwrap();
@@ -436,7 +469,7 @@ mod tests {
         assert_eq!(profile.keybindings.len(), CommandId::ALL.len());
         assert!(profile.keybindings[&CommandId::ToggleHistory].is_empty());
         assert_eq!(
-            profile.keybindings[&CommandId::OpenSettings],
+            profile.keybindings[&CommandId::ShowSettings],
             ["secondary-,"]
         );
         for input in [

@@ -216,6 +216,7 @@ pub(super) fn synchronize(
     temporary
         .persist(&target)
         .map_err(|error| format!("Could not save account config: {}", error.error))?;
+    crate::preferences::record_commit();
     Ok(entries)
 }
 

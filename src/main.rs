@@ -9,6 +9,7 @@ mod account_picker;
 mod account_ui;
 mod appearance;
 mod cli;
+mod command_ui;
 mod command_usage;
 mod feedback;
 #[cfg(feature = "profiling")]
@@ -16,6 +17,8 @@ mod frame_profile;
 mod hosting_ui;
 mod instance;
 mod interface_state;
+mod preferences_ui;
+mod preferences_window;
 mod recents;
 mod settings_service;
 mod windows;

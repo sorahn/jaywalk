@@ -18,6 +18,15 @@ use gpui::{
 use gpui_base::{TextSelection, TextSelectionScopeId, motion::Presence};
 use std::{any::TypeId, cell::Cell, rc::Rc};
 
+// Layout-only overlay boxes must not become the inspector's topmost target.
+// Default interactivity omits the construction source location; children still
+// retain their own inspector identities and normal input behavior.
+pub(crate) fn overlay_container() -> gpui::Div {
+    let mut container = div();
+    *container.interactivity() = gpui::Interactivity::default();
+    container
+}
+
 pub(crate) fn init(cx: &mut App) {
     gpui_base::Root::register_plugin::<WindowState>(cx, WindowState::new);
 }
@@ -189,14 +198,14 @@ impl WindowState {
         let safe_insets = window_border::window_safe_insets(window);
 
         Some(
-            div()
+            overlay_container()
                 .absolute()
                 .top(safe_insets.top)
                 .right(safe_insets.right)
                 .bottom(safe_insets.bottom)
                 .left(safe_insets.left)
                 .child(
-                    div()
+                    overlay_container()
                         .absolute()
                         .inset_0()
                         .when_some(mt, |this, offset| this.mt(offset))
@@ -760,7 +769,7 @@ impl gpui_base::RootPlugin for WindowState {
 
 impl Render for WindowState {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        div()
+        overlay_container()
             .absolute()
             .inset_0()
             .child(WindowStateLayers { root: cx.entity() })
@@ -784,7 +793,7 @@ struct WindowStateLayers {
 impl RenderOnce for WindowStateLayers {
     fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         let root = self.root;
-        div()
+        overlay_container()
             .absolute()
             .inset_0()
             .debug_selector(|| "root-layers".to_string())

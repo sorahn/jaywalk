@@ -1,8 +1,6 @@
 //! Public first-run preferences; no network requests or credential access.
 use crate::settings::{Appearance, Config};
-use crate::settings_reload::{activate_reference, standard_section};
 use serde::Deserialize;
-use std::io::Write;
 use std::path::Path;
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
@@ -34,19 +32,17 @@ impl UpdateSettings {
 /// Serialize app-owned writers, preserve comments/symlinks/permissions, and reject
 /// edits made while preparing the replacement. Explicit configs must exist.
 pub fn save(path: &Path, appearance: Appearance) -> Result<Config, String> {
-    edit(path, "ui", &["appearance"], |doc, _| {
-        let ui = standard_section(doc, "ui");
-        set_value(
-            ui,
-            "appearance",
-            toml_edit::value(match appearance {
-                Appearance::System => "system",
-                Appearance::Light => "light",
-                Appearance::Dark => "dark",
-            }),
-        );
-        Ok(())
-    })
+    let value = match appearance {
+        Appearance::System => "system",
+        Appearance::Light => "light",
+        Appearance::Dark => "dark",
+    };
+    let source = crate::settings_reload::SettingsSource::resolve(Some(path))?;
+    let snapshot = crate::preferences::patch(
+        &source,
+        crate::preferences::Patch::set("ui.appearance", value.into()),
+    )?;
+    Ok(Config::clone(&snapshot.settings))
 }
 /// A single explicit checkbox action, applied to the latest committed preferences.
 #[derive(Clone, Copy, Debug)]
@@ -58,137 +54,15 @@ pub enum UpdateChoice {
 /// Never replay another window's consent snapshot. Disabling a prerequisite also
 /// disables its dependants; enabling one never implicitly grants prerequisites.
 pub fn save_update_choice(path: &Path, choice: UpdateChoice) -> Result<Config, String> {
-    edit(
-        path,
-        "updates",
-        &[
-            "automatic_checks",
-            "automatic_downloads",
-            "automatic_installation",
-        ],
-        |doc, config| {
-            let mut updates = config.updates;
-            match choice {
-                UpdateChoice::Checks(enabled) => {
-                    updates.automatic_checks = enabled;
-                    if !enabled {
-                        updates.automatic_downloads = false;
-                        updates.automatic_installation = false;
-                    }
-                }
-                UpdateChoice::Downloads(enabled) => {
-                    updates.automatic_downloads = enabled;
-                    if !enabled {
-                        updates.automatic_installation = false;
-                    }
-                }
-                UpdateChoice::Installation(enabled) => updates.automatic_installation = enabled,
-            }
-            updates.validate()?;
-            let table = standard_section(doc, "updates");
-            set_value(
-                table,
-                "automatic_checks",
-                toml_edit::value(updates.automatic_checks),
-            );
-            set_value(
-                table,
-                "automatic_downloads",
-                toml_edit::value(updates.automatic_downloads),
-            );
-            set_value(
-                table,
-                "automatic_installation",
-                toml_edit::value(updates.automatic_installation),
-            );
-            Ok(())
-        },
-    )
-}
-fn set_value(table: &mut toml_edit::Table, key: &str, mut value: toml_edit::Item) {
-    if let Some(previous) = table.get(key).and_then(toml_edit::Item::as_value)
-        && let Some(next) = value.as_value_mut()
-    {
-        *next.decor_mut() = previous.decor().clone();
-    }
-    table[key] = value;
-}
-fn edit(
-    path: &Path,
-    section: &str,
-    keys: &[&str],
-    change: impl FnOnce(&mut toml_edit::DocumentMut, &Config) -> Result<(), String>,
-) -> Result<Config, String> {
-    let _writer = crate::settings_reload::CONFIG_WRITER
-        .lock()
-        .expect("config writer mutex poisoned");
-    let target =
-        std::fs::canonicalize(path).map_err(|e| format!("Could not resolve setup config: {e}"))?;
-    let original = std::fs::read_to_string(&target)
-        .map_err(|e| format!("Could not read setup config: {e}"))?;
-    let config = Config::parse(&original)?;
-    let mut doc: toml_edit::DocumentMut = original
-        .parse()
-        .map_err(|e| format!("Could not edit setup config: {e}"))?;
-    let missing: Vec<_> = keys
-        .iter()
-        .copied()
-        .filter(|key| doc.get(section).and_then(|table| table.get(key)).is_none())
-        .collect();
-    if !missing.is_empty() {
-        doc = activate_reference(&original, section, &missing)
-            .parse()
-            .map_err(|e| format!("Could not edit documented settings: {e}"))?;
-    }
-    if let Some((key, legacy)) = doc.remove_entry("setup") {
-        let decoration = legacy
-            .as_table()
-            .map(toml_edit::Table::decor)
-            .or_else(|| legacy.as_value().map(toml_edit::Value::decor));
-        let mut comments = String::new();
-        for raw in [
-            key.leaf_decor().prefix(),
-            decoration.and_then(|decor| decor.prefix()),
-            decoration.and_then(|decor| decor.suffix()),
-        ]
-        .into_iter()
-        .flatten()
-        {
-            if let Some(text) = raw.as_str()
-                && text.contains('#')
-            {
-                comments.push_str(text);
-                comments.push('\n');
-            }
-        }
-        if !comments.is_empty() {
-            comments.push_str(doc.trailing().as_str().unwrap_or_default());
-            doc.set_trailing(comments);
-        }
-    }
-    change(&mut doc, &config)?;
-    let updated = doc.to_string();
-    let config = Config::parse(&updated)?;
-    if updated == original {
-        return Ok(config);
-    }
-    let mut temp = tempfile::NamedTempFile::new_in(target.parent().ok_or("Config has no parent")?)
-        .map_err(|e| e.to_string())?;
-    temp.as_file()
-        .set_permissions(
-            std::fs::metadata(&target)
-                .map_err(|e| e.to_string())?
-                .permissions(),
-        )
-        .map_err(|e| e.to_string())?;
-    temp.write_all(updated.as_bytes())
-        .map_err(|e| e.to_string())?;
-    temp.as_file().sync_all().map_err(|e| e.to_string())?;
-    if std::fs::read_to_string(&target).map_err(|e| e.to_string())? != original {
-        return Err("Configuration changed during setup; keeping your edit. Try again.".into());
-    }
-    temp.persist(target).map_err(|e| e.to_string())?;
-    Ok(config)
+    let (key, value) = match choice {
+        UpdateChoice::Checks(value) => ("updates.automatic_checks", value),
+        UpdateChoice::Downloads(value) => ("updates.automatic_downloads", value),
+        UpdateChoice::Installation(value) => ("updates.automatic_installation", value),
+    };
+    let source = crate::settings_reload::SettingsSource::resolve(Some(path))?;
+    let snapshot =
+        crate::preferences::patch(&source, crate::preferences::Patch::set(key, value.into()))?;
+    Ok(Config::clone(&snapshot.settings))
 }
 /// Use the same Finder-aware subprocess environment as repository commands.
 pub fn tool_version(tool: &str) -> Result<String, String> {

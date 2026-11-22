@@ -225,7 +225,9 @@ layout/reset/remote-management command merely to fill the table.
 | `keybindings.clear_recent` | `[]` | Clear recent repositories |
 | `keybindings.find_file` | `["secondary-shift-p"]` | Find any repository file |
 | `keybindings.show_commands` | `["secondary-p", "f1"]` | Command palette |
-| `keybindings.open_settings` | `["secondary-,"]` | Open settings |
+| `keybindings.show_settings` | `["secondary-,"]` | Show the native Settings window |
+| `keybindings.show_default_settings` | `[]` | Show the read-only built-in defaults |
+| `keybindings.open_settings` | `[]` | Open the TOML file in the configured editor |
 | `keybindings.open_keybindings` | `[]` | Open active keybindings profile |
 | `keybindings.select_keybindings` | `[]` | Select keybindings profile… |
 | `keybindings.version_patch` | `["secondary-k p"]` | Version patch |
@@ -563,3 +565,9 @@ checkout changes are performed.
 ## Setup and command-line integration
 
 **Set up Jaywalk…** (`show_setup`), **Install or check jw command…** (`install_cli`) and **Check for updates…** (`check_updates`) are available without a repository, start unbound, and can be remapped through the normal keybinding profile. macOS also lists them in the Jaywalk menu. First-open setup is optional and can be revisited through `show_setup`. CLI setup reports discovered commands, offers a default/custom directory and copies manual installation/PATH instructions. An explicit `check_updates` action authorizes a manual check even if automatic checks are off; unconfigured development/rehearsal builds show an explanation without contacting a server.
+
+The separate native Settings window uses Cmd/Ctrl+, by default. An explicit saved `open_settings` binding remains the file-opening action; overlapping inherited `show_settings` shortcuts are omitted unless you explicitly bind both (which is still rejected as a conflict). Settings categories, key/title/description search, Changed from defaults and per-setting Reset all work without a repository. Edit TOML remains available; Reset removes the override rather than pinning the current default.
+
+Visible command actions show their configured shortcut beside text labels, or
+in tooltips for icon-only controls. Hints follow remaps, omitted bindings and
+complete multi-stroke chords; unbound commands have no shortcut badge.

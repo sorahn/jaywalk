@@ -202,7 +202,10 @@ pub(super) fn render(
                     .compact()
                     .icon(IconName::RefreshCw)
                     .disabled(loading)
-                    .tooltip("Refresh PR status without changing the diff")
+                    .command_tooltip(
+                        "Refresh PR status without changing the diff",
+                        jaywalk::commands::CommandId::RefreshReviewStatus,
+                    )
                     .on_click(move |_, window, cx| {
                         let _ = refresh
                             .update(cx, |viewer, cx| viewer.refresh_pr_status(true, window, cx));

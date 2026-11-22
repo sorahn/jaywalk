@@ -131,3 +131,12 @@ without Git metadata display unknown provenance rather than inventing a hash.
 The optional `--package-version` CLI output remains the numeric application
 version, despite its historical name. Release notes live in GitHub Releases;
 a repository changelog is not maintained.
+
+## Visible commands
+
+Show the current configured shortcut wherever a command is presented. Use
+`command_ui::CommandButtonExt::command_hint` for text buttons and
+`command_tooltip` for icon buttons; menus and picker rows use their associated
+action. Resolve hints through the window keymap so remaps and unbound commands
+are reflected. Do not show a global command binding for a subject-specific action
+that would perform a different operation.

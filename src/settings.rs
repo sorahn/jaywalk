@@ -534,7 +534,7 @@ impl Settings {
     }
 }
 
-fn merge_defaults(base: &mut toml::Value, overrides: toml::Value) {
+pub(crate) fn merge_defaults(base: &mut toml::Value, overrides: toml::Value) {
     match (base, overrides) {
         (toml::Value::Table(base), toml::Value::Table(overrides)) => {
             for (key, value) in overrides {
@@ -1078,7 +1078,7 @@ mod tests {
             ["secondary-k secondary-p"]
         );
         assert_eq!(
-            settings.keybindings[&CommandId::OpenSettings],
+            settings.keybindings[&CommandId::ShowSettings],
             ["secondary-,"]
         );
         assert_eq!(settings.keybindings.len(), CommandId::ALL.len());

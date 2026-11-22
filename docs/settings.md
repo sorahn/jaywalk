@@ -11,12 +11,59 @@ inherit current defaults, including defaults changed by future releases.
 Existing files and explicit overrides are preserved.
 The schema and validation live in [src/settings.rs](../src/settings.rs).
 
+## Native settings page
+
+Cmd/Ctrl+, or **Show settings** opens a separate Settings window. Repeated opens reuse the window for that
+configuration file and leave the review untouched. Eight UI
+categories group the existing TOML keys without renaming them. Search covers keys,
+titles and descriptions globally by default; selecting a category narrows the
+search. All settings, Changed from defaults, and categories are exclusive
+navigation destinations; selecting one clears the previous selection. Repeated
+clicks keep that destination selected. A category explicitly selected during a
+search stays selected when the query is cleared. **Changed from defaults** shows
+configured values that differ from the
+running defaults. Compact list rows use a consistent description column and a fixed-width,
+right-aligned control column. Text values are right-aligned; numeric stepper values are centered. Changed settings show a small reset icon beside their title; its
+tooltip includes the default value. Hover descriptions for key/default/inheritance
+details. Right-click a title to copy its settings key or remove an explicit
+override, including one equal to the default. Runtime toolbar/layout memory is separate.
+
+Changes apply live unless a setting specifies otherwise. Switches and dropdowns
+save immediately. Numeric fields have −/+ buttons with setting-specific step
+sizes and bounds, including limits derived from other settings. Button steps save
+immediately; manual numeric, text and color entry commits with Enter or on leaving
+the field. Invalid drafts stay local and show a validation error. The TOML schema
+remains authoritative for validation, including relationships between settings.
+Closed dropdowns fit their selected label and stay anchored to the right; menu labels stay left aligned. Numeric fields reserve space for their bounds and decimal step instead of filling the control column. Color inputs use a compact hex-sized field with a swatch on the left. The accent field also previews the resolved system accent when set to `system`. The sun-moon icon toggles separate light/dark colors (accent when on, neutral when off); its tooltip describes the state and action. The field shows and edits only the active appearance, preserving the other value, without a repeated appearance label. Enabling it copies the shared color into both appearances (a system accent becomes its currently resolved RGB color). Disabling it uses the displayed appearance’s color for both. Existing pairs start separated. The dedicated light/dark shell seed fields already select their appearance and do not need this toggle.
+
+Font families use searchable dropdowns of installed fonts. Use default removes
+the override; an existing configured family remains selectable even if it is not
+installed on this machine. Escape discards a focused draft, clears a search, or
+closes the Settings window. Reset removes the explicit override and inherits
+the current default. Update prerequisite revocation is one atomic transaction.
+Appearance exposes the light/dark shell seed colors, accent, and added/removed
+row backgrounds. Detailed diff colors are grouped under **Advanced diff colors**
+with **Edit TOML…**; fine color overrides remain supported in TOML. Editing one
+shell seed mode preserves the other, including when the previous value was shared.
+
+Advanced lists/maps remain searchable with **Edit TOML…**; account connections
+and keyboard profiles keep their existing dedicated flows. **Show default
+settings** presents a read-only reference in the same window. Temporary visual
+previews and project settings are deferred.
+
+All UI writes patch the latest validated file, preserve comments/permissions and
+symlinks, and reject stale same-field edits. Committed documents publish through
+the shared source service with revisions; manual edits continue to reload live.
+The configured external editor remains `settings.editor`, independent of the
+`editor` section for code typography. Explicit old `open_settings` keybindings
+keep opening the file; see [keybindings](keybindings.md).
+
 ## Configuration file and reload
 
 - Default: `~/.config/jaywalk/config.toml`.
 - With a nonempty `XDG_CONFIG_HOME`: `$XDG_CONFIG_HOME/jaywalk/config.toml`.
 - `jw . --config /path/to/config.toml` selects a separate file, which must exist.
-- Cmd+, or **Open settings** opens the active file. A missing default file is
+- **Open settings file…** opens the active file. A missing default file is
   created for you; `settings.editor` chooses the app or command that opens it.
   First use also creates a sparse `keybindings/default.toml` profile; existing files
   are never overwritten. An explicit `--config` must exist and uses profiles beside it.
@@ -906,3 +953,28 @@ while `ui.accent_floating_outlines` is enabled; disable it to use
 This shell slice retains the existing syntax palette. VS Code theme imports,
 independent diff-theme files, theme selection/preview commands, and custom
 native titlebar coloring remain separate work.
+
+Standard buttons use spacing 2 horizontally and spacing 1 vertically. Compact toolbar
+buttons use spacing 1 horizontally and spacing 0.5 vertically. These follow the configured shared
+spacing scale; explicit control dimensions remain unchanged.
+
+Dropdown triggers use the shared Button widget, with a trailing chevron and
+spacing 2 at their horizontal edges. All insets belong to the button container;
+labels and chevrons have no additional padding or compensating margins. Compact buttons and compact
+dropdowns use line height 1.2 and retain their smaller vertical inset; menu rows
+remain left aligned.
+
+Numeric stepper values are centered between their decrement/increment buttons;
+ordinary editable text fields remain right aligned.
+
+Dropdowns keep a faint neutral border, strengthen it on hover, and use the accent
+outline for focus/open state. Clicking outside a focused field releases its
+focus while preserving Settings keyboard navigation. Save status shares the
+settings-file path row, so successful saves do not change the header height.
+
+Settings writes serialize control edits without briefly dimming every control.
+Unchanged retained input values are not reset when a new snapshot arrives.
+
+Visible settings summaries use at most two lines, with an ellipsis when needed.
+Their tooltips retain the full explanation, key, default and inheritance details.
+Search matches both the summary and full description.

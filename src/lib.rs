@@ -56,3 +56,5 @@ pub mod cli_install;
 pub mod setup;
 
 pub mod theme;
+
+pub mod preferences;
