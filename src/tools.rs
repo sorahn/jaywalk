@@ -2,6 +2,16 @@
 use std::process::Command;
 
 pub(crate) fn command(program: &str) -> Result<Command, String> {
+    // A native executable can inherit an Intel parent's preference for the
+    // x86 slice of universal children. Reset it at the tool boundary so Apple
+    // Git/xcrun and jj's descendants use the native SDK even after such a launch.
+    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+    let mut command = {
+        let mut command = Command::new("/usr/bin/arch");
+        command.args(["-arm64", program]);
+        command
+    };
+    #[cfg(not(all(target_os = "macos", target_arch = "aarch64")))]
     let mut command = Command::new(program);
     for name in [
         "GIT_DIR",
@@ -81,6 +91,45 @@ mod tests {
                 .filter(|path| **path == std::path::Path::new("/opt/homebrew/bin"))
                 .count(),
             1
+        );
+    }
+    #[cfg(target_arch = "aarch64")]
+    #[test]
+    fn repository_tools_select_native_architecture() {
+        let output = command("/usr/bin/uname")
+            .unwrap()
+            .arg("-m")
+            .output()
+            .unwrap();
+        assert!(output.status.success());
+        assert_eq!(String::from_utf8(output.stdout).unwrap().trim(), "arm64");
+    }
+
+    #[cfg(target_arch = "aarch64")]
+    #[test]
+    #[ignore = "requires Rosetta; runs an Intel shell to reproduce inherited child architecture"]
+    fn native_tools_reset_an_intel_parents_architecture_preference() {
+        let output = Command::new("/usr/bin/arch")
+            .args([
+                "-x86_64",
+                "/bin/sh",
+                "-c",
+                "exec \"$@\"",
+                "native-tool-test",
+            ])
+            .arg(std::env::current_exe().unwrap())
+            .args([
+                "tools::tests::repository_tools_select_native_architecture",
+                "--exact",
+                "--nocapture",
+            ])
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
         );
     }
 }
