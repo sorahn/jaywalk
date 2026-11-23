@@ -57,7 +57,7 @@ impl Viewer {
                         jaywalk::settings_reload::SettingsSource::resolve(explicit.as_deref())?;
                     source.initialize()?;
                     jaywalk::setup::save(source.path(), appearance)?;
-                    source.read()
+                    source.read_snapshot().map(|snapshot| (source, snapshot))
                 })
                 .await;
             let _ = this.update_in(cx, |viewer, window, cx| {
@@ -65,6 +65,10 @@ impl Viewer {
                     return;
                 }
                 viewer.setup.busy = false;
+                let result = result.and_then(|(source, snapshot)| {
+                    crate::settings_service::publish_snapshot(source, snapshot, cx)
+                        .map(|state| (*state.read(cx).current).clone())
+                });
                 match result {
                     Ok(settings) => {
                         viewer.receive_settings(settings, None, window, cx);
@@ -109,7 +113,7 @@ impl Viewer {
                     jaywalk::settings_reload::SettingsSource::resolve(explicit.as_deref())?;
                 source.initialize()?;
                 jaywalk::setup::save_update_choice(source.path(), choice)?;
-                source.read()
+                source.read_snapshot().map(|snapshot| (source, snapshot))
             })();
             let _ = done.try_send(());
             result
@@ -122,6 +126,10 @@ impl Viewer {
                     return;
                 }
                 viewer.setup.busy = false;
+                let result = result.and_then(|(source, snapshot)| {
+                    crate::settings_service::publish_snapshot(source, snapshot, cx)
+                        .map(|state| (*state.read(cx).current).clone())
+                });
                 match result {
                     Ok(settings) => viewer.receive_settings(settings, None, window, cx),
                     Err(error) => {
@@ -243,6 +251,7 @@ impl Viewer {
                     } else {
                         "Install jw…"
                     })
+                    .command_hint(CommandId::InstallCli)
                     .on_click(cx.listener(|v, _, w, c| v.install_cli(w, c))),
             )
             .child(
@@ -288,6 +297,7 @@ impl Viewer {
                     .small()
                     .ghost()
                     .label(command.label())
+                    .command_hint(command)
                     .on_click(cx.listener(move |v, _, w, c| v.execute_command(command, w, c))),
             );
         }

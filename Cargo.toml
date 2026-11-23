@@ -35,6 +35,7 @@ tempfile = "3"
 debug = 0
 
 [patch.crates-io]
+gpui-base = { path = "vendor/gpui-base" }
 gpui-component = { path = "vendor/gpui-component" }
 
 [dev-dependencies]

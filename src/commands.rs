@@ -44,6 +44,8 @@ pub enum CommandId {
     PickerHelp,
     ClearCommandUsage,
     OpenSettings,
+    ShowSettings,
+    ShowDefaultSettings,
     ShowSetup,
     InstallCli,
     CheckUpdates,
@@ -194,6 +196,8 @@ impl CommandId {
                 | Self::PickerHelp
                 | Self::ClearCommandUsage
                 | Self::ShowCommands
+                | Self::ShowSettings
+                | Self::ShowDefaultSettings
                 | Self::OpenSettings
                 | Self::ShowSetup
                 | Self::InstallCli
@@ -249,6 +253,8 @@ impl CommandId {
         Self::PickerHelp,
         Self::ClearCommandUsage,
         Self::OpenSettings,
+        Self::ShowSettings,
+        Self::ShowDefaultSettings,
         Self::ShowSetup,
         Self::InstallCli,
         Self::CheckUpdates,
@@ -426,7 +432,9 @@ impl CommandId {
             Self::ShowSetup => "Set up Jaywalk…",
             Self::InstallCli => "Install or check jw command…",
             Self::CheckUpdates => "Check for updates…",
-            Self::OpenSettings => "Open settings",
+            Self::OpenSettings => "Open settings file…",
+            Self::ShowSettings => "Show settings",
+            Self::ShowDefaultSettings => "Show default settings",
             Self::OpenKeybindings => "Open keybindings",
             Self::SelectKeybindings => "Select keybindings profile…",
             Self::RefreshReviewStatus => "Refresh pull request status",

@@ -1,4 +1,4 @@
-//! Account page content; the main window owns its lifetime across navigation.
+//! Account management content, embedded in Settings or hosted independently by tests.
 use gpui::component::{
     Disableable, StyledExt,
     button::{Button, ButtonVariants},
@@ -81,6 +81,7 @@ struct TokenForm {
 }
 pub(crate) struct AccountPanel {
     focus: FocusHandle,
+    embedded: bool,
     state: Entity<AccountState>,
     mode: Mode,
     owner: Option<OperationHandle>,
@@ -116,6 +117,7 @@ impl AccountPanel {
         window.focus(&focus, cx);
         let mut panel = Self {
             focus,
+            embedded: false,
             state,
             mode,
             owner: None,
@@ -130,6 +132,10 @@ impl AccountPanel {
         panel.refresh_gh(cx);
         panel.start(AccountAction::Load, cx);
         panel
+    }
+    pub(crate) fn embedded(mut self) -> Self {
+        self.embedded = true;
+        self
     }
     fn refresh_gh(&mut self, cx: &mut Context<Self>) {
         self.gh_checked = false;
@@ -378,16 +384,13 @@ impl Render for AccountPanel {
         let theme = gpui::component::Theme::global(cx);
         let muted = theme.muted_foreground;
         let border = theme.border;
-        let background = crate::appearance::surface(
-            jaywalk::theme::Surface::Window,
-            jaywalk::theme::Part::Background,
-            cx,
-        );
-        let foreground = crate::appearance::surface(
-            jaywalk::theme::Surface::Window,
-            jaywalk::theme::Part::Foreground,
-            cx,
-        );
+        let surface = if self.embedded {
+            jaywalk::theme::Surface::Viewer
+        } else {
+            jaywalk::theme::Surface::Window
+        };
+        let background = crate::appearance::surface(surface, jaywalk::theme::Part::Background, cx);
+        let foreground = crate::appearance::surface(surface, jaywalk::theme::Part::Foreground, cx);
         let danger = theme.danger;
         let state = self.state.read(cx);
         let busy = state.operation.is_some();
@@ -674,6 +677,7 @@ impl Render for AccountPanel {
         div()
             .key_context("JaywalkAccounts")
             .debug_selector(|| "accounts-page".into())
+            .when(self.embedded, |panel| panel.flex_1().min_h_0())
             .track_focus(&self.focus)
             .size_full()
             .v_flex()
@@ -687,7 +691,10 @@ impl Render for AccountPanel {
                     .flex_1()
                     .min_h_0()
                     .overflow_y_scroll()
-                    .p(crate::spacing::space(8., cx))
+                    .p(crate::spacing::space(
+                        if self.embedded { 4. } else { 8. },
+                        cx,
+                    ))
                     .child(
                         div()
                             .mx_auto()
@@ -718,21 +725,23 @@ impl Render for AccountPanel {
                             .child(content),
                     ),
             )
-            .child(
-                div()
-                    .px(crate::spacing::space(5., cx))
-                    .py(crate::spacing::edge(cx))
-                    .border_t_1()
-                    .border_color(border)
-                    .h_flex()
-                    .justify_end()
-                    .child(
-                        Button::new("accounts-leave")
-                            .ghost()
-                            .label("Back")
-                            .on_click(cx.listener(|_, _, _, cx| cx.emit(LeavePage))),
-                    ),
-            )
+            .when(!self.embedded, |panel| {
+                panel.child(
+                    div()
+                        .px(crate::spacing::space(5., cx))
+                        .py(crate::spacing::edge(cx))
+                        .border_t_1()
+                        .border_color(border)
+                        .h_flex()
+                        .justify_end()
+                        .child(
+                            Button::new("accounts-leave")
+                                .ghost()
+                                .label("Back")
+                                .on_click(cx.listener(|_, _, _, cx| cx.emit(LeavePage))),
+                        ),
+                )
+            })
     }
 }
 

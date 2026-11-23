@@ -91,7 +91,14 @@ impl Viewer {
                         commands::validate_bindings(&selection.settings, cx)
                     });
                     match valid {
-                        Ok(Ok(())) => cx.background_spawn(async move { selection.save() }).await,
+                        Ok(Ok(())) => {
+                            let source = publish_source.clone();
+                            cx.background_spawn(async move {
+                                selection.save()?;
+                                source?.read_snapshot()
+                            })
+                            .await
+                        }
                         Ok(Err(error)) => Err(error),
                         Err(_) => return,
                     }
@@ -100,9 +107,9 @@ impl Viewer {
             };
             let _ = this.update_in(cx, |viewer, _window, cx| {
                 match result {
-                    Ok(settings) => {
+                    Ok(snapshot) => {
                         let result = publish_source.and_then(|source| {
-                            crate::settings_service::publish(source, settings, cx)
+                            crate::settings_service::publish_snapshot(source, snapshot, cx)
                         });
                         if let Err(error) = result {
                             viewer.config.error = Some(error);

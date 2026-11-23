@@ -64,7 +64,6 @@ impl Viewer {
             setup: setup::State::initial(&settings, startup_setup.err()),
             welcome,
             page,
-            account_page: None,
             pull_requests_page: None,
             page_selection: None,
             recent_recorded: false,

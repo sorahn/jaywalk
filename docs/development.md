@@ -52,6 +52,12 @@ recipes and workflows use this wrapper. It selects and explicitly launches an
 ARM64 Python 3.11+ interpreter even when PATH contains an Intel Python, preventing
 its Apple tool subprocesses from inheriting Rosetta. Shell entry points also
 re-launch natively when started by an Intel parent.
+Repository Git/jj commands also select `arm64` explicitly on Apple Silicon.
+A single-architecture ARM64 app can inherit an Intel parent's preference for
+universal children; checking the app binary alone does not establish its tool
+architecture. Keep Rosetta installed for unrelated Intel workflows. The opt-in
+`native_tools_reset_an_intel_parents_architecture_preference` test reproduces
+this with an Intel shell and requires Rosetta; ordinary tests never invoke it.
 These guards leave other platforms unchanged.
 Native bundle builds reject an Intel Rust host on Apple Silicon. Local bundles
 validate both app executables and every nested Mach-O against the native host,

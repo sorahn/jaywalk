@@ -13,6 +13,7 @@ use crate::{ActiveTheme, StyledExt};
 pub struct Kbd {
     style: StyleRefinement,
     stroke: Keystroke,
+    following: Vec<Keystroke>,
     appearance: bool,
     outline: bool,
 }
@@ -22,6 +23,7 @@ impl From<Keystroke> for Kbd {
         Self {
             style: StyleRefinement::default(),
             stroke,
+            following: Vec::new(),
             appearance: true,
             outline: false,
         }
@@ -34,6 +36,7 @@ impl Kbd {
         Self {
             style: StyleRefinement::default(),
             stroke,
+            following: Vec::new(),
             appearance: true,
             outline: false,
         }
@@ -97,7 +100,9 @@ impl Kbd {
 
     fn from_binding(binding: &KeyBinding) -> Option<Self> {
         let key = binding.keystrokes().first()?;
-        Some(Self::new(key.as_keystroke().clone()))
+        let mut hint = Self::new(key.as_keystroke().clone());
+        hint.following = binding.keystrokes().iter().skip(1).map(|key| key.as_keystroke().clone()).collect();
+        Some(hint)
     }
 
     /// Return the Platform specific keybinding string by KeyStroke
@@ -233,14 +238,16 @@ impl Styled for Kbd {
 
 impl RenderOnce for Kbd {
     fn render(self, _: &mut gpui::Window, cx: &mut gpui::App) -> impl gpui::IntoElement {
+        let label = std::iter::once(&self.stroke).chain(&self.following).map(Self::format).collect::<Vec<_>>().join(" ");
+        let selector = std::iter::once(&self.stroke).chain(&self.following).map(|stroke| stroke.unparse(cx.platform_info().os)).collect::<Vec<_>>().join(" ");
         if !self.appearance {
-            return Self::format(&self.stroke).into_any_element();
+            return label.into_any_element();
         }
 
         div()
             // Lets a test ask whether a given shortcut hint was painted this
             // frame; a no-op outside test-support builds.
-            .debug_selector(|| format!("kbd:{}", self.stroke.unparse(cx.platform_info().os)))
+            .debug_selector(move || format!("kbd:{selector}"))
             .text_color(cx.theme().muted_foreground)
             .bg(cx.theme().tokens.muted)
             .when(self.outline, |this| {
@@ -258,8 +265,8 @@ impl RenderOnce for Kbd {
             .whitespace_normal()
             .flex_shrink_0()
             .refine_style(&self.style)
-            .child(Self::format(&self.stroke))
-            .test_text(Self::format(&self.stroke))
+            .child(label.clone())
+            .test_text(label)
             .into_any_element()
     }
 }

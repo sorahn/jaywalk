@@ -11,31 +11,37 @@ pub(crate) fn standard_section<'a>(
     doc: &'a mut toml_edit::DocumentMut,
     name: &str,
 ) -> &'a mut toml_edit::Table {
+    standard_table(doc.as_table_mut(), name)
+}
+pub(crate) fn standard_table<'a>(
+    table: &'a mut toml_edit::Table,
+    name: &str,
+) -> &'a mut toml_edit::Table {
     if let Some(toml_edit::Value::InlineTable(_)) =
-        doc.get(name).and_then(toml_edit::Item::as_value)
+        table.get(name).and_then(toml_edit::Item::as_value)
     {
-        let prefix = doc
+        let prefix = table
             .key(name)
             .and_then(|key| key.leaf_decor().prefix())
             .cloned();
-        let old = std::mem::take(&mut doc[name]);
+        let old = std::mem::take(&mut table[name]);
         let suffix = old
             .as_value()
             .and_then(|value| value.decor().suffix())
             .cloned();
-        let mut table = old.into_table().expect("matched inline table");
+        let mut converted = old.into_table().expect("matched inline table");
         if let Some(prefix) = prefix {
-            table.decor_mut().set_prefix(prefix);
+            converted.decor_mut().set_prefix(prefix);
         }
         if let Some(suffix) = suffix {
-            table.decor_mut().set_suffix(suffix);
+            converted.decor_mut().set_suffix(suffix);
         }
-        doc[name] = toml_edit::Item::Table(table);
-        doc.key_mut(name).expect("section exists").fmt();
-    } else if !doc.contains_key(name) {
-        doc[name] = toml_edit::Item::Table(toml_edit::Table::new());
+        table[name] = toml_edit::Item::Table(converted);
+        table.key_mut(name).expect("section exists").fmt();
+    } else if !table.contains_key(name) {
+        table[name] = toml_edit::Item::Table(toml_edit::Table::new());
     }
-    doc[name]
+    table[name]
         .as_table_mut()
         .expect("validated settings section is a table")
 }
@@ -149,9 +155,19 @@ impl SettingsSource {
     }
 
     pub fn read(&self) -> Result<Settings, String> {
+        Ok(self.read_snapshot()?.settings)
+    }
+
+    pub fn read_snapshot(&self) -> Result<crate::preferences::Snapshot, String> {
+        let _writer = CONFIG_WRITER.lock().expect("config writer mutex poisoned");
+        self.read_snapshot_unlocked()
+    }
+    pub(crate) fn read_snapshot_unlocked(&self) -> Result<crate::preferences::Snapshot, String> {
         // Reading configuration must not consume the first-window creation claim.
         self.initialize_profile()?;
-        self.parse(self.contents()?)
+        let contents = self.contents()?;
+        let text = contents.config.clone();
+        crate::preferences::Snapshot::new(self.parse(contents)?, text)
     }
 }
 
@@ -181,6 +197,11 @@ impl SettingsWatcher {
     /// save can settle before parsing. Content equality also catches replacements
     /// with unchanged timestamps/length and avoids repeatedly reporting one error.
     pub fn poll(&mut self) -> Option<Result<Settings, String>> {
+        self.poll_snapshot()
+            .map(|result| result.map(|snapshot| snapshot.settings))
+    }
+    pub fn poll_snapshot(&mut self) -> Option<Result<crate::preferences::Snapshot, String>> {
+        let _writer = CONFIG_WRITER.lock().expect("config writer mutex poisoned");
         let contents = self.source.contents();
         if self.observed.as_ref() != Some(&contents) {
             self.observed = Some(contents);
@@ -190,7 +211,10 @@ impl SettingsWatcher {
             return None;
         }
         self.settled = Some(contents.clone());
-        Some(contents.and_then(|contents| self.source.parse(contents)))
+        Some(contents.and_then(|contents| {
+            let text = contents.config.clone();
+            crate::preferences::Snapshot::new(self.source.parse(contents)?, text)
+        }))
     }
 }
 

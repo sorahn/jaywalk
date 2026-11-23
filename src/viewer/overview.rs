@@ -547,6 +547,11 @@ impl Viewer {
                                 } else {
                                     "Show full files"
                                 })
+                                .command_hint(if full {
+                                    jaywalk::commands::CommandId::OverviewContext
+                                } else {
+                                    jaywalk::commands::CommandId::OverviewFull
+                                })
                                 .on_click(move |_, _, cx| {
                                     state.update(cx, |state, cx| {
                                         state.set_context_lines(
@@ -591,6 +596,7 @@ impl Viewer {
                                 .ghost()
                                 .small()
                                 .label("Open PR in browser")
+                                .command_hint(jaywalk::commands::CommandId::OpenReviewInBrowser)
                                 .on_click(move |_, _, cx| cx.open_url(&locator.url())),
                         );
                 header = header.child(pr_status::render(&status, status_viewer.clone(), cx));

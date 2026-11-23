@@ -5,11 +5,11 @@ mod references;
 mod support;
 mod symbols;
 use super::*;
+pub(super) use crate::command_ui::ShortcutHint;
 use gpui::component::Disableable;
 use gpui::component::command::{Command, CommandItem, CommandState};
 use gpui::prelude::FluentBuilder;
 use jaywalk::quick_picker::{CommandUsage, Mode};
-pub(super) use support::ShortcutHint;
 use support::{mode_command, mode_description};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

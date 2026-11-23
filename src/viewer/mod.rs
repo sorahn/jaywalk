@@ -19,6 +19,7 @@ use std::rc::Rc;
 use std::sync::Arc;
 
 use crate::Arguments;
+use crate::command_ui::CommandButtonExt;
 
 mod chrome;
 pub(crate) mod commands;
@@ -156,6 +157,7 @@ struct SelectedFile {
 
 pub(crate) fn init(arguments: &Arguments, settings: &Settings, cx: &mut App) -> Result<(), String> {
     reference_browser::init(cx);
+    crate::preferences_ui::init(cx);
     local_actions::init(cx);
     commands::init(arguments, settings, cx)
 }
@@ -169,7 +171,6 @@ pub(crate) struct Viewer {
     welcome: Option<welcome::WelcomeState>,
     setup: setup::State,
     page: pages::Page,
-    account_page: Option<Entity<crate::account_ui::AccountPanel>>,
     pull_requests_page: Option<Entity<crate::hosting_ui::PullRequestsPage>>,
     page_selection: Option<pages::RetainedSelection>,
     recent_recorded: bool,

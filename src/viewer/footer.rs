@@ -203,7 +203,7 @@ impl Viewer {
             .with_size(px(self.settings.ui.footer_control_height))
             .compact()
             .icon(crate::appearance::active_icon(IconName::TextWrap, wrap, cx))
-            .tooltip("Word wrap")
+            .command_tooltip("Word wrap", jaywalk::commands::CommandId::ToggleWrap)
             .toggled(wrap)
             .on_click(cx.listener(|this, _, window, cx| this.toggle_wrap(window, cx)))
     }
@@ -297,11 +297,14 @@ impl Viewer {
                                                 collapsed,
                                                 cx,
                                             ))
-                                            .tooltip(if collapsed {
-                                                "Show full file"
-                                            } else {
-                                                "Fold unchanged lines"
-                                            })
+                                            .command_tooltip(
+                                                if collapsed {
+                                                    "Show full file"
+                                                } else {
+                                                    "Fold unchanged lines"
+                                                },
+                                                jaywalk::commands::CommandId::ToggleUnchangedLines,
+                                            )
                                             .toggled(collapsed)
                                             .on_click(cx.listener(|this, _, _, cx| {
                                                 this.toggle_unchanged_lines(cx)
@@ -319,6 +322,10 @@ impl Viewer {
                     .ghost()
                     .with_size(px(self.settings.ui.footer_control_height))
                     .label("↑")
+                    .command_tooltip(
+                        "Previous change",
+                        jaywalk::commands::CommandId::PreviousChange,
+                    )
                     .disabled(
                         self.standard_context_collapsed()
                             || self.code().is_none()
@@ -336,6 +343,7 @@ impl Viewer {
                     .ghost()
                     .with_size(px(self.settings.ui.footer_control_height))
                     .label("↓")
+                    .command_tooltip("Next change", jaywalk::commands::CommandId::NextChange)
                     .disabled(
                         self.standard_context_collapsed()
                             || self.code().is_none()

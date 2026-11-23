@@ -1168,6 +1168,10 @@ fn external_diff_caption_fits_without_filling_the_header(cx: &mut TestAppContext
                 "hover target too wide: {button:?}"
             );
             assert!(button.right() < header.right() - px(100.));
+            let caret = cx.debug_bounds("dropdown-trigger-caret").unwrap();
+            assert!(caret.size.width >= px(12.));
+            assert!(caret.left() >= label.right());
+            assert!(caret.right() <= button.right());
         }
     }
 }
@@ -1576,25 +1580,20 @@ fn application_pages_keep_the_comparison_editors_selection_scroll_and_drawers(
             })
         });
         draw(cx);
-        assert!(cx.debug_bounds("accounts-page").is_some());
-        assert!(cx.debug_bounds("drawer-status-History").is_none());
-        let accounts =
-            cx.update(|_, app| viewer.read(app).account_page.as_ref().unwrap().entity_id());
+        let (settings_page, mut popup) = open_accounts_test(&viewer, cx);
+        assert!(popup.debug_bounds("accounts-page").is_some());
+        assert!(popup.debug_bounds("settings-accounts").is_some());
+        assert!(cx.debug_bounds("accounts-page").is_none());
+        assert!(cx.debug_bounds("drawer-status-History").is_some());
+        let (same_page, _) = open_accounts_test(&viewer, cx);
+        assert_eq!(settings_page.entity_id(), same_page.entity_id());
         cx.update(|window, app| {
             viewer.update(app, |viewer, cx| {
                 viewer.execute_command(CommandId::ShowWelcome, window, cx)
-            })
+            });
         });
         draw(cx);
         assert!(cx.debug_bounds("welcome-page").is_some());
-        // Back/Forward travels among pages and reuses account content.
-        cx.simulate_keystrokes("secondary-alt-left");
-        draw(cx);
-        assert!(cx.debug_bounds("accounts-page").is_some());
-        assert_eq!(
-            cx.update(|_, app| viewer.read(app).account_page.as_ref().unwrap().entity_id()),
-            accounts
-        );
         cx.simulate_keystrokes("secondary-alt-left");
         draw(cx);
         cx.update(|_, app| {
@@ -1626,52 +1625,39 @@ fn application_pages_keep_the_comparison_editors_selection_scroll_and_drawers(
                 drawers
             );
         });
-        cx.simulate_keystrokes("secondary-alt-right");
-        draw(cx);
-        assert!(cx.debug_bounds("accounts-page").is_some());
-        let back = cx.debug_bounds("view-back").unwrap();
-        cx.simulate_click(back.center(), Default::default());
-        draw(cx);
-        assert_eq!(
-            cx.update(|_, app| standard.read(app).selected_text(app)),
-            text
-        );
     }
 }
 
 #[gpui_test::test]
-fn welcome_accounts_navigation_and_palette_stay_in_the_existing_window(cx: &mut TestAppContext) {
-    use jaywalk::commands::CommandId;
+fn accounts_palette_opens_settings_without_replacing_welcome(cx: &mut TestAppContext) {
     let fixture = Fixture::new();
     crate::account_ui::tests::setup(cx);
     let args = Arguments::parse_from(["jaywalk"]).for_welcome();
     let (viewer, cx) = setup_arguments(&fixture, args, cx);
     assert!(cx.debug_bounds("welcome-page").is_some());
-    let window_count = cx.update(|_, app| app.windows().len());
     cx.simulate_keystrokes("secondary-p");
     draw(cx);
     cx.simulate_input("Accounts");
     draw(cx);
     cx.simulate_keystrokes("enter");
     draw(cx);
-    assert!(cx.debug_bounds("accounts-page").is_some());
-    assert_eq!(cx.update(|_, app| app.windows().len()), window_count);
-    // Escape from an idle page returns to Welcome rather than closing the app.
-    cx.simulate_keystrokes("escape");
-    draw(cx);
     assert!(cx.debug_bounds("welcome-page").is_some());
-    assert_eq!(cx.update(|_, app| app.windows().len()), window_count);
-    cx.update(|window, app| {
-        viewer.update(app, |viewer, cx| {
-            viewer.execute_command(CommandId::GoForward, window, cx)
-        })
-    });
-    draw(cx);
-    assert!(cx.debug_bounds("accounts-page").is_some());
+    assert_eq!(cx.update(|_, app| app.windows().len()), 2);
+    let (_, mut popup) = open_accounts_test(&viewer, cx);
+    assert!(popup.debug_bounds("accounts-page").is_some());
+    assert!(popup.debug_bounds("settings-save").is_none());
+    popup.simulate_keystrokes("escape");
+    draw(&mut popup);
+    assert!(popup.debug_bounds("settings-page").is_some());
+    assert!(popup.debug_bounds("accounts-page").is_none());
+    assert!(cx.debug_bounds("welcome-page").is_some());
+    let (_, mut popup) = open_accounts_test(&viewer, cx);
+    assert!(popup.debug_bounds("accounts-page").is_some());
+    assert_eq!(cx.update(|_, app| app.windows().len()), 2);
 }
 
 #[gpui_test::test]
-fn leaving_a_loading_comparison_keeps_its_result_and_forward_page(cx: &mut TestAppContext) {
+fn opening_accounts_keeps_a_loading_comparison_in_place(cx: &mut TestAppContext) {
     use jaywalk::commands::CommandId;
     let fixture = Fixture::new();
     crate::account_ui::tests::setup(cx);
@@ -1684,16 +1670,13 @@ fn leaving_a_loading_comparison_keeps_its_result_and_forward_page(cx: &mut TestA
     });
     draw(cx);
     let editor = cx.update(|_, app| viewer.read(app).code().unwrap().before.entity_id());
-    cx.simulate_keystrokes("secondary-alt-left");
-    draw(cx);
+    let (_, mut popup) = open_accounts_test(&viewer, cx);
+    assert!(popup.debug_bounds("accounts-page").is_some());
     cx.update(|_, app| {
         let viewer = viewer.read(app);
         assert!(viewer.page == super::pages::Page::Comparison);
         assert_eq!(viewer.code().unwrap().before.entity_id(), editor);
     });
-    cx.simulate_keystrokes("secondary-alt-right");
-    draw(cx);
-    assert!(cx.debug_bounds("accounts-page").is_some());
 }
 
 #[gpui_test::test]
@@ -2537,7 +2520,9 @@ fn account_picker_connection_errors_and_mode_switches_stay_in_the_picker(
         command: C::Accounts,
     });
     draw(cx);
-    assert!(cx.debug_bounds("accounts-page").is_some());
+    assert!(cx.debug_bounds("accounts-page").is_none());
+    let (_, mut popup) = open_accounts_test(&viewer, cx);
+    assert!(popup.debug_bounds("accounts-page").is_some());
 }
 
 #[gpui_test::test]
@@ -4322,4 +4307,880 @@ fn cancelling_branch_checkout_preparation_restores_the_previous_pin(cx: &mut Tes
             .unwrap();
         assert_eq!(String::from_utf8(head.stdout).unwrap().trim(), "main");
     }
+}
+
+fn save_settings(cx: &mut VisualTestContext) {
+    let save = cx
+        .debug_bounds("settings-save")
+        .expect("Settings has a Save button");
+    cx.simulate_click(save.center(), Default::default());
+    draw(cx);
+}
+
+#[gpui_test::test]
+fn settings_search_edit_reset_and_close_preserve_the_review(cx: &mut TestAppContext) {
+    let fixture = Fixture::new();
+    let (viewer, cx) = setup(&fixture, cx);
+    let before = cx.update(|_, app| viewer.read(app).comparison().unwrap().identity());
+    let (page, mut settings_cx) = open_settings_test(&viewer, cx, false);
+    let main_cx = cx;
+    let cx = &mut settings_cx;
+    draw(cx);
+    assert!(cx.debug_bounds("settings-page").is_some());
+    let search = cx.debug_bounds("settings-search").unwrap();
+    cx.simulate_click(search.center(), Default::default());
+    cx.simulate_input("diff.word_highlight");
+    draw(cx);
+    let status = cx.update(|_, app| page.read(app).test_status(app));
+    let row = cx
+        .debug_bounds("setting-diff.word_highlight")
+        .unwrap_or_else(|| panic!("{status}"));
+    assert!(cx.debug_bounds("reset-diff.word_highlight").is_none());
+    let header_height = cx.debug_bounds("settings-header").unwrap().size.height;
+    cx.simulate_click(row.center(), Default::default());
+    draw(cx);
+    assert_eq!(
+        cx.debug_bounds("settings-header").unwrap().size.height,
+        header_height
+    );
+    let path = fixture.0.join("settings.toml");
+    assert!(
+        Settings::parse(&std::fs::read_to_string(&path).unwrap())
+            .unwrap()
+            .diff
+            .word_highlight,
+        "a toggle must not write until Save"
+    );
+    main_cx.update(|_, app| assert!(viewer.read(app).settings.diff.word_highlight));
+    save_settings(cx);
+    let saved = Settings::parse(&std::fs::read_to_string(&path).unwrap()).unwrap();
+    assert!(!saved.diff.word_highlight);
+    assert!(cx.debug_bounds("reset-diff.word_highlight").is_some());
+    let reset = cx.debug_bounds("reset-diff.word_highlight").unwrap();
+    cx.simulate_click(reset.center(), Default::default());
+    draw(cx);
+    save_settings(cx);
+    let text = std::fs::read_to_string(&path).unwrap();
+    assert!(Settings::parse(&text).unwrap().diff.word_highlight);
+    assert!(cx.debug_bounds("reset-diff.word_highlight").is_none());
+    let raw: toml::Value = toml::from_str(&text).unwrap();
+    assert!(
+        raw.get("diff")
+            .and_then(|table| table.get("word_highlight"))
+            .is_none()
+    );
+    let bounds = cx.debug_bounds("settings-modified").unwrap();
+    cx.simulate_click(bounds.center(), Default::default());
+    draw(cx);
+    assert!(cx.debug_bounds("setting-diff.word_highlight").is_none());
+    cx.update(|window, _| window.remove_window());
+    draw(main_cx);
+    assert_eq!(
+        main_cx.update(|_, app| viewer.read(app).comparison().unwrap().identity()),
+        before
+    );
+    assert!(main_cx.debug_bounds("settings-page").is_none());
+}
+
+#[gpui_test::test]
+fn settings_numeric_drafts_validate_before_saving_and_defaults_are_read_only(
+    cx: &mut TestAppContext,
+) {
+    let fixture = Fixture::new();
+    let (viewer, cx) = setup(&fixture, cx);
+    let (page, mut settings_cx) = open_settings_test(&viewer, cx, false);
+    let cx = &mut settings_cx;
+    draw(cx);
+    let bounds = cx.debug_bounds("settings-search").unwrap();
+    cx.simulate_click(bounds.center(), Default::default());
+    cx.simulate_input("ui.font_size");
+    draw(cx);
+    assert!(
+        cx.debug_bounds(if cfg!(target_os = "macos") {
+            "kbd:cmd-s"
+        } else {
+            "kbd:ctrl-s"
+        })
+        .is_some(),
+        "Save must display its configured shortcut"
+    );
+    let status = cx.update(|_, app| page.read(app).test_status(app));
+    let bounds = cx
+        .debug_bounds("setting-ui.font_size")
+        .unwrap_or_else(|| panic!("{status}"));
+    cx.simulate_click(bounds.center(), Default::default());
+    draw(cx);
+    let input_focus = cx.update(|window, app| window.focused(app).unwrap());
+    let header = cx.debug_bounds("settings-header").unwrap();
+    cx.simulate_click(
+        point(header.left() + px(20.), header.top() + px(20.)),
+        Default::default(),
+    );
+    draw(cx);
+    assert!(!cx.update(|window, _| input_focus.is_focused(window)));
+    cx.simulate_click(bounds.center(), Default::default());
+    draw(cx);
+    assert!(cx.update(|window, _| input_focus.is_focused(window)));
+    cx.simulate_keystrokes("secondary-a");
+    cx.simulate_input("-10");
+    cx.simulate_keystrokes("enter");
+    draw(cx);
+    let path = fixture.0.join("settings.toml");
+    assert_eq!(
+        Settings::parse(&std::fs::read_to_string(&path).unwrap())
+            .unwrap()
+            .ui
+            .font_size,
+        16.
+    );
+    cx.simulate_keystrokes("secondary-a");
+    cx.simulate_input("18");
+    cx.simulate_keystrokes("secondary-s");
+    draw(cx);
+    assert_eq!(
+        Settings::parse(&std::fs::read_to_string(&path).unwrap())
+            .unwrap()
+            .ui
+            .font_size,
+        18.
+    );
+    let saved = std::fs::read_to_string(&path).unwrap();
+    cx.update(|_, app| page.update(app, |page, cx| page.show_defaults(true, cx)));
+    draw(cx);
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), saved);
+    assert!(cx.debug_bounds("settings-page").is_some());
+}
+
+#[gpui_test::test]
+fn settings_documents_publish_across_windows_and_reject_old_results(test_cx: &mut TestAppContext) {
+    use jaywalk::{preferences::Patch, settings_reload::SettingsSource};
+    let fixture = Fixture::new();
+    let (viewer, cx) = setup(&fixture, test_cx);
+    let (page, mut popup) = open_settings_test(&viewer, cx, false);
+    let path = cx.update(|_, app| viewer.read(app).arguments.config.clone().unwrap());
+    let source = SettingsSource::resolve(Some(&path)).unwrap();
+    let old = source.read_snapshot().unwrap();
+    let newer =
+        jaywalk::preferences::patch(&source, Patch::set("ui.appearance", "light".into())).unwrap();
+    cx.update(|_, app| {
+        crate::settings_service::publish_snapshot(source.clone(), newer.clone(), app).unwrap();
+        crate::settings_service::publish_snapshot(source.clone(), old, app).unwrap();
+    });
+    draw(cx);
+    draw(&mut popup);
+    popup.update(|_, app| {
+        assert!(page.read(app).test_status(app).contains("loaded=true"));
+    });
+    cx.update(|_, app| {
+        assert_eq!(
+            viewer.read(app).settings.ui.appearance,
+            jaywalk::settings::Appearance::Light,
+            "config error: {:?}",
+            viewer.read(app).config.error
+        );
+    });
+    let settings = cx.update(|_, app| viewer.read(app).settings.clone());
+    // An explicit default is a document change even if its effective settings
+    // are equal; subscribers still need its provenance for Reset/Set labels.
+    let explicit =
+        jaywalk::preferences::patch(&source, Patch::set("diff.word_highlight", true.into()))
+            .unwrap();
+    cx.update(|_, app| {
+        let state = crate::settings_service::publish_snapshot(source, explicit, app).unwrap();
+        assert!(
+            state
+                .read(app)
+                .snapshot
+                .as_ref()
+                .unwrap()
+                .explicit("diff.word_highlight")
+                .is_some()
+        );
+        assert_eq!(
+            state.read(app).current.diff.word_highlight,
+            settings.diff.word_highlight
+        );
+    });
+}
+
+#[gpui_test::test]
+fn visible_commands_follow_remapped_chords_and_unbound_profiles(cx: &mut TestAppContext) {
+    use jaywalk::commands::CommandId;
+    let fixture = Fixture::new();
+    let (viewer, cx) = setup(&fixture, cx);
+    let settings = cx.update(|_, app| viewer.read(app).settings.clone());
+    for (binding, expected) in [("['secondary-k secondary-o']", true), ("[]", false)] {
+        let profile = jaywalk::keybinding_profiles::Profile::parse(&format!(
+            "[keybindings]\nopen_repository={binding}"
+        ))
+        .unwrap();
+        let remapped = settings.clone().with_keybindings(profile).unwrap();
+        cx.update(|window, app| {
+            super::commands::install_bindings(&remapped, app).unwrap();
+            viewer.update(app, |viewer, cx| {
+                viewer.execute_command(CommandId::ShowSetup, window, cx)
+            });
+        });
+        draw(cx);
+        assert_eq!(cx.debug_bounds("kbd:cmd-k cmd-o").is_some(), expected);
+        // The default shortcut must disappear after a remap or an unbind.
+        assert!(cx.debug_bounds("kbd:cmd-o").is_none());
+    }
+}
+
+#[gpui_test::test]
+fn settings_remain_usable_in_a_narrow_window(cx: &mut TestAppContext) {
+    let fixture = Fixture::new();
+    let (viewer, cx) = setup(&fixture, cx);
+    let (_page, mut settings_cx) = open_settings_test(&viewer, cx, false);
+    let cx = &mut settings_cx;
+    cx.simulate_resize(size(px(560.), px(600.)));
+    draw(cx);
+    let page = cx.debug_bounds("settings-page").unwrap();
+    let search = cx.debug_bounds("settings-search").unwrap();
+    assert!(search.right() <= page.right());
+    assert!(search.left() >= page.left());
+    cx.simulate_click(search.center(), Default::default());
+    cx.simulate_input("ui.font_size");
+    draw(cx);
+    let field = cx.debug_bounds("setting-ui.font_size").unwrap();
+    assert!(field.right() <= page.right());
+    assert!(field.bottom() <= page.bottom());
+}
+
+fn open_accounts_test(
+    viewer: &Entity<Viewer>,
+    cx: &mut VisualTestContext,
+) -> (
+    Entity<crate::preferences_ui::SettingsPage>,
+    VisualTestContext,
+) {
+    let (handle, page) = cx.update(|_, app| {
+        let viewer = viewer.read(app);
+        crate::preferences_window::show_accounts(
+            viewer.arguments.clone(),
+            viewer.settings.clone(),
+            jaywalk::commands::CommandId::Accounts,
+            app,
+        )
+        .unwrap()
+    });
+    let mut popup = VisualTestContext::from_window(handle, &cx.cx);
+    popup.simulate_resize(size(px(1100.), px(800.)));
+    draw(&mut popup);
+    (page, popup)
+}
+
+fn open_settings_test(
+    viewer: &Entity<Viewer>,
+    cx: &mut VisualTestContext,
+    defaults: bool,
+) -> (
+    Entity<crate::preferences_ui::SettingsPage>,
+    VisualTestContext,
+) {
+    let (handle, page) = cx.update(|_, app| {
+        let viewer = viewer.read(app);
+        crate::preferences_window::show(
+            viewer.arguments.clone(),
+            viewer.settings.clone(),
+            defaults,
+            app,
+        )
+        .unwrap()
+    });
+    let mut popup = VisualTestContext::from_window(handle, &cx.cx);
+    popup.simulate_resize(size(px(1100.), px(800.)));
+    draw(&mut popup);
+    (page, popup)
+}
+
+#[gpui_test::test]
+fn settings_commands_open_a_single_separate_window_for_the_source(cx: &mut TestAppContext) {
+    use jaywalk::commands::CommandId;
+    let fixture = Fixture::new();
+    let (viewer, cx) = setup(&fixture, cx);
+    let identity = cx.update(|_, app| viewer.read(app).comparison().unwrap().identity());
+    for command in [CommandId::ShowSettings, CommandId::ShowDefaultSettings] {
+        cx.update(|window, app| {
+            viewer.update(app, |viewer, cx| {
+                viewer.execute_command(command, window, cx)
+            })
+        });
+        draw(cx);
+        assert!(cx.debug_bounds("settings-page").is_none());
+        cx.update(|_, app| {
+            assert_eq!(app.windows().len(), 2);
+            assert_eq!(viewer.read(app).comparison().unwrap().identity(), identity);
+        });
+    }
+}
+
+#[gpui_test::test]
+fn settings_navigation_selects_one_destination_and_preserves_explicit_search_scope(
+    cx: &mut TestAppContext,
+) {
+    let fixture = Fixture::new();
+    let (viewer, cx) = setup(&fixture, cx);
+    let (page, mut popup) = open_settings_test(&viewer, cx, false);
+    let cx = &mut popup;
+    fn click(cx: &mut VisualTestContext, selector: &'static str) {
+        let bounds = cx.debug_bounds(selector).unwrap();
+        cx.simulate_click(bounds.center(), Default::default());
+        draw(cx);
+    }
+    let status = |cx: &mut VisualTestContext| cx.update(|_, app| page.read(app).test_status(app));
+    click(cx, "settings-modified");
+    assert!(
+        status(cx).contains("category=None changed=true"),
+        "{}",
+        status(cx)
+    );
+    click(cx, "settings-modified");
+    assert!(
+        status(cx).contains("category=None changed=true"),
+        "{}",
+        status(cx)
+    );
+    click(cx, "settings-all");
+    assert!(
+        status(cx).contains("category=None changed=false"),
+        "{}",
+        status(cx)
+    );
+    click(cx, "settings-modified");
+    click(cx, "settings-category-0");
+    assert!(
+        status(cx).contains("category=Some(General) changed=false"),
+        "{}",
+        status(cx)
+    );
+    click(cx, "settings-search");
+    cx.simulate_input("wrap");
+    draw(cx);
+    click(cx, "settings-category-3");
+    click(cx, "settings-search");
+    cx.simulate_keystrokes("secondary-a backspace");
+    draw(cx);
+    assert!(
+        status(cx).contains("category=Some(Diff) changed=false"),
+        "{}",
+        status(cx)
+    );
+    click(cx, "settings-search");
+    cx.simulate_input("wrap");
+    draw(cx);
+    click(cx, "settings-modified");
+    click(cx, "settings-search");
+    cx.simulate_keystrokes("secondary-a backspace");
+    draw(cx);
+    assert!(
+        status(cx).contains("category=None changed=true"),
+        "{}",
+        status(cx)
+    );
+    click(cx, "settings-all");
+    assert!(
+        status(cx).contains("category=None changed=false"),
+        "{}",
+        status(cx)
+    );
+    cx.simulate_resize(size(px(560.), px(600.)));
+    draw(cx);
+    click(cx, "settings-modified-small");
+    click(cx, "settings-modified-small");
+    assert!(
+        status(cx).contains("category=None changed=true"),
+        "{}",
+        status(cx)
+    );
+    click(cx, "settings-category-menu");
+    cx.simulate_keystrokes("down enter");
+    draw(cx);
+    assert!(
+        status(cx).contains("category=None changed=false"),
+        "{}",
+        status(cx)
+    );
+}
+
+#[gpui_test::test]
+fn settings_number_buttons_save_steps_and_fonts_can_return_to_default(cx: &mut TestAppContext) {
+    let fixture = Fixture::new();
+    let args =
+        Arguments::parse_from(["jaywalk", fixture.0.to_str().unwrap(), "--file", "file.txt"]);
+    let (viewer, cx) = setup_arguments_with_settings(
+        &fixture,
+        args,
+        "[editor]\nfont_family='Fixture font not installed'\n",
+        cx,
+    );
+    let (_page, mut popup) = open_settings_test(&viewer, cx, false);
+    let cx = &mut popup;
+    let search = cx.debug_bounds("settings-search").unwrap();
+    cx.simulate_click(search.center(), Default::default());
+    cx.simulate_input("ui.font_size");
+    draw(cx);
+    let field = cx.debug_bounds("setting-ui.font_size").unwrap();
+    let plus = point(field.right() - px(10.), field.center().y);
+    cx.simulate_click(plus, Default::default());
+    draw(cx);
+    let path = fixture.0.join("settings.toml");
+    assert_eq!(
+        Settings::parse(&std::fs::read_to_string(&path).unwrap())
+            .unwrap()
+            .ui
+            .font_size,
+        16.
+    );
+    save_settings(cx);
+    assert_eq!(
+        Settings::parse(&std::fs::read_to_string(&path).unwrap())
+            .unwrap()
+            .ui
+            .font_size,
+        16.5
+    );
+    let field = cx.debug_bounds("setting-ui.font_size").unwrap();
+    cx.simulate_click(
+        point(field.left() + px(10.), field.center().y),
+        Default::default(),
+    );
+    draw(cx);
+    save_settings(cx);
+    assert_eq!(
+        Settings::parse(&std::fs::read_to_string(&path).unwrap())
+            .unwrap()
+            .ui
+            .font_size,
+        16.
+    );
+    let search = cx.debug_bounds("settings-search").unwrap();
+    cx.simulate_click(search.center(), Default::default());
+    cx.simulate_keystrokes("secondary-a");
+    cx.simulate_input("editor.font_family");
+    draw(cx);
+    let font = cx.debug_bounds("setting-editor.font_family").unwrap();
+    let caret = cx.debug_bounds("dropdown-trigger-caret").unwrap();
+    assert!(caret.size.width >= px(12.));
+    assert!(caret.left() >= font.left() && caret.right() <= font.right());
+    cx.simulate_click(font.center(), Default::default());
+    draw(cx);
+    cx.simulate_input("Fixture");
+    draw(cx);
+    cx.simulate_keystrokes("escape");
+    draw(cx);
+    // Cancel a searched Select without closing Settings, then reopen the same
+    // shared Button trigger and use the keyboard to reset its value.
+    let font = cx.debug_bounds("setting-editor.font_family").unwrap();
+    cx.simulate_click(font.center(), Default::default());
+    draw(cx);
+    cx.simulate_keystrokes("up enter");
+    draw(cx);
+    save_settings(cx);
+    assert!(
+        Settings::parse(&std::fs::read_to_string(&path).unwrap())
+            .unwrap()
+            .editor
+            .font_family
+            .is_none()
+    );
+    let title = cx.debug_bounds("select-trigger-title").unwrap();
+    let expected = cx.update(|window, app| {
+        let text: gpui_test::SharedString = "Use default".into();
+        let run = gpui_test::TextRun {
+            len: text.len(),
+            font: gpui_test::Font {
+                family: gpui_kit::component::Theme::global(app).font_family.clone(),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        window
+            .text_system()
+            .shape_line(text, window.rem_size() * 0.875, &[run], None)
+            .width
+    });
+    assert!(
+        title.size.width >= expected,
+        "default label clipped: {title:?}, expected {expected:?}"
+    );
+}
+
+#[cfg(debug_assertions)]
+#[gpui_test::test]
+fn settings_inspector_can_pick_an_individual_control(cx: &mut TestAppContext) {
+    let fixture = Fixture::new();
+    let (viewer, cx) = setup(&fixture, cx);
+    let (_page, mut popup) = open_settings_test(&viewer, cx, false);
+    let cx = &mut popup;
+    let search = cx.debug_bounds("settings-search").unwrap();
+    cx.simulate_click(search.center(), Default::default());
+    cx.simulate_input("ui.appearance");
+    draw(cx);
+    cx.update(|window, app| window.toggle_inspector(app));
+    draw(cx);
+    assert!(cx.update(|window, app| window.is_inspector_picking(app)));
+    let field = cx.debug_bounds("setting-ui.appearance").unwrap();
+    cx.simulate_mouse_move(field.center(), None, Default::default());
+    draw(cx);
+    cx.update(|window, _| {
+        let highlight = window
+            .painted_quads()
+            .into_iter()
+            .find(|quad| {
+                quad.background == gpui_test::solid_background(gpui_test::rgba(0x61afef4d))
+            })
+            .expect("inspector should highlight the hovered control");
+        let scale = window.scale_factor();
+        assert!(
+            highlight.bounds.size.width.as_f32() / scale <= f32::from(field.size.width) + 1.,
+            "inspector selected an overlay instead of the control: {highlight:?}, field {field:?}"
+        );
+    });
+    cx.simulate_click(field.center(), Default::default());
+    draw(cx);
+    assert!(
+        !cx.update(|window, app| window.is_inspector_picking(app)),
+        "inspector did not find the dropdown hit target at {field:?}"
+    );
+}
+
+#[gpui_test::test]
+fn settings_color_fields_preserve_the_other_appearance_and_toggle_shared_values(
+    cx: &mut TestAppContext,
+) {
+    let fixture = Fixture::new();
+    let (viewer, cx) = setup(&fixture, cx);
+    let (_page, mut popup) = open_settings_test(&viewer, cx, false);
+    let cx = &mut popup;
+    let search = cx.debug_bounds("settings-search").unwrap();
+    cx.simulate_click(search.center(), Default::default());
+    cx.simulate_input("diff.colors.added_background");
+    draw(cx);
+    let dark = cx.update(|_, app| gpui::component::Theme::global(app).is_dark());
+    let active = if dark { "dark" } else { "light" };
+    let other = if dark { "light" } else { "dark" };
+    let original: toml::Value = toml::from_str(jaywalk::settings::DEFAULT_CONFIG).unwrap();
+    let other_color = original["diff"]["colors"]["added_background"][other].clone();
+    let field = cx
+        .debug_bounds("setting-diff.colors.added_background")
+        .unwrap();
+    assert!(
+        field.size.width < px(180.),
+        "pair must use a compact single-color field"
+    );
+    cx.simulate_click(
+        point(field.right() - px(25.), field.center().y),
+        Default::default(),
+    );
+    cx.simulate_keystrokes("secondary-a");
+    cx.simulate_input("#123456");
+    cx.simulate_keystrokes("enter");
+    draw(cx);
+    save_settings(cx);
+    let read = || {
+        toml::from_str::<toml::Value>(
+            &std::fs::read_to_string(fixture.0.join("settings.toml")).unwrap(),
+        )
+        .unwrap()
+    };
+    let saved = read();
+    assert_eq!(
+        saved["diff"]["colors"]["added_background"][active].as_str(),
+        Some("#123456")
+    );
+    assert_eq!(
+        saved["diff"]["colors"]["added_background"][other],
+        other_color
+    );
+    let checkbox = cx
+        .debug_bounds("setting-separate-diff.colors.added_background")
+        .unwrap();
+    cx.simulate_click(checkbox.center(), Default::default());
+    draw(cx);
+    save_settings(cx);
+    assert_eq!(
+        read()["diff"]["colors"]["added_background"].as_str(),
+        Some("#123456")
+    );
+    let checkbox = cx
+        .debug_bounds("setting-separate-diff.colors.added_background")
+        .unwrap();
+    cx.simulate_click(checkbox.center(), Default::default());
+    draw(cx);
+    save_settings(cx);
+    let saved = read();
+    for mode in ["light", "dark"] {
+        assert_eq!(
+            saved["diff"]["colors"]["added_background"][mode].as_str(),
+            Some("#123456")
+        );
+    }
+}
+
+#[gpui_test::test]
+fn settings_color_browsing_and_appearance_changes_do_not_save_overrides(cx: &mut TestAppContext) {
+    let fixture = Fixture::new();
+    let (viewer, cx) = setup(&fixture, cx);
+    let (_page, mut popup) = open_settings_test(&viewer, cx, false);
+    let cx = &mut popup;
+    let path = fixture.0.join("settings.toml");
+    let before = std::fs::read_to_string(&path).unwrap();
+    for (key, selector) in [
+        (
+            "diff.colors.added_background",
+            "setting-diff.colors.added_background",
+        ),
+        (
+            "diff.colors.removed_background",
+            "setting-diff.colors.removed_background",
+        ),
+    ] {
+        let search = cx.debug_bounds("settings-search").unwrap();
+        cx.simulate_click(search.center(), Default::default());
+        cx.simulate_keystrokes("secondary-a");
+        cx.simulate_input(key);
+        draw(cx);
+        for appearance in ["dark", "light", "dark"] {
+            cx.update(|_, app| {
+                crate::appearance::apply(
+                    &Settings::parse(&format!("[ui]\nappearance='{appearance}'")).unwrap(),
+                    app,
+                );
+            });
+            draw(cx);
+            let field = cx.debug_bounds(selector).unwrap();
+            cx.simulate_click(
+                point(field.right() - px(25.), field.center().y),
+                Default::default(),
+            );
+            cx.simulate_keystrokes("enter");
+            draw(cx);
+            let header = cx.debug_bounds("settings-header").unwrap();
+            cx.simulate_click(header.center(), Default::default());
+            draw(cx);
+            assert_eq!(std::fs::read_to_string(&path).unwrap(), before);
+        }
+    }
+}
+
+#[gpui_test::test]
+fn settings_save_discard_and_close_prompts_cover_active_text_and_invalid_drafts(
+    cx: &mut TestAppContext,
+) {
+    let fixture = Fixture::new();
+    let (viewer, cx) = setup(&fixture, cx);
+    let (page, mut popup) = open_settings_test(&viewer, cx, false);
+    let main = cx;
+    let cx = &mut popup;
+    let path = fixture.0.join("settings.toml");
+    let before = std::fs::read_to_string(&path).unwrap();
+    let search = cx.debug_bounds("settings-search").unwrap();
+    cx.simulate_click(search.center(), Default::default());
+    cx.simulate_input("ui.font_size");
+    draw(cx);
+    let field = cx.debug_bounds("setting-ui.font_size").unwrap();
+    cx.simulate_click(field.center(), Default::default());
+    cx.simulate_keystrokes("secondary-a");
+    cx.simulate_input("19");
+    draw(cx);
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), before);
+    cx.update(|window, app| page.update(app, |page, cx| page.request_close(false, window, cx)));
+    draw(cx);
+    assert!(cx.cx.has_pending_prompt());
+    cx.cx.simulate_prompt_answer("Cancel");
+    draw(cx);
+    assert!(cx.update(|_, app| page.read(app).has_changes()));
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), before);
+    let discard = cx.debug_bounds("settings-discard").unwrap();
+    cx.simulate_click(discard.center(), Default::default());
+    draw(cx);
+    assert!(!cx.update(|_, app| page.read(app).has_changes()));
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), before);
+    let field = cx.debug_bounds("setting-ui.font_size").unwrap();
+    cx.simulate_click(field.center(), Default::default());
+    cx.simulate_keystrokes("secondary-a");
+    cx.simulate_input("-1");
+    draw(cx);
+    cx.update(|window, app| page.update(app, |page, cx| page.request_close(false, window, cx)));
+    draw(cx);
+    cx.cx.simulate_prompt_answer("Save");
+    draw(cx);
+    assert!(cx.debug_bounds("settings-page").is_some());
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), before);
+    let field = cx.debug_bounds("setting-ui.font_size").unwrap();
+    cx.simulate_click(field.center(), Default::default());
+    cx.simulate_keystrokes("secondary-a");
+    cx.simulate_input("20");
+    draw(cx);
+    cx.update(|window, app| page.update(app, |page, cx| page.request_close(false, window, cx)));
+    draw(cx);
+    cx.cx.simulate_prompt_answer("Save");
+    draw(main);
+    assert_eq!(
+        Settings::parse(&std::fs::read_to_string(&path).unwrap())
+            .unwrap()
+            .ui
+            .font_size,
+        20.
+    );
+    assert_eq!(
+        main.update(|_, app| app.windows().len()),
+        1,
+        "successful Save closes Settings"
+    );
+    let (page, mut popup) = open_settings_test(&viewer, main, false);
+    let cx = &mut popup;
+    let search = cx.debug_bounds("settings-search").unwrap();
+    cx.simulate_click(search.center(), Default::default());
+    cx.simulate_input("diff.word_highlight");
+    draw(cx);
+    let toggle = cx.debug_bounds("setting-diff.word_highlight").unwrap();
+    cx.simulate_click(toggle.center(), Default::default());
+    draw(cx);
+    let saved = std::fs::read_to_string(&path).unwrap();
+    cx.update(|window, app| page.update(app, |page, cx| page.request_close(false, window, cx)));
+    draw(cx);
+    cx.cx.simulate_prompt_answer("Discard");
+    draw(main);
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), saved);
+    assert_eq!(main.update(|_, app| app.windows().len()), 1);
+}
+
+#[gpui_test::test]
+fn settings_drafts_keep_update_consent_off_and_conflicts_preserve_all_external_values(
+    cx: &mut TestAppContext,
+) {
+    let fixture = Fixture::new();
+    let (viewer, cx) = setup(&fixture, cx);
+    let (_page, mut popup) = open_settings_test(&viewer, cx, false);
+    let cx = &mut popup;
+    let path = fixture.0.join("settings.toml");
+    let before = std::fs::read_to_string(&path).unwrap();
+    let search = cx.debug_bounds("settings-search").unwrap();
+    cx.simulate_click(search.center(), Default::default());
+    cx.simulate_input("updates.automatic_checks");
+    draw(cx);
+    let toggle = cx.debug_bounds("setting-updates.automatic_checks").unwrap();
+    cx.simulate_click(toggle.center(), Default::default());
+    draw(cx);
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), before);
+    cx.update(|_, app| assert!(!viewer.read(app).settings.updates.automatic_checks));
+    let search = cx.debug_bounds("settings-search").unwrap();
+    cx.simulate_click(search.center(), Default::default());
+    cx.simulate_keystrokes("secondary-a");
+    cx.simulate_input("diff.word_highlight");
+    draw(cx);
+    let toggle = cx.debug_bounds("setting-diff.word_highlight").unwrap();
+    cx.simulate_click(toggle.center(), Default::default());
+    draw(cx);
+    let source = jaywalk::settings_reload::SettingsSource::resolve(Some(&path)).unwrap();
+    let external = jaywalk::preferences::patch(
+        &source,
+        jaywalk::preferences::Patch::set("diff.word_highlight", true.into()),
+    )
+    .unwrap();
+    let text = external.text.clone();
+    cx.update(|_, app| {
+        crate::settings_service::publish_snapshot(source, external, app).unwrap();
+    });
+    draw(cx);
+    save_settings(cx);
+    assert_eq!(
+        std::fs::read_to_string(&path).unwrap(),
+        text,
+        "conflict must reject the entire batch, including consent"
+    );
+    let discard = cx.debug_bounds("settings-discard").unwrap();
+    cx.simulate_click(discard.center(), Default::default());
+    draw(cx);
+    assert!(cx.debug_bounds("reset-diff.word_highlight").is_none());
+}
+
+#[gpui_test::test]
+fn settings_quit_requests_use_the_same_unsaved_guard(cx: &mut TestAppContext) {
+    let fixture = Fixture::new();
+    let (viewer, cx) = setup(&fixture, cx);
+    let (page, mut popup) = open_settings_test(&viewer, cx, false);
+    let cx = &mut popup;
+    let search = cx.debug_bounds("settings-search").unwrap();
+    cx.simulate_click(search.center(), Default::default());
+    cx.simulate_input("diff.word_highlight");
+    draw(cx);
+    let toggle = cx.debug_bounds("setting-diff.word_highlight").unwrap();
+    cx.simulate_click(toggle.center(), Default::default());
+    draw(cx);
+    cx.update(|_, app| crate::preferences_window::request_quit(app));
+    draw(cx);
+    assert!(cx.cx.has_pending_prompt());
+    cx.cx.simulate_prompt_answer("Cancel");
+    draw(cx);
+    assert!(cx.update(|_, app| page.read(app).has_changes()));
+    assert!(cx.debug_bounds("settings-page").is_some());
+    assert!(
+        Settings::parse(&std::fs::read_to_string(fixture.0.join("settings.toml")).unwrap())
+            .unwrap()
+            .diff
+            .word_highlight
+    );
+}
+
+#[gpui_test::test]
+fn settings_accounts_sidebar_preserves_query_draft_and_account_form(cx: &mut TestAppContext) {
+    let fixture = Fixture::new();
+    crate::account_ui::tests::setup(cx);
+    let (viewer, cx) = setup(&fixture, cx);
+    let (page, mut popup) = open_settings_test(&viewer, cx, false);
+    let cx = &mut popup;
+    let path = fixture.0.join("settings.toml");
+    let before = std::fs::read_to_string(&path).unwrap();
+    let search = cx.debug_bounds("settings-search").unwrap();
+    cx.simulate_click(search.center(), Default::default());
+    cx.simulate_input("diff.word_highlight");
+    draw(cx);
+    let toggle = cx.debug_bounds("setting-diff.word_highlight").unwrap();
+    cx.simulate_click(toggle.center(), Default::default());
+    draw(cx);
+    let accounts = cx.debug_bounds("settings-accounts").unwrap();
+    cx.simulate_click(accounts.center(), Default::default());
+    draw(cx);
+    assert!(cx.debug_bounds("accounts-page").is_some());
+    assert!(cx.debug_bounds("settings-save").is_none());
+    assert!(cx.debug_bounds("settings-defaults").is_none());
+    assert!(cx.debug_bounds("accounts-leave").is_none());
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), before);
+    assert!(cx.update(|_, app| page.read(app).has_changes()));
+    let paste = cx.debug_bounds("accounts-paste-token").unwrap();
+    cx.simulate_click(paste.center(), Default::default());
+    draw(cx);
+    assert!(cx.debug_bounds("accounts-token-input").is_some());
+    let all = cx.debug_bounds("settings-all").unwrap();
+    cx.simulate_click(all.center(), Default::default());
+    draw(cx);
+    assert!(cx.debug_bounds("accounts-page").is_none());
+    assert!(cx.debug_bounds("setting-diff.word_highlight").is_some());
+    assert!(cx.update(|_, app| {
+        page.read(app)
+            .test_status(app)
+            .contains("diff.word_highlight")
+    }));
+    assert!(cx.update(|_, app| page.read(app).has_changes()));
+    let accounts = cx.debug_bounds("settings-accounts").unwrap();
+    cx.simulate_click(accounts.center(), Default::default());
+    draw(cx);
+    assert!(
+        cx.debug_bounds("accounts-token-input").is_some(),
+        "switching pages must retain the account form"
+    );
+    let all = cx.debug_bounds("settings-all").unwrap();
+    cx.simulate_click(all.center(), Default::default());
+    draw(cx);
+    save_settings(cx);
+    assert!(
+        !Settings::parse(&std::fs::read_to_string(&path).unwrap())
+            .unwrap()
+            .diff
+            .word_highlight
+    );
 }

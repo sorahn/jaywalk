@@ -330,7 +330,13 @@ impl Viewer {
             .flex_shrink_0()
             .icon(crate::appearance::active_icon(icon, active, cx))
             .toggled(active)
-            .tooltip(label)
+            .command_tooltip(
+                label,
+                match kind {
+                    EvolutionKind::Change => jaywalk::commands::CommandId::ToggleChangeEvolution,
+                    EvolutionKind::File => jaywalk::commands::CommandId::ToggleFileEvolution,
+                },
+            )
             .on_click(
                 cx.listener(move |this, _, window, cx| {
                     this.toggle_evolution_panel(kind, window, cx)
@@ -928,7 +934,17 @@ impl Viewer {
                             .small()
                             .compact()
                             .icon(IconName::X)
-                            .tooltip("Hide evolution")
+                            .command_tooltip(
+                                "Hide evolution",
+                                match kind {
+                                    EvolutionKind::Change => {
+                                        jaywalk::commands::CommandId::ToggleChangeEvolution
+                                    }
+                                    EvolutionKind::File => {
+                                        jaywalk::commands::CommandId::ToggleFileEvolution
+                                    }
+                                },
+                            )
                             .on_click(cx.listener(move |this, _, window, cx| {
                                 this.toggle_evolution_panel(kind, window, cx)
                             })),

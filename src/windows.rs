@@ -390,7 +390,7 @@ mod tests {
     use clap::Parser;
     // TestAppContext uses GPUI's test platform: no native desktop window opens.
     #[gpui_test::test]
-    fn application_commands_create_a_main_window_then_reuse_its_pages(
+    fn application_commands_reuse_settings_accounts_without_creating_an_empty_viewer(
         cx: &mut gpui_test::TestAppContext,
     ) {
         use gpui::QuitMode;
@@ -413,22 +413,34 @@ mod tests {
             crate::show_application_page(arguments.clone(), CommandId::Accounts, app);
         });
         cx.run_until_parked();
-        let first = cx.update(|app| {
-            assert_eq!(app.global::<super::Windows>().0.len(), 1);
-            let (handle, viewer) = super::preferred_viewer(app).unwrap();
-            assert!(viewer.read(app).is_repository_free());
-            assert!(!viewer.read(app).is_welcome());
-            handle
-        });
         cx.update(|app| {
-            crate::show_application_page(arguments.clone(), CommandId::ShowWelcome, app)
+            assert_eq!(app.global::<super::Windows>().0.len(), 0);
+            assert_eq!(
+                app.windows().len(),
+                1,
+                "Accounts needs only its Settings window"
+            );
+            crate::show_application_page(arguments.clone(), CommandId::Accounts, app);
+        });
+        cx.run_until_parked();
+        cx.update(|app| {
+            assert_eq!(app.windows().len(), 1);
+            crate::show_application_page(arguments.clone(), CommandId::ShowWelcome, app);
+        });
+        cx.run_until_parked();
+        let first = cx.update(|app| {
+            let (handle, viewer) = super::preferred_viewer(app).unwrap();
+            assert!(viewer.read(app).is_welcome());
+            assert_eq!(app.windows().len(), 2);
+            crate::show_application_page(arguments.clone(), CommandId::Accounts, app);
+            handle
         });
         cx.run_until_parked();
         cx.update(|app| {
             let (handle, viewer) = super::preferred_viewer(app).unwrap();
             assert_eq!(handle, first);
             assert!(viewer.read(app).is_welcome());
-            assert_eq!(app.windows().len(), 1);
+            assert_eq!(app.windows().len(), 2);
             handle
                 .update(app, |_, window, _| window.remove_window())
                 .unwrap();
@@ -441,9 +453,7 @@ mod tests {
         cx.run_until_parked();
         cx.update(|app| {
             assert_eq!(app.windows().len(), 1);
-            let (handle, viewer) = super::preferred_viewer(app).unwrap();
-            assert_ne!(handle, first);
-            assert!(!viewer.read(app).is_welcome());
+            assert!(super::preferred_viewer(app).is_none());
         });
         std::fs::remove_dir_all(root).unwrap();
     }
@@ -608,12 +618,8 @@ mod tests {
             crate::viewer::init(&welcome, &settings, app).unwrap();
             app.set_quit_mode(gpui::QuitMode::Explicit);
         });
-        // The same empty-window policy covers setup, skipping to Welcome, and Accounts.
-        for page in [
-            CommandId::ShowSetup,
-            CommandId::ShowWelcome,
-            CommandId::Accounts,
-        ] {
+        // Settings/Accounts has its own window; only central startup pages are reused.
+        for page in [CommandId::ShowSetup, CommandId::ShowWelcome] {
             cx.update(|app| {
                 let first = super::open_with_disposition(
                     super::PreparedWindow::load(welcome.clone(), settings.clone()),

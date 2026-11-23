@@ -11,12 +11,74 @@ inherit current defaults, including defaults changed by future releases.
 Existing files and explicit overrides are preserved.
 The schema and validation live in [src/settings.rs](../src/settings.rs).
 
+## Native settings page
+
+Cmd/Ctrl+, or **Show settings** opens a separate Settings window. Repeated opens reuse the window for that
+configuration file and leave the review untouched. Eight UI
+categories group the existing TOML keys without renaming them. A divider below
+the categories separates **Accounts**, which opens account management in this
+window. It is excluded from All settings, Changed from defaults, and settings
+search. The Accounts command opens this destination directly. Switching preserves
+the settings query and unsaved draft; Save/Discard appear only on settings pages.
+Account connection actions take effect immediately and are shared across windows.
+Search covers keys,
+titles and descriptions globally by default; selecting a category narrows the
+search. All settings, Changed from defaults, and categories are exclusive
+navigation destinations; selecting one clears the previous selection. Repeated
+clicks keep that destination selected. A category explicitly selected during a
+search stays selected when the query is cleared. **Changed from defaults** shows
+configured values that differ from the
+running defaults. Compact list rows use a consistent description column and a fixed-width,
+right-aligned control column. Text values are right-aligned; numeric stepper values are centered. Changed settings show a small reset icon beside their title; its
+tooltip includes the default value. Hover descriptions for key/default/inheritance
+details. Right-click a title to copy its settings key or remove an explicit
+override, including one equal to the default. Runtime toolbar/layout memory is separate.
+
+Settings controls edit a window-local draft. **Save** (Cmd/Ctrl+S) validates and
+writes all changes in one atomic operation, then applies them across the app.
+**Discard** restores the latest saved values. Closing Settings or choosing Quit
+with unsaved changes offers **Save / Discard / Cancel**; a failed or invalid save
+keeps the window and draft open. There are no temporary live previews yet.
+Switches, dropdowns, resets, numeric steps, and color-mode toggles all remain local
+until Save. Numeric fields have −/+ buttons with setting-specific step sizes and
+bounds, including limits derived from other settings. Enter or leaving a text,
+numeric, or color field validates it into the draft; Save also includes an active
+field that has not blurred. Invalid drafts stay local and show a validation error.
+Update consent becomes effective only after saving it. The TOML schema remains
+authoritative for validation, including relationships between settings.
+Closed dropdowns fit their selected label and stay anchored to the right; menu labels stay left aligned. Numeric fields reserve space for their bounds and decimal step instead of filling the control column. Color inputs use a compact hex-sized field with a swatch on the left. The accent field also previews the resolved system accent when set to `system`. The sun-moon icon toggles separate light/dark colors (accent when on, neutral when off); its tooltip describes the state and action. The field shows and edits only the active appearance, preserving the other value, without a repeated appearance label. Enabling it copies the shared color into both appearances (a system accent becomes its currently resolved RGB color). Disabling it uses the displayed appearance’s color for both. Existing pairs start separated. The dedicated light/dark shell seed fields already select their appearance and do not need this toggle.
+
+Font families use searchable dropdowns of installed fonts. Use default removes
+the override; an existing configured family remains selectable even if it is not
+installed on this machine. Escape reverts the focused field to its staged value, clears a search, or
+requests closing the Settings window. Reset stages removal of the explicit override
+and inherits the current default. Update prerequisite revocation is part of the
+same atomic Save as its dependent settings.
+Appearance exposes the light/dark shell seed colors, accent, and added/removed
+row backgrounds. Detailed diff colors are grouped under **Advanced diff colors**
+with **Edit TOML…**; fine color overrides remain supported in TOML. Editing one
+shell seed mode preserves the other, including when the previous value was shared.
+
+Advanced lists/maps remain searchable with **Edit TOML…**; account connections
+and keyboard profiles keep their existing dedicated flows. **Show default
+settings** presents a read-only reference in the same window. Temporary visual
+previews and project settings are deferred.
+
+Save patches only the edited keys in the latest validated file, preserves
+comments/permissions and symlinks, and rejects the entire batch on stale same-field
+edits. External updates refresh untouched values without replacing pending intents.
+Discard clears the draft after a conflict; unrelated external edits are preserved. Committed documents publish through
+the shared source service with revisions; manual edits continue to reload live.
+The configured external editor remains `settings.editor`, independent of the
+`editor` section for code typography. Explicit old `open_settings` keybindings
+keep opening the file; see [keybindings](keybindings.md).
+
 ## Configuration file and reload
 
 - Default: `~/.config/jaywalk/config.toml`.
 - With a nonempty `XDG_CONFIG_HOME`: `$XDG_CONFIG_HOME/jaywalk/config.toml`.
 - `jw . --config /path/to/config.toml` selects a separate file, which must exist.
-- Cmd+, or **Open settings** opens the active file. A missing default file is
+- **Open settings file…** opens the active file. A missing default file is
   created for you; `settings.editor` chooses the app or command that opens it.
   First use also creates a sparse `keybindings/default.toml` profile; existing files
   are never overwritten. An explicit `--config` must exist and uses profiles beside it.
@@ -110,7 +172,7 @@ section header, for example `[editor]` followed by `font_size = 14`.
 | Setting | Default | Meaning and allowed values |
 | --- | --- | --- |
 | `application.quit_on_last_window` | `true` | Quit when the final actual window closes, including About. `false` keeps the app available with no windows. This is application-wide: opening another config or editing this value updates the shared policy; CLI waiters are notified before shutdown. |
-| `application.single_window_mode` | `false` | Normal opens from `jw`, Ctrl+R/recent repositories, welcome, and Open actions replace the originating viewer, or the active/most recently used viewer for a CLI launch, even for a different repository, range, or config. `false` opens a new window for normal opens once a repository or PR is loaded. An empty startup window is reused on Setup, Welcome or Accounts so those pages do not leave an extra window behind. Explicit Open in new window and the recent-picker modifier always create a new window. Applies on the next open; uses the application-wide last-applied config-source policy. |
+| `application.single_window_mode` | `false` | Normal opens from `jw`, Ctrl+R/recent repositories, welcome, and Open actions replace the originating viewer, or the active/most recently used viewer for a CLI launch, even for a different repository, range, or config. `false` opens a new window for normal opens once a repository or PR is loaded. An empty startup window is reused on Setup or Welcome so those pages do not leave an extra window behind. Accounts opens within the separate Settings window. Explicit Open in new window and the recent-picker modifier always create a new window. Applies on the next open; uses the application-wide last-applied config-source policy. |
 
 ### `picker`
 
@@ -785,7 +847,7 @@ The local source fetches exact published head/base objects with shallow history 
 
 Clean-only checkout refuses staged, unstaged, untracked and submodule changes, in-progress Git operations, and jj/colocated repositories. It also protects ignored files from overwrite. Preflight records the checkout before acquisition and rechecks repository identity, HEAD and branch before switching. No stash, force checkout, reset, clean, branch reset, pull, merge or hook execution is used. Missing checkout objects are fetched using normal Git transport in this explicitly enabled mode, with graph connectivity verified before switching; a shallow scratch store is never used to seed a user checkout. Acquisition disables tag updates, pruning, submodule fetches and automatic maintenance, and does not update branch refs or FETCH_HEAD. An already matching clean checkout is reused without detaching it. Newly created local review branches are not assigned an upstream and remain after restoration unless `cleanup_created_branch` is enabled.
 
-A temporary checkout writes and syncs a private recovery receipt before switching. Ownership is shared between viewers of the same checkout/revision. Replacing the active comparison, navigating to a different comparison, or releasing its last owning viewer schedules restoration; Back/Forward can retain pinned review objects without owning the user checkout. Temporarily opening Welcome, Accounts or the PR browser retains the active comparison and its checkout; use Restore review checkout to finish it explicitly without closing the window. Normal quit waits for guarded restoration on its worker. Restoration proceeds only if the repository is still clean at the expected revision and branch/detached identity and the original branch has not moved; otherwise it leaves the repository alone and retains the receipt. External Git commands and editor writes cannot be locked out by a preflight check.
+A temporary checkout writes and syncs a private recovery receipt before switching. Ownership is shared between viewers of the same checkout/revision. Replacing the active comparison, navigating to a different comparison, or releasing its last owning viewer schedules restoration; Back/Forward can retain pinned review objects without owning the user checkout. Opening Accounts in Settings leaves the review untouched. Temporarily opening Welcome or the PR browser retains the active comparison and its checkout; use Restore review checkout to finish it explicitly without closing the window. Normal quit waits for guarded restoration on its worker. Restoration proceeds only if the repository is still clean at the expected revision and branch/detached identity and the original branch has not moved; otherwise it leaves the repository alone and retains the receipt. External Git commands and editor writes cannot be locked out by a preflight check.
 
 **Restore review checkout…** lists receipts in the active configuration's `review-checkouts/` state directory, including receipts from interrupted runs. It verifies repository identity and current state before doing anything. Recovery is never forced or performed automatically on startup. Once a protected checkout/restore has begun, closing its picker stops waiting rather than cancelling that Git operation; the receipt and restoration worker retain ownership. Each protected Git command has a 30-second deadline. Failure, interruption or an external lock can leave a receipt requiring manual recovery; no forced repair is attempted. A later review cannot reuse an old receipt, and checkout creation stops during application quit.
 
@@ -906,3 +968,28 @@ while `ui.accent_floating_outlines` is enabled; disable it to use
 This shell slice retains the existing syntax palette. VS Code theme imports,
 independent diff-theme files, theme selection/preview commands, and custom
 native titlebar coloring remain separate work.
+
+Standard buttons use spacing 2 horizontally and spacing 1 vertically. Compact toolbar
+buttons use spacing 1 horizontally and spacing 0.5 vertically. These follow the configured shared
+spacing scale; explicit control dimensions remain unchanged.
+
+Dropdown triggers use the shared Button widget, with a trailing chevron and
+spacing 2 at their horizontal edges. All insets belong to the button container;
+labels and chevrons have no additional padding or compensating margins. Compact buttons and compact
+dropdowns use line height 1.2 and retain their smaller vertical inset; menu rows
+remain left aligned.
+
+Numeric stepper values are centered between their decrement/increment buttons;
+ordinary editable text fields remain right aligned.
+
+Dropdowns keep a faint neutral border, strengthen it on hover, and use the accent
+outline for focus/open state. Clicking outside a focused field releases its
+focus while preserving Settings keyboard navigation. Save status shares the
+settings-file path row, so successful saves do not change the header height.
+
+Settings writes serialize control edits without briefly dimming every control.
+Unchanged retained input values are not reset when a new snapshot arrives.
+
+Visible settings summaries use at most two lines, with an ellipsis when needed.
+Their tooltips retain the full explanation, key, default and inheritance details.
+Search matches both the summary and full description.

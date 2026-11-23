@@ -359,18 +359,6 @@ impl Viewer {
     }
 }
 
-#[derive(IntoElement)]
-pub(crate) struct ShortcutHint(pub(crate) jaywalk::commands::CommandId);
-impl RenderOnce for ShortcutHint {
-    fn render(self, window: &mut Window, _: &mut App) -> impl IntoElement {
-        div().children(gpui::component::kbd::Kbd::binding_for_action(
-            &commands::ExecuteCommand { command: self.0 },
-            None,
-            window,
-        ))
-    }
-}
-
 impl Viewer {
     pub(in crate::viewer) fn begin_picker_review_load(
         &mut self,

@@ -136,3 +136,33 @@ button sizes consume it while preserving toolkit defaults when absent. Explicit
 control size/style overrides still win. Spacing changes invalidate measured
 command rows independently of typography. The existing spacing-token projection
 uses the same unit; application files and history keep full-width square rows.
+
+Shortcut tags retain every keystroke in chord bindings, so picker, menu and
+tooltip hints show the complete configured sequence rather than its first key.
+
+NumberInput passes explicit text alignment through to its inner Input while
+retaining centered text by default; hosts can explicitly choose another alignment.
+
+Host-spaced buttons use the edge inset horizontally (spacing 2 by default) and
+the interactive inset vertically (spacing 1);
+`.compact()` uses the interactive inset horizontally (spacing 1) and half that
+vertically (spacing 0.5), including text toolbar
+buttons. Explicit custom sizes and padding overrides remain authoritative.
+
+Select renders its trigger through the shared Button widget while BaseSelect
+retains combobox semantics, focus, keyboard behavior and searchable menus.
+Dropdown carets trail the label; padding belongs only to the Button frame. Compact
+buttons (including dropdowns) use line height 1.2 and matching minimum heights.
+
+NumberInput supports readonly edits/stepping without disabled-opacity changes,
+so short settings writes can preserve the control's appearance and selection.
+
+`gpui-base` is the published 0.10.0 crate with its Apache-2.0 license; registry
+metadata and its standalone lockfile are omitted. Upstream provenance is
+`longbridge/gpui-kit`, revision `f697c3133d55c64fa8a5b67926147fb3dadd276d`,
+`crates/base`. Its only local change makes
+the passive plugin-layer host transparent to inspector picking by using default
+interactivity before styling it. The component overlay hosts use the same rule.
+Their children retain source locations and normal input behavior. This prevents
+empty full-window notification/plugin layers from hiding individual controls
+from the debug inspector. The host regression requires a control-sized highlight.

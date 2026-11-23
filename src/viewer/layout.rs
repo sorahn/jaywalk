@@ -57,12 +57,6 @@ impl Render for Viewer {
                 pages::Page::Welcome => {
                     self.render_welcome(f32::from(window.viewport_size().width), cx)
                 }
-                pages::Page::Accounts => self
-                    .account_page
-                    .as_ref()
-                    .expect("Accounts is constructed before it is shown")
-                    .clone()
-                    .into_any_element(),
                 pages::Page::PullRequests => self
                     .pull_requests_page
                     .as_ref()
