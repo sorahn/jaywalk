@@ -1,16 +1,14 @@
 //! Validated settings documents, field-level transactions and searchable metadata.
 pub mod catalogue;
+mod transaction;
 use crate::{
     settings::{Config, DEFAULT_CONFIG, Settings},
     settings_reload::{self, SettingsSource},
 };
 use catalogue::{Kind, Setting};
-use std::{
-    io::Write,
-    sync::{
-        LazyLock,
-        atomic::{AtomicU64, Ordering},
-    },
+use std::sync::{
+    LazyLock,
+    atomic::{AtomicU64, Ordering},
 };
 static REVISION: AtomicU64 = AtomicU64::new(0);
 static DEFAULTS: LazyLock<toml::Value> =
@@ -97,6 +95,7 @@ impl Snapshot {
             .filter(|(_, s)| {
                 !s.advanced
                     && s.key != "accounts"
+                    && s.key != "keyboard.profile"
                     && category.is_none_or(|category| category == s.category)
                     && (!changed || self.modified(s))
             })
@@ -164,12 +163,12 @@ pub fn display(value: Option<&toml::Value>) -> String {
         None => "Automatic / inherited".into(),
     }
 }
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 pub enum Expect {
     Any,
     Explicit(Option<toml::Value>),
 }
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 pub struct Patch {
     pub key: String,
     pub value: Option<toml::Value>,
@@ -224,7 +223,7 @@ fn set(doc: &mut toml_edit::DocumentMut, key: &str, value: &toml::Value) -> Resu
     table[leaf] = toml_edit::Item::Value(value);
     Ok(())
 }
-fn remove(text: &str, key: &str) -> Result<String, String> {
+pub(crate) fn remove(text: &str, key: &str) -> Result<String, String> {
     let doc = toml_edit::Document::parse(text).map_err(|e| e.to_string())?;
     let parts: Vec<_> = key.split('.').collect();
     let mut item = doc.as_item();
@@ -308,7 +307,7 @@ fn edit(text: &str, patch: &Patch) -> Result<String, String> {
     let explicit: toml::Value = toml::from_str(text).map_err(|error| error.to_string())?;
     let mut text = text.to_owned();
     if let Some(value) = &patch.value {
-        if setting.kind == Kind::Complex {
+        if setting.kind == Kind::Complex && patch.key != "keyboard.profile" {
             return Err("Edit this setting in TOML".into());
         }
         if let Some((section, leaf)) = patch.key.rsplit_once('.')
@@ -415,6 +414,16 @@ pub fn patch(source: &SettingsSource, patch: Patch) -> Result<Snapshot, String> 
 
 /// Validate all expectations and all edits before atomically replacing the file once.
 pub fn patch_many(source: &SettingsSource, patches: &[Patch]) -> Result<Snapshot, String> {
+    save(source, patches, &[])
+}
+
+/// Stage and validate all documents before changing any of them. The shared
+/// writer lock also keeps file watchers from observing a partial profile save.
+pub fn save(
+    source: &SettingsSource,
+    patches: &[Patch],
+    profiles: &[crate::keybinding_profiles::Draft],
+) -> Result<Snapshot, String> {
     let _writer = settings_reload::CONFIG_WRITER
         .lock()
         .expect("config writer mutex poisoned");
@@ -435,48 +444,51 @@ pub fn patch_many(source: &SettingsSource, patches: &[Patch]) -> Result<Snapshot
             text = edit(&text, patch)?;
         }
     }
+    for draft in profiles {
+        if std::fs::read_to_string(&draft.path)
+            .map_err(|e| format!("Could not read {}: {e}", draft.path.display()))?
+            != draft.original
+        {
+            return Err(format!(
+                "{} changed elsewhere. Discard or reload your draft before saving.",
+                draft.path.display()
+            ));
+        }
+    }
     let config = Config::parse(&text)?;
-    let profile_path = crate::keybinding_profiles::path(source.path(), &config.keyboard.profile)?;
-    let profile = std::fs::read_to_string(&profile_path)
-        .map_err(|e| format!("Could not read keybindings: {e}"))?;
+    let profile_path = crate::keybinding_profiles::path(source.path(), &config.keyboard.profile)?
+        .canonicalize()
+        .map_err(|e| format!("Could not resolve keybindings: {e}"))?;
+    let profile = if let Some(profile) = profiles.iter().find(|draft| draft.path == profile_path) {
+        profile.text.clone()
+    } else {
+        std::fs::read_to_string(&profile_path)
+            .map_err(|e| format!("Could not read keybindings: {e}"))?
+    };
     let settings = Settings::resolve(
         config,
         crate::keybinding_profiles::Profile::parse(&profile)?,
     )?;
-    let target = std::fs::canonicalize(source.path()).map_err(|e| e.to_string())?;
-    if text != before.text {
-        if std::fs::metadata(&target)
-            .map_err(|error| error.to_string())?
-            .permissions()
-            .readonly()
-        {
-            return Err(format!(
-                "Settings file is read-only: {}",
-                source.path().display()
-            ));
-        }
-        let mut staged = tempfile::NamedTempFile::new_in(
-            target.parent().ok_or("Settings have no parent directory")?,
-        )
-        .map_err(|e| e.to_string())?;
-        staged
-            .as_file()
-            .set_permissions(
-                std::fs::metadata(&target)
-                    .map_err(|e| e.to_string())?
-                    .permissions(),
-            )
-            .map_err(|e| e.to_string())?;
-        staged
-            .write_all(text.as_bytes())
-            .and_then(|_| staged.as_file().sync_all())
-            .map_err(|e| e.to_string())?;
-        if std::fs::read_to_string(&target).map_err(|e| e.to_string())? != before.text {
+    let target = source.path().canonicalize().map_err(|e| e.to_string())?;
+    let mut documents = Vec::new();
+    for draft in profiles.iter().filter(|draft| draft.changed()) {
+        crate::keybinding_profiles::Profile::parse(&draft.text)?;
+        if draft.path == target || documents.iter().any(|(path, _, _)| path == &draft.path) {
             return Err(
-                "Settings changed while saving. Your external edit was preserved; retry.".into(),
+                "The same file cannot be saved as multiple profiles or as settings.".into(),
             );
         }
-        staged.persist(target).map_err(|e| e.to_string())?;
+        documents.push((
+            draft.path.clone(),
+            draft.original.clone(),
+            draft.text.clone(),
+        ));
+    }
+    if text != before.text {
+        documents.push((target, before.text.clone(), text.clone()));
+    }
+    transaction::replace(&documents)?;
+    if !documents.is_empty() {
         record_commit();
     }
     Snapshot::new(settings, text)

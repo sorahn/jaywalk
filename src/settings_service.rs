@@ -12,14 +12,29 @@ use std::time::Duration;
 struct SettingsService {
     sources: HashMap<SettingsSource, Entity<SourceState>>,
     active: Option<Arc<Settings>>,
+    active_source: Option<SettingsSource>,
 }
 impl Global for SettingsService {}
+
+#[derive(Clone, PartialEq)]
+struct Preview {
+    owner: EntityId,
+    patches: Vec<jaywalk::preferences::Patch>,
+    profile: Option<jaywalk::keybinding_profiles::Profile>,
+}
 
 pub(crate) struct SourceState {
     pub(crate) current: Arc<Settings>,
     pub(crate) error: Option<String>,
     pub(crate) snapshot: Option<Arc<jaywalk::preferences::Snapshot>>,
+    preview: Option<Preview>,
+    pub(crate) transient: bool,
     task: Option<Task<()>>,
+}
+impl SourceState {
+    pub(crate) fn previewing(&self) -> bool {
+        self.preview.is_some()
+    }
 }
 pub(crate) fn init(cx: &mut App) {
     cx.set_global(SettingsService::default());
@@ -33,9 +48,10 @@ pub(crate) fn publish(
     cx: &mut App,
 ) -> Result<Entity<SourceState>, String> {
     if let Some(state) = cx.global::<SettingsService>().sources.get(&source).cloned()
-        && let Some(snapshot) = state.read(cx).snapshot.clone()
+        && state.read(cx).snapshot.is_some()
     {
-        apply_shared(&snapshot.settings, &source, cx)?;
+        let current = state.read(cx).current.clone();
+        apply_shared(&current, &source, cx)?;
         return Ok(state);
     }
     apply_shared(&settings, &source, cx)?;
@@ -51,7 +67,7 @@ pub(crate) fn publish(
     }
     let key = source.clone();
     let state = cx.new(|cx: &mut Context<SourceState>| {
-        let mut state = SourceState { current: Arc::new(settings), error: None, snapshot: None, task: None };
+        let mut state = SourceState { current: Arc::new(settings), error: None, snapshot: None, preview: None, transient: false, task: None };
         state.task = Some(cx.spawn(async move |this, cx| {
             let mut watcher = SettingsWatcher::new(source.clone());
             let mut sync_failed = false;
@@ -77,13 +93,15 @@ pub(crate) fn publish(
                         if result.is_err() && state.snapshot.as_ref().is_some_and(|snapshot|snapshot.revision>starting_revision) {return;}
                         let result = result.and_then(|snapshot| {
                             if state.snapshot.as_ref().is_some_and(|current| current.revision > snapshot.revision) { return Ok(None); }
-                            apply_shared(&snapshot.settings, &source, cx)?;
-                            Ok(Some(snapshot))
+                            let current = effective(&snapshot, state.preview.as_ref())?;
+                            apply_shared(&current, &source, cx)?;
+                            Ok(Some((snapshot, current)))
                         });
                         match result {
-                            Ok(Some(snapshot)) => {
-                                state.current = Arc::new(snapshot.settings.clone());
+                            Ok(Some((snapshot, current))) => {
+                                state.current = Arc::new(current);
                                 state.snapshot = Some(Arc::new(snapshot));
+                                state.transient = state.preview.is_some();
                                 state.error = None;
                             }
                             Ok(None) => return,
@@ -117,9 +135,11 @@ pub(crate) fn publish_snapshot(
     {
         return Ok(state);
     }
-    apply_shared(&snapshot.settings, &source, cx)?;
+    let current = effective(&snapshot, state.read(cx).preview.as_ref())?;
+    apply_shared(&current, &source, cx)?;
     state.update(cx, |state, cx| {
-        state.current = Arc::new(snapshot.settings.clone());
+        state.transient = state.preview.is_some();
+        state.current = Arc::new(current);
         state.snapshot = Some(Arc::new(snapshot));
         state.error = None;
         cx.notify();
@@ -172,6 +192,130 @@ fn apply_shared(settings: &Settings, source: &SettingsSource, cx: &mut App) -> R
             settings.hosting.concurrent_accounts,
         )?;
     }
-    cx.global_mut::<SettingsService>().active = Some(Arc::new(settings.clone()));
+    let service = cx.global_mut::<SettingsService>();
+    service.active = Some(Arc::new(settings.clone()));
+    service.active_source = Some(source.clone());
+    Ok(())
+}
+
+/// Only reversible presentation and keymap changes are previewed. Never grant
+/// network consent, switch checkouts, launch tools or trim navigation in a draft.
+pub(crate) fn previewable(key: &str) -> bool {
+    key != "layout.remember_per_repository"
+        && [
+            "ui.",
+            "theme.",
+            "editor.",
+            "panels.",
+            "window.",
+            "layout.",
+            "diff.",
+            "overview.",
+            "files.",
+            "history.",
+            "evolution.",
+            "file_evolution.",
+        ]
+        .iter()
+        .any(|prefix| key.starts_with(prefix))
+        || key == "keyboard.profile"
+}
+fn effective(
+    snapshot: &jaywalk::preferences::Snapshot,
+    preview: Option<&Preview>,
+) -> Result<Settings, String> {
+    let Some(preview) = preview else {
+        return Ok(snapshot.settings.clone());
+    };
+    let visual = preview
+        .patches
+        .iter()
+        .filter(|patch| previewable(&patch.key))
+        .cloned()
+        .collect::<Vec<_>>();
+    let mut settings = snapshot.preview(&visual)?.settings;
+    // Remembering layout is persistence policy, not a visual preview.
+    settings.layout.remember_per_repository = snapshot.settings.layout.remember_per_repository;
+    if let Some(profile) = &preview.profile {
+        settings = settings.with_keybindings(profile.clone())?;
+    }
+    Ok(settings)
+}
+pub(crate) fn preview(
+    source: &SettingsSource,
+    owner: EntityId,
+    patches: Vec<jaywalk::preferences::Patch>,
+    profile: Option<jaywalk::keybinding_profiles::Profile>,
+    cx: &mut App,
+) -> Result<(), String> {
+    if patches.is_empty() && profile.is_none() {
+        return clear_preview(source, owner, cx);
+    }
+    let Some(state) = cx
+        .try_global::<SettingsService>()
+        .and_then(|service| service.sources.get(source))
+        .cloned()
+    else {
+        return Err("Settings are still loading".into());
+    };
+    let candidate = Preview {
+        owner,
+        patches,
+        profile,
+    };
+    if state.read(cx).preview.as_ref() == Some(&candidate) {
+        return Ok(());
+    }
+    let snapshot = state
+        .read(cx)
+        .snapshot
+        .clone()
+        .ok_or("Settings are still loading")?;
+    let current = effective(&snapshot, Some(&candidate))?;
+    commands::validate_bindings(&current, cx)?;
+    apply_shared(&current, source, cx)?;
+    state.update(cx, |state, cx| {
+        state.preview = Some(candidate);
+        state.transient = true;
+        state.current = Arc::new(current);
+        cx.notify();
+    });
+    Ok(())
+}
+pub(crate) fn clear_preview(
+    source: &SettingsSource,
+    owner: EntityId,
+    cx: &mut App,
+) -> Result<(), String> {
+    let Some(state) = cx
+        .try_global::<SettingsService>()
+        .and_then(|service| service.sources.get(source))
+        .cloned()
+    else {
+        return Ok(());
+    };
+    if !state
+        .read(cx)
+        .preview
+        .as_ref()
+        .is_some_and(|preview| preview.owner == owner)
+    {
+        return Ok(());
+    }
+    let saved = state
+        .read(cx)
+        .snapshot
+        .clone()
+        .ok_or("Settings are still loading")?;
+    // An older window's cancellation must not overwrite a newer source's globals.
+    if cx.global::<SettingsService>().active_source.as_ref() == Some(source) {
+        apply_shared(&saved.settings, source, cx)?;
+    }
+    state.update(cx, |state, cx| {
+        state.preview = None;
+        state.transient = true;
+        state.current = Arc::new(saved.settings.clone());
+        cx.notify();
+    });
     Ok(())
 }

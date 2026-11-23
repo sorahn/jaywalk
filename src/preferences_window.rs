@@ -86,21 +86,13 @@ pub(crate) fn show(
                     Event::Accounts => view.page.update(cx, |page, cx| {
                         page.show_accounts(CommandId::Accounts, window, cx)
                     }),
-                    Event::Keybindings => {
-                        let arguments = view.arguments.clone();
-                        cx.defer(move |cx| {
-                            crate::show_application_page(
-                                arguments,
-                                CommandId::SelectKeybindings,
-                                cx,
-                            )
-                        });
-                    }
+                    Event::Keybindings => view
+                        .page
+                        .update(cx, |page, cx| page.show_keyboard(window, cx)),
                 },
             );
             SettingsWindow {
                 page: settings_page,
-                arguments,
                 source,
                 _subscription: subscription,
             }
@@ -122,7 +114,6 @@ pub(crate) fn show(
 }
 struct SettingsWindow {
     page: Entity<SettingsPage>,
-    arguments: Arguments,
     source: SettingsSource,
     _subscription: Subscription,
 }
@@ -167,6 +158,9 @@ impl Render for SettingsWindow {
                     CommandId::CloseWindow => view
                         .page
                         .update(cx, |page, cx| page.request_close(false, window, cx)),
+                    CommandId::SelectKeybindings => view
+                        .page
+                        .update(cx, |page, cx| page.show_keyboard(window, cx)),
                     CommandId::OpenSettings => view.edit_toml(window, cx),
                     CommandId::ShowSettings | CommandId::ShowDefaultSettings => {
                         view.page.update(cx, |page, cx| {
@@ -214,5 +208,20 @@ pub(crate) fn show_accounts(
             page.update(cx, |page, cx| page.show_accounts(command, window, cx));
         })
         .map_err(|error| error.to_string())?;
+    Ok((handle, page))
+}
+
+/// Direct palette entry uses the same retained Settings window and drafts.
+pub(crate) fn show_keyboard(
+    arguments: Arguments,
+    settings: Settings,
+    cx: &mut App,
+) -> std::result::Result<(AnyWindowHandle, Entity<SettingsPage>), String> {
+    let (handle, page) = show(arguments, settings, false, cx)?;
+    handle
+        .update(cx, |_, window, cx| {
+            page.update(cx, |page, cx| page.show_keyboard(window, cx))
+        })
+        .map_err(|e| e.to_string())?;
     Ok((handle, page))
 }

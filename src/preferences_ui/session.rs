@@ -21,7 +21,72 @@ impl RenderOnce for SaveHint {
 
 impl SettingsPage {
     pub(crate) fn has_changes(&self) -> bool {
-        !self.pending.is_empty() || self.drafts.values().any(|draft| draft.dirty)
+        !self.pending.is_empty()
+            || self.drafts.values().any(|draft| draft.dirty)
+            || self.keyboard.changed()
+    }
+
+    pub(super) fn try_preview(&self, cx: &mut Context<Self>) -> Result<(), String> {
+        let mut patches = self.pending.clone();
+        patches.extend(self.raw_preview.clone());
+        crate::settings_service::preview(
+            &self.source,
+            cx.entity_id(),
+            ordered_patches(&patches),
+            self.keyboard.active.as_ref().and_then(|name| {
+                self.keyboard
+                    .drafts
+                    .get(name)
+                    .filter(|draft| {
+                        draft.changed()
+                            || self
+                                .persisted
+                                .as_ref()
+                                .is_some_and(|saved| saved.settings.keyboard.profile != *name)
+                    })
+                    .map(|draft| draft.profile.clone())
+            }),
+            cx,
+        )
+    }
+    pub(super) fn preview_input(&mut self, index: usize, cx: &mut Context<Self>) {
+        let Some(draft) = self.drafts.get(&index) else {
+            return;
+        };
+        if !draft.dirty {
+            self.raw_preview.remove(&index);
+            self.refresh_preview(cx);
+            return;
+        }
+        if draft.error.is_some() {
+            return;
+        }
+        let result = controls::color_edit(
+            index,
+            self.value(index),
+            draft.input.read(cx).value().as_ref(),
+            draft.color_dark,
+        );
+        if let Ok(value) = result {
+            let previous = self
+                .raw_preview
+                .insert(index, Patch::set(&catalogue::SETTINGS[index].key, value));
+            if let Err(error) = self.try_preview(cx) {
+                if let Some(previous) = previous {
+                    self.raw_preview.insert(index, previous);
+                } else {
+                    self.raw_preview.remove(&index);
+                }
+                self.message = Some(error);
+            } else {
+                self.message = None;
+            }
+        }
+    }
+    pub(super) fn refresh_preview(&mut self, cx: &mut Context<Self>) {
+        if let Err(error) = self.try_preview(cx) {
+            self.message = Some(error);
+        }
     }
 
     pub(super) fn stage(
@@ -115,7 +180,24 @@ impl SettingsPage {
         }
         match saved.preview(&ordered_patches(&pending)) {
             Ok(_) => {
-                self.pending = pending;
+                let raw_preview = self.raw_preview.remove(&index);
+                let was_dirty = self.drafts.get(&index).is_some_and(|draft| draft.dirty);
+                if let Some(draft) = self.drafts.get_mut(&index) {
+                    draft.dirty = false;
+                }
+                let old = std::mem::replace(&mut self.pending, pending);
+                if let Err(error) = self.try_preview(cx) {
+                    self.pending = old;
+                    if let Some(patch) = raw_preview {
+                        self.raw_preview.insert(index, patch);
+                    }
+                    if let Some(draft) = self.drafts.get_mut(&index) {
+                        draft.dirty = was_dirty;
+                    }
+                    self.message = Some(error);
+                    cx.notify();
+                    return;
+                }
                 if let Some(draft) = self.drafts.get_mut(&index) {
                     draft.dirty = false;
                     draft.error = None;
@@ -137,7 +219,15 @@ impl SettingsPage {
         if self.busy.is_some() {
             return;
         }
+        if let Err(error) = crate::settings_service::clear_preview(&self.source, cx.entity_id(), cx)
+        {
+            self.message = Some(error);
+            cx.notify();
+            return;
+        }
         self.pending.clear();
+        self.raw_preview.clear();
+        self.keyboard.reset();
         for draft in self.drafts.values_mut() {
             draft.dirty = false;
             draft.error = None;
@@ -145,6 +235,9 @@ impl SettingsPage {
         self.message = None;
         if let Some(saved) = self.persisted.clone() {
             self.accept(saved, window, cx);
+        }
+        if self.destination == Destination::Keyboard {
+            self.show_keyboard(window, cx);
         }
     }
 
@@ -165,22 +258,25 @@ impl SettingsPage {
             self.commit_draft(index, window, cx);
         }
         self.defaults = defaults;
-        if self
-            .drafts
-            .values()
-            .any(|draft| draft.dirty || draft.error.is_some())
+        let shortcuts_valid = self.flush_shortcuts(window, cx);
+        if !shortcuts_valid
+            || self
+                .drafts
+                .values()
+                .any(|draft| draft.dirty || draft.error.is_some())
         {
             self.close_after_save = None;
             self.message = Some("Fix invalid or conflicting fields before saving.".into());
             cx.notify();
             return;
         }
-        if self.pending.is_empty() {
+        if self.pending.is_empty() && !self.keyboard.changed() {
             if let Some(quit) = self.close_after_save.take() {
                 cx.emit(Event::Close { quit });
             }
             return;
         }
+        let profiles = self.keyboard.edits();
         let patches = ordered_patches(&self.pending);
         let source = self.source.clone();
         self.busy = Some(usize::MAX);
@@ -193,7 +289,7 @@ impl SettingsPage {
             }
         });
         let work = cx.background_spawn(async move {
-            let result = preferences::patch_many(&source, &patches);
+            let result = preferences::save(&source, &patches, &profiles);
             let _ = done.try_send(());
             result
         });
@@ -205,6 +301,8 @@ impl SettingsPage {
                 match result {
                     Ok(snapshot) => {
                         page.pending.clear();
+                        let keyboard_active = page.destination == Destination::Keyboard;
+                        page.keyboard.reset();
                         match crate::settings_service::publish_snapshot(
                             page.source.clone(),
                             snapshot,
@@ -213,6 +311,18 @@ impl SettingsPage {
                             Ok(state) => {
                                 if let Some(snapshot) = state.read(cx).snapshot.clone() {
                                     page.accept(snapshot, window, cx);
+                                }
+                                if let Err(error) = crate::settings_service::clear_preview(
+                                    &page.source,
+                                    cx.entity_id(),
+                                    cx,
+                                ) {
+                                    page.message = Some(error);
+                                    page.close_after_save = None;
+                                    return;
+                                }
+                                if keyboard_active {
+                                    page.show_keyboard(window, cx);
                                 }
                                 page.message = Some("Saved".into());
                                 if let Some(quit) = page.close_after_save.take() {
@@ -273,7 +383,9 @@ impl SettingsPage {
                     }
                     Ok(1) => {
                         page.discard(window, cx);
-                        cx.emit(Event::Close { quit });
+                        if !page.has_changes() {
+                            cx.emit(Event::Close { quit });
+                        }
                     }
                     _ => {}
                 }

@@ -442,3 +442,61 @@ fn draft_update_consent_changes_have_no_effect_until_the_atomic_save() {
             .automatic_downloads
     );
 }
+
+#[test]
+fn keyboard_and_settings_save_validates_all_documents_before_any_write() {
+    use crate::{commands::CommandId, keybinding_profiles::Draft};
+    let (_dir, source) = fixture("[editor]\nfont_size=14\n");
+    let before = source.read_snapshot().unwrap();
+    let name = before.settings.keyboard.profile.clone();
+    let draft = Draft::load(source.path(), &name).unwrap();
+    let edited = draft
+        .remap(CommandId::FindFile, Some(&["alt-shift-j".into()]))
+        .unwrap();
+    let patch = Patch::set("editor.font_size", 18.into());
+    std::fs::write(&draft.path, format!("{}# external\n", draft.original)).unwrap();
+    assert!(
+        save(
+            &source,
+            std::slice::from_ref(&patch),
+            std::slice::from_ref(&edited)
+        )
+        .unwrap_err()
+        .contains("changed elsewhere")
+    );
+    assert_eq!(std::fs::read_to_string(source.path()).unwrap(), before.text);
+    std::fs::write(&draft.path, &draft.original).unwrap();
+    let saved = save(&source, &[patch], &[edited]).unwrap();
+    assert_eq!(saved.settings.editor.font_size, 18.);
+    assert_eq!(
+        saved.settings.keybindings[&CommandId::FindFile],
+        ["alt-shift-j"]
+    );
+    assert!(source.read_snapshot().unwrap().settings == saved.settings);
+}
+
+#[test]
+fn unreadable_or_read_only_later_document_cannot_partly_save_profiles() {
+    use crate::{commands::CommandId, keybinding_profiles::Draft};
+    let (_dir, source) = fixture("");
+    let saved = source.read_snapshot().unwrap();
+    let draft = Draft::load(source.path(), &saved.settings.keyboard.profile).unwrap();
+    let edit = draft
+        .remap(CommandId::FindFile, Some(&["alt-shift-j".into()]))
+        .unwrap();
+    let mut permissions = std::fs::metadata(source.path()).unwrap().permissions();
+    permissions.set_readonly(true);
+    std::fs::set_permissions(source.path(), permissions).unwrap();
+    assert!(
+        save(
+            &source,
+            &[Patch::set("editor.font_size", 18.into())],
+            &[edit]
+        )
+        .is_err()
+    );
+    assert_eq!(
+        std::fs::read_to_string(&draft.path).unwrap(),
+        draft.original
+    );
+}

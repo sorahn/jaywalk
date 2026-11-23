@@ -193,7 +193,10 @@ fn show_application_page(
                 show_application_page(arguments, command, cx);
             }
         });
-    } else if command == jaywalk::commands::CommandId::Accounts {
+    } else if matches!(
+        command,
+        jaywalk::commands::CommandId::Accounts | jaywalk::commands::CommandId::SelectKeybindings
+    ) {
         cx.spawn(async move |cx| {
             let prepared = cx
                 .background_spawn(async move {
@@ -206,7 +209,11 @@ fn show_application_page(
             cx.update(|cx| match prepared {
                 Ok((arguments, settings)) => {
                     if let Err(error) =
-                        preferences_window::show_accounts(arguments, settings, command, cx)
+                        if command == jaywalk::commands::CommandId::SelectKeybindings {
+                            preferences_window::show_keyboard(arguments, settings, cx)
+                        } else {
+                            preferences_window::show_accounts(arguments, settings, command, cx)
+                        }
                     {
                         eprintln!("Could not open Accounts: {error}");
                     }

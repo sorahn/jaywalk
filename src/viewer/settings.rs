@@ -4,7 +4,8 @@ use jaywalk::settings_reload::SettingsSource;
 
 pub(super) struct ConfigState {
     subscription: Option<Subscription>,
-    pub(super) profile_task: Option<Task<()>>,
+    pub(super) applying_preview: bool,
+    pub(super) previewing: bool,
     pub(super) error: Option<String>,
     pub(super) pending_horizontal: Option<f32>,
     pub(super) pending_standard: Option<gpui::component::diff::DiffLinePosition>,
@@ -14,7 +15,8 @@ impl ConfigState {
     pub(super) fn new() -> Self {
         Self {
             subscription: None,
-            profile_task: None,
+            applying_preview: false,
+            previewing: false,
             error: None,
             pending_standard: None,
             pending_horizontal: None,
@@ -36,14 +38,20 @@ impl Viewer {
                 let state = source.read(cx);
                 let current = state.current.clone();
                 let error = state.error.clone();
+                self.config.previewing = state.previewing();
+                self.config.applying_preview = state.transient;
                 self.receive_settings((*current).clone(), error, window, cx);
+                self.config.applying_preview = false;
                 self.config.subscription =
                     Some(
                         cx.observe_in(&source, window, |viewer, source, window, cx| {
                             let source = source.read(cx);
                             let settings = source.current.clone();
                             let error = source.error.clone();
+                            viewer.config.previewing = source.previewing();
+                            viewer.config.applying_preview = source.transient;
                             viewer.receive_settings((*settings).clone(), error, window, cx);
+                            viewer.config.applying_preview = false;
                         }),
                     );
             }

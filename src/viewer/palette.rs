@@ -17,7 +17,6 @@ pub(super) enum PaletteKind {
     Files,
     Commands,
     Repositories,
-    Profiles,
     LocalRepositories,
     CheckoutRecovery,
     CheckoutBranches,
@@ -47,7 +46,6 @@ impl PaletteKind {
             Self::References
             | Self::Remotes
             | Self::Reviews
-            | Self::Profiles
             | Self::Accounts
             | Self::LocalRepositories
             | Self::CheckoutRecovery
@@ -103,7 +101,6 @@ enum Choice {
         source: Rc<jaywalk::repository::ComparisonIdentity>,
     },
     Review(review_context::ReviewChoice),
-    Profile(String),
     LocalRepository(std::path::PathBuf),
     RestoreCheckout(std::path::PathBuf),
     CheckoutRepository(std::path::PathBuf),
@@ -131,7 +128,6 @@ pub(super) struct PaletteState {
     pub(super) generation: u64,
     pub(super) review_loading: bool,
     pub(super) review_error: Option<String>,
-    pub(super) profiles: Vec<String>,
 }
 impl PaletteState {
     pub(super) fn new(window: &mut Window, cx: &mut Context<Viewer>) -> Self {
@@ -151,7 +147,6 @@ impl PaletteState {
             generation: 0,
             review_loading: false,
             review_error: None,
-            profiles: Vec::new(),
         }
     }
 }
@@ -312,7 +307,6 @@ fn rank_choices(
                 | Choice::Remote { .. }
                 | Choice::Command(_)
                 | Choice::Mode(_)
-                | Choice::Profile(_)
                 | Choice::Review(_)
                 | Choice::Symbol { .. } => {
                     fuzzy_score(query, &label).map(|score| (0, score, false))
@@ -711,12 +705,6 @@ impl Viewer {
             PaletteKind::Repositories => {
                 repository_choices(&cx.global::<crate::recents::Recents>().repositories)
             }
-            PaletteKind::Profiles => self
-                .palette
-                .profiles
-                .iter()
-                .map(|name| (name.clone(), Choice::Profile(name.clone())))
-                .collect(),
             PaletteKind::History => self.history_choices(),
             PaletteKind::References | PaletteKind::Remotes => self.reference_choices(kind),
             PaletteKind::Reviews => {
@@ -908,7 +896,6 @@ impl Viewer {
                         unreachable!("checkout choices retain the picker until success")
                     }
                     Choice::RestoreCheckout(path) => this.restore_checkout(path, window, cx),
-                    Choice::Profile(name) => this.select_keybindings_profile(name, window, cx),
                     Choice::Repository { directory, .. } => this.open_repository_path(
                         directory,
                         crate::windows::OpenDisposition::Configured,
@@ -943,7 +930,6 @@ impl Viewer {
                     }
                     PaletteKind::Commands => "Run a command…",
                     PaletteKind::Repositories => "Search recent repositories…",
-                    PaletteKind::Profiles => "Select keybindings profile…",
                     PaletteKind::Reviews => "Choose review branch or comparison base…",
                     PaletteKind::References => "Search branches and bookmarks…",
                     PaletteKind::Remotes => "Search remote history sources…",
@@ -992,9 +978,6 @@ impl Viewer {
                             }
                             .into(),
                         ),
-                        Choice::Profile(name) if name == &self.settings.keyboard.profile => {
-                            Some("Active".into())
-                        }
                         _ => None,
                     };
                     CommandItem::new()

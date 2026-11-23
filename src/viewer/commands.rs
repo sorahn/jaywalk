@@ -92,7 +92,7 @@ fn collect_defaults(
     defaults
 }
 
-pub(super) fn validate_bindings(settings: &Settings, cx: &App) -> Result<(), String> {
+pub(crate) fn validate_bindings(settings: &Settings, cx: &App) -> Result<(), String> {
     let previous = cx
         .try_global::<InstalledKeymap>()
         .map_or(&[][..], |state| state.defaults.as_slice());

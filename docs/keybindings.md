@@ -86,15 +86,30 @@ Put the `[keybindings]` and `[[keymap]]` examples below in that selected file, n
 in `config.toml`. Unspecified shortcuts inherit [shipped defaults](../config/keybindings.toml).
 
 Cmd+, edits the main config. **Open keybindings** edits the active profile through
-`settings.editor`. **Select keybindings profile…** lists `.toml` files in the
-recommended folder and additional discovery folders, plus the current profile if
-it lives elsewhere. It marks the active entry; typing filters paths, Enter selects,
-and Escape cancels. Create another TOML file in one of these folders to add a profile.
-Invalid profiles remain listed, but cannot replace the working keymap. Switching
-saves `keyboard.profile`, preserving config comments; edits to the selected file
-apply live. Missing or malformed files preserve the last valid bindings and report
-an error. Both new commands start unbound and can be assigned shortcuts in a profile.
-For example, `open_keybindings = ["secondary-k secondary-s"]` inside `[keybindings]`.
+`settings.editor`. **Select keybindings profile…** (`select_keybindings`) opens **Keyboard Shortcuts**
+in the retained Settings window, above Accounts. The profile dropdown lists the
+recommended folder, additional discovery folders and the current profile. Create
+another TOML file in those folders to add a profile. Invalid profiles remain
+listed but cannot replace working bindings. **Open keybindings file…**
+(`open_keybindings`) still opens the active saved profile in your editor.
+
+Search application commands by label, key or current shortcut. Each shortcut has
+its own field in GPUI notation; spaces form chords. Add offers another field;
+clearing a field removes that shortcut. Reset restores that command's shipped
+bindings, removing common and current-platform overrides while preserving other
+platforms. Toolkit `[[keymap]]` action/context rules remain in TOML.
+
+Profile selection and valid remaps preview immediately after Enter or leaving a
+field. Save also validates the active field. **Save** persists profile and settings
+drafts together; **Discard** restores saved bindings without writing files.
+Unsaved edits to multiple profiles are retained while switching between them.
+Collision/parse failures leave the working keymap intact. A changed profile file
+or changed config key rejects the save before any document is replaced. All files
+are validated/staged first and failures during replacement attempt rollback;
+concurrent external edits are preserved. Each file replacement is atomic, rather
+than claiming a filesystem-wide atomic transaction. Manual edits continue to reload
+live. Both commands start unbound and can be assigned shortcuts in a profile.
+For example, `open_keybindings = ["secondary-k secondary-s"]` in `[keybindings]`.
 
 ## Default review navigation
 
