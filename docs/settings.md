@@ -28,19 +28,26 @@ tooltip includes the default value. Hover descriptions for key/default/inheritan
 details. Right-click a title to copy its settings key or remove an explicit
 override, including one equal to the default. Runtime toolbar/layout memory is separate.
 
-Changes apply live unless a setting specifies otherwise. Switches and dropdowns
-save immediately. Numeric fields have −/+ buttons with setting-specific step
-sizes and bounds, including limits derived from other settings. Button steps save
-immediately; manual numeric, text and color entry commits with Enter or on leaving
-the field. Invalid drafts stay local and show a validation error. The TOML schema
-remains authoritative for validation, including relationships between settings.
+Settings controls edit a window-local draft. **Save** (Cmd/Ctrl+S) validates and
+writes all changes in one atomic operation, then applies them across the app.
+**Discard** restores the latest saved values. Closing Settings or choosing Quit
+with unsaved changes offers **Save / Discard / Cancel**; a failed or invalid save
+keeps the window and draft open. There are no temporary live previews yet.
+Switches, dropdowns, resets, numeric steps, and color-mode toggles all remain local
+until Save. Numeric fields have −/+ buttons with setting-specific step sizes and
+bounds, including limits derived from other settings. Enter or leaving a text,
+numeric, or color field validates it into the draft; Save also includes an active
+field that has not blurred. Invalid drafts stay local and show a validation error.
+Update consent becomes effective only after saving it. The TOML schema remains
+authoritative for validation, including relationships between settings.
 Closed dropdowns fit their selected label and stay anchored to the right; menu labels stay left aligned. Numeric fields reserve space for their bounds and decimal step instead of filling the control column. Color inputs use a compact hex-sized field with a swatch on the left. The accent field also previews the resolved system accent when set to `system`. The sun-moon icon toggles separate light/dark colors (accent when on, neutral when off); its tooltip describes the state and action. The field shows and edits only the active appearance, preserving the other value, without a repeated appearance label. Enabling it copies the shared color into both appearances (a system accent becomes its currently resolved RGB color). Disabling it uses the displayed appearance’s color for both. Existing pairs start separated. The dedicated light/dark shell seed fields already select their appearance and do not need this toggle.
 
 Font families use searchable dropdowns of installed fonts. Use default removes
 the override; an existing configured family remains selectable even if it is not
-installed on this machine. Escape discards a focused draft, clears a search, or
-closes the Settings window. Reset removes the explicit override and inherits
-the current default. Update prerequisite revocation is one atomic transaction.
+installed on this machine. Escape reverts the focused field to its staged value, clears a search, or
+requests closing the Settings window. Reset stages removal of the explicit override
+and inherits the current default. Update prerequisite revocation is part of the
+same atomic Save as its dependent settings.
 Appearance exposes the light/dark shell seed colors, accent, and added/removed
 row backgrounds. Detailed diff colors are grouped under **Advanced diff colors**
 with **Edit TOML…**; fine color overrides remain supported in TOML. Editing one
@@ -51,8 +58,10 @@ and keyboard profiles keep their existing dedicated flows. **Show default
 settings** presents a read-only reference in the same window. Temporary visual
 previews and project settings are deferred.
 
-All UI writes patch the latest validated file, preserve comments/permissions and
-symlinks, and reject stale same-field edits. Committed documents publish through
+Save patches only the edited keys in the latest validated file, preserves
+comments/permissions and symlinks, and rejects the entire batch on stale same-field
+edits. External updates refresh untouched values without replacing pending intents.
+Discard clears the draft after a conflict; unrelated external edits are preserved. Committed documents publish through
 the shared source service with revisions; manual edits continue to reload live.
 The configured external editor remains `settings.editor`, independent of the
 `editor` section for code typography. Explicit old `open_settings` keybindings

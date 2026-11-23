@@ -376,3 +376,67 @@ fn primary_colors_are_visible_and_advanced_diff_colors_have_one_entry() {
     .unwrap();
     assert!(fallback.modified(catalogue::setting("theme.overrides").unwrap()));
 }
+
+#[test]
+fn draft_batch_merges_unrelated_edits_and_rejects_conflicts_without_partial_writes() {
+    let (_root, source) = fixture("# keep\n[ui]\nfont_size=16\n");
+    let before = source.read_snapshot().unwrap();
+    let patches = [
+        Patch {
+            key: "diff.word_highlight".into(),
+            value: Some(false.into()),
+            expected: Expect::Explicit(None),
+        },
+        Patch {
+            key: "ui.font_size".into(),
+            value: Some(18.into()),
+            expected: Expect::Explicit(Some(16.into())),
+        },
+    ];
+    let draft = before.preview(&patches).unwrap();
+    assert!(!draft.settings.diff.word_highlight);
+    assert_eq!(draft.settings.ui.font_size, 18.);
+    assert_eq!(std::fs::read_to_string(source.path()).unwrap(), before.text);
+    patch(&source, Patch::set("files.default_view", "tree".into())).unwrap();
+    let saved = patch_many(&source, &patches).unwrap();
+    assert_eq!(
+        saved.value("files.default_view").unwrap().as_str(),
+        Some("tree")
+    );
+    assert!(saved.text.contains("# keep"));
+    assert!(!saved.settings.diff.word_highlight);
+    let expected = saved.text.clone();
+    assert!(
+        patch_many(&source, &patches)
+            .unwrap_err()
+            .contains("changed elsewhere")
+    );
+    assert_eq!(std::fs::read_to_string(source.path()).unwrap(), expected);
+    let invalid = [
+        Patch::set("diff.word_highlight", true.into()),
+        Patch::set("ui.font_size", (-1).into()),
+    ];
+    assert!(patch_many(&source, &invalid).is_err());
+    assert_eq!(std::fs::read_to_string(source.path()).unwrap(), expected);
+}
+
+#[test]
+fn draft_update_consent_changes_have_no_effect_until_the_atomic_save() {
+    let (_root, source) = fixture("");
+    let before = source.read_snapshot().unwrap();
+    let patches = [
+        Patch::set("updates.automatic_checks", true.into()),
+        Patch::set("updates.automatic_downloads", true.into()),
+    ];
+    let draft = before.preview(&patches).unwrap();
+    assert!(draft.settings.updates.automatic_checks);
+    assert!(!source.read().unwrap().updates.automatic_checks);
+    assert_eq!(std::fs::read_to_string(source.path()).unwrap(), before.text);
+    assert!(
+        patch_many(&source, &patches)
+            .unwrap()
+            .settings
+            .updates
+            .automatic_downloads
+    );
+}

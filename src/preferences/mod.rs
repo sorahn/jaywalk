@@ -299,31 +299,19 @@ fn remove(text: &str, key: &str) -> Result<String, String> {
     updated.replace_range(start..end, &commented);
     Ok(updated)
 }
-/// Apply one intent to the latest valid file, never a window's cached settings.
-pub fn patch(source: &SettingsSource, patch: Patch) -> Result<Snapshot, String> {
+fn edit(text: &str, patch: &Patch) -> Result<String, String> {
     let setting = catalogue::setting(&patch.key).ok_or("Unknown setting")?;
     if patch.key == "accounts" {
         return Err("Manage connected accounts from Accounts".into());
     }
-    let _writer = settings_reload::CONFIG_WRITER
-        .lock()
-        .expect("config writer mutex poisoned");
-    let before = source.read_snapshot_unlocked()?;
-    if let Expect::Explicit(expected) = &patch.expected
-        && before.explicit(&patch.key) != expected.as_ref()
-    {
-        return Err("This setting changed elsewhere. Reload it before saving your draft.".into());
-    }
-    if patch.value.is_none() && before.explicit(&patch.key).is_none() {
-        return Ok(before);
-    }
-    let mut text = before.text.clone();
+    let explicit: toml::Value = toml::from_str(text).map_err(|error| error.to_string())?;
+    let mut text = text.to_owned();
     if let Some(value) = &patch.value {
         if setting.kind == Kind::Complex {
             return Err("Edit this setting in TOML".into());
         }
         if let Some((section, leaf)) = patch.key.rsplit_once('.')
-            && before.explicit(&patch.key).is_none()
+            && lookup(&explicit, &patch.key).is_none()
         {
             text = settings_reload::activate_reference(&text, section, &[leaf]);
         }
@@ -396,6 +384,56 @@ pub fn patch(source: &SettingsSource, patch: Patch) -> Result<Snapshot, String> 
         }
     }
     text = doc.to_string();
+    Ok(text)
+}
+
+/// Build a validated draft without touching the filesystem or publishing settings.
+impl Snapshot {
+    pub fn preview(&self, patches: &[Patch]) -> Result<Self, String> {
+        let mut text = self.text.clone();
+        for patch in patches {
+            text = edit(&text, patch)?;
+        }
+        let settings = Settings::resolve(
+            Config::parse(&text)?,
+            crate::keybinding_profiles::Profile {
+                keybindings: self.settings.keybindings.clone(),
+                keymap: self.settings.keymap.clone(),
+            },
+        )?;
+        let mut snapshot = Self::new(settings, text)?;
+        snapshot.revision = self.revision;
+        Ok(snapshot)
+    }
+}
+
+/// Apply one intent to the latest valid file, never a window's cached settings.
+pub fn patch(source: &SettingsSource, patch: Patch) -> Result<Snapshot, String> {
+    patch_many(source, &[patch])
+}
+
+/// Validate all expectations and all edits before atomically replacing the file once.
+pub fn patch_many(source: &SettingsSource, patches: &[Patch]) -> Result<Snapshot, String> {
+    let _writer = settings_reload::CONFIG_WRITER
+        .lock()
+        .expect("config writer mutex poisoned");
+    let before = source.read_snapshot_unlocked()?;
+    for patch in patches {
+        if let Expect::Explicit(expected) = &patch.expected
+            && before.explicit(&patch.key) != expected.as_ref()
+        {
+            return Err(format!(
+                "{} changed elsewhere. Discard or reload your draft before saving.",
+                patch.key
+            ));
+        }
+    }
+    let mut text = before.text.clone();
+    for patch in patches {
+        if patch.value.is_some() || before.explicit(&patch.key).is_some() {
+            text = edit(&text, patch)?;
+        }
+    }
     let config = Config::parse(&text)?;
     let profile_path = crate::keybinding_profiles::path(source.path(), &config.keyboard.profile)?;
     let profile = std::fs::read_to_string(&profile_path)

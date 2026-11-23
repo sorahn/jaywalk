@@ -73,7 +73,15 @@ pub(crate) fn show(
                 &settings_page,
                 window,
                 |view: &mut SettingsWindow, _, event, window, cx| match event {
-                    Event::Leave => window.remove_window(),
+                    Event::Leave => view
+                        .page
+                        .update(cx, |page, cx| page.request_close(false, window, cx)),
+                    Event::Close { quit } => {
+                        window.remove_window();
+                        if *quit {
+                            request_quit(cx);
+                        }
+                    }
                     Event::EditToml => view.edit_toml(window, cx),
                     Event::Accounts | Event::Keybindings => {
                         let command = if matches!(event, Event::Accounts) {
@@ -92,6 +100,11 @@ pub(crate) fn show(
                 source,
                 _subscription: subscription,
             }
+        });
+        let page = page.as_ref().expect("settings page created").downgrade();
+        window.on_window_should_close(cx, move |window, cx| {
+            let _ = page.update(cx, |page, cx| page.request_close(false, window, cx));
+            false
         });
         cx.new(|cx| Root::new(content, window, cx))
     })
@@ -145,9 +158,11 @@ impl Render for SettingsWindow {
             .key_context("Jaywalk")
             .bg(gpui::component::Theme::global(cx).background)
             .text_color(gpui::component::Theme::global(cx).foreground)
-            .on_action(cx.listener(
-                |view, action: &ExecuteCommand, window, cx| match action.command {
-                    CommandId::CloseWindow => window.remove_window(),
+            .on_action(cx.listener(|view, action: &ExecuteCommand, window, cx| {
+                match action.command {
+                    CommandId::CloseWindow => view
+                        .page
+                        .update(cx, |page, cx| page.request_close(false, window, cx)),
                     CommandId::OpenSettings => view.edit_toml(window, cx),
                     CommandId::ShowSettings | CommandId::ShowDefaultSettings => {
                         view.page.update(cx, |page, cx| {
@@ -155,8 +170,29 @@ impl Render for SettingsWindow {
                         })
                     }
                     _ => cx.propagate(),
-                },
-            ))
+                }
+            }))
             .child(self.page.clone())
     }
+}
+
+/// Menu actions may run during a window update; inspect saved handles after it ends.
+pub(crate) fn request_quit(cx: &mut App) {
+    cx.defer(|cx| {
+        let pending = cx.try_global::<SettingsWindows>().and_then(|windows| {
+            windows.0.values().find_map(|(handle, page)| {
+                page.upgrade()
+                    .filter(|page| page.read(cx).has_changes())
+                    .map(|page| (*handle, page))
+            })
+        });
+        if let Some((handle, page)) = pending {
+            let _ = handle.update(cx, |_, window, cx| {
+                window.activate_window();
+                page.update(cx, |page, cx| page.request_close(true, window, cx));
+            });
+        } else {
+            cx.quit();
+        }
+    });
 }

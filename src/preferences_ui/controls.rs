@@ -129,7 +129,7 @@ impl SettingsPage {
                 window,
                 move |page, _, event, window, cx| {
                     if let SelectEvent::Confirm(Some(value)) = event {
-                        page.save(index, value.clone().map(toml::Value::String), window, cx);
+                        page.stage(index, value.clone().map(toml::Value::String), window, cx);
                     }
                 },
             ));
@@ -185,7 +185,7 @@ impl SettingsPage {
                 let draft = self.drafts.get_mut(&index).expect("input creates a draft");
                 draft.dirty = true;
                 draft.error = None;
-                self.save(index, Some(value), window, cx);
+                self.stage(index, Some(value), window, cx);
             }
             Err(error) => {
                 self.drafts

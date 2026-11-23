@@ -54,7 +54,7 @@ pub(crate) fn init(arguments: &Arguments, settings: &Settings, cx: &mut App) -> 
             crate::show_application_page(arguments.clone(), action.command, cx)
         }
         CommandId::ClearRecent => crate::recents::clear(cx),
-        CommandId::Quit => cx.quit(),
+        CommandId::Quit => crate::preferences_window::request_quit(cx),
         CommandId::Hide => cx.hide(),
         CommandId::HideOthers => cx.hide_other_apps(),
         CommandId::ShowAll => cx.unhide_other_apps(),

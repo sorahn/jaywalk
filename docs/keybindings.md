@@ -571,3 +571,9 @@ The separate native Settings window uses Cmd/Ctrl+, by default. An explicit save
 Visible command actions show their configured shortcut beside text labels, or
 in tooltips for icon-only controls. Hints follow remaps, omitted bindings and
 complete multi-stroke chords; unbound commands have no shortcut badge.
+
+Within Settings, Cmd/Ctrl+S saves the window-local draft. The Save button displays
+its active shortcut. Escape reverts an unfinished field, clears search, or asks
+to close; unsaved changes prompt Save / Discard / Cancel. Close-window and Quit
+commands use the same guard. Edits in the settings UI apply only after Save;
+external TOML edits retain their normal live reload behavior.

@@ -1,5 +1,6 @@
 //! Retained native settings content. Controls edit the shared TOML source.
 mod controls;
+mod session;
 use crate::command_ui::CommandButtonExt;
 use controls::FontPicker;
 use gpui::component::{
@@ -20,10 +21,24 @@ use jaywalk::{
     },
     settings_reload::SettingsSource,
 };
-use std::{collections::HashMap, sync::Arc};
-actions!(preferences_ui, [Cancel]);
+use std::{
+    collections::{BTreeMap, HashMap},
+    sync::Arc,
+};
+actions!(preferences_ui, [Cancel, SaveDraft]);
 pub(crate) fn init(cx: &mut App) {
-    cx.bind_keys([KeyBinding::new("escape", Cancel, Some("JaywalkSettings"))]);
+    cx.bind_keys([
+        KeyBinding::new("escape", Cancel, Some("JaywalkSettings")),
+        KeyBinding::new(
+            if cfg!(target_os = "macos") {
+                "cmd-s"
+            } else {
+                "ctrl-s"
+            },
+            SaveDraft,
+            Some("JaywalkSettings"),
+        ),
+    ]);
 }
 fn input_text(value: Option<&toml::Value>) -> String {
     value
@@ -32,6 +47,7 @@ fn input_text(value: Option<&toml::Value>) -> String {
 }
 pub(crate) enum Event {
     Leave,
+    Close { quit: bool },
     EditToml,
     Accounts,
     Keybindings,
@@ -49,6 +65,10 @@ pub(crate) struct SettingsPage {
     query: Entity<InputState>,
     surface_focus: FocusHandle,
     snapshot: Option<Arc<Snapshot>>,
+    persisted: Option<Arc<Snapshot>>,
+    pending: BTreeMap<usize, Patch>,
+    close_after_save: Option<bool>,
+    close_prompt: bool,
     category: Option<Category>,
     changed: bool,
     query_active: bool,
@@ -86,6 +106,10 @@ impl SettingsPage {
             query,
             surface_focus: cx.focus_handle(),
             snapshot: None,
+            persisted: None,
+            pending: BTreeMap::new(),
+            close_after_save: None,
+            close_prompt: false,
             category: Some(Category::General),
             changed: false,
             query_active: false,
@@ -218,22 +242,44 @@ impl SettingsPage {
     }
     fn accept(&mut self, snapshot: Arc<Snapshot>, window: &mut Window, cx: &mut Context<Self>) {
         if self
-            .snapshot
+            .persisted
             .as_ref()
             .is_some_and(|current| current.revision > snapshot.revision)
         {
             return;
         }
+        self.persisted = Some(snapshot.clone());
+        let snapshot = if self.pending.is_empty() {
+            snapshot
+        } else {
+            match snapshot.preview(&session::ordered_patches(&self.pending)) {
+                Ok(preview) => Arc::new(preview),
+                Err(error) => {
+                    self.message = Some(error);
+                    cx.notify();
+                    return;
+                }
+            }
+        };
         let dark = gpui::component::Theme::global(cx).is_dark();
         for (index, draft) in &mut self.drafts {
             let key = &catalogue::SETTINGS[*index].key;
             if draft.dirty {
-                if snapshot.explicit(key) != draft.baseline.as_ref() {
+                if self
+                    .persisted
+                    .as_ref()
+                    .and_then(|saved| saved.explicit(key))
+                    != draft.baseline.as_ref()
+                {
                     draft.error =
                         Some("Changed elsewhere; press Escape to reload before saving.".into());
                 }
             } else {
-                draft.baseline = snapshot.explicit(key).cloned();
+                draft.baseline = self
+                    .persisted
+                    .as_ref()
+                    .and_then(|saved| saved.explicit(key))
+                    .cloned();
                 draft.color_dark = dark;
                 let text = controls::color_text(*index, snapshot.value(key), dark);
                 if draft.input.read(cx).value().as_ref() != text {
@@ -283,7 +329,7 @@ impl SettingsPage {
                 input: input.clone(),
                 color_dark: dark,
                 baseline: self
-                    .snapshot
+                    .persisted
                     .as_ref()
                     .and_then(|s| s.explicit(&catalogue::SETTINGS[index].key))
                     .cloned(),
@@ -302,7 +348,7 @@ impl SettingsPage {
                     if let Some(draft) = page.drafts.get_mut(&index) {
                         draft.dirty = value.as_ref() != baseline;
                         if !draft.dirty
-                            || page.snapshot.as_ref().is_some_and(|snapshot| {
+                            || page.persisted.as_ref().is_some_and(|snapshot| {
                                 snapshot.explicit(&catalogue::SETTINGS[index].key)
                                     == draft.baseline.as_ref()
                             })
@@ -344,91 +390,12 @@ impl SettingsPage {
             draft.color_dark,
         );
         match value {
-            Ok(value) => self.save(index, Some(value), window, cx),
+            Ok(value) => self.stage(index, Some(value), window, cx),
             Err(error) => {
                 self.drafts.get_mut(&index).expect("draft exists").error = Some(error);
                 cx.notify();
             }
         }
-    }
-    fn save(
-        &mut self,
-        index: usize,
-        value: Option<toml::Value>,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        if self.busy.is_some() || self.error.is_some() || self.defaults {
-            return;
-        }
-        let Some(snapshot) = &self.snapshot else {
-            return;
-        };
-        let key = catalogue::SETTINGS[index].key.clone();
-        let expected = self
-            .drafts
-            .get(&index)
-            .filter(|draft| draft.dirty)
-            .map(|draft| draft.baseline.clone())
-            .unwrap_or_else(|| snapshot.explicit(&key).cloned());
-        let patch = Patch {
-            key,
-            value,
-            expected: Expect::Explicit(expected),
-        };
-        let source = self.source.clone();
-        self.busy = Some(index);
-        self.message = Some("Saving…".into());
-        let (done, finished) = async_channel::bounded(1);
-        let quit = App::on_app_quit(cx, move |_| {
-            let finished = finished.clone();
-            async move {
-                let _ = finished.recv().await;
-            }
-        });
-        let work = cx.background_spawn(async move {
-            let result = preferences::patch(&source, patch);
-            let _ = done.try_send(());
-            result
-        });
-        cx.spawn_in(window, async move |page, cx| {
-            let result = work.await;
-            drop(quit);
-            let _ = page.update_in(cx, |page, window, cx| {
-                page.busy = None;
-                match result {
-                    Ok(snapshot) => {
-                        if let Some(draft) = page.drafts.get_mut(&index) {
-                            draft.dirty = false;
-                            draft.error = None;
-                        }
-                        match crate::settings_service::publish_snapshot(
-                            page.source.clone(),
-                            snapshot,
-                            cx,
-                        ) {
-                            Ok(state) => {
-                                let snapshot = state.read(cx).snapshot.clone();
-                                if let Some(snapshot) = snapshot {
-                                    page.accept(snapshot, window, cx);
-                                }
-                                page.message = Some("Saved".into());
-                            }
-                            Err(error) => page.error = Some(error),
-                        }
-                    }
-                    Err(error) => {
-                        page.message = Some(error.clone());
-                        if let Some(draft) = page.drafts.get_mut(&index) {
-                            draft.error = Some(error);
-                        }
-                    }
-                }
-                cx.notify();
-            });
-        })
-        .detach();
-        cx.notify();
     }
     fn focus_background(
         &self,
@@ -546,7 +513,7 @@ impl SettingsPage {
                         )
                         .disabled(disabled || !prerequisite)
                         .on_click(cx.listener(move |page, checked: &bool, window, cx| {
-                            page.save(index, Some((*checked).into()), window, cx)
+                            page.stage(index, Some((*checked).into()), window, cx)
                         })),
                 )
                 .into_any_element(),
@@ -577,7 +544,7 @@ impl SettingsPage {
                                     .checked(choice == current)
                                     .on_click(move |_, window, cx| {
                                         let _ = owner.update(cx, |page, cx| {
-                                            page.save(
+                                            page.stage(
                                                 index,
                                                 Some(choice.clone().into()),
                                                 window,
@@ -740,7 +707,7 @@ impl SettingsPage {
                                         };
                                         let next =
                                             controls::separate_color(&value, !separate, field_dark);
-                                        page.save(index, Some(next), window, cx);
+                                        page.stage(index, Some(next), window, cx);
                                     }
                                 })),
                         )
@@ -804,7 +771,7 @@ impl SettingsPage {
                             .tooltip(reset_label.clone())
                             .disabled(disabled)
                             .on_click(cx.listener(move |page, _, window, cx| {
-                                page.save(index, None, window, cx)
+                                page.stage(index, None, window, cx)
                             })),
                     )
                 },
@@ -828,7 +795,8 @@ impl SettingsPage {
                                 ),
                         )
                         .on_click(move |_, window, cx| {
-                            let _ = owner.update(cx, |page, cx| page.save(index, None, window, cx));
+                            let _ =
+                                owner.update(cx, |page, cx| page.stage(index, None, window, cx));
                         }),
                 )
             });
@@ -903,7 +871,7 @@ impl SettingsPage {
             })
             .v_flex()
             .h(px(self
-                .snapshot
+                .persisted
                 .as_ref()
                 .map_or(16., |snapshot| snapshot.settings.ui.font_size)
                 * if narrow { 8. } else { 4.5 })
@@ -1213,7 +1181,7 @@ impl Render for SettingsPage {
                 div()
                     .text_sm()
                     .text_color(header_muted)
-                    .child("Changes apply live unless a setting says otherwise."),
+                    .child("Changes apply after Save. Unsaved changes stay in this window."),
             );
         let owner = cx.entity().downgrade();
         let count = self.rows.len();
@@ -1267,6 +1235,7 @@ impl Render for SettingsPage {
             .when(compact, |row| row.v_flex())
             .when(!compact, |row| row.h_flex().items_stretch())
             .on_action(cx.listener(|page, _: &Cancel, window, cx| page.cancel(window, cx)))
+            .on_action(cx.listener(|page, _: &SaveDraft, window, cx| page.save_all(window, cx)))
             .child(nav)
             .child(
                 div()
@@ -1275,7 +1244,63 @@ impl Render for SettingsPage {
                     .min_w_0()
                     .min_h_0()
                     .child(header)
-                    .child(body),
+                    .child(body)
+                    .child(
+                        div()
+                            .h_flex()
+                            .justify_between()
+                            .items_center()
+                            .p(crate::spacing::space(3., cx))
+                            .gap(crate::spacing::edge(cx))
+                            .bg(crate::appearance::surface(
+                                header_surface,
+                                jaywalk::theme::Part::Background,
+                                cx,
+                            ))
+                            .border_t_1()
+                            .border_color(border)
+                            .child(
+                                Button::new("settings-discard")
+                                    .small()
+                                    .label("Discard")
+                                    .debug_selector(|| "settings-discard".into())
+                                    .disabled(!self.has_changes() || self.busy.is_some())
+                                    .on_click(
+                                        cx.listener(|page, _, window, cx| page.discard(window, cx)),
+                                    ),
+                            )
+                            .child(
+                                div()
+                                    .h_flex()
+                                    .items_center()
+                                    .gap(crate::spacing::edge(cx))
+                                    .child(div().text_sm().text_color(muted).child(
+                                        if self.busy.is_some() {
+                                            "Saving…"
+                                        } else if self.has_changes() {
+                                            "Unsaved changes"
+                                        } else {
+                                            ""
+                                        },
+                                    ))
+                                    .child(
+                                        Button::new("settings-save")
+                                            .small()
+                                            .primary()
+                                            .label("Save")
+                                            .child(session::SaveHint)
+                                            .debug_selector(|| "settings-save".into())
+                                            .disabled(
+                                                !self.has_changes()
+                                                    || self.busy.is_some()
+                                                    || self.error.is_some(),
+                                            )
+                                            .on_click(cx.listener(|page, _, window, cx| {
+                                                page.save_all(window, cx)
+                                            })),
+                                    ),
+                            ),
+                    ),
             )
     }
 }

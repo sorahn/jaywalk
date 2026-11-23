@@ -4328,6 +4328,14 @@ fn cancelling_branch_checkout_preparation_restores_the_previous_pin(cx: &mut Tes
     }
 }
 
+fn save_settings(cx: &mut VisualTestContext) {
+    let save = cx
+        .debug_bounds("settings-save")
+        .expect("Settings has a Save button");
+    cx.simulate_click(save.center(), Default::default());
+    draw(cx);
+}
+
 #[gpui_test::test]
 fn settings_search_edit_reset_and_close_preserve_the_review(cx: &mut TestAppContext) {
     let fixture = Fixture::new();
@@ -4355,12 +4363,22 @@ fn settings_search_edit_reset_and_close_preserve_the_review(cx: &mut TestAppCont
         header_height
     );
     let path = fixture.0.join("settings.toml");
+    assert!(
+        Settings::parse(&std::fs::read_to_string(&path).unwrap())
+            .unwrap()
+            .diff
+            .word_highlight,
+        "a toggle must not write until Save"
+    );
+    main_cx.update(|_, app| assert!(viewer.read(app).settings.diff.word_highlight));
+    save_settings(cx);
     let saved = Settings::parse(&std::fs::read_to_string(&path).unwrap()).unwrap();
     assert!(!saved.diff.word_highlight);
     assert!(cx.debug_bounds("reset-diff.word_highlight").is_some());
     let reset = cx.debug_bounds("reset-diff.word_highlight").unwrap();
     cx.simulate_click(reset.center(), Default::default());
     draw(cx);
+    save_settings(cx);
     let text = std::fs::read_to_string(&path).unwrap();
     assert!(Settings::parse(&text).unwrap().diff.word_highlight);
     assert!(cx.debug_bounds("reset-diff.word_highlight").is_none());
@@ -4396,6 +4414,15 @@ fn settings_numeric_drafts_validate_before_saving_and_defaults_are_read_only(
     cx.simulate_click(bounds.center(), Default::default());
     cx.simulate_input("ui.font_size");
     draw(cx);
+    assert!(
+        cx.debug_bounds(if cfg!(target_os = "macos") {
+            "kbd:cmd-s"
+        } else {
+            "kbd:ctrl-s"
+        })
+        .is_some(),
+        "Save must display its configured shortcut"
+    );
     let status = cx.update(|_, app| page.read(app).test_status(app));
     let bounds = cx
         .debug_bounds("setting-ui.font_size")
@@ -4427,7 +4454,7 @@ fn settings_numeric_drafts_validate_before_saving_and_defaults_are_read_only(
     );
     cx.simulate_keystrokes("secondary-a");
     cx.simulate_input("18");
-    cx.simulate_keystrokes("enter");
+    cx.simulate_keystrokes("secondary-s");
     draw(cx);
     assert_eq!(
         Settings::parse(&std::fs::read_to_string(&path).unwrap())
@@ -4700,6 +4727,14 @@ fn settings_number_buttons_save_steps_and_fonts_can_return_to_default(cx: &mut T
             .unwrap()
             .ui
             .font_size,
+        16.
+    );
+    save_settings(cx);
+    assert_eq!(
+        Settings::parse(&std::fs::read_to_string(&path).unwrap())
+            .unwrap()
+            .ui
+            .font_size,
         16.5
     );
     let field = cx.debug_bounds("setting-ui.font_size").unwrap();
@@ -4708,6 +4743,7 @@ fn settings_number_buttons_save_steps_and_fonts_can_return_to_default(cx: &mut T
         Default::default(),
     );
     draw(cx);
+    save_settings(cx);
     assert_eq!(
         Settings::parse(&std::fs::read_to_string(&path).unwrap())
             .unwrap()
@@ -4737,6 +4773,7 @@ fn settings_number_buttons_save_steps_and_fonts_can_return_to_default(cx: &mut T
     draw(cx);
     cx.simulate_keystrokes("up enter");
     draw(cx);
+    save_settings(cx);
     assert!(
         Settings::parse(&std::fs::read_to_string(&path).unwrap())
             .unwrap()
@@ -4837,6 +4874,7 @@ fn settings_color_fields_preserve_the_other_appearance_and_toggle_shared_values(
     cx.simulate_input("#123456");
     cx.simulate_keystrokes("enter");
     draw(cx);
+    save_settings(cx);
     let read = || {
         toml::from_str::<toml::Value>(
             &std::fs::read_to_string(fixture.0.join("settings.toml")).unwrap(),
@@ -4857,6 +4895,7 @@ fn settings_color_fields_preserve_the_other_appearance_and_toggle_shared_values(
         .unwrap();
     cx.simulate_click(checkbox.center(), Default::default());
     draw(cx);
+    save_settings(cx);
     assert_eq!(
         read()["diff"]["colors"]["added_background"].as_str(),
         Some("#123456")
@@ -4866,6 +4905,7 @@ fn settings_color_fields_preserve_the_other_appearance_and_toggle_shared_values(
         .unwrap();
     cx.simulate_click(checkbox.center(), Default::default());
     draw(cx);
+    save_settings(cx);
     let saved = read();
     for mode in ["light", "dark"] {
         assert_eq!(
@@ -4919,4 +4959,165 @@ fn settings_color_browsing_and_appearance_changes_do_not_save_overrides(cx: &mut
             assert_eq!(std::fs::read_to_string(&path).unwrap(), before);
         }
     }
+}
+
+#[gpui_test::test]
+fn settings_save_discard_and_close_prompts_cover_active_text_and_invalid_drafts(
+    cx: &mut TestAppContext,
+) {
+    let fixture = Fixture::new();
+    let (viewer, cx) = setup(&fixture, cx);
+    let (page, mut popup) = open_settings_test(&viewer, cx, false);
+    let main = cx;
+    let cx = &mut popup;
+    let path = fixture.0.join("settings.toml");
+    let before = std::fs::read_to_string(&path).unwrap();
+    let search = cx.debug_bounds("settings-search").unwrap();
+    cx.simulate_click(search.center(), Default::default());
+    cx.simulate_input("ui.font_size");
+    draw(cx);
+    let field = cx.debug_bounds("setting-ui.font_size").unwrap();
+    cx.simulate_click(field.center(), Default::default());
+    cx.simulate_keystrokes("secondary-a");
+    cx.simulate_input("19");
+    draw(cx);
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), before);
+    cx.update(|window, app| page.update(app, |page, cx| page.request_close(false, window, cx)));
+    draw(cx);
+    assert!(cx.cx.has_pending_prompt());
+    cx.cx.simulate_prompt_answer("Cancel");
+    draw(cx);
+    assert!(cx.update(|_, app| page.read(app).has_changes()));
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), before);
+    let discard = cx.debug_bounds("settings-discard").unwrap();
+    cx.simulate_click(discard.center(), Default::default());
+    draw(cx);
+    assert!(!cx.update(|_, app| page.read(app).has_changes()));
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), before);
+    let field = cx.debug_bounds("setting-ui.font_size").unwrap();
+    cx.simulate_click(field.center(), Default::default());
+    cx.simulate_keystrokes("secondary-a");
+    cx.simulate_input("-1");
+    draw(cx);
+    cx.update(|window, app| page.update(app, |page, cx| page.request_close(false, window, cx)));
+    draw(cx);
+    cx.cx.simulate_prompt_answer("Save");
+    draw(cx);
+    assert!(cx.debug_bounds("settings-page").is_some());
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), before);
+    let field = cx.debug_bounds("setting-ui.font_size").unwrap();
+    cx.simulate_click(field.center(), Default::default());
+    cx.simulate_keystrokes("secondary-a");
+    cx.simulate_input("20");
+    draw(cx);
+    cx.update(|window, app| page.update(app, |page, cx| page.request_close(false, window, cx)));
+    draw(cx);
+    cx.cx.simulate_prompt_answer("Save");
+    draw(main);
+    assert_eq!(
+        Settings::parse(&std::fs::read_to_string(&path).unwrap())
+            .unwrap()
+            .ui
+            .font_size,
+        20.
+    );
+    assert_eq!(
+        main.update(|_, app| app.windows().len()),
+        1,
+        "successful Save closes Settings"
+    );
+    let (page, mut popup) = open_settings_test(&viewer, main, false);
+    let cx = &mut popup;
+    let search = cx.debug_bounds("settings-search").unwrap();
+    cx.simulate_click(search.center(), Default::default());
+    cx.simulate_input("diff.word_highlight");
+    draw(cx);
+    let toggle = cx.debug_bounds("setting-diff.word_highlight").unwrap();
+    cx.simulate_click(toggle.center(), Default::default());
+    draw(cx);
+    let saved = std::fs::read_to_string(&path).unwrap();
+    cx.update(|window, app| page.update(app, |page, cx| page.request_close(false, window, cx)));
+    draw(cx);
+    cx.cx.simulate_prompt_answer("Discard");
+    draw(main);
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), saved);
+    assert_eq!(main.update(|_, app| app.windows().len()), 1);
+}
+
+#[gpui_test::test]
+fn settings_drafts_keep_update_consent_off_and_conflicts_preserve_all_external_values(
+    cx: &mut TestAppContext,
+) {
+    let fixture = Fixture::new();
+    let (viewer, cx) = setup(&fixture, cx);
+    let (_page, mut popup) = open_settings_test(&viewer, cx, false);
+    let cx = &mut popup;
+    let path = fixture.0.join("settings.toml");
+    let before = std::fs::read_to_string(&path).unwrap();
+    let search = cx.debug_bounds("settings-search").unwrap();
+    cx.simulate_click(search.center(), Default::default());
+    cx.simulate_input("updates.automatic_checks");
+    draw(cx);
+    let toggle = cx.debug_bounds("setting-updates.automatic_checks").unwrap();
+    cx.simulate_click(toggle.center(), Default::default());
+    draw(cx);
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), before);
+    cx.update(|_, app| assert!(!viewer.read(app).settings.updates.automatic_checks));
+    let search = cx.debug_bounds("settings-search").unwrap();
+    cx.simulate_click(search.center(), Default::default());
+    cx.simulate_keystrokes("secondary-a");
+    cx.simulate_input("diff.word_highlight");
+    draw(cx);
+    let toggle = cx.debug_bounds("setting-diff.word_highlight").unwrap();
+    cx.simulate_click(toggle.center(), Default::default());
+    draw(cx);
+    let source = jaywalk::settings_reload::SettingsSource::resolve(Some(&path)).unwrap();
+    let external = jaywalk::preferences::patch(
+        &source,
+        jaywalk::preferences::Patch::set("diff.word_highlight", true.into()),
+    )
+    .unwrap();
+    let text = external.text.clone();
+    cx.update(|_, app| {
+        crate::settings_service::publish_snapshot(source, external, app).unwrap();
+    });
+    draw(cx);
+    save_settings(cx);
+    assert_eq!(
+        std::fs::read_to_string(&path).unwrap(),
+        text,
+        "conflict must reject the entire batch, including consent"
+    );
+    let discard = cx.debug_bounds("settings-discard").unwrap();
+    cx.simulate_click(discard.center(), Default::default());
+    draw(cx);
+    assert!(cx.debug_bounds("reset-diff.word_highlight").is_none());
+}
+
+#[gpui_test::test]
+fn settings_quit_requests_use_the_same_unsaved_guard(cx: &mut TestAppContext) {
+    let fixture = Fixture::new();
+    let (viewer, cx) = setup(&fixture, cx);
+    let (page, mut popup) = open_settings_test(&viewer, cx, false);
+    let cx = &mut popup;
+    let search = cx.debug_bounds("settings-search").unwrap();
+    cx.simulate_click(search.center(), Default::default());
+    cx.simulate_input("diff.word_highlight");
+    draw(cx);
+    let toggle = cx.debug_bounds("setting-diff.word_highlight").unwrap();
+    cx.simulate_click(toggle.center(), Default::default());
+    draw(cx);
+    cx.update(|_, app| crate::preferences_window::request_quit(app));
+    draw(cx);
+    assert!(cx.cx.has_pending_prompt());
+    cx.cx.simulate_prompt_answer("Cancel");
+    draw(cx);
+    assert!(cx.update(|_, app| page.read(app).has_changes()));
+    assert!(cx.debug_bounds("settings-page").is_some());
+    assert!(
+        Settings::parse(&std::fs::read_to_string(fixture.0.join("settings.toml")).unwrap())
+            .unwrap()
+            .diff
+            .word_highlight
+    );
 }
