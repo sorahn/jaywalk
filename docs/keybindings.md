@@ -40,6 +40,12 @@ The existing shortcuts open one picker with editable prefixes. Changing or remov
 | `@` | Symbols on the focused file side | Secondary+Shift+O |
 | `#` | Symbols across snapshot files | Secondary+T |
 
+Welcome puts **Command palette** first under Getting started and links directly to
+**Settings**, recent repositories and picker help. All assigned shortcut hints use
+the current keymap. On macOS the defaults include Cmd+P (commands), Cmd+, (Settings),
+Cmd+O (open repository), Ctrl+R (recent repositories), and Cmd+Shift+P (files after
+opening a repository). Settings opens its retained window and leaves Welcome open.
+
 For example: `src/main.rs`, `>refresh`, `:120`, `~jaywalk`, `!fix scrolling`, `/fix crash author:alex after:2026-11-01`. Start a literal filename with `./` if it begins with a mode character, such as `./!important.rs`. File/line modes explain when a comparison/file is unavailable on Welcome. Escape dismisses the root picker and restores its originating focus. Nested PR filters retain parent queries, selection and scrolling; Escape returns one step. The full PR browsing page remains reachable through **Browse pull requests**.
 
 The PR picker starts on **For me**: GitHub assignments and review requests appear before authored PRs, without duplicates. Text matching takes precedence over that default grouping. Tab → Scope offers separate Assigned to me, Review requested and Authored by me filters. Bitbucket review requests also appear before authored PRs, using its internal workspace aggregation endpoint with the existing OAuth connection. Assigned to me remains GitHub-only. Bitbucket discovery covers up to ten workspaces (preferred workspace first), three pages per workspace and ten pages per category; limits are labeled as partial results. The internal endpoint is undocumented: failures are shown and keep previously loaded results; Authored by me remains available separately. Results retain the same refresh, cache and restart-snapshot behavior. Independent accounts fetch concurrently (default three), with list and dispatch priority from the config’s `[[accounts]]` order; fast results appear without waiting for slower accounts. Account names and preferred workspaces also live in those config entries; credentials stay in the OS store.

@@ -9,11 +9,20 @@ use jaywalk::commands::CommandId;
 pub(crate) struct ShortcutHint(pub(crate) CommandId);
 impl RenderOnce for ShortcutHint {
     fn render(self, window: &mut Window, _: &mut App) -> impl IntoElement {
+        // The rendered dispatch stack can be empty while a page is built.
+        // Fall back to its explicit app context for context-scoped commands.
         let binding = gpui::component::kbd::Kbd::binding_for_action(
             &ExecuteCommand { command: self.0 },
             None,
             window,
-        );
+        )
+        .or_else(|| {
+            gpui::component::kbd::Kbd::binding_for_action(
+                &ExecuteCommand { command: self.0 },
+                Some("Jaywalk"),
+                window,
+            )
+        });
         div()
             // An unbound command must not leave a flex gap after its label.
             .when(binding.is_none(), |hint| hint.hidden())

@@ -5485,6 +5485,61 @@ fn settings_keyboard_preserves_existing_extra_alternatives(cx: &mut TestAppConte
 }
 
 #[gpui_test::test]
+fn welcome_settings_and_palette_links_follow_the_current_keymap(cx: &mut TestAppContext) {
+    let fixture = Fixture::new();
+    let (viewer, cx) = setup_arguments(&fixture, Arguments::parse_from(["jaywalk"]), cx);
+    assert!(cx.debug_bounds("shortcut-show_commands").is_some());
+    assert!(cx.debug_bounds("shortcut-show_settings").is_some());
+    assert!(cx.debug_bounds("shortcut-open_recent").is_some());
+    cx.simulate_keystrokes("secondary-p");
+    draw(cx);
+    assert!(
+        cx.debug_bounds("palette-overlay").is_some(),
+        "the advertised command-palette shortcut works from Welcome"
+    );
+    cx.simulate_keystrokes("escape");
+    draw(cx);
+    let palette = cx.debug_bounds("welcome-commands").unwrap();
+    cx.simulate_click(palette.center(), Default::default());
+    draw(cx);
+    assert!(cx.debug_bounds("palette-overlay").is_some());
+    assert!(cx.debug_bounds("welcome-page").is_some());
+    cx.simulate_keystrokes("escape");
+    draw(cx);
+    let settings = cx.update(|_, app| viewer.read(app).settings.clone());
+    let profile = jaywalk::keybinding_profiles::Profile::parse(
+        "[keybindings]\nshow_commands=['alt-shift-j']\nshow_settings=['alt-shift-,']\n",
+    )
+    .unwrap();
+    let remapped = settings.with_keybindings(profile).unwrap();
+    cx.update(|window, app| {
+        super::commands::install_bindings(&remapped, app).unwrap();
+        viewer.update(app, |viewer, cx| {
+            viewer.receive_settings(remapped, None, window, cx)
+        });
+    });
+    draw(cx);
+    assert!(cx.debug_bounds("kbd:alt-shift-j").is_some());
+    assert!(cx.debug_bounds("kbd:alt-shift-,").is_some());
+    let settings = cx.debug_bounds("welcome-picker-show_settings").unwrap();
+    cx.simulate_click(settings.center(), Default::default());
+    draw(cx);
+    assert_eq!(cx.update(|_, app| app.windows().len()), 2);
+    assert!(
+        cx.debug_bounds("welcome-page").is_some(),
+        "opening Settings preserves Welcome"
+    );
+    let (_, mut popup) = open_settings_test(&viewer, cx, false);
+    assert!(popup.debug_bounds("settings-page").is_some());
+    assert_eq!(
+        cx.update(|_, app| app.windows().len()),
+        2,
+        "the link opens the retained Settings window"
+    );
+    assert!(cx.update(|_, app| viewer.read(app).is_welcome()));
+}
+
+#[gpui_test::test]
 #[ignore = "manual keybindings scroll profiling"]
 fn settings_keyboard_scroll_profile(cx: &mut TestAppContext) {
     let fixture = Fixture::new();
