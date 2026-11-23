@@ -1329,6 +1329,11 @@ impl Render for SettingsPage {
                         "Changes preview live. Save writes them; Discard restores saved settings."
                     }),
             );
+        let header = if keyboard_active {
+            self.render_keyboard_header(window, cx)
+        } else {
+            header.into_any_element()
+        };
         let owner = cx.entity().downgrade();
         let count = self.rows.len();
         let list = uniform_list("settings-rows", count, move |range, window, cx| {

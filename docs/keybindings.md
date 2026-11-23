@@ -87,7 +87,7 @@ in `config.toml`. Unspecified shortcuts inherit [shipped defaults](../config/key
 
 Cmd+, edits the main config. **Open keybindings** edits the active profile through
 `settings.editor`. **Select keybindings profile…** (`select_keybindings`) opens **Keyboard Shortcuts**
-in the retained Settings window, above Accounts. The profile dropdown lists the
+in the retained Settings window, above Accounts. Its compact header keeps the profile selector and TOML action above the search field; shortcut notation and saving help is available from the ? tooltip. The command list scrolls below this fixed header. The profile dropdown lists the
 recommended folder, additional discovery folders and the current profile. Create
 another TOML file in those folders to add a profile. Invalid profiles remain
 listed but cannot replace working bindings. **Open keybindings file…**

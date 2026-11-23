@@ -1,5 +1,6 @@
 //! Application command remapping. Toolkit action/context rules remain in TOML.
 use super::*;
+use gpui::component::tooltip::{ManagedTooltipExt as _, Tooltip};
 use jaywalk::keybinding_profiles as profiles;
 use std::collections::BTreeSet;
 
@@ -329,18 +330,22 @@ impl SettingsPage {
         })
         .detach();
     }
-    pub(super) fn render_keyboard(
+    pub(super) fn render_keyboard_header(
         &mut self,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        let muted = gpui::component::Theme::global(cx).muted_foreground;
+        let surface = jaywalk::theme::Surface::Header;
+        let background = crate::appearance::surface(surface, jaywalk::theme::Part::Background, cx);
+        let foreground = crate::appearance::surface(surface, jaywalk::theme::Part::Foreground, cx);
+        let muted = crate::appearance::surface(surface, jaywalk::theme::Part::MutedForeground, cx);
         let border = gpui::component::Theme::global(cx).border;
+        let compact = f32::from(window.viewport_size().width) < 900.;
         let active = self.keyboard.active.clone();
         let owner = cx.entity().downgrade();
         let names = self.keyboard.names.clone();
-        let default_bindings = profiles::default_bindings();
         let profile_button = Button::new("keyboard-profile")
+            .compact()
             .dropdown_caret(true)
             .debug_selector(|| "keyboard-profile".into())
             .label(active.clone().unwrap_or_else(|| "Loading profile…".into()))
@@ -361,17 +366,108 @@ impl SettingsPage {
                 menu
             });
         let edit_button = Button::new("keyboard-edit-toml")
+            .compact()
             .label("Edit profile TOML…")
             .command_hint(CommandId::OpenKeybindings)
             .disabled(active.is_none())
             .on_click(cx.listener(|page, _, window, cx| page.edit_profile(window, cx)));
-        let mut content=div().v_flex().gap(crate::spacing::edge(cx)).p(crate::spacing::space(4.,cx))
-            .child(div().h_flex().items_center().justify_between().gap(crate::spacing::edge(cx))
-                .child(profile_button).child(edit_button))
-            .child(div().text_sm().text_color(muted)
-                .child("Use GPUI shortcuts: secondary = Cmd/Ctrl; spaces separate chord steps. Empty fields unbind. Toolkit action/context rules remain in TOML."))
-            .child(div().debug_selector(||"keyboard-search".into())
-                .child(Input::new(&self.keyboard.query).small()));
+        let path = self.source.path().display().to_string();
+        let help = div().id("keyboard-help-trigger")
+            .child(Button::new("keyboard-help").compact().ghost().label("?")
+                .accessibility_label("Shortcut syntax and saving"))
+            .managed_tooltip_at(gpui::component::Placement::Left, |window,cx| {
+                let width=(window.viewport_size().width-px(48.)).max(px(80.)).min(px(340.));
+                Tooltip::new("Use GPUI shortcuts: secondary = Cmd on macOS, Ctrl elsewhere. Spaces separate chord steps. Empty fields unbind. Toolkit action/context rules remain in TOML.\n\nValid changes preview live. Save writes them; Discard restores saved settings.")
+                    .w(width).whitespace_normal().build(window,cx)
+            });
+        div()
+            .debug_selector(|| "settings-header".into())
+            .v_flex()
+            .gap(crate::spacing::edge(cx))
+            .p(crate::spacing::space(3., cx))
+            .bg(background)
+            .text_color(foreground)
+            .border_b_1()
+            .border_color(border)
+            .child(
+                div()
+                    .gap(crate::spacing::edge(cx))
+                    .when(compact, |row| row.v_flex())
+                    .when(!compact, |row| {
+                        row.h_flex().items_center().justify_between()
+                    })
+                    .child(
+                        div()
+                            .id("keyboard-heading")
+                            .text_lg()
+                            .font_medium()
+                            .child("Keyboard Shortcuts")
+                            .tooltip(move |window, cx| {
+                                gpui::component::tooltip::Tooltip::new(path.clone())
+                                    .build(window, cx)
+                            }),
+                    )
+                    .child(
+                        div()
+                            .h_flex()
+                            .items_center()
+                            .gap(crate::spacing::edge(cx))
+                            .child(profile_button)
+                            .child(edit_button)
+                            .child(help),
+                    ),
+            )
+            .child(
+                div()
+                    .h_flex()
+                    .items_center()
+                    .gap(crate::spacing::edge(cx))
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .debug_selector(|| "keyboard-search".into())
+                            .child(
+                                Input::new(&self.keyboard.query)
+                                    .small()
+                                    .border_color(border),
+                            ),
+                    )
+                    .when_some(
+                        self.error.clone().or_else(|| self.message.clone()),
+                        |row, message| {
+                            row.child(
+                                div()
+                                    .id("settings-save-status")
+                                    .max_w(px(160.))
+                                    .text_xs()
+                                    .text_color(muted)
+                                    .truncate()
+                                    .child(message.clone())
+                                    .tooltip(move |window, cx| {
+                                        gpui::component::tooltip::Tooltip::new(message.clone())
+                                            .build(window, cx)
+                                    }),
+                            )
+                        },
+                    ),
+            )
+            .into_any_element()
+    }
+    pub(super) fn render_keyboard(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let muted = gpui::component::Theme::global(cx).muted_foreground;
+        let border = gpui::component::Theme::global(cx).border;
+        let active = self.keyboard.active.clone();
+        let default_bindings = profiles::default_bindings();
+        let mut content = div()
+            .v_flex()
+            .gap(crate::spacing::edge(cx))
+            .px(crate::spacing::space(3., cx))
+            .py(crate::spacing::edge(cx));
         if let Some(name) = active {
             let query = self.keyboard.query.read(cx).value().to_lowercase();
             let mut commands = CommandId::ALL.to_vec();
