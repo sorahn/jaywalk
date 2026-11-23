@@ -93,9 +93,20 @@ another TOML file in those folders to add a profile. Invalid profiles remain
 listed but cannot replace working bindings. **Open keybindings file…**
 (`open_keybindings`) still opens the active saved profile in your editor.
 
-Search application commands by label, key or current shortcut. Each shortcut has
-its own field in GPUI notation; spaces form chords. Add offers another field;
-clearing a field removes that shortcut. Reset restores that command's shipped
+Search application commands by label, key or current shortcut, including modifier
+aliases: Cmd/Command/Super/Meta/Win, Alt/Option/Opt, Ctrl/Control/Ctl, Shift,
+Fn/Function, and the platform-resolved Secondary modifier. Native symbols and named
+key aliases (Return/Enter, Esc/Escape, arrows, Spacebar, Page Up/Down) also match.
+Shortcut terms must match one binding, rather than combining different alternatives.
+
+Idle shortcut fields show native keycaps (for example ⌃ ⌥ ⇧ ⌘ on macOS), with a
+gap between chord steps. Clicking or tabbing into a field exposes its existing
+GPUI notation for editing; spaces still form chords. Layout and field height stay
+the same. Each command has compact side-by-side Primary and Alternate slots, labeled once above the list. Command keys appear in label tooltips instead of a second text line.
+Clear removes just that slot's binding without moving the other field. Leaving an
+alternate empty creates no override; clearing both slots unbinds the command.
+Profiles with additional alternatives keep them in extra rows, and TOML remains
+available for adding more than two. Reset restores that command's shipped
 bindings, removing common and current-platform overrides while preserving other
 platforms. Toolkit `[[keymap]]` action/context rules remain in TOML.
 
@@ -189,7 +200,7 @@ Use GPUI notation in strings:
 - Spaces separate chord strokes: `"secondary-k 1"` is Cmd+K followed by 1,
   without holding Cmd for the second stroke.
 - Multiple strings give alternatives, not a chord:
-  `["secondary-down", "f7"]` binds either shortcut to the same command.
+  `["secondary-down", "alt-f5"]` binds either shortcut to the same command.
 - A chord prefix can delay a matching single-stroke shortcut; avoid assigning
   an immediate command to the prefix of another chord unless that is intended.
 
@@ -273,8 +284,8 @@ layout/reset/remote-management command merely to fill the table.
 | `keybindings.view_fluid` | `["secondary-k 3"]` | View: Fluid |
 | `keybindings.go_back` | `["secondary-alt-left"]` | Back through visited views |
 | `keybindings.go_forward` | `["secondary-alt-right"]` | Forward through visited views |
-| `keybindings.next_change` | `["secondary-down", "alt-f5", "f7"]` | Next change |
-| `keybindings.previous_change` | `["secondary-up", "alt-shift-f5", "shift-f7"]` | Previous change |
+| `keybindings.next_change` | `["secondary-down", "alt-f5"]` | Next change |
+| `keybindings.previous_change` | `["secondary-up", "alt-shift-f5"]` | Previous change |
 | `keybindings.next_file` | `["secondary-]", "alt-down"]` | Next file |
 | `keybindings.previous_file` | `["secondary-[", "alt-up"]` | Previous file |
 | `keybindings.next_revision` | `["secondary-}", "secondary-alt-down"]` | Next revision |
@@ -440,7 +451,7 @@ This compares shipped defaults, not personal overrides or every dynamic menu.
   (no prefix). Both actions can be remapped in keybindings.
 - Kaleidoscope documents Cmd+Down/Up for change navigation. VS Code uses
   Option+F5 / Option+Shift+F5, with F7-family accessible diff navigation. Jaywalk
-  uses Cmd+arrows as primary and retains the existing F5/F7 alternatives.
+  uses Cmd+arrows as primary and Option+F5 / Option+Shift+F5 as alternate bindings.
 - File/history navigation varies. Kaleidoscope's installed menu assigns
   Ctrl+Cmd+Up/Down to files; Sublime Merge assigns Cmd+Shift+brackets to file
   tabs and Option+Up/Down to commit ancestry. Jaywalk follows its explicit

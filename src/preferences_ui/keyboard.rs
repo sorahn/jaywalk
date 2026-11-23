@@ -1,8 +1,25 @@
 //! Application command remapping. Toolkit action/context rules remain in TOML.
+mod keys;
 use super::*;
+use gpui::component::kbd::Kbd;
 use gpui::component::tooltip::{ManagedTooltipExt as _, Tooltip};
 use jaywalk::keybinding_profiles as profiles;
 use std::collections::BTreeSet;
+
+#[derive(PartialEq)]
+struct KeyboardRow {
+    command: CommandId,
+    slots: usize,
+    error: Option<String>,
+}
+
+#[derive(PartialEq)]
+struct RowGeometry {
+    font: SharedString,
+    size: Pixels,
+    edge: Pixels,
+    interactive: Pixels,
+}
 
 pub(super) struct Keyboard {
     pub(super) drafts: BTreeMap<String, profiles::Draft>,
@@ -14,7 +31,14 @@ pub(super) struct Keyboard {
     errors: BTreeMap<(String, CommandId), String>,
     pub(super) loading: bool,
     serial: u64,
-    scroll: ScrollHandle,
+    scroll: gpui::ListState,
+    rows: Vec<KeyboardRow>,
+    row_profile: Option<String>,
+    geometry: Option<RowGeometry>,
+    hint_width: Pixels,
+    row_focus: BTreeMap<CommandId, FocusHandle>,
+    commands: Vec<CommandId>,
+    defaults: BTreeMap<CommandId, Vec<String>>,
 }
 impl Keyboard {
     pub(super) fn new(window: &mut Window, cx: &mut Context<SettingsPage>) -> Self {
@@ -32,7 +56,21 @@ impl Keyboard {
             errors: BTreeMap::new(),
             loading: false,
             serial: 0,
-            scroll: ScrollHandle::new(),
+            scroll: gpui::ListState::new(0, ListAlignment::Top, px(100.)),
+            rows: vec![],
+            row_profile: None,
+            geometry: None,
+            hint_width: px(0.),
+            row_focus: CommandId::ALL
+                .iter()
+                .map(|command| (*command, cx.focus_handle()))
+                .collect(),
+            commands: {
+                let mut commands = CommandId::ALL.to_vec();
+                commands.sort_by_key(|command| command.label());
+                commands
+            },
+            defaults: profiles::default_bindings(),
         }
     }
     pub(super) fn changed(&self) -> bool {
@@ -58,11 +96,19 @@ impl Keyboard {
         self.drafts.clear();
         self.active = None;
         self.inputs.clear();
+        self.rows.clear();
+        self.row_profile = None;
+        self.scroll.reset(0);
         self.dirty.clear();
         self.errors.clear();
     }
 }
 impl SettingsPage {
+    #[cfg(test)]
+    pub(crate) fn keyboard_input_count(&self) -> usize {
+        self.keyboard.inputs.len()
+    }
+
     pub(crate) fn show_keyboard(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.destination = Destination::Keyboard;
         self.defaults = false;
@@ -162,12 +208,11 @@ impl SettingsPage {
             .cloned()
             .unwrap_or_default();
         let mut inputs = Vec::new();
-        for binding in bindings.into_iter().chain(std::iter::once(String::new())) {
-            // One empty field for an unbound command, otherwise only its bindings.
-            if binding.is_empty() && !inputs.is_empty() {
-                break;
-            }
+        for binding in bindings {
             inputs.push(self.new_shortcut_input(key.clone(), binding, window, cx));
+        }
+        while inputs.len() < 2 {
+            inputs.push(self.new_shortcut_input(key.clone(), String::new(), window, cx));
         }
         self.keyboard.inputs.insert(key, inputs.clone());
         inputs
@@ -196,8 +241,9 @@ impl SettingsPage {
                 }
                 InputEvent::PressEnter { .. } | InputEvent::Blur => {
                     page.commit_shortcut(&key, window, cx);
+                    cx.notify();
                 }
-                _ => {}
+                InputEvent::Focus => cx.notify(),
             },
         ));
         input
@@ -228,6 +274,19 @@ impl SettingsPage {
         bindings: Option<&[String]>,
         cx: &mut Context<Self>,
     ) {
+        if bindings.is_some_and(|bindings| {
+            self.keyboard
+                .drafts
+                .get(&key.0)
+                .and_then(|draft| draft.profile.keybindings.get(&key.1))
+                .is_some_and(|current| current == bindings)
+        }) {
+            self.keyboard.dirty.remove(key);
+            self.keyboard.errors.remove(key);
+            self.message = None;
+            cx.notify();
+            return;
+        }
         let result = (|| {
             let draft = self
                 .keyboard
@@ -345,7 +404,6 @@ impl SettingsPage {
         let owner = cx.entity().downgrade();
         let names = self.keyboard.names.clone();
         let profile_button = Button::new("keyboard-profile")
-            .compact()
             .dropdown_caret(true)
             .debug_selector(|| "keyboard-profile".into())
             .label(active.clone().unwrap_or_else(|| "Loading profile…".into()))
@@ -366,14 +424,13 @@ impl SettingsPage {
                 menu
             });
         let edit_button = Button::new("keyboard-edit-toml")
-            .compact()
             .label("Edit profile TOML…")
             .command_hint(CommandId::OpenKeybindings)
             .disabled(active.is_none())
             .on_click(cx.listener(|page, _, window, cx| page.edit_profile(window, cx)));
         let path = self.source.path().display().to_string();
         let help = div().id("keyboard-help-trigger")
-            .child(Button::new("keyboard-help").compact().ghost().label("?")
+            .child(Button::new("keyboard-help").ghost().label("?")
                 .accessibility_label("Shortcut syntax and saving"))
             .managed_tooltip_at(gpui::component::Placement::Left, |window,cx| {
                 let width=(window.viewport_size().width-px(48.)).max(px(80.)).min(px(340.));
@@ -454,137 +511,379 @@ impl SettingsPage {
             )
             .into_any_element()
     }
-    pub(super) fn render_keyboard(
+    fn remove_shortcut(
         &mut self,
+        key: &(String, CommandId),
+        index: usize,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.busy.is_some() || self.keyboard.loading {
+            return;
+        }
+        let Some(inputs) = self.keyboard.inputs.get(key) else {
+            return;
+        };
+        if index >= inputs.len() {
+            return;
+        }
+        let mut remaining = inputs.clone();
+        // Clearing one slot must not move the other slot under the pointer.
+        remaining[index] = self.new_shortcut_input(key.clone(), String::new(), window, cx);
+        let bindings = remaining
+            .iter()
+            .map(|input| input.read(cx).value().trim().to_owned())
+            .filter(|value| !value.is_empty())
+            .collect::<Vec<_>>();
+        self.remap_shortcut(key, Some(&bindings), cx);
+        if !self.keyboard.errors.contains_key(key) {
+            self.keyboard.inputs.insert(key.clone(), remaining);
+            window.focus(&self.surface_focus, cx);
+        }
+        cx.notify();
+    }
+    fn shortcut_field(
+        &self,
+        command: CommandId,
+        index: usize,
+        input: Entity<InputState>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        let muted = gpui::component::Theme::global(cx).muted_foreground;
-        let border = gpui::component::Theme::global(cx).border;
-        let active = self.keyboard.active.clone();
-        let default_bindings = profiles::default_bindings();
-        let mut content = div()
-            .v_flex()
-            .gap(crate::spacing::edge(cx))
-            .px(crate::spacing::space(3., cx))
-            .py(crate::spacing::edge(cx));
-        if let Some(name) = active {
-            let query = self.keyboard.query.read(cx).value().to_lowercase();
-            let mut commands = CommandId::ALL.to_vec();
-            commands.sort_by_key(|command| command.label());
-            for command in commands {
-                let bindings = &self.keyboard.drafts[&name].profile.keybindings[&command];
-                if !format!(
-                    "{} {} {}",
-                    command.label(),
-                    command.key(),
-                    bindings.join(" ")
-                )
-                .to_lowercase()
-                .contains(query.trim())
-                {
-                    continue;
-                }
-                let changed = default_bindings.get(&command) != Some(bindings);
-                let inputs = self.shortcut_inputs(&name, command, window, cx);
-                let key = (name.clone(), command);
-                let mut controls = div().v_flex().gap(crate::spacing::interactive(cx));
-                for (index, input) in inputs.into_iter().enumerate() {
-                    controls = controls.child(
-                        div()
-                            .debug_selector(move || format!("keyboard-{}-{index}", command.key()))
-                            .child(
-                                Input::new(&input)
-                                    .small()
-                                    .disabled(self.busy.is_some() || self.keyboard.loading),
-                            ),
-                    );
-                }
-                let add_key = key.clone();
-                let reset_key = key.clone();
-                let row = div()
-                    .h_flex()
-                    .items_center()
-                    .gap(crate::spacing::edge(cx))
-                    .py(crate::spacing::edge(cx))
-                    .border_b_1()
-                    .border_color(border)
-                    .child(
-                        div()
-                            .flex_1()
-                            .min_w_0()
-                            .v_flex()
-                            .child(command.label())
-                            .child(div().text_xs().text_color(muted).child(command.key())),
+        let value = input.read(cx).value();
+        let focused = input.focus_handle(cx).is_focused(window);
+        let parsed = jaywalk::keymap::strokes(&value);
+        let show_keys = !focused && !value.trim().is_empty() && parsed.is_ok();
+        let disabled = self.busy.is_some() || self.keyboard.loading;
+        let focus = input.focus_handle(cx);
+        let mut field = div()
+            .relative()
+            .flex_1()
+            .min_w_0()
+            .debug_selector(move || format!("keyboard-{}-{index}", command.key()))
+            // Keep the real input laid out for tab focus, selection and unchanged
+            // field geometry. Only its idle presentation changes to keycaps.
+            .child(
+                Input::new(&input)
+                    .small()
+                    .disabled(disabled)
+                    .when(show_keys, |input| input.opacity(0.)),
+            );
+        if show_keys && let Ok(strokes) = parsed {
+            let caps = div()
+                .h_flex()
+                .w_full()
+                .min_w_0()
+                .justify_start()
+                .items_center()
+                .gap(crate::spacing::edge(cx))
+                .children(strokes.iter().map(|stroke| {
+                    div().h_flex().gap(px(2.)).children(
+                        keys::parts(stroke)
+                            .into_iter()
+                            .map(|key| Kbd::new(key).text_sm()),
                     )
-                    .child(controls.w(px(240.)))
-                    .child(
-                        Button::new(SharedString::from(format!(
-                            "shortcut-add-{}",
-                            command.key()
-                        )))
-                        .compact()
-                        .icon(gpui::component::IconName::Plus)
-                        .tooltip("Add shortcut")
-                        .disabled(self.busy.is_some() || self.keyboard.loading)
-                        .on_click(cx.listener(
-                            move |page, _, window, cx| {
-                                let input = page.new_shortcut_input(
-                                    add_key.clone(),
-                                    String::new(),
+                }));
+            field = field.child(
+                Button::new(SharedString::from(format!(
+                    "shortcut-display-{}-{index}",
+                    command.key()
+                )))
+                .absolute()
+                .inset_0()
+                .small()
+                .ghost()
+                .border_1()
+                .border_color(gpui::component::Theme::global(cx).input)
+                .bg(gpui::component::Theme::global(cx).input_background())
+                .px(crate::spacing::interactive(cx))
+                .py_0()
+                .justify_start()
+                .overflow_hidden()
+                .accessibility_label(format!("Edit shortcut: {value}"))
+                .child(caps)
+                .disabled(disabled)
+                .on_click(cx.listener(move |_, _, window, cx| {
+                    window.focus(&focus, cx);
+                    cx.notify();
+                })),
+            );
+        }
+        field.into_any_element()
+    }
+    fn render_keyboard_row(
+        &mut self,
+        name: &str,
+        command: CommandId,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let border = gpui::component::Theme::global(cx).border;
+        let bindings = &self.keyboard.drafts[name].profile.keybindings[&command];
+        let changed = self.keyboard.defaults.get(&command) != Some(bindings);
+        let inputs = self.shortcut_inputs(name, command, window, cx);
+        let key = (name.to_owned(), command);
+        let mut controls = div().v_flex().gap(crate::spacing::interactive(cx));
+        // Two fixed slots are enough for ordinary editing. Existing extra
+        // alternatives remain editable; never truncate a user's profile.
+        for (pair, inputs) in inputs.chunks(2).enumerate() {
+            let mut slots = div().h_flex().gap(crate::spacing::edge(cx));
+            for (slot, input) in inputs.iter().enumerate() {
+                let index = pair * 2 + slot;
+                let remove_key = key.clone();
+                let removable = !input.read(cx).value().trim().is_empty();
+                slots = slots.child(
+                    div()
+                        .v_flex()
+                        .w(px(172.))
+                        .gap(crate::spacing::interactive(cx))
+                        .child(
+                            div()
+                                .h_flex()
+                                .items_center()
+                                .gap(crate::spacing::interactive(cx))
+                                .child(self.shortcut_field(
+                                    command,
+                                    index,
+                                    input.clone(),
                                     window,
                                     cx,
-                                );
-                                page.keyboard
-                                    .inputs
-                                    .entry(add_key.clone())
-                                    .or_default()
-                                    .push(input.clone());
-                                window.focus(&input.focus_handle(cx), cx);
-                                cx.notify();
-                            },
-                        )),
-                    )
-                    .child(
+                                ))
+                                .child(
+                                    Button::new(SharedString::from(format!(
+                                        "shortcut-remove-{}-{index}",
+                                        command.key()
+                                    )))
+                                    .debug_selector(move || {
+                                        format!("shortcut-remove-{}-{index}", command.key())
+                                    })
+                                    .compact()
+                                    .ghost()
+                                    .icon(gpui::assets::IconName::X)
+                                    .when(!removable, |button| button.invisible())
+                                    .tooltip("Clear shortcut")
+                                    .disabled(
+                                        !removable || self.busy.is_some() || self.keyboard.loading,
+                                    )
+                                    .on_click(cx.listener(move |page, _, window, cx| {
+                                        page.remove_shortcut(&remove_key, index, window, cx)
+                                    })),
+                                ),
+                        ),
+                );
+            }
+            controls = controls.child(slots);
+        }
+        let reset_key = key.clone();
+        let actions =
+            div()
+                .h_flex()
+                .items_start()
+                .gap(crate::spacing::edge(cx))
+                .child(controls.w(px(352.)))
+                .child(
+                    div().v_flex().gap(crate::spacing::interactive(cx)).child(
                         Button::new(SharedString::from(format!(
                             "shortcut-reset-{}",
                             command.key()
                         )))
                         .compact()
                         .icon(gpui::component::IconName::Undo2)
+                        .self_start()
+                        .mt(crate::spacing::interactive(cx))
                         .tooltip("Reset to default")
                         .disabled(!changed || self.busy.is_some())
                         .on_click(cx.listener(move |page, _, _, cx| {
                             page.remap_shortcut(&reset_key, None, cx)
                         })),
-                    );
-                content = content.child(div().v_flex().child(row).when_some(
-                    self.keyboard.errors.get(&key),
-                    |row, error| {
-                        row.child(
-                            div()
-                                .text_sm()
-                                .text_color(gpui::component::Theme::global(cx).danger)
-                                .child(error.clone()),
-                        )
-                    },
-                ));
-            }
-        }
-        div()
-            .relative()
-            .flex_1()
-            .min_h_0()
+                    ),
+                );
+        let row = div()
+            .h_flex()
+            .w_full()
+            .items_center()
+            .gap(crate::spacing::edge(cx))
+            .py(crate::spacing::edge(cx))
+            .border_b_1()
+            .border_color(border)
             .child(
                 div()
-                    .id("keyboard-content")
-                    .debug_selector(|| "keyboard-content".into())
-                    .size_full()
-                    .overflow_y_scroll()
-                    .track_scroll(&self.keyboard.scroll)
-                    .child(content),
+                    .flex_1()
+                    .min_w_0()
+                    .id(SharedString::from(format!(
+                        "keyboard-command-{}",
+                        command.key()
+                    )))
+                    .child(command.label())
+                    .tooltip(move |window, cx| Tooltip::new(command.key()).build(window, cx)),
             )
-            .child(Scrollbar::vertical(&self.keyboard.scroll))
+            .child(actions);
+        div()
+            .v_flex()
+            .w_full()
+            .track_focus(&self.keyboard.row_focus[&command])
+            .px(crate::spacing::space(3., cx))
+            .pb(crate::spacing::edge(cx))
+            .child(row)
+            .when_some(self.keyboard.errors.get(&key), |row, error| {
+                row.child(
+                    div()
+                        .text_sm()
+                        .text_color(gpui::component::Theme::global(cx).danger)
+                        .child(error.clone()),
+                )
+            })
+            .into_any_element()
+    }
+
+    pub(super) fn render_keyboard(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let active = self.keyboard.active.clone();
+        let query = self.keyboard.query.read(cx).value().to_lowercase();
+        let rows = active.as_ref().map_or_else(Vec::new, |name| {
+            self.keyboard
+                .commands
+                .iter()
+                .copied()
+                .filter_map(|command| {
+                    let bindings = &self.keyboard.drafts[name].profile.keybindings[&command];
+                    keys::matches(
+                        command.label(),
+                        &command.key(),
+                        bindings,
+                        &query,
+                        jaywalk::keymap::native_os(),
+                    )
+                    .then(|| {
+                        let key = (name.clone(), command);
+                        KeyboardRow {
+                            command,
+                            slots: self
+                                .keyboard
+                                .inputs
+                                .get(&key)
+                                .map_or(bindings.len().max(2), Vec::len),
+                            error: self.keyboard.errors.get(&key).cloned(),
+                        }
+                    })
+                })
+                .collect::<Vec<_>>()
+        });
+        let changed_commands = self.keyboard.row_profile != active
+            || self
+                .keyboard
+                .rows
+                .iter()
+                .map(|row| row.command)
+                .ne(rows.iter().map(|row| row.command));
+        if changed_commands {
+            self.keyboard.scroll.reset(0);
+            self.keyboard.scroll.splice_focusable(
+                0..0,
+                rows.iter()
+                    .map(|row| Some(self.keyboard.row_focus[&row.command].clone())),
+            );
+        } else {
+            for (index, (old, new)) in self.keyboard.rows.iter().zip(&rows).enumerate() {
+                if old != new {
+                    self.keyboard.scroll.remeasure_items(index..index + 1);
+                }
+            }
+        }
+        let theme = gpui::component::Theme::global(cx);
+        let geometry = RowGeometry {
+            font: theme.font_family.clone(),
+            size: theme.font_size,
+            edge: crate::spacing::edge(cx),
+            interactive: crate::spacing::interactive(cx),
+        };
+        let geometry_changed = self.keyboard.geometry.as_ref() != Some(&geometry);
+        if geometry_changed {
+            self.keyboard.scroll.remeasure_items(0..rows.len());
+            self.keyboard.geometry = Some(geometry);
+        }
+        let width = self.keyboard.scroll.viewport_bounds().size.width;
+        if changed_commands || geometry_changed || self.keyboard.hint_width != width {
+            self.keyboard.hint_width = width;
+            let owner = cx.entity().downgrade();
+            // GPUI discards size hints when it first establishes the viewport
+            // width (and on resize). Seed unmeasured rows after that layout so
+            // the scrollbar represents the whole list without measuring it all.
+            window.on_next_frame(move |_, cx| {
+                let _ = owner.update(cx, |page, cx| {
+                    page.keyboard
+                        .scroll
+                        .clone()
+                        .with_uniform_item_height(px(80.));
+                    cx.notify();
+                });
+            });
+        }
+        self.keyboard.rows = rows;
+        self.keyboard.row_profile = active.clone();
+        let owner = cx.entity().downgrade();
+        let rows = list(self.keyboard.scroll.clone(), move |index, window, cx| {
+            owner
+                .update(cx, |page, cx| {
+                    let command = page.keyboard.rows[index].command;
+                    page.render_keyboard_row(
+                        active
+                            .as_deref()
+                            .expect("keyboard rows require an active profile"),
+                        command,
+                        window,
+                        cx,
+                    )
+                })
+                .unwrap_or_else(|_| div().into_any_element())
+        })
+        .size_full();
+        let muted = gpui::component::Theme::global(cx).muted_foreground;
+        let headings = div()
+            .h_flex()
+            .items_center()
+            .px(crate::spacing::space(3., cx))
+            .gap(crate::spacing::edge(cx))
+            .text_xs()
+            .text_color(muted)
+            .child(div().flex_1().child("Command"))
+            .child(
+                div()
+                    .h_flex()
+                    .gap(crate::spacing::edge(cx))
+                    .child(
+                        div()
+                            .w(px(172.))
+                            .debug_selector(|| "keyboard-primary-heading".into())
+                            .child("Primary"),
+                    )
+                    .child(div().w(px(172.)).child("Alternate")),
+            )
+            .child(
+                Button::new("keyboard-reset-spacer")
+                    .compact()
+                    .icon(gpui::component::IconName::Undo2)
+                    .invisible(),
+            );
+        div()
+            .v_flex()
+            .flex_1()
+            .min_h_0()
+            .child(headings)
+            .child(
+                div()
+                    .relative()
+                    .debug_selector(|| "keyboard-content".into())
+                    .flex_1()
+                    .min_h_0()
+                    // Keep fixed viewport breathing room outside the scroll/hit-test area.
+                    .py(crate::spacing::edge(cx))
+                    .child(rows)
+                    .child(Scrollbar::vertical(&self.keyboard.scroll)),
+            )
             .into_any_element()
     }
 }
