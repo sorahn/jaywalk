@@ -8,7 +8,6 @@ pub(super) enum Page {
     Comparison,
     Setup,
     Welcome,
-    Accounts,
     PullRequests,
 }
 /// Only applies to the exact retained standard widget. Source ranges survive
@@ -96,39 +95,20 @@ impl Viewer {
     pub(super) fn show_accounts(
         &mut self,
         command: jaywalk::commands::CommandId,
-        window: &mut Window,
+        _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.account_page.is_none() {
-            if !cx.has_global::<jaywalk::accounts::application::Accounts>() {
-                jaywalk::accounts::application::init(cx);
+        let arguments = self.arguments.clone();
+        let settings = self.settings.clone();
+        cx.defer(move |cx| {
+            if let Err(error) =
+                crate::preferences_window::show_accounts(arguments, settings, command, cx)
+            {
+                eprintln!("Could not open Accounts: {error}");
             }
-            let page = cx.new(|cx| crate::account_ui::AccountPanel::new(command, window, cx));
-            cx.subscribe_in(
-                &page,
-                window,
-                |viewer, _, _: &crate::account_ui::LeavePage, window, cx| {
-                    if viewer.navigation.history.can_back() {
-                        viewer.navigate_view(false, window, cx);
-                    } else {
-                        let page = if viewer.arguments.welcome {
-                            Page::Welcome
-                        } else {
-                            Page::Comparison
-                        };
-                        viewer.show_page(page, window, cx);
-                    }
-                },
-            )
-            .detach();
-            self.account_page = Some(page);
-        }
-        self.show_page(Page::Accounts, window, cx);
-        self.account_page
-            .as_ref()
-            .expect("the account page was constructed")
-            .update(cx, |page, cx| page.show(command, window, cx));
+        });
     }
+
     pub(super) fn show_page(&mut self, page: Page, window: &mut Window, cx: &mut Context<Self>) {
         if self.page != page {
             // A comparison can still be loading. Record a retained destination
@@ -183,10 +163,6 @@ impl Viewer {
             && let Some(page) = &self.pull_requests_page
         {
             page.update(cx, |page, cx| page.focus(window, cx));
-        } else if self.page == Page::Accounts
-            && let Some(accounts) = &self.account_page
-        {
-            accounts.update(cx, |page, cx| page.focus(window, cx));
         } else {
             window.focus(&self.focus, cx);
         }
@@ -221,7 +197,6 @@ impl Viewer {
                     .child(match self.page {
                         Page::Welcome => "Welcome",
                         Page::Setup => "Set up Jaywalk",
-                        Page::Accounts => "Accounts",
                         Page::PullRequests => "Pull requests",
                         Page::Comparison => unreachable!("comparisons keep their existing header"),
                     }),

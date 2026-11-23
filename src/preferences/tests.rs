@@ -69,12 +69,14 @@ fn catalogue_covers_defaults_and_searches_key_title_and_description() {
             .any(|index| catalogue::SETTINGS[*index].key == "diff.after.word_wrap")
     );
 
-    assert!(
-        snapshot
-            .matching("credential", None, false)
-            .iter()
-            .any(|index| catalogue::SETTINGS[*index].key == "accounts")
-    );
+    for query in ["", "accounts", "credential"] {
+        assert!(
+            snapshot
+                .matching(query, None, false)
+                .iter()
+                .all(|index| catalogue::SETTINGS[*index].key != "accounts")
+        );
+    }
 }
 #[test]
 fn snapshots_distinguish_inherited_explicit_default_and_modified_without_runtime_state() {

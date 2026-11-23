@@ -53,6 +53,12 @@ pub(crate) enum Event {
     Keybindings,
 }
 impl EventEmitter<Event> for SettingsPage {}
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Destination {
+    Settings,
+    Accounts,
+}
+
 struct Draft {
     input: Entity<InputState>,
     baseline: Option<toml::Value>,
@@ -62,6 +68,8 @@ struct Draft {
 }
 pub(crate) struct SettingsPage {
     source: SettingsSource,
+    destination: Destination,
+    accounts: Option<Entity<crate::account_ui::AccountPanel>>,
     query: Entity<InputState>,
     surface_focus: FocusHandle,
     snapshot: Option<Arc<Snapshot>>,
@@ -95,6 +103,7 @@ impl SettingsPage {
             cx.new(|cx| InputState::new(window, cx).placeholder("Search keys and descriptions…"));
         let subscription = cx.subscribe_in(&query, window, |page, _, event, _, cx| {
             if matches!(event, InputEvent::Change) {
+                page.destination = Destination::Settings;
                 page.filter(cx);
             }
         });
@@ -103,6 +112,8 @@ impl SettingsPage {
         font_names.dedup();
         let mut page = Self {
             source: source.clone(),
+            destination: Destination::Settings,
+            accounts: None,
             query,
             surface_focus: cx.focus_handle(),
             snapshot: None,
@@ -181,9 +192,48 @@ impl SettingsPage {
         page
     }
     pub(crate) fn focus(&self, window: &mut Window, cx: &mut App) {
-        window.focus(&self.query.focus_handle(cx), cx);
+        if self.destination == Destination::Accounts
+            && let Some(accounts) = &self.accounts
+        {
+            accounts.update(cx, |accounts, cx| accounts.focus(window, cx));
+        } else {
+            window.focus(&self.query.focus_handle(cx), cx);
+        }
+    }
+    pub(crate) fn show_accounts(
+        &mut self,
+        command: CommandId,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.destination = Destination::Accounts;
+        if let Some(accounts) = &self.accounts {
+            if command != CommandId::Accounts {
+                accounts.update(cx, |accounts, cx| accounts.show(command, window, cx));
+            }
+        } else {
+            if !cx.has_global::<jaywalk::accounts::application::Accounts>() {
+                jaywalk::accounts::application::init(cx);
+            }
+            let panel =
+                cx.new(|cx| crate::account_ui::AccountPanel::new(command, window, cx).embedded());
+            self.subscriptions.push(cx.subscribe_in(
+                &panel,
+                window,
+                |page, _, _: &crate::account_ui::LeavePage, window, cx| {
+                    page.destination = Destination::Settings;
+                    page.focus(window, cx);
+                    cx.notify();
+                },
+            ));
+            self.accounts = Some(panel);
+        }
+        self.focus(window, cx);
+        cx.notify();
     }
     pub(crate) fn show_defaults(&mut self, defaults: bool, cx: &mut Context<Self>) {
+        self.destination = Destination::Settings;
+        cx.notify();
         if self.defaults != defaults {
             self.defaults = defaults;
             self.changed = false;
@@ -191,6 +241,7 @@ impl SettingsPage {
         }
     }
     fn select_category(&mut self, category: Option<Category>, cx: &mut Context<Self>) {
+        self.destination = Destination::Settings;
         self.category = category;
         self.changed = false;
         // Explicit navigation during a search becomes the browsing destination
@@ -201,6 +252,7 @@ impl SettingsPage {
         self.filter(cx);
     }
     fn select_changed(&mut self, cx: &mut Context<Self>) {
+        self.destination = Destination::Settings;
         self.category = None;
         self.changed = true;
         if self.query_active {
@@ -914,6 +966,7 @@ impl Focusable for SettingsPage {
 }
 impl Render for SettingsPage {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let accounts_active = self.destination == Destination::Accounts;
         let narrow = f32::from(window.viewport_size().width) < 900.;
         let compact = f32::from(window.viewport_size().width) < 650.;
         let theme = gpui::component::Theme::global(cx);
@@ -956,7 +1009,7 @@ impl Render for SettingsPage {
                     .child(div().w_full().text_left().child("All settings"))
                     .ghost()
                     .px(crate::spacing::space(2., cx))
-                    .selected(self.category.is_none() && !self.changed)
+                    .selected(!accounts_active && self.category.is_none() && !self.changed)
                     .justify_start()
                     .on_click(cx.listener(|page, _, _, cx| {
                         page.select_category(None, cx);
@@ -974,7 +1027,7 @@ impl Render for SettingsPage {
                     )
                     .ghost()
                     .px(crate::spacing::space(2., cx))
-                    .selected(self.changed)
+                    .selected(!accounts_active && self.changed)
                     .justify_start()
                     .disabled(self.defaults)
                     .on_click(cx.listener(|page, _, _, cx| {
@@ -989,13 +1042,29 @@ impl Render for SettingsPage {
                     .child(div().w_full().text_left().child(category.label()))
                     .ghost()
                     .px(crate::spacing::space(2., cx))
-                    .selected(self.category == Some(category))
+                    .selected(!accounts_active && self.category == Some(category))
                     .justify_start()
                     .on_click(cx.listener(move |page, _, _, cx| {
                         page.select_category(Some(category), cx);
                     })),
             );
         }
+        nav = nav
+            .child(div().h(px(1.)).my(crate::spacing::edge(cx)).bg(border))
+            .child(
+                Button::new("settings-accounts")
+                    .debug_selector(|| "settings-accounts".into())
+                    .accessibility_label("Accounts")
+                    .child(div().w_full().text_left().child("Accounts"))
+                    .command_hint(CommandId::Accounts)
+                    .ghost()
+                    .px(crate::spacing::space(2., cx))
+                    .justify_start()
+                    .selected(accounts_active)
+                    .on_click(cx.listener(|page, _, window, cx| {
+                        page.show_accounts(CommandId::Accounts, window, cx)
+                    })),
+            );
         let nav = if compact {
             let owner = cx.entity().downgrade();
             div()
@@ -1023,7 +1092,9 @@ impl Render for SettingsPage {
                                 .debug_selector(|| "settings-category-menu".into())
                                 .px(crate::spacing::edge(cx))
                                 .dropdown_caret(true)
-                                .label(if self.changed {
+                                .label(if accounts_active {
+                                    "Accounts"
+                                } else if self.changed {
                                     "Changed from defaults"
                                 } else {
                                     self.category.map_or("All settings", Category::label)
@@ -1051,7 +1122,19 @@ impl Render for SettingsPage {
                                             ),
                                         );
                                     }
-                                    menu
+                                    let owner = owner.clone();
+                                    menu.separator()
+                                        .item(PopupMenuItem::new("Accounts").on_click(
+                                            move |_, window, cx| {
+                                                let _ = owner.update(cx, |page, cx| {
+                                                    page.show_accounts(
+                                                        CommandId::Accounts,
+                                                        window,
+                                                        cx,
+                                                    )
+                                                });
+                                            },
+                                        ))
                                 }),
                         )
                         .child(
@@ -1060,7 +1143,7 @@ impl Render for SettingsPage {
                                 .small()
                                 .ghost()
                                 .label(format!("Changed {modified}"))
-                                .selected(self.changed)
+                                .selected(!accounts_active && self.changed)
                                 .disabled(self.defaults)
                                 .on_click(cx.listener(|page, _, _, cx| {
                                     page.select_changed(cx);
@@ -1071,12 +1154,16 @@ impl Render for SettingsPage {
         } else {
             nav.into_any_element()
         };
-        let source = if self.defaults {
+        let source = if accounts_active {
+            "Connections shared across all windows".into()
+        } else if self.defaults {
             "Built-in defaults · read only".into()
         } else {
             self.source.path().display().to_string()
         };
-        let title = if searching {
+        let title = if accounts_active {
+            "Accounts".into()
+        } else if searching {
             format!(
                 "{} matching {}",
                 self.rows.len(),
@@ -1121,6 +1208,7 @@ impl Render for SettingsPage {
                         div()
                             .h_flex()
                             .gap(crate::spacing::space(2., cx))
+                            .when(accounts_active, |row| row.hidden())
                             .child(
                                 Button::new("settings-defaults")
                                     .small()
@@ -1161,7 +1249,9 @@ impl Render for SettingsPage {
                     .text_color(header_muted)
                     .child(div().flex_1().min_w_0().truncate().child(source))
                     .when_some(
-                        self.error.clone().or_else(|| self.message.clone()),
+                        (!accounts_active)
+                            .then(|| self.error.clone().or_else(|| self.message.clone()))
+                            .flatten(),
                         |row, message| {
                             row.child(
                                 div()
@@ -1181,7 +1271,11 @@ impl Render for SettingsPage {
                 div()
                     .text_sm()
                     .text_color(header_muted)
-                    .child("Changes apply after Save. Unsaved changes stay in this window."),
+                    .child(if accounts_active {
+                        "Account actions take effect immediately."
+                    } else {
+                        "Changes apply after Save. Unsaved changes stay in this window."
+                    }),
             );
         let owner = cx.entity().downgrade();
         let count = self.rows.len();
@@ -1219,6 +1313,66 @@ impl Render for SettingsPage {
                         }),
                 )
             });
+        let body = if accounts_active {
+            self.accounts
+                .as_ref()
+                .expect("Accounts is constructed before display")
+                .clone()
+                .into_any_element()
+        } else {
+            body.into_any_element()
+        };
+        let footer = div()
+            .h_flex()
+            .justify_between()
+            .items_center()
+            .p(crate::spacing::space(3., cx))
+            .gap(crate::spacing::edge(cx))
+            .bg(crate::appearance::surface(
+                header_surface,
+                jaywalk::theme::Part::Background,
+                cx,
+            ))
+            .border_t_1()
+            .border_color(border)
+            .child(
+                Button::new("settings-discard")
+                    .small()
+                    .label("Discard")
+                    .debug_selector(|| "settings-discard".into())
+                    .disabled(!self.has_changes() || self.busy.is_some())
+                    .on_click(cx.listener(|page, _, window, cx| page.discard(window, cx))),
+            )
+            .child(
+                div()
+                    .h_flex()
+                    .items_center()
+                    .gap(crate::spacing::edge(cx))
+                    .child(
+                        div()
+                            .text_sm()
+                            .text_color(muted)
+                            .child(if self.busy.is_some() {
+                                "Saving…"
+                            } else if self.has_changes() {
+                                "Unsaved changes"
+                            } else {
+                                ""
+                            }),
+                    )
+                    .child(
+                        Button::new("settings-save")
+                            .small()
+                            .primary()
+                            .label("Save")
+                            .child(session::SaveHint)
+                            .debug_selector(|| "settings-save".into())
+                            .disabled(
+                                !self.has_changes() || self.busy.is_some() || self.error.is_some(),
+                            )
+                            .on_click(cx.listener(|page, _, window, cx| page.save_all(window, cx))),
+                    ),
+            );
         div()
             .id("settings-page")
             .debug_selector(|| "settings-page".into())
@@ -1245,62 +1399,7 @@ impl Render for SettingsPage {
                     .min_h_0()
                     .child(header)
                     .child(body)
-                    .child(
-                        div()
-                            .h_flex()
-                            .justify_between()
-                            .items_center()
-                            .p(crate::spacing::space(3., cx))
-                            .gap(crate::spacing::edge(cx))
-                            .bg(crate::appearance::surface(
-                                header_surface,
-                                jaywalk::theme::Part::Background,
-                                cx,
-                            ))
-                            .border_t_1()
-                            .border_color(border)
-                            .child(
-                                Button::new("settings-discard")
-                                    .small()
-                                    .label("Discard")
-                                    .debug_selector(|| "settings-discard".into())
-                                    .disabled(!self.has_changes() || self.busy.is_some())
-                                    .on_click(
-                                        cx.listener(|page, _, window, cx| page.discard(window, cx)),
-                                    ),
-                            )
-                            .child(
-                                div()
-                                    .h_flex()
-                                    .items_center()
-                                    .gap(crate::spacing::edge(cx))
-                                    .child(div().text_sm().text_color(muted).child(
-                                        if self.busy.is_some() {
-                                            "Saving…"
-                                        } else if self.has_changes() {
-                                            "Unsaved changes"
-                                        } else {
-                                            ""
-                                        },
-                                    ))
-                                    .child(
-                                        Button::new("settings-save")
-                                            .small()
-                                            .primary()
-                                            .label("Save")
-                                            .child(session::SaveHint)
-                                            .debug_selector(|| "settings-save".into())
-                                            .disabled(
-                                                !self.has_changes()
-                                                    || self.busy.is_some()
-                                                    || self.error.is_some(),
-                                            )
-                                            .on_click(cx.listener(|page, _, window, cx| {
-                                                page.save_all(window, cx)
-                                            })),
-                                    ),
-                            ),
-                    ),
+                    .when(!accounts_active, |column| column.child(footer)),
             )
     }
 }

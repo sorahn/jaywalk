@@ -31,7 +31,7 @@ impl Category {
             Self::Layout => "Window and layout",
             Self::Diff => "Diff and overview",
             Self::History => "History and files",
-            Self::Repositories => "Repositories and accounts",
+            Self::Repositories => "Repositories",
             Self::Keyboard => "Keyboard and navigation",
             Self::Updates => "Updates",
         }

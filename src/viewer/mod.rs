@@ -171,7 +171,6 @@ pub(crate) struct Viewer {
     welcome: Option<welcome::WelcomeState>,
     setup: setup::State,
     page: pages::Page,
-    account_page: Option<Entity<crate::account_ui::AccountPanel>>,
     pull_requests_page: Option<Entity<crate::hosting_ui::PullRequestsPage>>,
     page_selection: Option<pages::RetainedSelection>,
     recent_recorded: bool,

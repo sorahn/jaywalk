@@ -15,7 +15,13 @@ The schema and validation live in [src/settings.rs](../src/settings.rs).
 
 Cmd/Ctrl+, or **Show settings** opens a separate Settings window. Repeated opens reuse the window for that
 configuration file and leave the review untouched. Eight UI
-categories group the existing TOML keys without renaming them. Search covers keys,
+categories group the existing TOML keys without renaming them. A divider below
+the categories separates **Accounts**, which opens account management in this
+window. It is excluded from All settings, Changed from defaults, and settings
+search. The Accounts command opens this destination directly. Switching preserves
+the settings query and unsaved draft; Save/Discard appear only on settings pages.
+Account connection actions take effect immediately and are shared across windows.
+Search covers keys,
 titles and descriptions globally by default; selecting a category narrows the
 search. All settings, Changed from defaults, and categories are exclusive
 navigation destinations; selecting one clears the previous selection. Repeated
@@ -166,7 +172,7 @@ section header, for example `[editor]` followed by `font_size = 14`.
 | Setting | Default | Meaning and allowed values |
 | --- | --- | --- |
 | `application.quit_on_last_window` | `true` | Quit when the final actual window closes, including About. `false` keeps the app available with no windows. This is application-wide: opening another config or editing this value updates the shared policy; CLI waiters are notified before shutdown. |
-| `application.single_window_mode` | `false` | Normal opens from `jw`, Ctrl+R/recent repositories, welcome, and Open actions replace the originating viewer, or the active/most recently used viewer for a CLI launch, even for a different repository, range, or config. `false` opens a new window for normal opens once a repository or PR is loaded. An empty startup window is reused on Setup, Welcome or Accounts so those pages do not leave an extra window behind. Explicit Open in new window and the recent-picker modifier always create a new window. Applies on the next open; uses the application-wide last-applied config-source policy. |
+| `application.single_window_mode` | `false` | Normal opens from `jw`, Ctrl+R/recent repositories, welcome, and Open actions replace the originating viewer, or the active/most recently used viewer for a CLI launch, even for a different repository, range, or config. `false` opens a new window for normal opens once a repository or PR is loaded. An empty startup window is reused on Setup or Welcome so those pages do not leave an extra window behind. Accounts opens within the separate Settings window. Explicit Open in new window and the recent-picker modifier always create a new window. Applies on the next open; uses the application-wide last-applied config-source policy. |
 
 ### `picker`
 
@@ -841,7 +847,7 @@ The local source fetches exact published head/base objects with shallow history 
 
 Clean-only checkout refuses staged, unstaged, untracked and submodule changes, in-progress Git operations, and jj/colocated repositories. It also protects ignored files from overwrite. Preflight records the checkout before acquisition and rechecks repository identity, HEAD and branch before switching. No stash, force checkout, reset, clean, branch reset, pull, merge or hook execution is used. Missing checkout objects are fetched using normal Git transport in this explicitly enabled mode, with graph connectivity verified before switching; a shallow scratch store is never used to seed a user checkout. Acquisition disables tag updates, pruning, submodule fetches and automatic maintenance, and does not update branch refs or FETCH_HEAD. An already matching clean checkout is reused without detaching it. Newly created local review branches are not assigned an upstream and remain after restoration unless `cleanup_created_branch` is enabled.
 
-A temporary checkout writes and syncs a private recovery receipt before switching. Ownership is shared between viewers of the same checkout/revision. Replacing the active comparison, navigating to a different comparison, or releasing its last owning viewer schedules restoration; Back/Forward can retain pinned review objects without owning the user checkout. Temporarily opening Welcome, Accounts or the PR browser retains the active comparison and its checkout; use Restore review checkout to finish it explicitly without closing the window. Normal quit waits for guarded restoration on its worker. Restoration proceeds only if the repository is still clean at the expected revision and branch/detached identity and the original branch has not moved; otherwise it leaves the repository alone and retains the receipt. External Git commands and editor writes cannot be locked out by a preflight check.
+A temporary checkout writes and syncs a private recovery receipt before switching. Ownership is shared between viewers of the same checkout/revision. Replacing the active comparison, navigating to a different comparison, or releasing its last owning viewer schedules restoration; Back/Forward can retain pinned review objects without owning the user checkout. Opening Accounts in Settings leaves the review untouched. Temporarily opening Welcome or the PR browser retains the active comparison and its checkout; use Restore review checkout to finish it explicitly without closing the window. Normal quit waits for guarded restoration on its worker. Restoration proceeds only if the repository is still clean at the expected revision and branch/detached identity and the original branch has not moved; otherwise it leaves the repository alone and retains the receipt. External Git commands and editor writes cannot be locked out by a preflight check.
 
 **Restore review checkout…** lists receipts in the active configuration's `review-checkouts/` state directory, including receipts from interrupted runs. It verifies repository identity and current state before doing anything. Recovery is never forced or performed automatically on startup. Once a protected checkout/restore has begun, closing its picker stops waiting rather than cancelling that Git operation; the receipt and restoration worker retain ownership. Each protected Git command has a 30-second deadline. Failure, interruption or an external lock can leave a receipt requiring manual recovery; no forced repair is attempted. A later review cannot reuse an old receipt, and checkout creation stops during application quit.
 

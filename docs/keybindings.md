@@ -55,7 +55,7 @@ These explicit checkouts persist after the review/window closes. They use the ex
 
 Indexing runs in the background and Escape cancels further indexing. Two indexes are retained per window for the exact captured comparison/scope; later working-tree edits cannot change an existing index. Hosted PRs expose changed files only, which the picker labels explicitly. Unsupported and unavailable files and partial results are counted below the search input. Initial declaration support covers Rust, JavaScript/JSX, TypeScript/TSX, Python, Go, C/C++, Java, C#, Ruby and PHP; this is syntactic navigation, not semantic Go to Definition. Indexes are bounded to 5,000 visited files, 20,000 symbols, 32 MiB of source text and a 15-second build budget, with a 250-ms per-file parse/extraction budget and the existing per-file text limit. Source reads already in flight finish before cancellation takes effect. No checkout, repository writes or LSP process is involved.
 
-**Manage accounts in picker** opens account/provider choices without leaving the current viewer. **Connect account**, **Reconnect account**, **Check connection**, **Disconnect account**, **Choose Bitbucket workspace**, and **Import development setup** continue inside the picker too. Nested steps preserve the parent query, selection and scroll. Disconnect requires a separate local-removal confirmation; Keep account is selected first. Browser authorization opens the browser, never a credential-entry field in the picker. Escape cancels an action owned by that picker, then backs out/closes; it does not cancel another window's account action. **Accounts** and **Open Accounts page** retain the central management page. `manage_accounts` starts unbound and is remappable.
+**Manage accounts in picker** opens account/provider choices without leaving the current viewer. **Connect account**, **Reconnect account**, **Check connection**, **Disconnect account**, **Choose Bitbucket workspace**, and **Import development setup** continue inside the picker too. Nested steps preserve the parent query, selection and scroll. Disconnect requires a separate local-removal confirmation; Keep account is selected first. Browser authorization opens the browser, never a credential-entry field in the picker. Escape cancels an action owned by that picker, then backs out/closes; it does not cancel another window's account action. **Accounts** and **Open Accounts page** open the Accounts destination in the separate Settings window, reusing it and preserving any unsaved settings draft. `manage_accounts` starts unbound and is remappable.
 
 Browser connections use configured client registrations. The Accounts page also offers masked GitHub token entry and explicit import from an installed GitHub CLI; these token paths do not require an OAuth client registration. The development-import action copies an existing local registration; this does not provision a new developer OAuth application or decide public-build credential distribution. Failures and browser-wait status stay below the search input, with keyboard rows for cancel/reopening the browser when applicable.
 
@@ -153,9 +153,9 @@ viewer, including for a different repository; disabled (the default) opens a new
 Reopening the same comparison in the reused window preserves its selection. With no viewer window, the command opens a welcome window first.
 The picker always offers Open repository below matching repositories as a fallback. Welcome, Compare files
 or folders, and Clear recent repositories are also remappable commands; they
-start unbound. Repository-only commands are unavailable on Welcome and Accounts pages.
-Back/Forward navigates these pages as well as comparisons; Welcome and Accounts
-open in the current main window without replacing its retained comparison.
+start unbound. Repository-only commands are unavailable on Welcome.
+Back/Forward navigates central pages as well as comparisons. Welcome uses the
+current main window; Accounts opens within Settings and leaves that viewer untouched.
 
 ## Key notation
 

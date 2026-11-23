@@ -193,6 +193,28 @@ fn show_application_page(
                 show_application_page(arguments, command, cx);
             }
         });
+    } else if command == jaywalk::commands::CommandId::Accounts {
+        cx.spawn(async move |cx| {
+            let prepared = cx
+                .background_spawn(async move {
+                    let mut arguments = arguments.for_welcome();
+                    arguments.normalize()?;
+                    let settings = SettingsSource::resolve(arguments.config.as_deref())?.read()?;
+                    Ok::<_, String>((arguments, settings))
+                })
+                .await;
+            cx.update(|cx| match prepared {
+                Ok((arguments, settings)) => {
+                    if let Err(error) =
+                        preferences_window::show_accounts(arguments, settings, command, cx)
+                    {
+                        eprintln!("Could not open Accounts: {error}");
+                    }
+                }
+                Err(error) => eprintln!("Could not open Accounts: {error}"),
+            });
+        })
+        .detach();
     } else {
         open_arguments_after(
             arguments.for_welcome(),

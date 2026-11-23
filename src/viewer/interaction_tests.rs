@@ -1580,25 +1580,20 @@ fn application_pages_keep_the_comparison_editors_selection_scroll_and_drawers(
             })
         });
         draw(cx);
-        assert!(cx.debug_bounds("accounts-page").is_some());
-        assert!(cx.debug_bounds("drawer-status-History").is_none());
-        let accounts =
-            cx.update(|_, app| viewer.read(app).account_page.as_ref().unwrap().entity_id());
+        let (settings_page, mut popup) = open_accounts_test(&viewer, cx);
+        assert!(popup.debug_bounds("accounts-page").is_some());
+        assert!(popup.debug_bounds("settings-accounts").is_some());
+        assert!(cx.debug_bounds("accounts-page").is_none());
+        assert!(cx.debug_bounds("drawer-status-History").is_some());
+        let (same_page, _) = open_accounts_test(&viewer, cx);
+        assert_eq!(settings_page.entity_id(), same_page.entity_id());
         cx.update(|window, app| {
             viewer.update(app, |viewer, cx| {
                 viewer.execute_command(CommandId::ShowWelcome, window, cx)
-            })
+            });
         });
         draw(cx);
         assert!(cx.debug_bounds("welcome-page").is_some());
-        // Back/Forward travels among pages and reuses account content.
-        cx.simulate_keystrokes("secondary-alt-left");
-        draw(cx);
-        assert!(cx.debug_bounds("accounts-page").is_some());
-        assert_eq!(
-            cx.update(|_, app| viewer.read(app).account_page.as_ref().unwrap().entity_id()),
-            accounts
-        );
         cx.simulate_keystrokes("secondary-alt-left");
         draw(cx);
         cx.update(|_, app| {
@@ -1630,52 +1625,39 @@ fn application_pages_keep_the_comparison_editors_selection_scroll_and_drawers(
                 drawers
             );
         });
-        cx.simulate_keystrokes("secondary-alt-right");
-        draw(cx);
-        assert!(cx.debug_bounds("accounts-page").is_some());
-        let back = cx.debug_bounds("view-back").unwrap();
-        cx.simulate_click(back.center(), Default::default());
-        draw(cx);
-        assert_eq!(
-            cx.update(|_, app| standard.read(app).selected_text(app)),
-            text
-        );
     }
 }
 
 #[gpui_test::test]
-fn welcome_accounts_navigation_and_palette_stay_in_the_existing_window(cx: &mut TestAppContext) {
-    use jaywalk::commands::CommandId;
+fn accounts_palette_opens_settings_without_replacing_welcome(cx: &mut TestAppContext) {
     let fixture = Fixture::new();
     crate::account_ui::tests::setup(cx);
     let args = Arguments::parse_from(["jaywalk"]).for_welcome();
     let (viewer, cx) = setup_arguments(&fixture, args, cx);
     assert!(cx.debug_bounds("welcome-page").is_some());
-    let window_count = cx.update(|_, app| app.windows().len());
     cx.simulate_keystrokes("secondary-p");
     draw(cx);
     cx.simulate_input("Accounts");
     draw(cx);
     cx.simulate_keystrokes("enter");
     draw(cx);
-    assert!(cx.debug_bounds("accounts-page").is_some());
-    assert_eq!(cx.update(|_, app| app.windows().len()), window_count);
-    // Escape from an idle page returns to Welcome rather than closing the app.
-    cx.simulate_keystrokes("escape");
-    draw(cx);
     assert!(cx.debug_bounds("welcome-page").is_some());
-    assert_eq!(cx.update(|_, app| app.windows().len()), window_count);
-    cx.update(|window, app| {
-        viewer.update(app, |viewer, cx| {
-            viewer.execute_command(CommandId::GoForward, window, cx)
-        })
-    });
-    draw(cx);
-    assert!(cx.debug_bounds("accounts-page").is_some());
+    assert_eq!(cx.update(|_, app| app.windows().len()), 2);
+    let (_, mut popup) = open_accounts_test(&viewer, cx);
+    assert!(popup.debug_bounds("accounts-page").is_some());
+    assert!(popup.debug_bounds("settings-save").is_none());
+    popup.simulate_keystrokes("escape");
+    draw(&mut popup);
+    assert!(popup.debug_bounds("settings-page").is_some());
+    assert!(popup.debug_bounds("accounts-page").is_none());
+    assert!(cx.debug_bounds("welcome-page").is_some());
+    let (_, mut popup) = open_accounts_test(&viewer, cx);
+    assert!(popup.debug_bounds("accounts-page").is_some());
+    assert_eq!(cx.update(|_, app| app.windows().len()), 2);
 }
 
 #[gpui_test::test]
-fn leaving_a_loading_comparison_keeps_its_result_and_forward_page(cx: &mut TestAppContext) {
+fn opening_accounts_keeps_a_loading_comparison_in_place(cx: &mut TestAppContext) {
     use jaywalk::commands::CommandId;
     let fixture = Fixture::new();
     crate::account_ui::tests::setup(cx);
@@ -1688,16 +1670,13 @@ fn leaving_a_loading_comparison_keeps_its_result_and_forward_page(cx: &mut TestA
     });
     draw(cx);
     let editor = cx.update(|_, app| viewer.read(app).code().unwrap().before.entity_id());
-    cx.simulate_keystrokes("secondary-alt-left");
-    draw(cx);
+    let (_, mut popup) = open_accounts_test(&viewer, cx);
+    assert!(popup.debug_bounds("accounts-page").is_some());
     cx.update(|_, app| {
         let viewer = viewer.read(app);
         assert!(viewer.page == super::pages::Page::Comparison);
         assert_eq!(viewer.code().unwrap().before.entity_id(), editor);
     });
-    cx.simulate_keystrokes("secondary-alt-right");
-    draw(cx);
-    assert!(cx.debug_bounds("accounts-page").is_some());
 }
 
 #[gpui_test::test]
@@ -2541,7 +2520,9 @@ fn account_picker_connection_errors_and_mode_switches_stay_in_the_picker(
         command: C::Accounts,
     });
     draw(cx);
-    assert!(cx.debug_bounds("accounts-page").is_some());
+    assert!(cx.debug_bounds("accounts-page").is_none());
+    let (_, mut popup) = open_accounts_test(&viewer, cx);
+    assert!(popup.debug_bounds("accounts-page").is_some());
 }
 
 #[gpui_test::test]
@@ -4567,6 +4548,29 @@ fn settings_remain_usable_in_a_narrow_window(cx: &mut TestAppContext) {
     assert!(field.bottom() <= page.bottom());
 }
 
+fn open_accounts_test(
+    viewer: &Entity<Viewer>,
+    cx: &mut VisualTestContext,
+) -> (
+    Entity<crate::preferences_ui::SettingsPage>,
+    VisualTestContext,
+) {
+    let (handle, page) = cx.update(|_, app| {
+        let viewer = viewer.read(app);
+        crate::preferences_window::show_accounts(
+            viewer.arguments.clone(),
+            viewer.settings.clone(),
+            jaywalk::commands::CommandId::Accounts,
+            app,
+        )
+        .unwrap()
+    });
+    let mut popup = VisualTestContext::from_window(handle, &cx.cx);
+    popup.simulate_resize(size(px(1100.), px(800.)));
+    draw(&mut popup);
+    (page, popup)
+}
+
 fn open_settings_test(
     viewer: &Entity<Viewer>,
     cx: &mut VisualTestContext,
@@ -5116,6 +5120,65 @@ fn settings_quit_requests_use_the_same_unsaved_guard(cx: &mut TestAppContext) {
     assert!(cx.debug_bounds("settings-page").is_some());
     assert!(
         Settings::parse(&std::fs::read_to_string(fixture.0.join("settings.toml")).unwrap())
+            .unwrap()
+            .diff
+            .word_highlight
+    );
+}
+
+#[gpui_test::test]
+fn settings_accounts_sidebar_preserves_query_draft_and_account_form(cx: &mut TestAppContext) {
+    let fixture = Fixture::new();
+    crate::account_ui::tests::setup(cx);
+    let (viewer, cx) = setup(&fixture, cx);
+    let (page, mut popup) = open_settings_test(&viewer, cx, false);
+    let cx = &mut popup;
+    let path = fixture.0.join("settings.toml");
+    let before = std::fs::read_to_string(&path).unwrap();
+    let search = cx.debug_bounds("settings-search").unwrap();
+    cx.simulate_click(search.center(), Default::default());
+    cx.simulate_input("diff.word_highlight");
+    draw(cx);
+    let toggle = cx.debug_bounds("setting-diff.word_highlight").unwrap();
+    cx.simulate_click(toggle.center(), Default::default());
+    draw(cx);
+    let accounts = cx.debug_bounds("settings-accounts").unwrap();
+    cx.simulate_click(accounts.center(), Default::default());
+    draw(cx);
+    assert!(cx.debug_bounds("accounts-page").is_some());
+    assert!(cx.debug_bounds("settings-save").is_none());
+    assert!(cx.debug_bounds("settings-defaults").is_none());
+    assert!(cx.debug_bounds("accounts-leave").is_none());
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), before);
+    assert!(cx.update(|_, app| page.read(app).has_changes()));
+    let paste = cx.debug_bounds("accounts-paste-token").unwrap();
+    cx.simulate_click(paste.center(), Default::default());
+    draw(cx);
+    assert!(cx.debug_bounds("accounts-token-input").is_some());
+    let all = cx.debug_bounds("settings-all").unwrap();
+    cx.simulate_click(all.center(), Default::default());
+    draw(cx);
+    assert!(cx.debug_bounds("accounts-page").is_none());
+    assert!(cx.debug_bounds("setting-diff.word_highlight").is_some());
+    assert!(cx.update(|_, app| {
+        page.read(app)
+            .test_status(app)
+            .contains("diff.word_highlight")
+    }));
+    assert!(cx.update(|_, app| page.read(app).has_changes()));
+    let accounts = cx.debug_bounds("settings-accounts").unwrap();
+    cx.simulate_click(accounts.center(), Default::default());
+    draw(cx);
+    assert!(
+        cx.debug_bounds("accounts-token-input").is_some(),
+        "switching pages must retain the account form"
+    );
+    let all = cx.debug_bounds("settings-all").unwrap();
+    cx.simulate_click(all.center(), Default::default());
+    draw(cx);
+    save_settings(cx);
+    assert!(
+        !Settings::parse(&std::fs::read_to_string(&path).unwrap())
             .unwrap()
             .diff
             .word_highlight

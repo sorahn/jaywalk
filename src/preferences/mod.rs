@@ -96,6 +96,7 @@ impl Snapshot {
             .enumerate()
             .filter(|(_, s)| {
                 !s.advanced
+                    && s.key != "accounts"
                     && category.is_none_or(|category| category == s.category)
                     && (!changed || self.modified(s))
             })

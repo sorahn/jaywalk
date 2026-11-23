@@ -351,20 +351,20 @@ temporary inputs. Viewing never checks out revisions, edits the index or fetches
 
 ## Hosting accounts (development preview)
 
-Open **Accounts…** from the command palette or Welcome. Accounts and Welcome
-open in the current main window's central panel. Back/Forward returns to the
-retained comparison, file selection, folds and scroll position; sidebars hide
-on these pages and restore their previous layout when you return. With no main
-window open, an account command creates one. Tabs are not introduced by this
-change; the page model can support opt-in tabs in the future.
+Open **Accounts…** from the command palette, Welcome, or below the divider in
+the Settings sidebar. It opens account management inside the separate Settings
+window, leaving the current review or Welcome page untouched. Repeated opens
+reuse that window. Account controls are separate from settings search and the
+All settings/Changed from defaults lists. Switching between Accounts and settings
+preserves the settings draft and search; account actions take effect immediately.
 
 Connect GitHub or Bitbucket in your browser; Jaywalk shows a waiting indicator
-and an **Open browser again** action. No token or client secret is entered into
-the app. **Cancel** or Escape on the waiting page cancels sign-in. Navigating to
-another page keeps it running; closing its owning main window cancels it. Once
-saving has begun, cancellation shows a finishing state instead. Escape from an
-idle Accounts page returns to the previous page. Other repository windows share
-the same account state.
+and an **Open browser again** action. Browser connections need no manual token
+entry. GitHub also supports pasting a token or importing one from `gh`.
+**Cancel** or Escape on the waiting page cancels sign-in. Switching to settings
+keeps it running; closing its owning Settings window cancels it. Once saving a
+connection has begun, cancellation shows a finishing state instead. Escape from
+an idle Accounts page returns to settings. Other windows share the same account state.
 
 **Reconnect account…** replaces a grant only after verifying the same provider
 account. **Check account connection…** verifies saved access. **Disconnect

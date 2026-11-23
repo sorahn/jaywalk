@@ -83,14 +83,18 @@ pub(crate) fn show(
                         }
                     }
                     Event::EditToml => view.edit_toml(window, cx),
-                    Event::Accounts | Event::Keybindings => {
-                        let command = if matches!(event, Event::Accounts) {
-                            CommandId::Accounts
-                        } else {
-                            CommandId::SelectKeybindings
-                        };
+                    Event::Accounts => view.page.update(cx, |page, cx| {
+                        page.show_accounts(CommandId::Accounts, window, cx)
+                    }),
+                    Event::Keybindings => {
                         let arguments = view.arguments.clone();
-                        cx.defer(move |cx| crate::show_application_page(arguments, command, cx));
+                        cx.defer(move |cx| {
+                            crate::show_application_page(
+                                arguments,
+                                CommandId::SelectKeybindings,
+                                cx,
+                            )
+                        });
                     }
                 },
             );
@@ -195,4 +199,20 @@ pub(crate) fn request_quit(cx: &mut App) {
             cx.quit();
         }
     });
+}
+
+/// Accounts shares the existing Settings window and preserves its draft/query.
+pub(crate) fn show_accounts(
+    arguments: Arguments,
+    settings: Settings,
+    command: CommandId,
+    cx: &mut App,
+) -> std::result::Result<(AnyWindowHandle, Entity<SettingsPage>), String> {
+    let (handle, page) = show(arguments, settings, false, cx)?;
+    handle
+        .update(cx, |_, window, cx| {
+            page.update(cx, |page, cx| page.show_accounts(command, window, cx));
+        })
+        .map_err(|error| error.to_string())?;
+    Ok((handle, page))
 }
