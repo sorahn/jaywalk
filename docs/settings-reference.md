@@ -167,6 +167,22 @@ Default: `{ "dark" = "#f85149", "light" = "#cf222e" }`
 
 Removed-word background hue.
 
+### `theme.code.dark`
+
+**Dark code theme** · Colors
+
+Default: `"builtin:dark"`
+
+Imports link an explicitly selected JSON/JSONC file read-only. Changes reload locally; invalid reloads retain the last valid theme. Selection previews live; Save persists the selection and Discard restores it. Shell colors follow only when Shell color source is From code theme.
+
+### `theme.code.light`
+
+**Light code theme** · Colors
+
+Default: `"builtin:light"`
+
+Imports link an explicitly selected JSON/JSONC file read-only. Changes reload locally; invalid reloads retain the last valid theme. Selection previews live; Save persists the selection and Discard restores it. Shell colors follow only when Shell color source is From code theme.
+
 ### `theme.overrides`
 
 **Advanced theme colors** · Colors

@@ -103,6 +103,9 @@ impl SettingsPage {
             return;
         };
         let key = catalogue::SETTINGS[index].key.clone();
+        if key.starts_with("theme.code.") {
+            self.theme_prompt_serial += 1;
+        }
         let mut pending = self.pending.clone();
         // A section reset supersedes earlier edits within that section. Later
         // child edits apply after the section reset, even if equal to the old file.
@@ -216,6 +219,7 @@ impl SettingsPage {
     }
 
     pub(super) fn discard(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.theme_prompt_serial += 1;
         self.structured.prompt_serial += 1;
         if self.busy.is_some() {
             return;

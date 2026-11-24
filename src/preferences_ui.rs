@@ -5,6 +5,7 @@ mod groups;
 mod keyboard;
 mod session;
 mod structured;
+mod themes;
 use crate::command_ui::CommandButtonExt;
 use controls::FontPicker;
 use gpui::component::{
@@ -111,6 +112,7 @@ pub(crate) struct SettingsPage {
     busy: Option<usize>,
     message: Option<String>,
     error: Option<String>,
+    theme_prompt_serial: u64,
     subscriptions: Vec<Subscription>,
 }
 impl SettingsPage {
@@ -173,8 +175,12 @@ impl SettingsPage {
             busy: None,
             message: None,
             error: None,
+            theme_prompt_serial: 0,
             subscriptions: vec![subscription],
         };
+        let themes = crate::theme_service::service(cx);
+        page.subscriptions
+            .push(cx.observe(&themes, |_, _, cx| cx.notify()));
         page.load_groups(cx);
         match crate::settings_service::source(source.clone(), settings, cx) {
             Ok(state) => {
@@ -685,6 +691,7 @@ impl SettingsPage {
                     })
                     .into_any_element()
             }
+            Kind::CodeTheme => self.theme_control(index, disabled, window, cx),
             Kind::Font => self.font_control(index, disabled, window, cx),
             Kind::Structured => self.structured_control(index, disabled, window, cx),
             Kind::Complex => Button::new(("setting-edit", index))

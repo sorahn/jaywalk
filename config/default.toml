@@ -51,6 +51,11 @@ interactive = 1
 # Exact role colors override generated colors; see docs/settings.md for role names.
 overrides = {}
 
+[theme.code]
+# Local code theme IDs; import VS Code JSON/JSONC files from Settings.
+light = "builtin:light"
+dark = "builtin:dark"
+
 [theme.shell_auto]
 # Source: custom seeds, or the viewer background (code_theme).
 source = "custom"

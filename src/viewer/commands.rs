@@ -13,6 +13,12 @@ pub(crate) fn init(arguments: &Arguments, settings: &Settings, cx: &mut App) -> 
     let arguments = arguments.clone();
     let settings = settings.clone();
     cx.on_action(move |action: &ExecuteCommand, cx| match action.command {
+        CommandId::SelectCodeTheme | CommandId::ImportCodeTheme | CommandId::InspectCodeTheme => {
+            let arguments = arguments.clone();
+            let settings = settings.clone();
+            let command = action.command;
+            cx.defer(move |cx| crate::preferences_window::themes(arguments, settings, command, cx));
+        }
         CommandId::ShowSettings | CommandId::ShowDefaultSettings => {
             let arguments = arguments.clone();
             let settings = settings.clone();
@@ -363,6 +369,15 @@ impl Viewer {
             CommandId::ShowSetup => self.show_setup(window, cx),
             CommandId::InstallCli => self.install_cli(window, cx),
             CommandId::CheckUpdates => crate::updater::check(window, cx),
+            CommandId::SelectCodeTheme
+            | CommandId::ImportCodeTheme
+            | CommandId::InspectCodeTheme => {
+                let arguments = self.arguments.clone();
+                let settings = self.settings.clone();
+                cx.defer(move |cx| {
+                    crate::preferences_window::themes(arguments, settings, command, cx)
+                });
+            }
             CommandId::ShowSettings | CommandId::ShowDefaultSettings => {
                 let arguments = self.arguments.clone();
                 let settings = self.settings.clone();

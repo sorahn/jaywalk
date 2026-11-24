@@ -16,7 +16,10 @@ fn catalogue_covers_defaults_and_searches_key_title_and_description() {
     fn visit(value: &toml::Value, prefix: String) {
         if let Some(table) = value.as_table()
             && !table.is_empty()
-            && !(table.len() == 2 && table.contains_key("light") && table.contains_key("dark"))
+            && !(table.len() == 2
+                && table.contains_key("light")
+                && table.contains_key("dark")
+                && catalogue::setting(&prefix).is_some())
         {
             for (key, value) in table {
                 visit(

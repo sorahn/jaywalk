@@ -111,6 +111,19 @@
 # color overrides in TOML.
 # overrides = {}
 
+[theme.code]
+# Imports link an explicitly selected JSON/JSONC file read-only. Changes reload
+# locally; invalid reloads retain the last valid theme. Selection previews live;
+# Save persists the selection and Discard restores it. Shell colors follow only
+# when Shell color source is From code theme.
+# light = "builtin:light"
+
+# Imports link an explicitly selected JSON/JSONC file read-only. Changes reload
+# locally; invalid reloads retain the last valid theme. Selection previews live;
+# Save persists the selection and Discard restores it. Shell colors follow only
+# when Shell color source is From code theme.
+# dark = "builtin:dark"
+
 [theme.shell_auto]
 # Custom colors uses the saved light/dark seeds and tonal-v1 recipe. From code
 # theme uses viewer-contrast-v1: keep the code background exact and match the

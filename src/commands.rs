@@ -46,6 +46,9 @@ pub enum CommandId {
     OpenSettings,
     ShowSettings,
     ShowDefaultSettings,
+    SelectCodeTheme,
+    ImportCodeTheme,
+    InspectCodeTheme,
     ShowSetup,
     InstallCli,
     CheckUpdates,
@@ -198,6 +201,9 @@ impl CommandId {
                 | Self::ShowCommands
                 | Self::ShowSettings
                 | Self::ShowDefaultSettings
+                | Self::SelectCodeTheme
+                | Self::ImportCodeTheme
+                | Self::InspectCodeTheme
                 | Self::OpenSettings
                 | Self::ShowSetup
                 | Self::InstallCli
@@ -255,6 +261,9 @@ impl CommandId {
         Self::OpenSettings,
         Self::ShowSettings,
         Self::ShowDefaultSettings,
+        Self::SelectCodeTheme,
+        Self::ImportCodeTheme,
+        Self::InspectCodeTheme,
         Self::ShowSetup,
         Self::InstallCli,
         Self::CheckUpdates,
@@ -435,6 +444,9 @@ impl CommandId {
             Self::OpenSettings => "Open settings file…",
             Self::ShowSettings => "Show settings",
             Self::ShowDefaultSettings => "Show default settings",
+            Self::SelectCodeTheme => "Select code theme…",
+            Self::ImportCodeTheme => "Import VS Code theme…",
+            Self::InspectCodeTheme => "Inspect code theme…",
             Self::OpenKeybindings => "Open keybindings",
             Self::SelectKeybindings => "Select keybindings profile…",
             Self::RefreshReviewStatus => "Refresh pull request status",

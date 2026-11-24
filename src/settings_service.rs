@@ -168,6 +168,7 @@ fn apply_shared(settings: &Settings, source: &SettingsSource, cx: &mut App) -> R
         commands::install_bindings(settings, cx)?;
     }
     crate::updater::configure(settings, cx);
+    crate::theme_service::request(source.path().to_owned(), settings, cx);
     if previous
         .as_ref()
         .is_none_or(|old| old.application != settings.application)

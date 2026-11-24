@@ -9,6 +9,16 @@ use gpui::*;
 use jaywalk::{commands::CommandId, settings::Settings, settings_reload::SettingsSource};
 use std::collections::HashMap;
 
+pub(crate) fn themes(arguments: Arguments, settings: Settings, command: CommandId, cx: &mut App) {
+    match show(arguments, settings, false, cx) {
+        Ok((handle, page)) => {
+            let _ = handle.update(cx, |_, window, cx| {
+                page.update(cx, |page, cx| page.show_themes(command, window, cx))
+            });
+        }
+        Err(error) => eprintln!("Could not open code theme settings: {error}"),
+    }
+}
 #[derive(Default)]
 struct SettingsWindows(HashMap<SettingsSource, (AnyWindowHandle, WeakEntity<SettingsPage>)>);
 impl Global for SettingsWindows {}
