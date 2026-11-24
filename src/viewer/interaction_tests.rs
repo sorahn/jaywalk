@@ -5640,3 +5640,281 @@ fn settings_keyboard_virtual_scroll_preserves_pending_edits(cx: &mut TestAppCont
         "the edited row can be revisited"
     );
 }
+
+#[gpui_test::test]
+fn setup_settings_link_preserves_onboarding_and_update_consent(cx: &mut TestAppContext) {
+    use jaywalk::commands::CommandId;
+    let fixture = Fixture::new();
+    let (viewer, cx) = setup(&fixture, cx);
+    cx.simulate_resize(size(px(1500.), px(1400.)));
+    cx.update(|window, app| {
+        viewer.update(app, |viewer, cx| {
+            viewer.execute_command(CommandId::ShowSetup, window, cx)
+        })
+    });
+    draw(cx);
+    let path = fixture.0.join("settings.toml");
+    let before = std::fs::read_to_string(&path).unwrap();
+    let link = cx.debug_bounds("setup-show_settings").unwrap();
+    cx.simulate_click(link.center(), Default::default());
+    draw(cx);
+    assert!(cx.debug_bounds("setup-page").is_some());
+    assert_eq!(cx.update(|_, app| app.windows().len()), 2);
+    let (_, mut popup) = open_settings_test(&viewer, cx, false);
+    assert!(popup.debug_bounds("settings-page").is_some());
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), before);
+    assert!(!cx.update(|_, app| viewer.read(app).settings.updates.automatic_checks));
+}
+
+#[gpui_test::test]
+fn settings_search_restores_the_browsing_row_and_handles_large_fonts(cx: &mut TestAppContext) {
+    let fixture = Fixture::new();
+    let (viewer, cx) = setup(&fixture, cx);
+    let (page, mut popup) = open_settings_test(&viewer, cx, false);
+    let cx = &mut popup;
+    let all = cx.debug_bounds("settings-all").unwrap();
+    cx.simulate_click(all.center(), Default::default());
+    draw(cx);
+    let position = cx.debug_bounds("settings-page").unwrap().center();
+    let top = cx.update(|_, app| page.read(app).test_first_setting_key().unwrap().to_owned());
+    cx.simulate_event(gpui_test::ScrollEvent {
+        position,
+        delta: gpui_test::ScrollDelta::Pixels(point(px(0.), px(-1200.))),
+        ..Default::default()
+    });
+    draw(cx);
+    let before = cx.update(|_, app| page.read(app).test_first_setting_key().unwrap().to_owned());
+    assert_ne!(top, before);
+    let search = cx.debug_bounds("settings-search").unwrap();
+    cx.simulate_click(search.center(), Default::default());
+    cx.simulate_input("word wrap");
+    draw(cx);
+    cx.simulate_keystrokes("secondary-a backspace");
+    draw(cx);
+    assert_eq!(
+        cx.update(|_, app| page.read(app).test_first_setting_key().unwrap().to_owned()),
+        before
+    );
+    let source =
+        jaywalk::settings_reload::SettingsSource::resolve(Some(&fixture.0.join("settings.toml")))
+            .unwrap();
+    let larger = jaywalk::preferences::patch(
+        &source,
+        jaywalk::preferences::Patch::set("ui.font_size", 24.0.into()),
+    )
+    .unwrap();
+    cx.update(|_, app| {
+        crate::settings_service::publish_snapshot(source, larger, app).unwrap();
+    });
+    draw(cx);
+    let modified = cx.debug_bounds("settings-modified").unwrap();
+    let count = cx.debug_bounds("settings-modified-count").unwrap();
+    assert!(
+        count.right() <= modified.right(),
+        "enlarged text must not hide the modified count"
+    );
+    cx.simulate_resize(size(px(560.), px(800.)));
+    draw(cx);
+    let search = cx.debug_bounds("settings-search").unwrap();
+    cx.simulate_click(search.center(), Default::default());
+    cx.simulate_input("diff.word_highlight");
+    draw(cx);
+    let bounds = cx.debug_bounds("settings-page").unwrap();
+    let control = cx.debug_bounds("setting-diff.word_highlight").unwrap();
+    assert!(control.right() <= bounds.right() && control.left() >= bounds.left());
+}
+
+#[gpui_test::test]
+fn settings_advanced_groups_reveal_search_and_changes_without_saving_preferences(
+    cx: &mut TestAppContext,
+) {
+    use jaywalk::preferences::{Patch, groups::Group};
+    let fixture = Fixture::new();
+    let (viewer, main) = setup(&fixture, cx);
+    let path = fixture.0.join("settings.toml");
+    let source = jaywalk::settings_reload::SettingsSource::resolve(Some(&path)).unwrap();
+    let changed = jaywalk::preferences::patch(
+        &source,
+        Patch::set("theme.shell_auto.hue_shift", 0.5.into()),
+    )
+    .unwrap();
+    main.update(|_, app| {
+        crate::settings_service::publish_snapshot(source.clone(), changed, app).unwrap();
+    });
+    let (page, mut popup) = open_settings_test(&viewer, main, false);
+    let cx = &mut popup;
+    let category = cx.debug_bounds("settings-category-1").unwrap();
+    cx.simulate_click(category.center(), Default::default());
+    draw(cx);
+    assert!(
+        cx.debug_bounds("setting-theme.shell_auto.layer_strength")
+            .is_none()
+    );
+
+    let order = cx.update(|_, app| page.read(app).test_row_labels());
+    let position_of = |key: &str| order.iter().position(|row| row == key).unwrap();
+    assert!(position_of("theme.shell_auto.seed.dark") < position_of("group:theme_generation"));
+    assert!(position_of("group:theme_generation") < position_of("section:Interface text"));
+    assert!(position_of("group:detailed_colors") < position_of("section:Interface text"));
+    let body = cx.debug_bounds("settings-content").unwrap();
+    for _ in 0..20 {
+        if cx
+            .debug_bounds("settings-group-theme_generation")
+            .is_some_and(|bounds| {
+                bounds.center().y >= body.top() && bounds.center().y < body.bottom()
+            })
+        {
+            break;
+        }
+        cx.simulate_event(gpui_test::ScrollEvent {
+            position: body.center(),
+            delta: gpui_test::ScrollDelta::Pixels(point(px(0.), px(-150.))),
+            ..Default::default()
+        });
+        draw(cx);
+    }
+    assert!(
+        cx.debug_bounds("settings-group-theme_generation-changed")
+            .is_some()
+    );
+    let before = std::fs::read(&path).unwrap();
+    let group = cx.debug_bounds("settings-group-theme_generation").unwrap();
+    cx.simulate_click(group.center(), Default::default());
+    draw(cx);
+    assert!(
+        cx.debug_bounds("setting-theme.shell_auto.layer_strength")
+            .is_some()
+    );
+    let field = cx
+        .debug_bounds("setting-theme.shell_auto.layer_strength")
+        .unwrap();
+    cx.simulate_click(field.center(), Default::default());
+    cx.simulate_keystrokes("secondary-a");
+    cx.simulate_input("0.8");
+    cx.simulate_keystrokes("enter");
+    draw(cx);
+    assert_eq!(std::fs::read(&path).unwrap(), before);
+    cx.update(|_, app| crate::interface_state::flush_for_test(app));
+    assert!(
+        jaywalk::preferences::groups::read(&path)
+            .unwrap()
+            .contains(&Group::ThemeGeneration)
+    );
+    let group = cx.debug_bounds("settings-group-theme_generation").unwrap();
+    cx.simulate_click(group.center(), Default::default());
+    draw(cx);
+    let search = cx.debug_bounds("settings-search").unwrap();
+    cx.simulate_click(search.center(), Default::default());
+    cx.simulate_input("theme.shell_auto.layer_strength");
+    draw(cx);
+    assert!(
+        cx.debug_bounds("setting-theme.shell_auto.layer_strength")
+            .is_some()
+    );
+    assert!(
+        cx.debug_bounds("settings-row-theme.shell_auto.layer_strength")
+            .unwrap()
+            .size
+            .height
+            < px(70.),
+        "short settings no longer inherit oversized fixed row heights"
+    );
+    assert!(cx.debug_bounds("settings-group-theme_generation").is_none());
+    cx.simulate_keystrokes("secondary-a backspace");
+    draw(cx);
+    let modified = cx.debug_bounds("settings-modified").unwrap();
+    cx.simulate_click(modified.center(), Default::default());
+    draw(cx);
+    assert!(
+        cx.debug_bounds("setting-theme.shell_auto.hue_shift")
+            .is_some()
+    );
+    assert_eq!(std::fs::read(&path).unwrap(), before);
+    cx.update(|_, app| crate::interface_state::flush_for_test(app));
+    assert!(
+        !jaywalk::preferences::groups::read(&path)
+            .unwrap()
+            .contains(&Group::ThemeGeneration)
+    );
+}
+
+#[gpui_test::test]
+fn keyboard_header_actions_align_and_help_stays_below_in_the_content_pane(cx: &mut TestAppContext) {
+    fn check_help(cx: &mut VisualTestContext) {
+        let header = cx.debug_bounds("settings-header").unwrap();
+        let title = cx.debug_bounds("keyboard-heading").unwrap();
+        let help = cx.debug_bounds("keyboard-help-trigger").unwrap();
+        let profile = cx.debug_bounds("keyboard-profile").unwrap();
+        let edit = cx.debug_bounds("keyboard-edit-toml").unwrap();
+        assert!(help.left() >= title.right(), "help follows the title");
+        assert!(edit.right() <= header.right());
+        assert!(profile.right() <= edit.left());
+        cx.simulate_mouse_move(help.center(), None, Default::default());
+        cx.executor()
+            .advance_clock(std::time::Duration::from_secs(1));
+        draw(cx);
+        cx.executor()
+            .advance_clock(std::time::Duration::from_millis(250));
+        draw(cx);
+        let tooltip = cx
+            .debug_bounds("keyboard-help-content")
+            .expect("help tooltip opened");
+        assert!(
+            tooltip.left() >= header.left() + px(8.),
+            "tooltip stays off the sidebar: {tooltip:?} vs {header:?}"
+        );
+        assert!(tooltip.right() <= header.right());
+        assert!(
+            tooltip.top() >= help.bottom(),
+            "tooltip opens below the trigger"
+        );
+        cx.simulate_mouse_move(point(px(0.), px(0.)), None, Default::default());
+        cx.executor()
+            .advance_clock(std::time::Duration::from_secs(1));
+        draw(cx);
+    }
+    let fixture = Fixture::new();
+    crate::account_ui::tests::setup(cx);
+    let (viewer, cx) = setup(&fixture, cx);
+    let (_, mut popup) = open_settings_test(&viewer, cx, false);
+    let cx = &mut popup;
+    let main_edit = cx.debug_bounds("settings-edit-toml").unwrap();
+    let main_title = cx.debug_bounds("settings-header-title").unwrap();
+    let accounts = cx.debug_bounds("settings-accounts").unwrap();
+    cx.simulate_click(accounts.center(), Default::default());
+    draw(cx);
+    let accounts_title = cx.debug_bounds("settings-header-title").unwrap();
+    assert_eq!(accounts_title.top(), main_title.top());
+    assert_eq!(accounts_title.size.height, main_title.size.height);
+    let keyboard = cx.debug_bounds("settings-keyboard").unwrap();
+    cx.simulate_click(keyboard.center(), Default::default());
+    draw(cx);
+    let edit = cx.debug_bounds("keyboard-edit-toml").unwrap();
+    assert_eq!(
+        edit.right(),
+        main_edit.right(),
+        "Edit TOML shares the main Settings action position"
+    );
+    assert_eq!(edit.top(), main_edit.top());
+    assert_eq!(
+        cx.debug_bounds("keyboard-heading").unwrap().top(),
+        main_title.top()
+    );
+    check_help(cx);
+    let source =
+        jaywalk::settings_reload::SettingsSource::resolve(Some(&fixture.0.join("settings.toml")))
+            .unwrap();
+    let small = jaywalk::preferences::patch(
+        &source,
+        jaywalk::preferences::Patch::set("ui.font_size", 8.0.into()),
+    )
+    .unwrap();
+    cx.update(|_, app| {
+        crate::settings_service::publish_snapshot(source, small, app).unwrap();
+    });
+    draw(cx);
+    check_help(cx);
+    cx.simulate_resize(size(px(560.), px(700.)));
+    draw(cx);
+    check_help(cx);
+}

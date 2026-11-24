@@ -290,9 +290,11 @@ impl Viewer {
             CommandId::OpenRepository,
             CommandId::ConnectAccount,
             CommandId::ShowCommands,
+            CommandId::ShowSettings,
         ] {
             local = local.child(
                 Button::new(SharedString::from(format!("setup-{}", command.key())))
+                    .debug_selector(move || format!("setup-{}", command.key()))
                     .self_start()
                     .small()
                     .ghost()

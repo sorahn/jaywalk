@@ -2,7 +2,8 @@
 //! worker coalesces pending updates and flushes before acknowledging app quit.
 use gpui::*;
 use jaywalk::layout_state::{LayoutState, RepositoryLayoutStore};
-use std::collections::HashMap;
+use jaywalk::preferences::groups::Group;
+use std::collections::{BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
 use std::time::Duration;
@@ -14,11 +15,13 @@ pub(crate) struct StoreKey {
 }
 enum Change {
     Save(StoreKey, LayoutState),
+    Settings(PathBuf, BTreeSet<Group>),
     Flush(async_channel::Sender<()>),
 }
 struct InterfaceState {
     sender: Sender<Change>,
     latest: HashMap<StoreKey, LayoutState>,
+    settings: HashMap<PathBuf, BTreeSet<Group>>,
 }
 impl Global for InterfaceState {}
 pub(crate) fn init(cx: &mut App) {
@@ -38,6 +41,7 @@ pub(crate) fn init(cx: &mut App) {
     cx.set_global(InterfaceState {
         sender,
         latest: HashMap::new(),
+        settings: HashMap::new(),
     });
     if let Err(error) = std::thread::Builder::new()
         .name("jaywalk-interface".into())
@@ -70,6 +74,44 @@ pub(crate) fn latest(path: &Path, repository: &Path, cx: &App) -> Option<LayoutS
         })
         .cloned()
 }
+fn ensure(cx: &mut App) {
+    if !cx.has_global::<InterfaceState>() {
+        #[cfg(test)]
+        init_for_test(cx);
+        #[cfg(not(test))]
+        init(cx);
+    }
+}
+pub(crate) fn settings_groups(path: &Path, cx: &App) -> Option<BTreeSet<Group>> {
+    cx.try_global::<InterfaceState>()
+        .and_then(|state| state.settings.get(path).cloned())
+}
+pub(crate) fn loaded_settings_groups(
+    path: PathBuf,
+    expanded: BTreeSet<Group>,
+    cx: &mut App,
+) -> BTreeSet<Group> {
+    ensure(cx);
+    cx.global_mut::<InterfaceState>()
+        .settings
+        .entry(path)
+        .or_insert(expanded)
+        .clone()
+}
+pub(crate) fn save_settings_groups(
+    path: PathBuf,
+    expanded: BTreeSet<Group>,
+    cx: &mut App,
+) -> Result<(), String> {
+    ensure(cx);
+    let state = cx.global_mut::<InterfaceState>();
+    state
+        .sender
+        .send(Change::Settings(path.clone(), expanded.clone()))
+        .map_err(|e| format!("Could not queue settings view state: {e}"))?;
+    state.settings.insert(path, expanded);
+    Ok(())
+}
 /// Exercise the actual file writer without waking GPUI's deterministic test
 /// executor from an OS thread. Tests inspect the shared cache and flush to disk.
 #[cfg(test)]
@@ -79,6 +121,7 @@ pub(crate) fn init_for_test(cx: &mut App) {
     cx.set_global(InterfaceState {
         sender,
         latest: HashMap::new(),
+        settings: HashMap::new(),
     });
     std::thread::spawn(move || write_layouts(receiver, results));
 }
@@ -96,11 +139,18 @@ fn write_layouts(
     results: async_channel::Sender<(StoreKey, Result<(), String>)>,
 ) {
     let mut pending = HashMap::new();
-    let flush = |pending: &mut HashMap<StoreKey, LayoutState>| {
+    let mut settings = HashMap::new();
+    let flush = |pending: &mut HashMap<StoreKey, LayoutState>,
+                 settings: &mut HashMap<PathBuf, BTreeSet<Group>>| {
         for (key, saved) in pending.drain() {
             let result = RepositoryLayoutStore::new(key.path.clone(), &key.repository)
                 .and_then(|store| store.save(&saved));
             let _ = results.try_send((key, result));
+        }
+        for (path, expanded) in settings.drain() {
+            if let Err(error) = jaywalk::preferences::groups::save(&path, &expanded) {
+                eprintln!("{error}");
+            }
         }
     };
     loop {
@@ -108,13 +158,16 @@ fn write_layouts(
             Ok(Change::Save(key, state)) => {
                 pending.insert(key, state);
             }
+            Ok(Change::Settings(path, expanded)) => {
+                settings.insert(path, expanded);
+            }
             Ok(Change::Flush(ack)) => {
-                flush(&mut pending);
+                flush(&mut pending, &mut settings);
                 let _ = ack.try_send(());
             }
-            Err(RecvTimeoutError::Timeout) => flush(&mut pending),
+            Err(RecvTimeoutError::Timeout) => flush(&mut pending, &mut settings),
             Err(RecvTimeoutError::Disconnected) => {
-                flush(&mut pending);
+                flush(&mut pending, &mut settings);
                 break;
             }
         }

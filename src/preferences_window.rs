@@ -148,7 +148,7 @@ impl SettingsWindow {
 }
 impl Render for SettingsWindow {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        div()
+        crate::appearance::window_content(cx)
             .size_full()
             .key_context("Jaywalk")
             .bg(gpui::component::Theme::global(cx).background)

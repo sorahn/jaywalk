@@ -56,11 +56,15 @@ pub struct Setting {
     #[serde(default)]
     pub summary: Option<String>,
     pub category: Category,
+    pub section: String,
+    pub section_order: usize,
     pub kind: Kind,
     #[serde(default)]
     pub choices: Vec<String>,
     #[serde(default)]
     pub advanced: bool,
+    #[serde(default)]
+    pub group: Option<super::groups::Group>,
     #[serde(default)]
     pub aliases: Vec<String>,
     #[serde(default)]
@@ -124,12 +128,14 @@ pub static SETTINGS: LazyLock<Vec<Setting>> = LazyLock::new(|| {
         );
         row.title_search = row.title.to_lowercase();
         row.search = format!(
-            "{} {} {} {} {} {}",
+            "{} {} {} {} {} {} {} {}",
             row.key.replace('_', " "),
             row.title,
             row.description,
             row.summary.as_deref().unwrap_or(""),
             row.category.label(),
+            row.section,
+            row.group.map_or("", |group| group.label()),
             row.aliases.join(" ")
         )
         .to_lowercase();

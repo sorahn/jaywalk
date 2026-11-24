@@ -93,7 +93,7 @@ in `config.toml`. Unspecified shortcuts inherit [shipped defaults](../config/key
 
 Cmd+, edits the main config. **Open keybindings** edits the active profile through
 `settings.editor`. **Select keybindings profile…** (`select_keybindings`) opens **Keyboard Shortcuts**
-in the retained Settings window, above Accounts. Its compact header keeps the profile selector and TOML action above the search field; shortcut notation and saving help is available from the ? tooltip. The command list scrolls below this fixed header. The profile dropdown lists the
+in the retained Settings window, above Accounts. Its header keeps the profile selector and right-aligned Edit TOML action above the search field. The ? beside Keyboard Shortcuts opens help below the title, bounded to the content pane. The command list scrolls below this fixed header. The profile dropdown lists the
 recommended folder, additional discovery folders and the current profile. Create
 another TOML file in those folders to add a profile. Invalid profiles remain
 listed but cannot replace working bindings. **Open keybindings file…**
@@ -596,7 +596,7 @@ checkout changes are performed.
 
 ## Setup and command-line integration
 
-**Set up Jaywalk…** (`show_setup`), **Install or check jw command…** (`install_cli`) and **Check for updates…** (`check_updates`) are available without a repository, start unbound, and can be remapped through the normal keybinding profile. macOS also lists them in the Jaywalk menu. First-open setup is optional and can be revisited through `show_setup`. CLI setup reports discovered commands, offers a default/custom directory and copies manual installation/PATH instructions. An explicit `check_updates` action authorizes a manual check even if automatic checks are off; unconfigured development/rehearsal builds show an explanation without contacting a server.
+**Set up Jaywalk…** (`show_setup`), **Install or check jw command…** (`install_cli`) and **Check for updates…** (`check_updates`) are available without a repository, start unbound, and can be remapped through the normal keybinding profile. macOS also lists them in the Jaywalk menu. First-open setup is optional and can be revisited through `show_setup`; its Show settings action opens the separate Settings window without finishing Setup or granting update consent. CLI setup reports discovered commands, offers a default/custom directory and copies manual installation/PATH instructions. An explicit `check_updates` action authorizes a manual check even if automatic checks are off; unconfigured development/rehearsal builds show an explanation without contacting a server.
 
 The separate native Settings window uses Cmd/Ctrl+, by default. An explicit saved `open_settings` binding remains the file-opening action; overlapping inherited `show_settings` shortcuts are omitted unless you explicitly bind both (which is still rejected as a conflict). Settings categories, key/title/description search, Changed from defaults and per-setting Reset all work without a repository. Edit TOML remains available; Reset removes the override rather than pinning the current default.
 

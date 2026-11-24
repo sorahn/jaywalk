@@ -34,6 +34,10 @@ impl AccountState {
     }
 }
 pub fn init(cx: &mut App) {
+    assert!(
+        !cx.is_test(),
+        "simulated account tests must install a synthetic backend with init_with_backend"
+    );
     let backend = HttpProvider::new()
         .map(|provider| Service::new(Arc::new(OsCredentialStore::new()), Arc::new(provider)));
     install(backend, cx);
@@ -116,6 +120,21 @@ mod tests {
             unreachable!("no network during initialization")
         }
     }
+    #[gpui_test::test]
+    fn simulated_tests_reject_production_account_initialization(
+        cx: &mut gpui_test::TestAppContext,
+    ) {
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            cx.update(init);
+        }));
+        let panic =
+            result.expect_err("production initialization must fail before creating OS services");
+        assert!(panic.downcast_ref::<&str>().is_some_and(|message| {
+            message.contains("simulated account tests must install a synthetic backend")
+        }));
+        cx.update(|app| assert!(!app.has_global::<Accounts>()));
+    }
+
     #[gpui_test::test]
     fn views_share_application_state_and_initialization_does_not_read_keychain(
         cx: &mut gpui_test::TestAppContext,

@@ -6,7 +6,7 @@ impl Render for Viewer {
         if self.page == pages::Page::Comparison {
             self.preserve_window_reflow(window, cx);
         }
-        let root = div()
+        let root = crate::appearance::window_content(cx)
             .id("viewer-root")
             .key_context("Jaywalk")
             .track_focus(&self.focus)

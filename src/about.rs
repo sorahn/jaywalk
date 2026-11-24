@@ -50,7 +50,7 @@ pub(crate) fn show(cx: &mut App) -> Result<()> {
 
 impl Render for AboutView {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        div()
+        crate::appearance::window_content(cx)
             .id("about-jaywalk")
             .key_context("Jaywalk")
             .track_focus(&self.focus)

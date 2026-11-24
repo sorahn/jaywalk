@@ -1,5 +1,6 @@
 //! Retained native settings content. Controls edit the shared TOML source.
 mod controls;
+mod groups;
 mod keyboard;
 mod session;
 use crate::command_ui::CommandButtonExt;
@@ -41,6 +42,12 @@ pub(crate) fn init(cx: &mut App) {
         ),
     ]);
 }
+// Reserve the standard small button's line box, padding and border even when
+// a destination has no header actions. Use a minimum so wrapping can still grow.
+fn header_row(window: &Window, cx: &App) -> Div {
+    div().min_h(window.rem_size() * 0.875 * 1.25 + crate::spacing::interactive(cx) * 2. + px(2.))
+}
+
 fn input_text(value: Option<&toml::Value>) -> String {
     value
         .map(|value| preferences::display(Some(value)))
@@ -85,9 +92,15 @@ pub(crate) struct SettingsPage {
     changed: bool,
     query_active: bool,
     before_search: Option<Category>,
+    before_search_row: Option<groups::Row>,
     defaults: bool,
     rows: Vec<usize>,
-    scroll: UniformListScrollHandle,
+    scroll: gpui::ListState,
+    display_rows: Vec<groups::Row>,
+    expanded: std::collections::BTreeSet<jaywalk::preferences::groups::Group>,
+    row_focus: Vec<FocusHandle>,
+    list_width: Pixels,
+    list_hints_dirty: bool,
     drafts: HashMap<usize, Draft>,
     font_names: Vec<String>,
     font_pickers: HashMap<usize, Entity<FontPicker>>,
@@ -136,9 +149,18 @@ impl SettingsPage {
             changed: false,
             query_active: false,
             before_search: None,
+            before_search_row: None,
             defaults: false,
             rows: vec![],
-            scroll: UniformListScrollHandle::new(),
+            scroll: gpui::ListState::new(0, ListAlignment::Top, px(100.)),
+            display_rows: Vec::new(),
+            expanded: Default::default(),
+            row_focus: catalogue::SETTINGS
+                .iter()
+                .map(|_| cx.focus_handle())
+                .collect(),
+            list_width: px(0.),
+            list_hints_dirty: true,
             drafts: HashMap::new(),
             font_names,
             font_pickers: HashMap::new(),
@@ -147,6 +169,7 @@ impl SettingsPage {
             error: None,
             subscriptions: vec![subscription],
         };
+        page.load_groups(cx);
         match crate::settings_service::source(source.clone(), settings, cx) {
             Ok(state) => {
                 page.error = state.read(cx).error.clone();
@@ -261,6 +284,7 @@ impl SettingsPage {
         // when that search is cleared, rather than reviving an older category.
         if self.query_active {
             self.before_search = category;
+            self.before_search_row = None;
         }
         self.filter(cx);
     }
@@ -270,16 +294,22 @@ impl SettingsPage {
         self.changed = true;
         if self.query_active {
             self.before_search = None;
+            self.before_search_row = None;
         }
         self.filter(cx);
+    }
+    fn browsing_row_index(&self) -> usize {
+        self.scroll.logical_scroll_top().item_ix
     }
     fn filter(&mut self, cx: &mut Context<Self>) {
         let searching = !self.query.read(cx).value().is_empty();
         if searching && !self.query_active {
+            self.before_search_row = self.display_rows.get(self.browsing_row_index()).copied();
             self.before_search = self.category;
             self.category = None;
         }
-        if !searching && self.query_active {
+        let restoring = !searching && self.query_active;
+        if restoring {
             self.category = self.before_search;
         }
         self.query_active = searching;
@@ -294,7 +324,18 @@ impl SettingsPage {
                 )
             })
             .unwrap_or_default();
-        self.scroll.scroll_to_item(0, ScrollStrategy::Top);
+        self.rebuild_rows(cx);
+        let row = if restoring {
+            self.before_search_row
+                .and_then(|key| self.display_rows.iter().position(|row| *row == key))
+                .unwrap_or(0)
+        } else {
+            0
+        };
+        self.scroll.scroll_to(ListOffset {
+            item_ix: row,
+            offset_in_item: px(0.),
+        });
         cx.notify();
     }
     fn value(&self, index: usize) -> Option<&toml::Value> {
@@ -361,6 +402,7 @@ impl SettingsPage {
             self.category,
             self.changed && !self.defaults,
         );
+        self.rebuild_rows(cx);
         cx.notify();
     }
     fn input(
@@ -947,21 +989,15 @@ impl SettingsPage {
                 move || format!("settings-row-{key}")
             })
             .v_flex()
-            .h(px(self
-                .persisted
-                .as_ref()
-                .map_or(16., |snapshot| snapshot.settings.ui.font_size)
-                * if narrow { 8. } else { 4.5 })
-                + crate::spacing::space(4., cx))
             .w_full()
             .max_w(px(1120.))
             .mx_auto()
             .relative()
-            .px(crate::spacing::space(4., cx))
+            .px(crate::spacing::space(2., cx))
             .py(crate::spacing::space(2., cx))
             .child(
                 div()
-                    .size_full()
+                    .w_full()
                     .overflow_hidden()
                     .when(narrow, |row| row.v_flex().gap(crate::spacing::edge(cx)))
                     .when(!narrow, |row| {
@@ -976,8 +1012,8 @@ impl SettingsPage {
                 div()
                     .absolute()
                     .bottom_0()
-                    .left(crate::spacing::space(4., cx))
-                    .right(crate::spacing::space(4., cx))
+                    .left(crate::spacing::space(2., cx))
+                    .right(crate::spacing::space(2., cx))
                     .h(px(1.))
                     .bg(border),
             )
@@ -1053,8 +1089,23 @@ impl Render for SettingsPage {
                     .child(
                         div()
                             .w_full()
-                            .text_left()
-                            .child(format!("Changed from defaults  {modified}")),
+                            .min_w_0()
+                            .h_flex()
+                            .items_center()
+                            .gap(crate::spacing::edge(cx))
+                            .child(
+                                div()
+                                    .flex_1()
+                                    .min_w_0()
+                                    .truncate()
+                                    .child("Changed from defaults"),
+                            )
+                            .child(
+                                div()
+                                    .flex_shrink_0()
+                                    .debug_selector(|| "settings-modified-count".into())
+                                    .child(modified.to_string()),
+                            ),
                     )
                     .ghost()
                     .px(crate::spacing::space(2., cx))
@@ -1247,15 +1298,21 @@ impl Render for SettingsPage {
             ))
             .v_flex()
             .gap(crate::spacing::interactive(cx))
-            .p(crate::spacing::space(3., cx))
+            .p(crate::spacing::space(2., cx))
             .border_b_1()
             .border_color(border)
             .child(
-                div()
+                header_row(window, cx)
                     .when(narrow, |row| row.v_flex())
                     .when(!narrow, |row| row.h_flex().items_center().justify_between())
                     .gap(crate::spacing::space(2., cx))
-                    .child(div().text_lg().font_medium().child(title))
+                    .child(
+                        div()
+                            .debug_selector(|| "settings-header-title".into())
+                            .text_lg()
+                            .font_medium()
+                            .child(title),
+                    )
                     .child(
                         div()
                             .h_flex()
@@ -1283,6 +1340,7 @@ impl Render for SettingsPage {
                             )
                             .child(
                                 Button::new("settings-edit-toml")
+                                    .debug_selector(|| "settings-edit-toml".into())
                                     .small()
                                     .border_1()
                                     .border_color(border)
@@ -1335,23 +1393,31 @@ impl Render for SettingsPage {
             header.into_any_element()
         };
         let owner = cx.entity().downgrade();
-        let count = self.rows.len();
-        let list = uniform_list("settings-rows", count, move |range, window, cx| {
+        let count = self.display_rows.len();
+        let width = self.scroll.viewport_bounds().size.width;
+        if self.list_hints_dirty || width != self.list_width {
+            self.list_width = width;
+            self.list_hints_dirty = false;
+            self.scroll.clone().with_uniform_item_height(px(90.));
+            let owner = owner.clone();
+            window.on_next_frame(move |_, cx| {
+                let _ = owner.update(cx, |page, cx| {
+                    page.scroll.clone().with_uniform_item_height(px(90.));
+                    cx.notify();
+                });
+            });
+        }
+        let list = list(self.scroll.clone(), move |index, window, cx| {
             owner
                 .update(cx, |page, cx| {
-                    range
-                        .filter_map(|index| page.rows.get(index).copied())
-                        .collect::<Vec<_>>()
-                        .into_iter()
-                        .map(|index| page.render_row(index, narrow, window, cx))
-                        .collect()
+                    page.render_settings_entry(index, narrow, window, cx)
                 })
-                .unwrap_or_default()
+                .unwrap_or_else(|_| div().into_any_element())
         })
-        .size_full()
-        .track_scroll(&self.scroll);
+        .size_full();
         let body = div()
             .relative()
+            .debug_selector(|| "settings-content".into())
             .flex_1()
             .min_h_0()
             .child(list)
@@ -1465,6 +1531,25 @@ impl Render for SettingsPage {
 
 #[cfg(test)]
 impl SettingsPage {
+    pub(crate) fn test_first_setting_key(&self) -> Option<&str> {
+        self.display_rows
+            .get(self.browsing_row_index())
+            .map(|row| match row {
+                groups::Row::Setting(index) => catalogue::SETTINGS[*index].key.as_str(),
+                groups::Row::Group(group) => group.key(),
+                groups::Row::Section(_, section) => section,
+            })
+    }
+    pub(crate) fn test_row_labels(&self) -> Vec<String> {
+        self.display_rows
+            .iter()
+            .map(|row| match row {
+                groups::Row::Setting(index) => catalogue::SETTINGS[*index].key.clone(),
+                groups::Row::Group(group) => format!("group:{}", group.key()),
+                groups::Row::Section(_, section) => format!("section:{section}"),
+            })
+            .collect()
+    }
     pub(crate) fn test_status(&self, cx: &App) -> String {
         format!(
             "query={:?} category={:?} changed={} loaded={} error={:?} message={:?} rows={:?}",

@@ -45,6 +45,14 @@ pub(crate) fn apply(settings: &Settings, cx: &mut App) {
     refresh(None, true, cx);
 }
 
+/// The native macOS title bar needs an explicit divider at the content edge.
+pub(crate) fn window_content(cx: &App) -> gpui::Div {
+    gpui::div().when(cfg!(target_os = "macos"), |root| {
+        root.border_t_1()
+            .border_color(Theme::global(cx).title_bar_border)
+    })
+}
+
 pub(crate) fn watch_window(window: &mut Window, cx: &mut App) {
     window
         .observe_window_appearance(|window, cx| {

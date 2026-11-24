@@ -390,6 +390,13 @@ disposable Git fixtures, in-memory recents and disabled layout persistence/live
 watching. It does not activate a native window or move the system pointer. These
 tests also run as part of `just check`; native rendering still needs review.
 
+Tests that open Accounts must install a synthetic credential store and provider
+with `accounts::application::init_with_backend` before navigating there. The
+production initializer rejects GPUI test contexts before creating OS credential
+or HTTP services, so missing fixture setup fails instead of prompting for real
+Keychain access. Test executables are not the signed development app and must
+never receive access to its account entries.
+
 The same headless suite exercises Fluid wheel input, shared gutter dragging,
 independent editor offsets, wrapping and window/divider reflow. Geometry tests
 cover insertion/deletion-only sides, unequal replacements, direction reversal
