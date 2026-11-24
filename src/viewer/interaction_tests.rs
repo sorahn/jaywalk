@@ -5640,3 +5640,86 @@ fn settings_keyboard_virtual_scroll_preserves_pending_edits(cx: &mut TestAppCont
         "the edited row can be revisited"
     );
 }
+
+#[gpui_test::test]
+fn setup_settings_link_preserves_onboarding_and_update_consent(cx: &mut TestAppContext) {
+    use jaywalk::commands::CommandId;
+    let fixture = Fixture::new();
+    let (viewer, cx) = setup(&fixture, cx);
+    cx.simulate_resize(size(px(1500.), px(1400.)));
+    cx.update(|window, app| {
+        viewer.update(app, |viewer, cx| {
+            viewer.execute_command(CommandId::ShowSetup, window, cx)
+        })
+    });
+    draw(cx);
+    let path = fixture.0.join("settings.toml");
+    let before = std::fs::read_to_string(&path).unwrap();
+    let link = cx.debug_bounds("setup-show_settings").unwrap();
+    cx.simulate_click(link.center(), Default::default());
+    draw(cx);
+    assert!(cx.debug_bounds("setup-page").is_some());
+    assert_eq!(cx.update(|_, app| app.windows().len()), 2);
+    let (_, mut popup) = open_settings_test(&viewer, cx, false);
+    assert!(popup.debug_bounds("settings-page").is_some());
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), before);
+    assert!(!cx.update(|_, app| viewer.read(app).settings.updates.automatic_checks));
+}
+
+#[gpui_test::test]
+fn settings_search_restores_the_browsing_row_and_handles_large_fonts(cx: &mut TestAppContext) {
+    let fixture = Fixture::new();
+    let (viewer, cx) = setup(&fixture, cx);
+    let (page, mut popup) = open_settings_test(&viewer, cx, false);
+    let cx = &mut popup;
+    let all = cx.debug_bounds("settings-all").unwrap();
+    cx.simulate_click(all.center(), Default::default());
+    draw(cx);
+    let position = cx.debug_bounds("settings-page").unwrap().center();
+    let top = cx.update(|_, app| page.read(app).test_first_setting_key().unwrap().to_owned());
+    cx.simulate_event(gpui_test::ScrollEvent {
+        position,
+        delta: gpui_test::ScrollDelta::Pixels(point(px(0.), px(-1200.))),
+        ..Default::default()
+    });
+    draw(cx);
+    let before = cx.update(|_, app| page.read(app).test_first_setting_key().unwrap().to_owned());
+    assert_ne!(top, before);
+    let search = cx.debug_bounds("settings-search").unwrap();
+    cx.simulate_click(search.center(), Default::default());
+    cx.simulate_input("word wrap");
+    draw(cx);
+    cx.simulate_keystrokes("secondary-a backspace");
+    draw(cx);
+    assert_eq!(
+        cx.update(|_, app| page.read(app).test_first_setting_key().unwrap().to_owned()),
+        before
+    );
+    let source =
+        jaywalk::settings_reload::SettingsSource::resolve(Some(&fixture.0.join("settings.toml")))
+            .unwrap();
+    let larger = jaywalk::preferences::patch(
+        &source,
+        jaywalk::preferences::Patch::set("ui.font_size", 24.0.into()),
+    )
+    .unwrap();
+    cx.update(|_, app| {
+        crate::settings_service::publish_snapshot(source, larger, app).unwrap();
+    });
+    draw(cx);
+    let modified = cx.debug_bounds("settings-modified").unwrap();
+    let count = cx.debug_bounds("settings-modified-count").unwrap();
+    assert!(
+        count.right() <= modified.right(),
+        "enlarged text must not hide the modified count"
+    );
+    cx.simulate_resize(size(px(560.), px(800.)));
+    draw(cx);
+    let search = cx.debug_bounds("settings-search").unwrap();
+    cx.simulate_click(search.center(), Default::default());
+    cx.simulate_input("diff.word_highlight");
+    draw(cx);
+    let bounds = cx.debug_bounds("settings-page").unwrap();
+    let control = cx.debug_bounds("setting-diff.word_highlight").unwrap();
+    assert!(control.right() <= bounds.right() && control.left() >= bounds.left());
+}

@@ -85,6 +85,7 @@ pub(crate) struct SettingsPage {
     changed: bool,
     query_active: bool,
     before_search: Option<Category>,
+    before_search_row: Option<usize>,
     defaults: bool,
     rows: Vec<usize>,
     scroll: UniformListScrollHandle,
@@ -136,6 +137,7 @@ impl SettingsPage {
             changed: false,
             query_active: false,
             before_search: None,
+            before_search_row: None,
             defaults: false,
             rows: vec![],
             scroll: UniformListScrollHandle::new(),
@@ -261,6 +263,7 @@ impl SettingsPage {
         // when that search is cleared, rather than reviving an older category.
         if self.query_active {
             self.before_search = category;
+            self.before_search_row = None;
         }
         self.filter(cx);
     }
@@ -270,16 +273,33 @@ impl SettingsPage {
         self.changed = true;
         if self.query_active {
             self.before_search = None;
+            self.before_search_row = None;
         }
         self.filter(cx);
+    }
+    fn browsing_row_index(&self) -> usize {
+        let scroll = self.scroll.0.borrow();
+        let Some(size) = scroll.last_item_size else {
+            return 0;
+        };
+        // UniformList's ItemSize.item is the viewport, not one row.
+        let row_height = size.contents.height / self.rows.len().max(1) as f32;
+        if row_height <= px(0.) {
+            return 0;
+        }
+        (-scroll.base_handle.offset().y / row_height)
+            .floor()
+            .max(0.) as usize
     }
     fn filter(&mut self, cx: &mut Context<Self>) {
         let searching = !self.query.read(cx).value().is_empty();
         if searching && !self.query_active {
+            self.before_search_row = self.rows.get(self.browsing_row_index()).copied();
             self.before_search = self.category;
             self.category = None;
         }
-        if !searching && self.query_active {
+        let restoring = !searching && self.query_active;
+        if restoring {
             self.category = self.before_search;
         }
         self.query_active = searching;
@@ -294,7 +314,14 @@ impl SettingsPage {
                 )
             })
             .unwrap_or_default();
-        self.scroll.scroll_to_item(0, ScrollStrategy::Top);
+        let row = if restoring {
+            self.before_search_row
+                .and_then(|key| self.rows.iter().position(|row| *row == key))
+                .unwrap_or(0)
+        } else {
+            0
+        };
+        self.scroll.scroll_to_item_strict(row, ScrollStrategy::Top);
         cx.notify();
     }
     fn value(&self, index: usize) -> Option<&toml::Value> {
@@ -1053,8 +1080,23 @@ impl Render for SettingsPage {
                     .child(
                         div()
                             .w_full()
-                            .text_left()
-                            .child(format!("Changed from defaults  {modified}")),
+                            .min_w_0()
+                            .h_flex()
+                            .items_center()
+                            .gap(crate::spacing::edge(cx))
+                            .child(
+                                div()
+                                    .flex_1()
+                                    .min_w_0()
+                                    .truncate()
+                                    .child("Changed from defaults"),
+                            )
+                            .child(
+                                div()
+                                    .flex_shrink_0()
+                                    .debug_selector(|| "settings-modified-count".into())
+                                    .child(modified.to_string()),
+                            ),
                     )
                     .ghost()
                     .px(crate::spacing::space(2., cx))
@@ -1465,6 +1507,11 @@ impl Render for SettingsPage {
 
 #[cfg(test)]
 impl SettingsPage {
+    pub(crate) fn test_first_setting_key(&self) -> Option<&str> {
+        self.rows
+            .get(self.browsing_row_index())
+            .map(|index| catalogue::SETTINGS[*index].key.as_str())
+    }
     pub(crate) fn test_status(&self, cx: &App) -> String {
         format!(
             "query={:?} category={:?} changed={} loaded={} error={:?} message={:?} rows={:?}",
