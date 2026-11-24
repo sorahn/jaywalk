@@ -1085,6 +1085,7 @@ impl Render for SettingsPage {
                 ),
             );
         nav = nav
+            .child(div().h(px(1.)).my(crate::spacing::edge(cx)).bg(border))
             .child(
                 Button::new("settings-all")
                     .debug_selector(|| "settings-all".into())
