@@ -262,13 +262,12 @@ impl Viewer {
         let theme = gpui::component::Theme::global(cx);
         let surface = crate::appearance::surface(Surface::History, Part::Background, cx);
         let stripe = surface.blend(
-            theme
-                .foreground
+            crate::appearance::surface(Surface::History, Part::Foreground, cx)
                 .opacity(self.settings.history.stripe_opacity),
         );
         let accent = theme.primary;
         let selection = theme.list_active;
-        let hover = theme.secondary_hover;
+        let hover = crate::appearance::surface_hover(Surface::History, cx);
         let mut panel = super::chrome::Panel::new(
             "history-panel",
             self.panel_header(

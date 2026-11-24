@@ -416,12 +416,8 @@ impl Viewer {
             .key_context("JaywalkDiff")
             .v_flex()
             .size_full()
-            .bg(theme.background)
-            .text_color(crate::appearance::surface(
-                jaywalk::theme::Surface::Viewer,
-                jaywalk::theme::Part::Foreground,
-                cx,
-            ));
+            .bg(theme.editor_colors().background)
+            .text_color(theme.editor_colors().foreground);
         if let LoadState::Failed(error) = self.comparison_state() {
             return surface
                 .child(
@@ -461,7 +457,7 @@ impl Viewer {
                         .justify_center()
                         .p(crate::spacing::space(6.0, cx))
                         .text_size(px(self.settings.ui.font_size))
-                        .text_color(theme.muted_foreground)
+                        .text_color(theme.editor_colors().muted_foreground)
                         .child(
                             div()
                                 .h_flex()
@@ -470,7 +466,7 @@ impl Viewer {
                                 .children(loading.then(|| {
                                     Spinner::new()
                                         .with_size(px(self.settings.ui.font_size))
-                                        .color(theme.muted_foreground)
+                                        .color(theme.editor_colors().muted_foreground)
                                 }))
                                 .child(text),
                         ),
@@ -496,8 +492,8 @@ impl Viewer {
             loaded.additions,
             loaded.deletions
         );
-        let border = theme.border;
-        let muted = theme.muted_foreground;
+        let border = theme.editor_colors().border;
+        let muted = theme.editor_colors().muted_foreground;
         let series = loaded.series.clone();
         let expanded_messages = self.overview.expanded_messages.clone();
         let series_viewer = cx.entity().downgrade();
@@ -649,6 +645,7 @@ impl Viewer {
         let diff = Diff::new(&loaded.state)
             .display_options(self.diff_render_options())
             .colors(crate::appearance::diff_colors(cx))
+            .editor_colors(theme.editor_colors())
             .header_context_menu(move |file, menu, _, _| {
                 let target = context_menu::FileTarget::new(
                     source.clone(),

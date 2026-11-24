@@ -1033,6 +1033,21 @@ Unknown role names are rejected to catch typos. Floating borders follow the acce
 while `ui.accent_floating_outlines` is enabled; disable it to use
 `"shell.floating.border"` instead.
 
+Code surfaces consume their own resolved background, foreground, line-number,
+selection and caret colors. Shell controls keep their own foregrounds and accent
+selection; code colors do not recolor search inputs, toolbars or Welcome. The
+built-in code palette inherits generated viewer colors, preserving today's
+appearance. Explicit `editor.*` role overrides have final authority. History and
+Files hover fills derive from their respective surface colors unless
+`"shell.control.hover"` is explicitly overridden.
+
+Legacy `[diff.colors]` inputs retain which fields and light/dark components the
+user actually supplied, before defaults are filled. An omitted component remains
+inherited; explicitly setting a current default is still an override. Existing
+colors and their line/word-opacity behavior are unchanged. This information is
+retained for future theme selection, rather than treating shipped defaults as
+user choices.
+
 This shell slice retains the existing syntax palette. VS Code theme imports,
 independent diff-theme files, theme selection/preview commands, and custom
 native titlebar coloring remain separate work.

@@ -215,6 +215,7 @@ pub(crate) struct CodeText {
     selection: TextSelectionHandle,
     geometry: Rc<RefCell<SelectionGeometry>>,
     styled_text: Option<StyledText>,
+    colors: crate::theme::EditorColors,
     options: super::DiffDisplayOptions,
     font_size: Pixels,
     row_height: Pixels,
@@ -232,6 +233,7 @@ impl CodeText {
         highlights: Vec<(Range<usize>, HighlightStyle)>,
         selection: TextSelectionHandle,
         geometry: Rc<RefCell<SelectionGeometry>>,
+        colors: crate::theme::EditorColors,
         options: super::DiffDisplayOptions,
         font_size: Pixels,
         row_height: Pixels,
@@ -247,6 +249,7 @@ impl CodeText {
             selection,
             geometry,
             styled_text: None,
+            colors,
             options,
             font_size,
             row_height,
@@ -290,7 +293,7 @@ impl Element for CodeText {
                 layers.push((
                     line.display_range(start - line.source().start..end - line.source().start),
                     HighlightStyle {
-                        background_color: Some(crate::ActiveTheme::theme(cx).selection),
+                        background_color: Some(self.colors.selection),
                         ..Default::default()
                     },
                 ));
@@ -359,7 +362,7 @@ impl Element for CodeText {
         );
         let line = &self.document.lines(self.side)[self.line_ix];
         let font = window.text_style().font();
-        let color = crate::ActiveTheme::theme(cx).muted_foreground;
+        let color = self.colors.muted_foreground;
         let paint = |label: &str, offset: usize, window: &mut Window, cx: &mut App| {
             if let Some(origin) = self
                 .styled_text

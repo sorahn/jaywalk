@@ -430,7 +430,7 @@ impl Viewer {
             .is_none()
             .then(|| self.reading_tree_target(cx))
             .flatten();
-        let reading_tint = gpui::component::Theme::global(cx).secondary;
+        let reading_tint = crate::appearance::surface(Surface::Files, Part::GroupBackground, cx);
         let colors = FileColors::new(cx);
         let neutral = colors.neutral;
         let files = self.browser.files.clone();
@@ -452,8 +452,7 @@ impl Viewer {
         let icons = self.settings.files.file_icons;
         let guides = self.settings.files.indent_guides;
         let guide_offset = self.settings.files.indent_guide_offset;
-        let guide_color = gpui::component::Theme::global(cx)
-            .foreground
+        let guide_color = crate::appearance::surface(Surface::Files, Part::Foreground, cx)
             .opacity(self.settings.files.indent_guide_opacity);
         let click_viewer = viewer.clone();
         let click_source = source.as_ref().map(|(identity, _)| identity.clone());
@@ -821,12 +820,16 @@ impl Viewer {
                             } else if self.selected_file.is_none()
                                 && self.browser.reading.as_deref() == Some(file.path())
                             {
-                                gpui::component::Theme::global(cx).secondary
+                                crate::appearance::surface(
+                                    Surface::Files,
+                                    Part::GroupBackground,
+                                    cx,
+                                )
                             } else {
                                 crate::appearance::surface(Surface::Files, Part::Background, cx)
                             })
                             .hover(|style| {
-                                style.bg(gpui::component::Theme::global(cx).secondary_hover)
+                                style.bg(crate::appearance::surface_hover(Surface::Files, cx))
                             })
                             .text_size(px(self.settings.panels.files.font.size))
                             .cursor_pointer()

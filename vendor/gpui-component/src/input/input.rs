@@ -582,14 +582,40 @@ impl RenderOnce for Input {
         sync_focused_input_registry(&state, window, cx);
 
         state.ensure_highlighter_factory(crate::highlighter::input_highlighter_factory(), cx);
+        let is_code = state.presentation(cx).is_code_editor();
+        let code_colors = cx.theme().editor_colors();
         state.set_editor_style(
             gpui_base::input::InputEditorStyle {
-                foreground: cx.theme().foreground,
-                muted_foreground: cx.theme().muted_foreground,
-                background: cx.theme().editor_background(),
-                border: cx.theme().border,
-                selection: cx.theme().selection,
-                caret: cx.theme().caret,
+                foreground: if is_code {
+                    code_colors.foreground
+                } else {
+                    cx.theme().foreground
+                },
+                muted_foreground: if is_code {
+                    code_colors.muted_foreground
+                } else {
+                    cx.theme().muted_foreground
+                },
+                background: if is_code {
+                    code_colors.background
+                } else {
+                    cx.theme().input_background()
+                },
+                border: if is_code {
+                    code_colors.border
+                } else {
+                    cx.theme().border
+                },
+                selection: if is_code {
+                    code_colors.selection
+                } else {
+                    cx.theme().selection
+                },
+                caret: if is_code {
+                    code_colors.caret
+                } else {
+                    cx.theme().caret
+                },
                 diagnostics: gpui_base::input::DiagnosticColors {
                     error: cx.theme().highlight_theme.style.status.error(cx),
                     warning: cx.theme().highlight_theme.style.status.warning(cx),
@@ -599,7 +625,11 @@ impl RenderOnce for Input {
                 highlight_styles: cx.theme().highlight_theme.clone(),
                 editor_invisible: cx.theme().highlight_theme.style.editor_invisible,
                 editor_active_line: cx.theme().highlight_theme.style.editor_active_line,
-                editor_gutter_background: cx.theme().highlight_theme.style.editor_gutter_background,
+                editor_gutter_background: if is_code {
+                    code_colors.gutter_background
+                } else {
+                    None
+                },
                 fold_icon_renderer: Some(Rc::new(|ix, is_folded| {
                     Button::new(("fold-icon", ix))
                         .ghost()
@@ -737,7 +767,7 @@ impl RenderOnce for Input {
 
         let (bg, _) = input_style(presentation.is_disabled(), cx);
         let bg = if presentation.is_code_editor() {
-            cx.theme().editor_background()
+            code_colors.background
         } else {
             bg
         };

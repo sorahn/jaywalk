@@ -523,25 +523,13 @@ impl Viewer {
 
     pub(super) fn render_comparison(&self, cx: &mut Context<Self>) -> AnyElement {
         let theme = gpui::component::Theme::global(cx);
-        let file_background = if self.view.effective() == ViewMode::Fluid {
-            theme
-                .highlight_theme
-                .style
-                .editor_background
-                .unwrap_or_else(|| theme.input_background())
-        } else {
-            theme.background
-        };
+        let code_colors = theme.editor_colors();
         let file_surface = div()
             .key_context("JaywalkDiff")
             .v_flex()
             .size_full()
-            .bg(file_background)
-            .text_color(crate::appearance::surface(
-                jaywalk::theme::Surface::Viewer,
-                jaywalk::theme::Part::Foreground,
-                cx,
-            ));
+            .bg(code_colors.background)
+            .text_color(code_colors.foreground);
         if let Some(selected) = &self.selected_file {
             match &selected.content {
                 LoadState::Loading => {
@@ -592,6 +580,7 @@ impl Viewer {
                     Diff::new(state)
                         .display_options(self.diff_render_options())
                         .colors(crate::appearance::diff_colors(cx))
+                        .editor_colors(code_colors)
                         .border_0()
                         .code_font(
                             gpui::component::Theme::global(cx).mono_font_family.clone(),

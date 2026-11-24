@@ -138,7 +138,9 @@ impl Viewer {
                     family: gpui::component::Theme::global(cx).mono_font_family.clone(),
                     ..Default::default()
                 };
-                let marker_color = gpui::component::Theme::global(cx).muted_foreground;
+                let marker_color = gpui::component::Theme::global(cx)
+                    .editor_colors()
+                    .muted_foreground;
                 for (viewport, origin, label) in ending_runs {
                     window.with_content_mask(Some(ContentMask { bounds: viewport }), |window| {
                         let shape = window.text_system().shape_line(
