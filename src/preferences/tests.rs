@@ -500,3 +500,63 @@ fn unreadable_or_read_only_later_document_cannot_partly_save_profiles() {
         draft.original
     );
 }
+
+#[test]
+fn toml_only_tuning_stays_searchable_and_modified_without_cluttering_browsing() {
+    let (_root, source) = fixture("[ui]\nloading_delay_ms=450\n[window]\nwidth=1600\n");
+    let snapshot = source.read_snapshot().unwrap();
+    let ordinary = snapshot.matching("", None, false);
+    let changed = snapshot.matching("", None, true);
+    for (index, setting) in catalogue::SETTINGS
+        .iter()
+        .enumerate()
+        .filter(|(_, setting)| setting.toml_only)
+    {
+        assert!(
+            !ordinary.contains(&index),
+            "{} appears in ordinary browsing",
+            setting.key
+        );
+        assert!(
+            snapshot
+                .matching(&setting.key, None, false)
+                .contains(&index),
+            "{} must remain discoverable",
+            setting.key
+        );
+        assert_eq!(
+            changed.contains(&index),
+            snapshot.modified(setting),
+            "{} changed filter",
+            setting.key
+        );
+    }
+    for key in ["ui.loading_delay_ms", "window.width"] {
+        let index = catalogue::SETTINGS
+            .iter()
+            .position(|setting| setting.key == key)
+            .unwrap();
+        assert!(changed.contains(&index));
+    }
+    for key in [
+        "ui.font_size",
+        "ui.row_height",
+        "ui.spacing.unit",
+        "diff.context_lines",
+        "panels.diff.gutter_width",
+        "history.page_size",
+        "hosting.max_content_mb",
+        "local_review.max_repository_mb",
+        "theme.shell_auto.layer_strength",
+    ] {
+        let index = catalogue::SETTINGS
+            .iter()
+            .position(|setting| setting.key == key)
+            .unwrap();
+        assert!(ordinary.contains(&index), "keep a normal control for {key}");
+    }
+    assert_eq!(
+        std::fs::read_to_string(source.path()).unwrap(),
+        "[ui]\nloading_delay_ms=450\n[window]\nwidth=1600\n"
+    );
+}

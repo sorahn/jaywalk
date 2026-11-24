@@ -96,6 +96,7 @@ kind = "boolean"
 
 [[setting]]
 key = "ui.loading_delay_ms"
+toml_only = true
 title = "Loading delay ms"
 description = "Delay before showing loading feedback; 0–5000. 0 shows it immediately; fast operations never expose a loading label."
 category = "general"
@@ -121,6 +122,7 @@ maximum = 160.0
 
 [[setting]]
 key = "ui.panel_header_height"
+toml_only = true
 title = "Panel header height"
 description = "Minimum panel-header height; 24–120."
 category = "layout"
@@ -134,6 +136,7 @@ maximum = 120.0
 
 [[setting]]
 key = "ui.toolbar_height"
+toml_only = true
 title = "Toolbar height"
 summary = "Minimum height of the comparison toolbar. Grows as needed to fit its text and controls."
 description = "Minimum review-control height within the single comparison header; 28–120. The header fits the greater of this value, ui.comparison_bar_height, and its font minimum. No separate application-toolbar row."
@@ -148,6 +151,7 @@ maximum = 120.0
 
 [[setting]]
 key = "ui.footer_height"
+toml_only = true
 title = "Footer height"
 summary = "Minimum height of the app and sidebar footers. Grows as needed to fit their contents."
 description = "Minimum application footer height; 20–120. Also sets the minimum History/Files footer height, which grows to fit their own font and evolution control. Effective height also fits its control height and at least 1.5 × footer font size."
@@ -174,6 +178,7 @@ maximum = 48.0
 
 [[setting]]
 key = "ui.footer_control_height"
+toml_only = true
 title = "Footer control height"
 description = "Footer control height; 16–80."
 category = "layout"
@@ -187,6 +192,7 @@ maximum = 80.0
 
 [[setting]]
 key = "ui.comparison_bar_height"
+toml_only = true
 title = "Comparison bar height"
 description = "Reserved comparison/evolution toolbar height, including compact back/forward controls; 24–120. Grows to fit the UI font."
 category = "layout"
@@ -392,6 +398,7 @@ kind = "complex"
 
 [[setting]]
 key = "window.width"
+toml_only = true
 title = "Width"
 description = "Window width; 320–10000. A saved edit resizes open viewers."
 category = "layout"
@@ -404,6 +411,7 @@ maximum = 10000.0
 
 [[setting]]
 key = "window.height"
+toml_only = true
 title = "Height"
 description = "Window height; 240–10000. A saved edit resizes open viewers."
 category = "layout"
@@ -443,6 +451,7 @@ kind = "boolean"
 
 [[setting]]
 key = "layout.bottom_height"
+toml_only = true
 title = "Bottom height"
 description = "Shared bottom-dock height/reset target; must lie between min_bottom_height and max_bottom_height."
 category = "layout"
@@ -455,6 +464,7 @@ maximum = "layout.max_bottom_height"
 
 [[setting]]
 key = "layout.min_bottom_height"
+toml_only = true
 title = "Min bottom height"
 description = "Minimum shared bottom-dock height; 40–2000."
 category = "layout"
@@ -468,6 +478,7 @@ maximum = 2000.0
 
 [[setting]]
 key = "layout.max_bottom_height"
+toml_only = true
 title = "Max bottom height"
 description = "Maximum shared bottom-dock height; min_bottom_height–4000."
 category = "layout"
@@ -531,6 +542,7 @@ choices = ["sidebar", "bottom"]
 
 [[setting]]
 key = "panels.history.default_width"
+toml_only = true
 title = "Default width"
 description = "Sidebar width and separator reset target; must lie between min_width and max_width."
 category = "layout"
@@ -543,6 +555,7 @@ maximum = "panels.history.max_width"
 
 [[setting]]
 key = "panels.history.min_width"
+toml_only = true
 title = "Min width"
 description = "Minimum sidebar width; 32–4000. The layout may shrink below this when the window cannot fit all panels."
 category = "layout"
@@ -556,6 +569,7 @@ maximum = 4000.0
 
 [[setting]]
 key = "panels.history.max_width"
+toml_only = true
 title = "Max width"
 description = "Maximum sidebar width; min_width–8000."
 category = "layout"
@@ -590,6 +604,7 @@ kind = "boolean"
 
 [[setting]]
 key = "panels.files.default_width"
+toml_only = true
 title = "Default width"
 description = "Sidebar width and separator reset target; must lie between min_width and max_width."
 category = "layout"
@@ -602,6 +617,7 @@ maximum = "panels.files.max_width"
 
 [[setting]]
 key = "panels.files.min_width"
+toml_only = true
 title = "Min width"
 description = "Minimum sidebar width; 32–4000. The layout may shrink below this when the window cannot fit all panels."
 category = "layout"
@@ -615,6 +631,7 @@ maximum = 4000.0
 
 [[setting]]
 key = "panels.files.max_width"
+toml_only = true
 title = "Max width"
 description = "Maximum sidebar width; min_width–8000."
 category = "layout"
@@ -709,6 +726,7 @@ maximum = 1.0
 
 [[setting]]
 key = "panels.diff.min_code_width"
+toml_only = true
 title = "Min code width"
 description = "Minimum width of each Fluid code pane; 32–2000. The initial before/after split is even."
 category = "diff"
@@ -1026,6 +1044,7 @@ maximum = 1000.0
 
 [[setting]]
 key = "overview.message_max_height"
+toml_only = true
 title = "Message max height"
 summary = "Maximum message height when the overview has no changed files."
 description = "Maximum height of the scrollable message area when there are no changed files; 80–1200. With files, the full message scrolls with the overview and folds its subject into the existing comparison bar while scrolling."
@@ -1082,6 +1101,7 @@ maximum = 1.0
 
 [[setting]]
 key = "files.indent_guide_offset"
+toml_only = true
 title = "Indent guide offset"
 description = "Horizontal guide offset from ancestor icon centers in pixels; −48–48. Negative moves left."
 category = "history"
@@ -1135,6 +1155,7 @@ maximum = 50000.0
 
 [[setting]]
 key = "history.initial_batch_size"
+toml_only = true
 title = "Initial batch size"
 summary = "Rows shown immediately when opening a local repo. The rest of the initial page loads in the background."
 description = "First rows published when opening a local repository; 1–50000, clamped to page_size. The rest of the initial page fills in the background. Changes apply on the next repository open; they do not discard already loaded rows."
@@ -1186,6 +1207,7 @@ maximum = 0.2
 
 [[setting]]
 key = "history.lane_spacing"
+toml_only = true
 title = "Lane spacing"
 description = "Distance between graph lanes; 4–48. The graph column adapts to visible lane sprawl."
 category = "history"
@@ -1208,6 +1230,7 @@ kind = "boolean"
 
 [[setting]]
 key = "history.reference_badge_width"
+toml_only = true
 title = "Reference badge width"
 description = "Maximum compact reference-badge width; 40–300. Full names remain available in reference details."
 category = "history"
@@ -1257,6 +1280,7 @@ kind = "boolean"
 
 [[setting]]
 key = "evolution.default_height"
+toml_only = true
 title = "Default height"
 description = "Change-evolution height/reset target; must lie between its min/max height."
 category = "history"
@@ -1270,6 +1294,7 @@ maximum = "evolution.max_height"
 
 [[setting]]
 key = "evolution.min_height"
+toml_only = true
 title = "Min height"
 description = "Minimum Change-evolution height; 100–2000."
 category = "history"
@@ -1283,6 +1308,7 @@ maximum = 2000.0
 
 [[setting]]
 key = "evolution.max_height"
+toml_only = true
 title = "Max height"
 description = "Maximum Change-evolution height; min_height–4000."
 category = "history"
@@ -1296,6 +1322,7 @@ maximum = 4000.0
 
 [[setting]]
 key = "evolution.min_history_height"
+toml_only = true
 title = "Min history height"
 description = "Minimum space retained for history above a sidebar timeline; 80–2000."
 category = "history"
@@ -1344,6 +1371,7 @@ kind = "boolean"
 
 [[setting]]
 key = "file_evolution.default_height"
+toml_only = true
 title = "Default height"
 description = "File-evolution height/reset target; must lie between its min/max height."
 category = "history"
@@ -1357,6 +1385,7 @@ maximum = "file_evolution.max_height"
 
 [[setting]]
 key = "file_evolution.min_height"
+toml_only = true
 title = "Min height"
 description = "Minimum File-evolution height; 100–2000."
 category = "history"
@@ -1370,6 +1399,7 @@ maximum = 2000.0
 
 [[setting]]
 key = "file_evolution.max_height"
+toml_only = true
 title = "Max height"
 description = "Maximum File-evolution height; min_height–4000."
 category = "history"
@@ -1383,6 +1413,7 @@ maximum = 4000.0
 
 [[setting]]
 key = "file_evolution.min_files_height"
+toml_only = true
 title = "Min files height"
 description = "Minimum space retained for the file browser above a sidebar timeline; 80–2000."
 category = "history"
@@ -1522,6 +1553,7 @@ maximum = 168.0
 
 [[setting]]
 key = "hosting.concurrent_accounts"
+toml_only = true
 title = "Concurrent accounts"
 summary = "Maximum accounts checked for pull requests at once. New requests follow the configured account order."
 description = "Maximum independent uncached PR-account discoveries across windows, integer 1–8. Accounts are dispatched in configured order; workspaces and pages within each account remain sequential. Lowering the limit lets in-flight jobs finish and holds new starts. Affects new work."
@@ -1644,6 +1676,7 @@ kind = "boolean"
 
 [[setting]]
 key = "live.poll_interval_ms"
+toml_only = true
 title = "Poll interval ms"
 description = "Git fallback metadata-scan/retry interval and jj recorded-operation polling interval; integer 250–60000. Native Git events can trigger earlier refresh."
 category = "repositories"
@@ -1657,6 +1690,7 @@ maximum = 60000.0
 
 [[setting]]
 key = "settings.poll_interval_ms"
+toml_only = true
 title = "Poll interval ms"
 description = "Configuration-file polling interval; integer 100–60000. Two stable reads settle editor saves. Independent of live.poll_interval_ms."
 category = "general"

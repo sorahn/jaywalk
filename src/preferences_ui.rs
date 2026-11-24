@@ -604,6 +604,7 @@ impl SettingsPage {
                 .unwrap_or(false)
         });
         let kind = if setting.advanced
+            || setting.toml_only
             || (setting.kind == Kind::Number && value.as_ref().is_some_and(toml::Value::is_table))
         {
             Kind::Complex
@@ -676,6 +677,9 @@ impl SettingsPage {
             }
             Kind::Font => self.font_control(index, disabled, window, cx),
             Kind::Complex => Button::new(("setting-edit", index))
+                .debug_selector(move || {
+                    format!("setting-edit-toml-{}", catalogue::SETTINGS[index].key)
+                })
                 .small()
                 .ghost()
                 .border_1()

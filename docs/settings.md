@@ -87,6 +87,16 @@ row backgrounds. Detailed diff colors are grouped under **Advanced diff colors**
 with **Edit TOML…**; fine color overrides remain supported in TOML. Editing one
 shell seed mode preserves the other, including when the previous value was shared.
 
+Advanced tuning values are omitted from ordinary category browsing. Search by
+key, label or description to find a documented **Edit TOML…** row; Changed from
+defaults also shows configured TOML-only values. They retain their existing keys,
+defaults, validation and live-file-reload behavior. Their scope includes loading
+and polling timing, initial history batching, account-request concurrency, layout
+bounds and startup dimensions, individual bar/control heights, graph lane/badge
+geometry, indent-guide offset and the overview message-height limit. Fonts,
+spacing, row height, panel placement, diff/gutter behavior, history page size,
+file/repository resource limits and theme-generation controls keep their widgets.
+
 Advanced lists/maps remain searchable with **Edit TOML…**. **Keyboard Shortcuts**
 and **Accounts** are separate sidebar destinations below the regular settings,
 in that order, excluded from All/Changed and settings search. Keyboard profile

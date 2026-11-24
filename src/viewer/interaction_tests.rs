@@ -6039,3 +6039,53 @@ fn settings_accent_picker_keeps_system_until_a_color_is_selected(cx: &mut TestAp
     let saved: toml::Value = toml::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
     assert_eq!(saved["ui"]["accent_color"].as_str(), Some("#123456"));
 }
+
+#[gpui_test::test]
+fn settings_toml_only_tuning_uses_documented_search_rows_and_remains_in_changed(
+    cx: &mut TestAppContext,
+) {
+    let fixture = Fixture::new();
+    let args =
+        Arguments::parse_from(["jaywalk", fixture.0.to_str().unwrap(), "--file", "file.txt"]);
+    let (viewer, cx) =
+        setup_arguments_with_settings(&fixture, args, "[ui]\nloading_delay_ms=450\n", cx);
+    let (page, mut popup) = open_settings_test(&viewer, cx, false);
+    let cx = &mut popup;
+    let all = cx.debug_bounds("settings-all").unwrap();
+    cx.simulate_click(all.center(), Default::default());
+    draw(cx);
+    let rows = cx.update(|_, app| page.read(app).test_row_labels());
+    assert!(!rows.iter().any(|key| key == "ui.loading_delay_ms"));
+    assert!(!rows.iter().any(|key| key == "group:reload_tuning"));
+    let search = cx.debug_bounds("settings-search").unwrap();
+    cx.simulate_click(search.center(), Default::default());
+    cx.simulate_input("ui.loading_delay_ms");
+    draw(cx);
+    assert!(
+        cx.debug_bounds("setting-ui.loading_delay_ms").is_none(),
+        "no numeric widget for TOML-only tuning"
+    );
+    assert!(
+        cx.debug_bounds("setting-edit-toml-ui.loading_delay_ms")
+            .is_some()
+    );
+    cx.simulate_click(search.center(), Default::default());
+    cx.simulate_keystrokes("secondary-a");
+    cx.simulate_keystrokes("backspace");
+    draw(cx);
+    let changed = cx.debug_bounds("settings-modified").unwrap();
+    cx.simulate_click(changed.center(), Default::default());
+    draw(cx);
+    assert!(
+        cx.debug_bounds("setting-edit-toml-ui.loading_delay_ms")
+            .is_some()
+    );
+    let path = fixture.0.join("settings.toml");
+    assert_eq!(
+        jaywalk::settings::Config::parse(&std::fs::read_to_string(&path).unwrap())
+            .unwrap()
+            .ui
+            .loading_delay_ms,
+        450
+    );
+}

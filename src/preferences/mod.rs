@@ -98,6 +98,7 @@ impl Snapshot {
                 !s.advanced
                     && s.key != "accounts"
                     && s.key != "keyboard.profile"
+                    && (!s.toml_only || !query.is_empty() || changed)
                     && category.is_none_or(|category| category == s.category)
                     && (!changed || self.modified(s))
             })

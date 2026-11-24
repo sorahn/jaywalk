@@ -37,6 +37,8 @@ Delay before showing loading feedback; 0–5000. 0 shows it immediately; fast op
 
 Range: 0 to 5000.
 
+Editing: TOML only. Search Settings for this key to see its description and Edit TOML action.
+
 ### `welcome.recent_count`
 
 **Recent count** · Welcome
@@ -72,6 +74,8 @@ Default: `500`
 Configuration-file polling interval; integer 100–60000. Two stable reads settle editor saves. Independent of live.poll_interval_ms.
 
 Range: 100 to 60000.
+
+Editing: TOML only. Search Settings for this key to see its description and Edit TOML action.
 
 ## Appearance
 
@@ -467,6 +471,8 @@ Window height; 240–10000. A saved edit resizes open viewers.
 
 Range: 240 to 10000.
 
+Editing: TOML only. Search Settings for this key to see its description and Edit TOML action.
+
 ### `window.width`
 
 **Width** · Window
@@ -476,6 +482,8 @@ Default: `1500`
 Window width; 320–10000. A saved edit resizes open viewers.
 
 Range: 320 to 10000.
+
+Editing: TOML only. Search Settings for this key to see its description and Edit TOML action.
 
 ### `layout.files_visible`
 
@@ -561,6 +569,8 @@ Shared bottom-dock height/reset target; must lie between min_bottom_height and m
 
 Range: layout.min_bottom_height to layout.max_bottom_height.
 
+Editing: TOML only. Search Settings for this key to see its description and Edit TOML action.
+
 ### `layout.max_bottom_height`
 
 **Max bottom height** · Dimensions and spacing
@@ -570,6 +580,8 @@ Default: `700`
 Maximum shared bottom-dock height; min_bottom_height–4000.
 
 Range: layout.min_bottom_height to 4000.
+
+Editing: TOML only. Search Settings for this key to see its description and Edit TOML action.
 
 ### `layout.min_bottom_height`
 
@@ -581,6 +593,8 @@ Minimum shared bottom-dock height; 40–2000.
 
 Range: 40 to 2000.
 
+Editing: TOML only. Search Settings for this key to see its description and Edit TOML action.
+
 ### `panels.files.default_width`
 
 **Default width** · Dimensions and spacing
@@ -590,6 +604,8 @@ Default: `260`
 Sidebar width and separator reset target; must lie between min_width and max_width.
 
 Range: panels.files.min_width to panels.files.max_width.
+
+Editing: TOML only. Search Settings for this key to see its description and Edit TOML action.
 
 ### `panels.files.max_width`
 
@@ -601,6 +617,8 @@ Maximum sidebar width; min_width–8000.
 
 Range: panels.files.min_width to 8000.
 
+Editing: TOML only. Search Settings for this key to see its description and Edit TOML action.
+
 ### `panels.files.min_width`
 
 **Min width** · Dimensions and spacing
@@ -610,6 +628,8 @@ Default: `200`
 Minimum sidebar width; 32–4000. The layout may shrink below this when the window cannot fit all panels.
 
 Range: 32 to 4000.
+
+Editing: TOML only. Search Settings for this key to see its description and Edit TOML action.
 
 ### `panels.history.default_width`
 
@@ -621,6 +641,8 @@ Sidebar width and separator reset target; must lie between min_width and max_wid
 
 Range: panels.history.min_width to panels.history.max_width.
 
+Editing: TOML only. Search Settings for this key to see its description and Edit TOML action.
+
 ### `panels.history.max_width`
 
 **Max width** · Dimensions and spacing
@@ -630,6 +652,8 @@ Default: `700`
 Maximum sidebar width; min_width–8000.
 
 Range: panels.history.min_width to 8000.
+
+Editing: TOML only. Search Settings for this key to see its description and Edit TOML action.
 
 ### `panels.history.min_width`
 
@@ -641,6 +665,8 @@ Minimum sidebar width; 32–4000. The layout may shrink below this when the wind
 
 Range: 32 to 4000.
 
+Editing: TOML only. Search Settings for this key to see its description and Edit TOML action.
+
 ### `ui.comparison_bar_height`
 
 **Comparison bar height** · Dimensions and spacing
@@ -651,6 +677,8 @@ Reserved comparison/evolution toolbar height, including compact back/forward con
 
 Range: 24 to 120.
 
+Editing: TOML only. Search Settings for this key to see its description and Edit TOML action.
+
 ### `ui.footer_control_height`
 
 **Footer control height** · Dimensions and spacing
@@ -660,6 +688,8 @@ Default: `22`
 Footer control height; 16–80.
 
 Range: 16 to 80.
+
+Editing: TOML only. Search Settings for this key to see its description and Edit TOML action.
 
 ### `ui.footer_font_size`
 
@@ -681,6 +711,8 @@ Minimum application footer height; 20–120. Also sets the minimum History/Files
 
 Range: 20 to 120.
 
+Editing: TOML only. Search Settings for this key to see its description and Edit TOML action.
+
 ### `ui.panel_header_height`
 
 **Panel header height** · Dimensions and spacing
@@ -690,6 +722,8 @@ Default: `30`
 Minimum panel-header height; 24–120.
 
 Range: 24 to 120.
+
+Editing: TOML only. Search Settings for this key to see its description and Edit TOML action.
 
 ### `ui.row_height`
 
@@ -740,6 +774,8 @@ Default: `28`
 Minimum review-control height within the single comparison header; 28–120. The header fits the greater of this value, ui.comparison_bar_height, and its font minimum. No separate application-toolbar row.
 
 Range: 28 to 120.
+
+Editing: TOML only. Search Settings for this key to see its description and Edit TOML action.
 
 ## Diff and overview
 
@@ -931,6 +967,8 @@ Minimum width of each Fluid code pane; 32–2000. The initial before/after split
 
 Range: 32 to 2000.
 
+Editing: TOML only. Search Settings for this key to see its description and Edit TOML action.
+
 ### `panels.diff.shared_scrollbar_click`
 
 **Shared scrollbar click** · Fluid gutter
@@ -991,6 +1029,8 @@ Maximum height of the scrollable message area when there are no changed files; 8
 
 Range: 80 to 1200.
 
+Editing: TOML only. Search Settings for this key to see its description and Edit TOML action.
+
 ## History and files
 
 ### `history.initial_batch_size`
@@ -1003,6 +1043,8 @@ First rows published when opening a local repository; 1–50000, clamped to page
 
 Range: 1 to 50000.
 
+Editing: TOML only. Search Settings for this key to see its description and Edit TOML action.
+
 ### `history.lane_spacing`
 
 **Lane spacing** · History
@@ -1012,6 +1054,8 @@ Default: `8`
 Distance between graph lanes; 4–48. The graph column adapts to visible lane sprawl.
 
 Range: 4 to 48.
+
+Editing: TOML only. Search Settings for this key to see its description and Edit TOML action.
 
 ### `history.page_on_scroll`
 
@@ -1040,6 +1084,8 @@ Default: `110`
 Maximum compact reference-badge width; 40–300. Full names remain available in reference details.
 
 Range: 40 to 300.
+
+Editing: TOML only. Search Settings for this key to see its description and Edit TOML action.
 
 ### `history.remotes.default_visible`
 
@@ -1144,6 +1190,8 @@ Default: `-2`
 Horizontal guide offset from ancestor icon centers in pixels; −48–48. Negative moves left.
 
 Range: -48 to 48.
+
+Editing: TOML only. Search Settings for this key to see its description and Edit TOML action.
 
 ### `files.indent_guide_opacity`
 
@@ -1250,6 +1298,8 @@ Change-evolution height/reset target; must lie between its min/max height.
 
 Range: evolution.min_height to evolution.max_height.
 
+Editing: TOML only. Search Settings for this key to see its description and Edit TOML action.
+
 ### `evolution.limit`
 
 **Limit** · Evolution
@@ -1270,6 +1320,8 @@ Maximum Change-evolution height; min_height–4000.
 
 Range: evolution.min_height to 4000.
 
+Editing: TOML only. Search Settings for this key to see its description and Edit TOML action.
+
 ### `evolution.min_height`
 
 **Min height** · Evolution
@@ -1280,6 +1332,8 @@ Minimum Change-evolution height; 100–2000.
 
 Range: 100 to 2000.
 
+Editing: TOML only. Search Settings for this key to see its description and Edit TOML action.
+
 ### `evolution.min_history_height`
 
 **Min history height** · Evolution
@@ -1289,6 +1343,8 @@ Default: `120`
 Minimum space retained for history above a sidebar timeline; 80–2000.
 
 Range: 80 to 2000.
+
+Editing: TOML only. Search Settings for this key to see its description and Edit TOML action.
 
 ### `evolution.row_height`
 
@@ -1326,6 +1382,8 @@ File-evolution height/reset target; must lie between its min/max height.
 
 Range: file_evolution.min_height to file_evolution.max_height.
 
+Editing: TOML only. Search Settings for this key to see its description and Edit TOML action.
+
 ### `file_evolution.max_height`
 
 **Max height** · Evolution
@@ -1335,6 +1393,8 @@ Default: `700`
 Maximum File-evolution height; min_height–4000.
 
 Range: file_evolution.min_height to 4000.
+
+Editing: TOML only. Search Settings for this key to see its description and Edit TOML action.
 
 ### `file_evolution.min_files_height`
 
@@ -1346,6 +1406,8 @@ Minimum space retained for the file browser above a sidebar timeline; 80–2000.
 
 Range: 80 to 2000.
 
+Editing: TOML only. Search Settings for this key to see its description and Edit TOML action.
+
 ### `file_evolution.min_height`
 
 **Min height** · Evolution
@@ -1355,6 +1417,8 @@ Default: `180`
 Minimum File-evolution height; 100–2000.
 
 Range: 100 to 2000.
+
+Editing: TOML only. Search Settings for this key to see its description and Edit TOML action.
 
 ### `file_evolution.visible`
 
@@ -1384,6 +1448,8 @@ Git fallback metadata-scan/retry interval and jj recorded-operation polling inte
 
 Range: 250 to 60000.
 
+Editing: TOML only. Search Settings for this key to see its description and Edit TOML action.
+
 ### `accounts`
 
 **Accounts** · Pull request discovery
@@ -1401,6 +1467,8 @@ Default: `3`
 Maximum independent uncached PR-account discoveries across windows, integer 1–8. Accounts are dispatched in configured order; workspaces and pages within each account remain sequential. Lowering the limit lets in-flight jobs finish and holds new starts. Affects new work.
 
 Range: 1 to 8.
+
+Editing: TOML only. Search Settings for this key to see its description and Edit TOML action.
 
 ### `hosting.history_limit`
 

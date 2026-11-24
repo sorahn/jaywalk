@@ -172,6 +172,9 @@ for example `[editor]` followed by `font_size = 14`. Optional examples are not d
             for note in notes(setting) {
                 writeln!(output, "{note}\n").unwrap();
             }
+            if setting.toml_only {
+                output.push_str("Editing: TOML only. Search Settings for this key to see its description and Edit TOML action.\n\n");
+            }
             if !setting.examples.is_empty() {
                 let name = setting
                     .key
