@@ -1,5 +1,6 @@
 //! Validated settings documents, field-level transactions and searchable metadata.
 pub mod catalogue;
+pub mod groups;
 mod transaction;
 use crate::{
     settings::{Config, DEFAULT_CONFIG, Settings},

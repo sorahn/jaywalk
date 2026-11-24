@@ -34,6 +34,27 @@ tooltip includes the default value. Hover descriptions for key/default/inheritan
 details. Right-click a title to copy its settings key or remove an explicit
 override, including one equal to the default. Runtime toolbar/layout memory is separate.
 
+Categories are subdivided into related topics, such as Colors, Interface text,
+History, Files and Live refresh. Advanced controls are folded beside the ordinary
+settings they refine, rather than collected at the bottom of a category. Folds
+include **Theme generation**,
+**Detailed colors**, **Fine layout controls**, and **History loading and limits**.
+Click their caret to expand them. A collapsed section shows how many of its
+settings differ from defaults. Search reveals matching controls automatically;
+Changed from defaults also ignores folding. Clearing search restores the previous
+browsing position and expansion choices. Update consent and repository-changing
+policies remain visible.
+
+Rows use spacing 2 (8px by default) on each side and size to their content.
+The content headers in Settings and Keyboard Shortcuts use the same outer padding.
+
+Expansion is interface state, saved independently beside the configuration file:
+`config.toml` uses `config.view-state.toml` (custom filenames use the same suffix).
+It survives reopening/restarting and never writes a setting override or grants
+update consent. The interface-state worker coalesces these writes and flushes on
+normal application quit. Settings drafts survive folding; Save/Discard still
+control preference changes.
+
 Settings controls edit a window-local draft. **Save** (Cmd/Ctrl+S) validates and
 writes validated changes, with atomic replacement of each affected file.
 **Discard** restores the latest saved values. Closing Settings or choosing Quit

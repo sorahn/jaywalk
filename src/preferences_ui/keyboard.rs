@@ -1,6 +1,7 @@
 //! Application command remapping. Toolkit action/context rules remain in TOML.
 mod keys;
 use super::*;
+use gpui::component::ElementExt as _;
 use gpui::component::kbd::Kbd;
 use gpui::component::tooltip::{ManagedTooltipExt as _, Tooltip};
 use jaywalk::keybinding_profiles as profiles;
@@ -404,6 +405,7 @@ impl SettingsPage {
         let owner = cx.entity().downgrade();
         let names = self.keyboard.names.clone();
         let profile_button = Button::new("keyboard-profile")
+            .small()
             .dropdown_caret(true)
             .debug_selector(|| "keyboard-profile".into())
             .label(active.clone().unwrap_or_else(|| "Loading profile…".into()))
@@ -424,30 +426,72 @@ impl SettingsPage {
                 menu
             });
         let edit_button = Button::new("keyboard-edit-toml")
-            .label("Edit profile TOML…")
+            .debug_selector(|| "keyboard-edit-toml".into())
+            .small()
+            .border_1()
+            .border_color(border)
+            .label("Edit TOML…")
             .command_hint(CommandId::OpenKeybindings)
             .disabled(active.is_none())
             .on_click(cx.listener(|page, _, window, cx| page.edit_profile(window, cx)));
         let path = self.source.path().display().to_string();
-        let help = div().id("keyboard-help-trigger")
-            .child(Button::new("keyboard-help").ghost().label("?")
-                .accessibility_label("Shortcut syntax and saving"))
-            .managed_tooltip_at(gpui::component::Placement::Left, |window,cx| {
-                let width=(window.viewport_size().width-px(48.)).max(px(80.)).min(px(340.));
-                Tooltip::new("Use GPUI shortcuts: secondary = Cmd on macOS, Ctrl elsewhere. Spaces separate chord steps. Empty fields unbind. Toolkit action/context rules remain in TOML.\n\nValid changes preview live. Save writes them; Discard restores saved settings.")
-                    .w(width).whitespace_normal().build(window,cx)
-            });
+        let pane_bounds = std::rc::Rc::new(std::cell::Cell::new(Bounds::<Pixels>::default()));
+        let help_bounds = std::rc::Rc::new(std::cell::Cell::new(Bounds::<Pixels>::default()));
+        let pane_measure = pane_bounds.clone();
+        let help_measure = help_bounds.clone();
+        const HELP: &str = concat!(
+            "Use GPUI shortcuts: secondary = Cmd on macOS, Ctrl elsewhere. ",
+            "Spaces separate chord steps. Empty fields unbind. ",
+            "Toolkit action/context rules remain in TOML.\n\n",
+            "Valid changes preview live. Save writes them; Discard restores saved settings.",
+        );
+        let help = div()
+            .relative()
+            .id("keyboard-help-trigger")
+            .debug_selector(|| "keyboard-help-trigger".into())
+            .on_prepaint(move |bounds, _, _| help_measure.set(bounds))
+            .child(
+                Button::new("keyboard-help")
+                    .small()
+                    .ghost()
+                    .label("?")
+                    .accessibility_label("Shortcut syntax and saving"),
+            )
+            .managed_tooltip_at(
+                gpui::component::Placement::Bottom,
+                move |window: &mut Window, cx: &mut App| {
+                    let pane = pane_bounds.get();
+                    let trigger = help_bounds.get();
+                    let inset = crate::spacing::space(2., cx);
+                    // Bottom tooltips are centered on their trigger. Bound the
+                    // card by the measured content edge, including small fonts.
+                    let width = px(340.)
+                        .min(((trigger.center().x - pane.left() - inset) * 2.).max(px(1.)))
+                        .min((pane.size.width - inset * 2.).max(px(1.)));
+                    Tooltip::element(|_, _| {
+                        div()
+                            .debug_selector(|| "keyboard-help-content".into())
+                            .whitespace_normal()
+                            .child(HELP)
+                    })
+                    .w(width)
+                    .whitespace_normal()
+                    .build(window, cx)
+                },
+            );
         div()
             .debug_selector(|| "settings-header".into())
+            .relative()
+            .on_prepaint(move |bounds, _, _| pane_measure.set(bounds))
             .v_flex()
             .gap(crate::spacing::edge(cx))
-            .p(crate::spacing::space(3., cx))
+            .p(crate::spacing::space(2., cx))
             .bg(background)
             .text_color(foreground)
             .border_b_1()
             .border_color(border)
             .child(
-                div()
+                super::header_row(window, cx)
                     .gap(crate::spacing::edge(cx))
                     .when(compact, |row| row.v_flex())
                     .when(!compact, |row| {
@@ -455,23 +499,36 @@ impl SettingsPage {
                     })
                     .child(
                         div()
-                            .id("keyboard-heading")
-                            .text_lg()
-                            .font_medium()
-                            .child("Keyboard Shortcuts")
-                            .tooltip(move |window, cx| {
-                                gpui::component::tooltip::Tooltip::new(path.clone())
-                                    .build(window, cx)
-                            }),
+                            .h_flex()
+                            .items_center()
+                            .min_w_0()
+                            .gap(crate::spacing::interactive(cx))
+                            .when(!compact, |row| row.flex_1())
+                            .child(
+                                div()
+                                    .id("keyboard-heading")
+                                    .debug_selector(|| "keyboard-heading".into())
+                                    .min_w_0()
+                                    .truncate()
+                                    .text_lg()
+                                    .font_medium()
+                                    .child("Keyboard Shortcuts")
+                                    .tooltip(move |window, cx| {
+                                        gpui::component::tooltip::Tooltip::new(path.clone())
+                                            .build(window, cx)
+                                    }),
+                            )
+                            .child(help),
                     )
                     .child(
                         div()
                             .h_flex()
                             .items_center()
+                            .justify_end()
+                            .when(compact, |row| row.w_full())
                             .gap(crate::spacing::edge(cx))
                             .child(profile_button)
-                            .child(edit_button)
-                            .child(help),
+                            .child(edit_button),
                     ),
             )
             .child(
