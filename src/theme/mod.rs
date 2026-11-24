@@ -1,5 +1,6 @@
 //! Immutable resolved shell colors. Parsing and generation happen at settings
 //! resolution, not in paint; renderers consume semantic roles only.
+pub mod assets;
 pub mod color;
 pub mod legacy;
 pub mod roles;
