@@ -5874,6 +5874,7 @@ fn keyboard_header_actions_align_and_help_stays_below_in_the_content_pane(cx: &m
         draw(cx);
     }
     let fixture = Fixture::new();
+    crate::account_ui::tests::setup(cx);
     let (viewer, cx) = setup(&fixture, cx);
     let (_, mut popup) = open_settings_test(&viewer, cx, false);
     let cx = &mut popup;
