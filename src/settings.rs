@@ -115,6 +115,8 @@ pub struct LiveSettings {
 #[derive(Clone, Debug, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct Config {
+    #[serde(skip)]
+    diff_color_overrides: crate::theme::legacy::DiffColorOverrides,
     pub updates: crate::setup::UpdateSettings,
     pub accounts: Vec<crate::accounts::preferences::AccountConfig>,
     pub hosting: crate::hosting::review::Options,
@@ -551,6 +553,11 @@ pub(crate) fn merge_defaults(base: &mut toml::Value, overrides: toml::Value) {
 }
 
 impl Config {
+    /// Sparse legacy color intents; omitted modes inherit the selected palette.
+    pub fn diff_color_overrides(&self) -> crate::theme::legacy::DiffColorOverrides {
+        self.diff_color_overrides
+    }
+
     pub fn file_indent_width(&self) -> f32 {
         self.files.indent_width.unwrap_or(self.ui.spacing.edge_px())
     }
@@ -596,10 +603,19 @@ impl Config {
         {
             defaults["ui"]["accent_color"] = defaults["ui"]["accent_color_fallback"].clone();
         }
+        let diff_color_overrides = overrides
+            .get("diff")
+            .and_then(|diff| diff.get("colors"))
+            .cloned()
+            .map(toml::Value::try_into)
+            .transpose()
+            .map_err(|error| format!("Invalid diff color override: {error}"))?
+            .unwrap_or_default();
         merge_defaults(&mut defaults, overrides);
-        let settings: Self = defaults
+        let mut settings: Self = defaults
             .try_into()
             .map_err(|error| format!("Invalid setting: {error}"))?;
+        settings.diff_color_overrides = diff_color_overrides;
         settings.validate()?;
         Ok(settings)
     }
