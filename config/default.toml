@@ -52,6 +52,8 @@ interactive = 1
 overrides = {}
 
 [theme.shell_auto]
+# Source: custom seeds, or the viewer background (code_theme).
+source = "custom"
 enabled = true
 algorithm = "tonal-v1"
 # Seeds are inputs to the mode-specific recipe, not exact final backgrounds.

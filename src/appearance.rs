@@ -1,5 +1,7 @@
 //! Live application appearance and diff palettes, using the toolkit’s theme roles.
-use gpui::component::highlighter::{HighlightTheme, ThemeStyle};
+mod code;
+use code::{project_code, syntax_theme};
+use gpui::component::highlighter::HighlightTheme;
 use gpui::component::{Icon, Theme, ThemeMode};
 use gpui::prelude::FluentBuilder;
 use gpui::{App, Global, Hsla, SharedString, Styled, Window, WindowAppearance, px, rgb};
@@ -16,6 +18,7 @@ struct AppAppearance {
     diff: DiffColorSettings,
     mode: Option<ThemeMode>,
     themes: Arc<ResolvedThemes>,
+    code: [Arc<HighlightTheme>; 2],
 }
 impl Global for AppAppearance {}
 
@@ -26,6 +29,7 @@ pub(crate) fn init(settings: &Settings, cx: &mut App) {
         diff: settings.diff.colors,
         mode: None,
         themes: settings.resolved_theme().clone(),
+        code: [syntax_theme(false), syntax_theme(true)],
     });
     apply(settings, cx);
     crate::platform::accent::observe(cx);
@@ -96,9 +100,6 @@ fn refresh(system: Option<WindowAppearance>, force: bool, cx: &mut App) {
         Theme::change(mode, None, cx);
     }
     Theme::update(cx, |theme| {
-        if changed {
-            theme.highlight_theme = syntax_theme(dark);
-        }
         project_shell(theme, state.themes.shell(dark));
         let system = matches!(
             state.ui.accent_color,
@@ -112,6 +113,11 @@ fn refresh(system: Option<WindowAppearance>, force: bool, cx: &mut App) {
                 .ui
                 .accent_color
                 .resolve(dark, system, state.ui.accent_color_fallback),
+        );
+        project_code(
+            theme,
+            &state.code[usize::from(dark)],
+            state.themes.shell(dark),
         );
         theme.popup_outline = Some(if state.ui.accent_floating_outlines {
             theme.primary
@@ -180,9 +186,24 @@ pub(crate) fn color(role: Role, cx: &App) -> Hsla {
     }
 }
 
+/// Surface-relative hover fill, with an explicit control override taking priority.
+pub(crate) fn surface_hover(surface: Surface, cx: &App) -> Hsla {
+    if let Some(state) = cx.try_global::<AppAppearance>() {
+        let resolved = state
+            .themes
+            .shell(Theme::global(cx).is_dark())
+            .get(Role::ControlHover);
+        if resolved.origin == jaywalk::theme::Origin::Override {
+            return gpui::rgba(resolved.color.0).into();
+        }
+    }
+    self::surface(surface, Part::Background, cx)
+        .blend(self::surface(surface, Part::Foreground, cx).opacity(0.08))
+}
+
 fn project_shell(theme: &mut Theme, shell: &jaywalk::theme::Shell) {
     let c = |s, p| -> Hsla { gpui::rgba(shell.surface(s, p).0).into() };
-    theme.background = c(Surface::Viewer, Part::Background);
+    theme.background = c(Surface::Window, Part::Background);
     theme.foreground = c(Surface::Window, Part::Foreground);
     theme.muted_foreground = c(Surface::Window, Part::MutedForeground);
     theme.border = c(Surface::Window, Part::Border);
@@ -210,39 +231,6 @@ fn project_shell(theme: &mut Theme, shell: &jaywalk::theme::Shell) {
     theme.danger = role(Role::Error);
     theme.info = role(Role::Info);
     theme.input = theme.popover;
-    let mut highlight = (*theme.highlight_theme).clone();
-    highlight.style.editor_background = Some(c(Surface::Viewer, Part::Background));
-    highlight.style.editor_foreground = Some(c(Surface::Viewer, Part::Foreground));
-    highlight.style.editor_line_number = Some(c(Surface::Viewer, Part::MutedForeground));
-    theme.highlight_theme = Arc::new(highlight);
-}
-
-fn syntax_theme(dark: bool) -> std::sync::Arc<HighlightTheme> {
-    let mut highlight = if dark {
-        (*HighlightTheme::default_dark()).clone()
-    } else {
-        (*HighlightTheme::default_light()).clone()
-    };
-    highlight.name = if dark {
-        "Jaywalk VS Code dark"
-    } else {
-        "Jaywalk VS Code light"
-    }
-    .into();
-    let token = |hex: &str| -> Option<ThemeStyle> {
-        Some(
-            serde_json::from_value(serde_json::json!({"color":hex}))
-                .expect("built-in syntax color is valid"),
-        )
-    };
-    highlight.style.syntax.comment = token(if dark { "#6a9955" } else { "#008000" });
-    highlight.style.syntax.comment_doc = highlight.style.syntax.comment;
-    highlight.style.syntax.keyword = token(if dark { "#569cd6" } else { "#0000ff" });
-    highlight.style.syntax.string = token(if dark { "#ce9178" } else { "#a31515" });
-    highlight.style.syntax.number = token(if dark { "#b5cea8" } else { "#098658" });
-    highlight.style.syntax.function = token(if dark { "#dcdcaa" } else { "#795e26" });
-    highlight.style.syntax.type_ = token(if dark { "#4ec9b0" } else { "#267f99" });
-    std::sync::Arc::new(highlight)
 }
 
 pub(crate) fn diff_colors(cx: &App) -> gpui::component::diff::DiffColors {
@@ -372,7 +360,7 @@ mod tests {
 
 #[cfg(test)]
 mod mode_tests {
-    use super::{project_shell, syntax_theme};
+    use super::{project_code, project_shell, syntax_theme};
     use gpui::component::Theme;
     use gpui::{Hsla, rgb};
     use jaywalk::settings::Settings;
@@ -386,6 +374,11 @@ mod mode_tests {
             theme.highlight_theme = syntax_theme(is_dark);
             let string = theme.highlight_theme.style.syntax.string;
             project_shell(&mut theme, settings.resolved_theme().shell(is_dark));
+            project_code(
+                &mut theme,
+                &syntax_theme(is_dark),
+                settings.resolved_theme().shell(is_dark),
+            );
             assert_eq!(
                 theme.highlight_theme.style.editor_background,
                 Some(Hsla::from(rgb(background)))

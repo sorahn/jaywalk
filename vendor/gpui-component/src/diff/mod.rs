@@ -263,6 +263,7 @@ impl DiffColors {
 /// commands remain owned by the application.
 #[derive(IntoElement)]
 pub struct Diff {
+    editor_colors: Option<crate::theme::EditorColors>,
     colors: Option<DiffColors>,
     state: Entity<DiffState>,
     style: StyleRefinement,
@@ -301,6 +302,11 @@ where
 }
 
 impl Diff {
+    /// Code-surface colors for this view, independent of shell controls and diff tints.
+    pub fn editor_colors(mut self, colors: crate::theme::EditorColors) -> Self {
+        self.editor_colors = Some(colors);
+        self
+    }
     pub fn display_options(mut self, options: DiffDisplayOptions) -> Self {
         self.display_options = options;
         self
@@ -322,6 +328,7 @@ impl Diff {
             change_indicator: DiffChangeIndicator::default(),
             change_background: true,
             colors: None,
+            editor_colors: None,
             soft_wrap: false,
             soft_wrap_sides: None,
             split_ratio: 0.5,
@@ -741,7 +748,11 @@ fn render_diff(
         let width = state.content_width().max(viewport_width);
         (width, width, width)
     };
+    let editor_colors = props
+        .editor_colors
+        .unwrap_or_else(|| cx.theme().editor_colors());
     let code = Rc::new(CodePresentation {
+        editor_colors,
         files: state.files().to_vec(),
         presentations: state.presentations().to_vec(),
         mode,
@@ -1012,11 +1023,11 @@ fn render_diff(
         .size_full()
         .min_w_0()
         .min_h_0()
-        .bg(cx.theme().background)
-        .text_color(cx.theme().foreground)
+        .bg(editor_colors.background)
+        .text_color(editor_colors.foreground)
         .text_sm()
         .border_1()
-        .border_color(cx.theme().border)
+        .border_color(editor_colors.border)
         .child(body)
         .refine_style(&props.style)
         .into_any_element()
@@ -1032,6 +1043,7 @@ fn body_focused(state: &DiffState, window: &Window, cx: &mut Context<DiffState>)
 }
 
 struct CodePresentation {
+    editor_colors: crate::theme::EditorColors,
     colors: DiffColors,
     files: Vec<DiffFile>,
     presentations: Vec<Option<Arc<FilePresentation>>>,
@@ -1252,15 +1264,15 @@ fn render_hunk_separator(
     file: usize,
     hunk: usize,
     code: &CodePresentation,
-    cx: &App,
+    _cx: &App,
 ) -> AnyElement {
     let hunks = code.files[file].hunks();
     let row = h_flex()
         .w_full()
         .px_3()
-        .bg(cx.theme().muted.opacity(0.35))
+        .bg(code.editor_colors.foreground.opacity(0.04))
         .text_xs()
-        .text_color(cx.theme().muted_foreground);
+        .text_color(code.editor_colors.muted_foreground);
     match code.hunk_separator {
         DiffHunkSeparator::Metadata => row
             .h_6()
@@ -1283,7 +1295,7 @@ fn render_fold(
     file: usize,
     pairs: std::ops::Range<usize>,
     code: &CodePresentation,
-    cx: &App,
+    _cx: &App,
 ) -> AnyElement {
     let document = &code.files[file];
     // A fold bordering the hunk start has no source above it, and one
@@ -1303,7 +1315,7 @@ fn render_fold(
             .ghost()
             .xsmall()
             .w_auto()
-            .text_color(cx.theme().muted_foreground)
+            .text_color(code.editor_colors.muted_foreground)
             .on_click(move |_, _, cx| {
                 state.update(cx, |state, cx| {
                     state.expand_fold(file, pairs.clone(), expansion, cx)
@@ -1315,7 +1327,7 @@ fn render_fold(
         .h_6()
         .px_2()
         .gap_1()
-        .bg(cx.theme().muted.opacity(0.35))
+        .bg(code.editor_colors.foreground.opacity(0.04))
         .when(partial && pairs.start > hunk.start, |this| {
             this.child(
                 expand(("expand-down", pairs.start), FoldExpansion::Down)
@@ -1374,7 +1386,7 @@ fn render_conflict(
         .px_3()
         .gap_2()
         .text_xs()
-        .text_color(cx.theme().muted_foreground)
+        .text_color(code.editor_colors.muted_foreground)
         .bg(conflict_tint(Some(part), &code.colors).opacity(0.25));
     if let Some(resolution) = resolution {
         let label = match resolution {
@@ -1383,7 +1395,7 @@ fn render_conflict(
             _ => t!("Diff.AcceptedBoth"),
         };
         return row
-            .bg(cx.theme().muted.opacity(0.35))
+            .bg(code.editor_colors.foreground.opacity(0.04))
             .child(label.to_string())
             .child(choose(
                 "undo-resolution",
@@ -1676,6 +1688,7 @@ fn render_gutter(
         .flex_shrink_0()
         .w(code.gutter_width)
         .pr_1()
+        .when_some(code.editor_colors.gutter_background, |this, bg| this.bg(bg))
         .when(hover, |this| {
             this.hover(|this| this.bg(cx.theme().list_hover))
         })
@@ -1696,8 +1709,8 @@ fn render_gutter(
                     .items_center()
                     .justify_end()
                     .text_size(code.font_size)
-                    .text_color(cx.theme().muted_foreground)
-                    .hover(|this| this.text_color(cx.theme().foreground))
+                    .text_color(code.editor_colors.line_number)
+                    .hover(|this| this.text_color(code.editor_colors.foreground))
                     .role(gpui::accesskit::Role::Button)
                     .aria_label(
                         t!(
@@ -1759,10 +1772,10 @@ fn render_cell(
         .min_w_0()
         .flex_shrink_0()
         .when(side == DiffSide::Original, |this| {
-            this.border_r_1().border_color(cx.theme().border)
+            this.border_r_1().border_color(code.editor_colors.border)
         })
         .when(ix.is_none(), |this| {
-            this.bg(cx.theme().muted.opacity(0.3))
+            this.bg(code.editor_colors.foreground.opacity(0.03))
                 .child(div().h(code.row_height))
         });
     let Some(ix) = ix else {
@@ -1919,7 +1932,7 @@ fn line_highlights(
         highlights.push((
             0..line.display().len(),
             HighlightStyle {
-                background_color: Some(cx.theme().selection),
+                background_color: Some(code.editor_colors.selection),
                 ..Default::default()
             },
         ));
@@ -2048,6 +2061,7 @@ fn code_line(
     };
     // A block container gives wrapped text a definite width to break at.
     let text = div()
+        .text_color(code.editor_colors.foreground)
         .map(|this| {
             if soft_wrap {
                 this.w_full()
@@ -2066,6 +2080,7 @@ fn code_line(
                 highlights.clone(),
                 code.selection.clone(),
                 code.geometry.clone(),
+                code.editor_colors,
                 code.display_options,
                 code.font_size,
                 code.row_height,
@@ -2083,7 +2098,7 @@ fn code_line(
             .text_color(if changed {
                 status
             } else {
-                cx.theme().muted_foreground
+                code.editor_colors.muted_foreground
             })
             .child(match (changed && conflict_part.is_none(), side) {
                 (false, _) => " ",
@@ -2172,9 +2187,9 @@ fn code_line(
         .when_some(decoration, |this, background| {
             this.child(div().absolute().inset_0().bg(background))
         })
-        .when(selected, |this| this.bg(cx.theme().selection))
+        .when(selected, |this| this.bg(code.editor_colors.selection))
         .when(hover_line && !selected, |this| {
-            this.hover(|this| this.bg(cx.theme().list_hover))
+            this.hover(|this| this.bg(code.editor_colors.foreground.opacity(0.08)))
         })
         .when_some(code.on_line_hover.clone(), |this, handler| {
             let position = position.clone();
@@ -2279,7 +2294,7 @@ fn line_extras(
                 .h_6()
                 .px_3()
                 .text_xs()
-                .text_color(cx.theme().muted_foreground)
+                .text_color(code.editor_colors.muted_foreground)
                 .child(label)
                 .into_any_element(),
         );

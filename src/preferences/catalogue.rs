@@ -65,6 +65,8 @@ pub struct Setting {
     pub toml_only: bool,
     #[serde(default)]
     pub choices: Vec<String>,
+    #[serde(default)]
+    pub choice_labels: std::collections::BTreeMap<String, String>,
     /// Valid TOML literals for inherited optional values; never active defaults.
     #[serde(default)]
     pub examples: Vec<String>,
@@ -153,6 +155,13 @@ pub fn setting(key: &str) -> Option<&'static Setting> {
     SETTINGS.iter().find(|setting| setting.key == key)
 }
 impl Setting {
+    pub fn choice_label(&self, value: &str) -> String {
+        self.choice_labels
+            .get(value)
+            .cloned()
+            .unwrap_or_else(|| value.replace('_', " "))
+    }
+
     pub fn stepped(
         &self,
         text: &str,

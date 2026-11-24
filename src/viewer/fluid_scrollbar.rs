@@ -43,6 +43,7 @@ pub(super) fn paint_shared_scrollbar(
     }
     let opacity = state.settings.panels.diff.shared_scrollbar_opacity;
     let color = gpui::component::Theme::global(cx)
+        .editor_colors()
         .foreground
         .opacity((opacity * if hovered || active { 2. } else { 1. }).min(1.));
     // The map is only paint: it does not add hit targets, hover UI or snapping.
@@ -99,8 +100,14 @@ pub(super) fn paint_shared_scrollbar(
             let middle = clip.top() + px((track.thumb.start + track.thumb.end) / 2.);
             let boost = if hovered || active { 2. } else { 1. };
             let theme = gpui::component::Theme::global(cx);
-            let ridge = theme.foreground.opacity((opacity * boost * 2.).min(1.));
-            let shadow = theme.background.opacity((opacity * boost * 1.5).min(1.));
+            let ridge = theme
+                .editor_colors()
+                .foreground
+                .opacity((opacity * boost * 2.).min(1.));
+            let shadow = theme
+                .editor_colors()
+                .background
+                .opacity((opacity * boost * 1.5).min(1.));
             for offset in [-3., 0., 3.] {
                 let y = middle + px(offset);
                 window.paint_quad(fill(Bounds::new(point(x, y), size(width, px(1.))), ridge));

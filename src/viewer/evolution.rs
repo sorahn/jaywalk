@@ -778,14 +778,18 @@ impl Viewer {
             .flex_shrink_0()
             .overflow_hidden()
             .border_b_1()
-            .border_color(gpui::component::Theme::global(cx).border)
+            .border_color(crate::appearance::surface(
+                jaywalk::theme::Surface::ViewerToolbar,
+                jaywalk::theme::Part::Border,
+                cx,
+            ))
             .bg(crate::appearance::surface(
-                jaywalk::theme::Surface::Header,
+                jaywalk::theme::Surface::ViewerToolbar,
                 jaywalk::theme::Part::Background,
                 cx,
             ))
             .text_color(crate::appearance::surface(
-                jaywalk::theme::Surface::Header,
+                jaywalk::theme::Surface::ViewerToolbar,
                 jaywalk::theme::Part::Foreground,
                 cx,
             ))

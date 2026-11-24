@@ -436,6 +436,12 @@ impl StatusColors {
 #[derive(Debug, Default, Clone, PartialEq, Eq, Hash, JsonSchema, Serialize, Deserialize)]
 #[non_exhaustive]
 pub struct HighlightThemeStyle {
+    #[serde(rename = "editor.border")]
+    pub editor_border: Option<Hsla>,
+    #[serde(rename = "editor.selection.background")]
+    pub editor_selection: Option<Hsla>,
+    #[serde(rename = "editor.caret")]
+    pub editor_caret: Option<Hsla>,
     pub editor_background: Option<gpui::Hsla>,
     pub editor_foreground: Option<gpui::Hsla>,
     pub editor_active_line: Option<gpui::Hsla>,

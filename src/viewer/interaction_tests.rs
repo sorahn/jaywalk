@@ -6382,3 +6382,69 @@ fn settings_application_picker_stages_a_native_selection_and_can_restore_system_
             .is_none()
     );
 }
+
+#[gpui_test::test]
+fn settings_shell_source_previews_discards_and_saves_without_rewriting_custom_seeds(
+    cx: &mut TestAppContext,
+) {
+    use jaywalk::theme::{Part, Source, Surface};
+    let fixture = Fixture::new();
+    let args =
+        Arguments::parse_from(["jaywalk", fixture.0.to_str().unwrap(), "--file", "file.txt"]);
+    let input = r##"[ui]
+appearance="dark"
+[theme.shell_auto]
+seed={light="#575757",dark="#153049"}
+[theme.overrides]
+"editor.background"="#1d2021"
+"editor.foreground"="#ebdbb2"
+"##;
+    let (viewer, main) = setup_arguments_with_settings(&fixture, args, input, cx);
+    let identity = main.update(|_, app| viewer.read(app).code().unwrap().before.entity_id());
+    let original =
+        main.update(|_, app| crate::appearance::surface(Surface::History, Part::Background, app));
+    let path = fixture.0.join("settings.toml");
+    let saved = std::fs::read_to_string(&path).unwrap();
+    let seed = Settings::parse(&saved).unwrap().theme.shell_auto.seed;
+    let (page, mut popup) = open_settings_test(&viewer, main, false);
+    let cx = &mut popup;
+    search_setting(cx, "theme.shell_auto.source");
+    let select = |cx: &mut VisualTestContext| {
+        let field = cx.debug_bounds("setting-theme.shell_auto.source").unwrap();
+        cx.simulate_click(field.center(), Default::default());
+        cx.simulate_keystrokes("down down enter");
+        draw(cx);
+    };
+    select(cx);
+    assert!(cx.update(|_, app| page.read(app).has_changes()));
+    assert_eq!(
+        cx.update(|_, app| viewer.read(app).settings.theme.shell_auto.source),
+        Source::CodeTheme
+    );
+    assert_ne!(
+        cx.update(|_, app| crate::appearance::surface(Surface::History, Part::Background, app)),
+        original
+    );
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), saved);
+    let discard = cx.debug_bounds("settings-discard").unwrap();
+    cx.simulate_click(discard.center(), Default::default());
+    draw(cx);
+    assert_eq!(
+        cx.update(|_, app| crate::appearance::surface(Surface::History, Part::Background, app)),
+        original
+    );
+    assert_eq!(
+        cx.update(|_, app| viewer.read(app).settings.theme.shell_auto.source),
+        Source::Custom
+    );
+    select(cx);
+    save_settings(cx);
+    let actual = Settings::parse(&std::fs::read_to_string(path).unwrap()).unwrap();
+    assert_eq!(actual.theme.shell_auto.source, Source::CodeTheme);
+    assert_eq!(actual.theme.shell_auto.seed, seed);
+    assert!(!actual.updates.automatic_checks);
+    assert_eq!(
+        cx.update(|_, app| viewer.read(app).code().unwrap().before.entity_id()),
+        identity
+    );
+}

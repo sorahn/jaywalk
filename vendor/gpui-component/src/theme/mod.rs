@@ -33,6 +33,7 @@ impl HostSpacing {
 }
 
 mod color;
+mod editor_colors;
 mod mono_font;
 mod motion;
 mod registry;
@@ -41,6 +42,7 @@ mod system_font;
 mod theme_color;
 
 pub use color::*;
+pub use editor_colors::EditorColors;
 pub use motion::*;
 pub use registry::*;
 pub use schema::*;

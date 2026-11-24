@@ -173,3 +173,22 @@ previewed and slider/hex values to alpha 1 before emission. The component facade
 hides the alpha slider in that mode; existing alpha-aware consumers keep their
 original defaults. Jaywalk retains each picker beside its hex input and stages
 only committed selections through the shared Save/Discard draft.
+
+## code-surface color ownership
+
+The theme adapter exposes a small `theme::EditorColors` snapshot, resolved from
+highlight-theme editor colors with toolkit fallbacks. HighlightThemeStyle adds
+optional `editor.selection.background`, `editor.caret` and `editor.border` keys
+(in the native and WASM schemas). This is a color boundary, not a theme importer.
+Code Inputs use this palette; ordinary Inputs retain shell colors. The existing
+highlighter resolver and Base editor engine remain unchanged.
+
+`Diff::editor_colors` optionally supplies that snapshot per view. Code text,
+line numbers, selections (including source-range overlays), invisible markers,
+separators and gutter backgrounds consume it without changing shell controls,
+syntax parsing, source mappings or viewport ownership. Omitted snapshots resolve
+from the active toolkit theme. Diff tints remain in `DiffColors`; their existing
+opacity semantics are unchanged pending the independent diff-theme work.
+
+Changes are isolated in `theme/editor_colors.rs`, `theme/mod.rs`, the two
+highlighter schemas, `input/input.rs`, `diff/mod.rs` and `diff/selection.rs`.
