@@ -180,7 +180,15 @@ impl ColorPicker {
                         tab_state.update(cx, |state, cx| state.set_active_tab(*ix, cx));
                     })
                     .child(Tab::new().flex_1().label(t!("ColorPicker.Palette")))
-                    .child(Tab::new().flex_1().label(t!("ColorPicker.HSLA"))),
+                    .child(
+                        Tab::new()
+                            .flex_1()
+                            .label(if self.state.read(cx).allows_alpha() {
+                                t!("ColorPicker.HSLA")
+                            } else {
+                                "HSL".into()
+                            }),
+                    ),
             )
             .child(match active_tab {
                 0 => self.render_palette_panel(cx).into_any_element(),
@@ -382,40 +390,46 @@ impl ColorPicker {
                             .child(format!("{:.0}", slider_color.l * 100.)),
                     ),
             )
-            .child(
-                h_flex()
-                    .gap_2()
-                    .items_center()
-                    .child(
-                        div()
-                            .min_w_16()
-                            .text_xs()
-                            .text_color(label_color)
-                            .child(t!("ColorPicker.Alpha")),
-                    )
-                    .child(
-                        div()
-                            .relative()
-                            .flex()
-                            .items_center()
-                            .flex_1()
-                            .h_8()
-                            .child(self.render_slider_track_gradient(alpha_start, alpha_end, cx))
-                            .child(
-                                Slider::new(sliders.alpha())
-                                    .flex_1()
-                                    .bg(cx.theme().transparent),
-                            ),
-                    )
-                    .child(
-                        div()
-                            .w_10()
-                            .text_xs()
-                            .text_color(label_color)
-                            .text_align(TextAlign::Right)
-                            .child(format!("{:.0}", slider_color.a * 100.)),
-                    ),
-            )
+            .when(self.state.read(cx).allows_alpha(), |panel| {
+                panel.child(
+                    h_flex()
+                        .gap_2()
+                        .items_center()
+                        .child(
+                            div()
+                                .min_w_16()
+                                .text_xs()
+                                .text_color(label_color)
+                                .child(t!("ColorPicker.Alpha")),
+                        )
+                        .child(
+                            div()
+                                .relative()
+                                .flex()
+                                .items_center()
+                                .flex_1()
+                                .h_8()
+                                .child(self.render_slider_track_gradient(
+                                    alpha_start,
+                                    alpha_end,
+                                    cx,
+                                ))
+                                .child(
+                                    Slider::new(sliders.alpha())
+                                        .flex_1()
+                                        .bg(cx.theme().transparent),
+                                ),
+                        )
+                        .child(
+                            div()
+                                .w_10()
+                                .text_xs()
+                                .text_color(label_color)
+                                .text_align(TextAlign::Right)
+                                .child(format!("{:.0}", slider_color.a * 100.)),
+                        ),
+                )
+            })
     }
 
     fn render_slider_track(&self, colors: Vec<Hsla>, _: &App) -> impl IntoElement {
@@ -469,12 +483,7 @@ impl Styled for ColorPicker {
 impl RenderOnce for ColorPicker {
     fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         let state = self.state.read(cx);
-        let display_title: SharedString = if let Some(value) = state.value() {
-            value.to_hex()
-        } else {
-            "".to_string()
-        }
-        .into();
+        let display_title: SharedString = state.hex_value().unwrap_or_default().into();
 
         let open = state.is_open();
         let value = state.value();

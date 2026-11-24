@@ -5918,3 +5918,124 @@ fn keyboard_header_actions_align_and_help_stays_below_in_the_content_pane(cx: &m
     draw(cx);
     check_help(cx);
 }
+
+#[gpui_test::test]
+fn settings_color_picker_previews_rgb_preserves_the_other_mode_and_discards_without_writes(
+    cx: &mut TestAppContext,
+) {
+    let fixture = Fixture::new();
+    let (viewer, cx) = setup(&fixture, cx);
+    let (page, mut popup) = open_settings_test(&viewer, cx, false);
+    let cx = &mut popup;
+    let key = "diff.colors.added_background";
+    let search = cx.debug_bounds("settings-search").unwrap();
+    cx.simulate_click(search.center(), Default::default());
+    cx.simulate_input(key);
+    draw(cx);
+    let path = fixture.0.join("settings.toml");
+    let before = std::fs::read_to_string(&path).unwrap();
+    let dark = cx.update(|_, app| gpui::component::Theme::global(app).is_dark());
+    let mode = if dark { "dark" } else { "light" };
+    let other = if dark { "light" } else { "dark" };
+    let picker = cx.update(|_, app| page.read(app).test_color_picker(key));
+    let trigger = cx
+        .debug_bounds("setting-swatch-diff.colors.added_background")
+        .unwrap();
+    cx.simulate_click(trigger.center(), Default::default());
+    draw(cx);
+    cx.update(|_, app| {
+        assert!(picker.read(app).is_open());
+        assert!(!picker.read(app).allows_alpha());
+    });
+    cx.simulate_keystrokes("escape");
+    draw(cx);
+    cx.update(|_, app| assert!(!picker.read(app).is_open()));
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), before);
+    cx.update(|window, app| {
+        picker.update(app, |state, cx| {
+            assert!(state.preview_hex("#12345680", window, cx));
+            assert_eq!(state.preview().unwrap().a, 1.);
+        });
+    });
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), before);
+    cx.update(|window, app| {
+        picker.update(app, |state, cx| {
+            state.select_color(gpui::rgb(0x123456).into(), window, cx)
+        })
+    });
+    draw(cx);
+    let settings = cx.update(|_, app| viewer.read(app).settings.clone());
+    assert_eq!(
+        settings.diff.colors.added_background.resolve(dark).value(),
+        0x123456
+    );
+    let defaults = Settings::default();
+    assert_eq!(
+        settings.diff.colors.added_background.resolve(!dark),
+        defaults.diff.colors.added_background.resolve(!dark)
+    );
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), before);
+    let discard = cx.debug_bounds("settings-discard").unwrap();
+    cx.simulate_click(discard.center(), Default::default());
+    draw(cx);
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), before);
+    cx.update(|_, app| {
+        assert_eq!(
+            viewer.read(app).settings.diff.colors.added_background,
+            defaults.diff.colors.added_background
+        )
+    });
+    // Picker hex entry with alpha is normalized to RGB before reaching settings.
+    cx.update(|window, app| {
+        picker.update(app, |state, cx| {
+            state.commit_hex("#65432180", window, cx).unwrap();
+        })
+    });
+    draw(cx);
+    save_settings(cx);
+    let saved: toml::Value = toml::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+    assert_eq!(
+        saved["diff"]["colors"]["added_background"][mode].as_str(),
+        Some("#654321")
+    );
+    let original: toml::Value = toml::from_str(jaywalk::settings::DEFAULT_CONFIG).unwrap();
+    assert_eq!(
+        saved["diff"]["colors"]["added_background"][other],
+        original["diff"]["colors"]["added_background"][other]
+    );
+}
+
+#[gpui_test::test]
+fn settings_accent_picker_keeps_system_until_a_color_is_selected(cx: &mut TestAppContext) {
+    let fixture = Fixture::new();
+    let (viewer, cx) = setup(&fixture, cx);
+    let (page, mut popup) = open_settings_test(&viewer, cx, false);
+    let cx = &mut popup;
+    let search = cx.debug_bounds("settings-search").unwrap();
+    cx.simulate_click(search.center(), Default::default());
+    cx.simulate_input("ui.accent_color");
+    draw(cx);
+    let path = fixture.0.join("settings.toml");
+    let before = std::fs::read_to_string(&path).unwrap();
+    let trigger = cx.debug_bounds("setting-swatch-ui.accent_color").unwrap();
+    cx.simulate_click(trigger.center(), Default::default());
+    draw(cx);
+    cx.simulate_keystrokes("escape");
+    draw(cx);
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), before);
+    assert!(cx.update(|_, app| matches!(
+        viewer.read(app).settings.ui.accent_color,
+        jaywalk::settings::AccentColorSetting::System(_)
+    )));
+    let picker = cx.update(|_, app| page.read(app).test_color_picker("ui.accent_color"));
+    cx.update(|window, app| {
+        picker.update(app, |state, cx| {
+            state.select_color(gpui::rgb(0x123456).into(), window, cx)
+        })
+    });
+    draw(cx);
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), before);
+    save_settings(cx);
+    let saved: toml::Value = toml::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+    assert_eq!(saved["ui"]["accent_color"].as_str(), Some("#123456"));
+}

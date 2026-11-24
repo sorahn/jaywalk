@@ -1,4 +1,5 @@
 //! Retained native settings content. Controls edit the shared TOML source.
+mod colors;
 mod controls;
 mod groups;
 mod keyboard;
@@ -104,6 +105,7 @@ pub(crate) struct SettingsPage {
     drafts: HashMap<usize, Draft>,
     font_names: Vec<String>,
     font_pickers: HashMap<usize, Entity<FontPicker>>,
+    color_pickers: HashMap<usize, colors::Picker>,
     busy: Option<usize>,
     message: Option<String>,
     error: Option<String>,
@@ -164,6 +166,7 @@ impl SettingsPage {
             drafts: HashMap::new(),
             font_names,
             font_pickers: HashMap::new(),
+            color_pickers: HashMap::new(),
             busy: None,
             message: None,
             error: None,
@@ -739,19 +742,14 @@ impl SettingsPage {
                         let key = key.clone();
                         move || format!("setting-{key}")
                     })
-                    .when_some(swatch, |row, color| {
-                        row.child(
-                            div()
-                                .debug_selector(move || {
-                                    format!("setting-swatch-{}", catalogue::SETTINGS[index].key)
-                                })
-                                .size(crate::spacing::space(5., cx))
-                                .flex_shrink_0()
-                                .rounded(crate::spacing::interactive(cx))
-                                .border_1()
-                                .border_color(border)
-                                .bg(color),
-                        )
+                    .when(color_input, |row| {
+                        row.child(self.color_picker(
+                            index,
+                            swatch,
+                            disabled || self.busy.is_some(),
+                            window,
+                            cx,
+                        ))
                     })
                     .child(div().w(width).child(if kind == Kind::Number {
                         NumberInput::new(&input)
