@@ -27,6 +27,14 @@ pub enum Algorithm {
     #[serde(rename = "tonal-v1")]
     TonalV1,
 }
+/// Custom seeds retain tonal-v1; code themes use viewer-contrast-v1.
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum Source {
+    Custom,
+    CodeTheme,
+}
+
 #[derive(Clone, Debug, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct ThemeSettings {
@@ -36,6 +44,7 @@ pub struct ThemeSettings {
 #[derive(Clone, Debug, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct ShellAuto {
+    pub source: Source,
     pub enabled: bool,
     pub algorithm: Algorithm,
     pub seed: ColorSetting,

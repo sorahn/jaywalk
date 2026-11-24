@@ -976,16 +976,49 @@ color overrides accept one `"#rrggbb"` string for both modes, or separate
 
 | Setting | Default | Range / effect |
 | --- | --- | --- |
+| `source` | `"custom"` | `"custom"` uses the saved seeds; `"code_theme"` derives shell colors around the viewer's ungenerated background with viewer-contrast-v1 |
 | `enabled` | `true` | `false` uses fixed built-in shell colors; exact overrides still apply |
-| `algorithm` | `"tonal-v1"` | Versioned recipe; unknown versions are rejected |
+| `algorithm` | `"tonal-v1"` | Versioned Custom colors recipe; unknown versions are rejected. From code theme uses viewer-contrast-v1 instead |
 | `seed` | `{ light = "#575757", dark = "#121212" }` | Independent primary colors; colored seeds tint the actual surfaces |
 | `layer_strength` | `1.4` | 0–2.5; separation between viewer, sidebars and bars |
 | `hue_shift` | `0.0` | −180–180 degrees |
 | `chroma_scale` | `1.0` | 0–3; saturation multiplier |
 | `tint_strength` | `1.0` | 0–1; blend toward a neutral palette |
-| `contrast_spread` | `1.0` | 0.2–2.5; spread of reference surface lightness |
-| `lightness_shift` | `0.0` | −0.15–0.15; overall OKLCH lightness adjustment |
-| `seed_lightness_influence` | `1.0` | 0–1; how strongly seed lightness shifts the foundation |
+| `contrast_spread` | `1.0` | 0.2–2.5; custom-seed lightness spread, or a multiplier on viewer-relative contrast steps |
+| `lightness_shift` | `0.0` | −0.15–0.15; overall custom-seed lightness adjustment, or surrounding-surface adjustment with From code theme; never shifts the code base |
+| `seed_lightness_influence` | `1.0` | 0–1; custom-seed influence only; ignored with From code theme |
+
+Choose **Shell color source → From code theme** in Settings to keep the viewer
+background exact and derive the surrounding shell from it. This previews live;
+Save writes the source choice and Discard restores the saved palette. The custom
+light/dark seeds stay saved and their color inputs are disabled while unused.
+Switch back to Custom colors to resume that recipe. Source applies to both modes;
+the existing appearance selection still chooses which mode is displayed.
+
+The viewer-contrast-v1 recipe starts with the approved light/dark neutral palette's
+surface-to-viewer contrast ratios. Each ratio is raised to
+`layer_strength / 1.4 * contrast_spread`; the target relative luminance is solved
+at the code background's hue/chroma with bounded OKLCH/sRGB gamut mapping.
+Default hue rotation is zero. The viewer, window base and file-header baseline
+remain anchored; hue/chroma and tone knobs affect surrounding surfaces. Per-role
+adjustments can tune those surrounding surfaces; use exact `editor.background`
+overrides for intentional changes to the viewer anchor. At separation zero the
+unadjusted surfaces are flat. Unattainable contrast targets retain valid colors
+and produce diagnostics, rather than shifting the viewer to make room.
+
+Ungenerated code colors must resolve before this recipe. Until local code-theme
+imports land, that means the built-in `#f7f7f7` / `#121212` backgrounds, or explicit
+`editor.background` and `editor.foreground` overrides. Missing code colors use
+these fixed built-in fallbacks, never a generated shell color, so there is no
+circular dependency. With a `#1d2021` viewer and default controls, Files is
+`#212426`, History `#272b2c`, viewer navigation `#292c2e` and outer bars `#313536`.
+Exact role overrides apply after derivation. Control accent, syntax and diff
+semantics remain independent.
+
+The viewer's navigation/subject bar has its own `shell.viewer.toolbar` surface,
+separate from outer `shell.header` / `shell.footer` bars and the code file header
+(`editor.header`). Its default is an intermediate shade in both generation modes.
+Geometry, fonts and comparison/scroll state are unchanged by this color choice.
 
 Out-of-gamut colors reduce chroma before conversion to sRGB. Foregrounds and
 muted text are chosen against each resolved surface with a 4.5:1 contrast
@@ -1014,7 +1047,7 @@ lightness_shift = { light = 0.0, dark = 0.02 }
 ```
 
 Surface prefixes are `shell.window`, `shell.header`, `shell.footer`,
-`shell.sidebar.history`, `shell.sidebar.files`, each sidebar's `.header` and
+`shell.sidebar.history`, `shell.sidebar.files`, `shell.viewer.toolbar`, each sidebar's `.header` and
 `.footer`, `shell.floating`, `editor`, and `editor.header`. Each has
 `.background`, `.foreground`, `.foreground.muted`, `.border`, and `.group.background`.
 Toggle groups derive their fill by blending that surface background 6% toward its

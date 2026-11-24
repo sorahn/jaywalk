@@ -21,9 +21,21 @@ kind = "choice"
 choices = ["system", "light", "dark"]
 
 [[setting]]
+key = "theme.shell_auto.source"
+title = "Shell color source"
+summary = "Use custom seeds, or derive the shell from the viewer background."
+description = "Custom colors uses the saved light/dark seeds and tonal-v1 recipe. From code theme uses viewer-contrast-v1: keep the code background exact and match the approved surface contrast steps around it. Custom seeds remain saved when this source is selected. The system accent and diff colors remain independent."
+category = "appearance"
+section = "Colors"
+section_order = 0
+kind = "choice"
+choices = ["custom", "code_theme"]
+choice_labels = { custom = "Custom colors", code_theme = "From code theme" }
+
+[[setting]]
 key = "theme.shell_auto.seed.light"
 title = "Light shell color"
-description = "Main light-mode shell color. Used when generated shell colors are enabled."
+description = "Main light-mode shell color. Used when shell color generation is enabled with Custom colors."
 category = "appearance"
 section = "Colors"
 section_order = 0
@@ -32,7 +44,7 @@ kind = "color"
 [[setting]]
 key = "theme.shell_auto.seed.dark"
 title = "Dark shell color"
-description = "Main dark-mode shell color. Used when generated shell colors are enabled."
+description = "Main dark-mode shell color. Used when shell color generation is enabled with Custom colors."
 category = "appearance"
 section = "Colors"
 section_order = 0
@@ -51,7 +63,7 @@ kind = "color"
 [[setting]]
 key = "theme.shell_auto.enabled"
 title = "Generate shell colors"
-description = "Derive shell surfaces from the light/dark seed colors. Exact theme overrides still take precedence."
+description = "Derive shell surfaces from custom colors or the viewer background. Exact theme overrides still take precedence."
 category = "appearance"
 section = "Colors"
 section_order = 0
@@ -277,7 +289,7 @@ kind = "complex"
 [[setting]]
 key = "theme.shell_auto.algorithm"
 title = "Algorithm"
-description = "Versioned shell-color recipe. The current supported recipe is tonal-v1."
+description = "Versioned custom-seed recipe (tonal-v1). From code theme uses viewer-contrast-v1 instead."
 category = "appearance"
 section = "Colors"
 section_order = 0
@@ -376,7 +388,7 @@ maximum = 0.15
 [[setting]]
 key = "theme.shell_auto.seed_lightness_influence"
 title = "Seed lightness influence"
-description = "Influence of the seed on the foundation (0–1)."
+description = "Influence of custom seed lightness on the foundation (0–1). Used only with Custom colors."
 category = "appearance"
 section = "Colors"
 section_order = 0

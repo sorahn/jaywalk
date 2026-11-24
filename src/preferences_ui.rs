@@ -589,7 +589,15 @@ impl SettingsPage {
                 .as_ref()
                 .is_some_and(|snapshot| snapshot.modified(setting));
         let value = self.value(index).cloned();
-        let disabled = self.defaults || self.error.is_some();
+        let disabled = self.defaults
+            || self.error.is_some()
+            || (key.starts_with("theme.shell_auto.seed.")
+                && self
+                    .snapshot
+                    .as_ref()
+                    .and_then(|s| s.value("theme.shell_auto.source"))
+                    .and_then(toml::Value::as_str)
+                    == Some("code_theme"));
         let theme = gpui::component::Theme::global(cx);
         let muted = theme.muted_foreground;
         let border = theme.border;
@@ -651,7 +659,7 @@ impl SettingsPage {
                         let key = key.clone();
                         move || format!("setting-{key}")
                     })
-                    .label(current.replace('_', " "))
+                    .label(setting.choice_label(&current))
                     .px(crate::spacing::edge(cx))
                     .dropdown_caret(true)
                     .small()
@@ -662,18 +670,15 @@ impl SettingsPage {
                             let owner = owner.clone();
                             let choice = choice.clone();
                             menu = menu.item(
-                                PopupMenuItem::new(choice.replace('_', " "))
-                                    .checked(choice == current)
-                                    .on_click(move |_, window, cx| {
-                                        let _ = owner.update(cx, |page, cx| {
-                                            page.stage(
-                                                index,
-                                                Some(choice.clone().into()),
-                                                window,
-                                                cx,
-                                            )
-                                        });
-                                    }),
+                                PopupMenuItem::new(
+                                    catalogue::SETTINGS[index].choice_label(&choice),
+                                )
+                                .checked(choice == current)
+                                .on_click(move |_, window, cx| {
+                                    let _ = owner.update(cx, |page, cx| {
+                                        page.stage(index, Some(choice.clone().into()), window, cx)
+                                    });
+                                }),
                             );
                         }
                         menu

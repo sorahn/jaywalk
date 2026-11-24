@@ -4,10 +4,12 @@ pub mod color;
 pub mod legacy;
 pub mod roles;
 mod settings;
+mod viewer;
 pub use color::Color;
 pub use roles::{Part, Role, Surface};
-pub use settings::{Adjustment, Algorithm, Number, ShellAuto, ThemeSettings};
+pub use settings::{Adjustment, Algorithm, Number, ShellAuto, Source, ThemeSettings};
 use std::{collections::BTreeMap, sync::Arc};
+pub use viewer::{CodeColors, CodeThemes};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Origin {
@@ -50,9 +52,14 @@ impl ResolvedThemes {
     }
 }
 pub fn resolve(settings: &ThemeSettings) -> ResolvedThemes {
+    resolve_with_code(settings, CodeThemes::default())
+}
+/// Inputs are ungenerated code-theme colors, never colors resolved from the shell.
+/// Asset adapters can resolve this off-thread before atomically publishing a theme.
+pub fn resolve_with_code(settings: &ThemeSettings, code: CodeThemes) -> ResolvedThemes {
     ResolvedThemes {
-        light: Arc::new(resolve_mode(settings, false)),
-        dark: Arc::new(resolve_mode(settings, true)),
+        light: Arc::new(resolve_mode(settings, false, code.light)),
+        dark: Arc::new(resolve_mode(settings, true, code.dark)),
     }
 }
 
@@ -64,7 +71,10 @@ fn reference(surface: Surface, dark: bool) -> Color {
             | Surface::Footer
             | Surface::HistoryFooter
             | Surface::FilesFooter => 0x3b414d,
-            Surface::History | Surface::HistoryHeader | Surface::Floating => 0x2f343e,
+            Surface::History
+            | Surface::HistoryHeader
+            | Surface::Floating
+            | Surface::ViewerToolbar => 0x2f343e,
             Surface::Files | Surface::FilesHeader => 0x323741,
             Surface::Viewer | Surface::ViewerHeader => 0x282c33,
         }
@@ -75,7 +85,10 @@ fn reference(surface: Surface, dark: bool) -> Color {
             | Surface::Footer
             | Surface::HistoryFooter
             | Surface::FilesFooter => 0xdcdcdd,
-            Surface::History | Surface::HistoryHeader | Surface::Floating => 0xebebec,
+            Surface::History
+            | Surface::HistoryHeader
+            | Surface::Floating
+            | Surface::ViewerToolbar => 0xebebec,
             Surface::Files | Surface::FilesHeader => 0xe7e7e9,
             Surface::Viewer | Surface::ViewerHeader => 0xfafafa,
         }
@@ -88,7 +101,7 @@ fn layer(surface: Surface) -> f64 {
         Surface::History => 0.04,
         Surface::Files => 0.02,
         Surface::Header | Surface::Footer | Surface::HistoryFooter | Surface::FilesFooter => 0.075,
-        Surface::HistoryHeader | Surface::Floating => 0.05,
+        Surface::HistoryHeader | Surface::Floating | Surface::ViewerToolbar => 0.05,
         Surface::FilesHeader => 0.03,
     }
 }
@@ -138,7 +151,7 @@ fn built_in(surface: Surface, dark: bool) -> Color {
             Surface::Header | Surface::Footer | Surface::HistoryFooter | Surface::FilesFooter => {
                 0x2b2b2b
             }
-            Surface::HistoryHeader | Surface::Floating => 0x222222,
+            Surface::HistoryHeader | Surface::Floating | Surface::ViewerToolbar => 0x222222,
             Surface::FilesHeader => 0x1b1b1b,
         }
     } else {
@@ -149,14 +162,16 @@ fn built_in(surface: Surface, dark: bool) -> Color {
             Surface::Header | Surface::Footer | Surface::HistoryFooter | Surface::FilesFooter => {
                 0xd4d4d4
             }
-            Surface::HistoryHeader | Surface::Floating => 0xe0e0e0,
+            Surface::HistoryHeader | Surface::Floating | Surface::ViewerToolbar => 0xe0e0e0,
             Surface::FilesHeader => 0xe9e9e9,
         }
     };
     Color::rgb(hex)
 }
-fn resolve_mode(settings: &ThemeSettings, dark: bool) -> Shell {
+fn resolve_mode(settings: &ThemeSettings, dark: bool, code: CodeColors) -> Shell {
     let r = &settings.shell_auto;
+    let code = code.with_overrides(settings, dark);
+    let from_code = r.enabled && r.source == Source::CodeTheme;
     let origin = if r.enabled {
         Origin::Generated
     } else {
@@ -177,13 +192,23 @@ fn resolve_mode(settings: &ThemeSettings, dark: bool) -> Shell {
             })
     };
     let seed = if r.enabled {
-        Color::rgb(r.seed.resolve(dark).value())
+        if from_code {
+            code.background
+        } else {
+            Color::rgb(r.seed.resolve(dark).value())
+        }
     } else {
         Color::rgb(if dark { 0x111111 } else { 0x585858 })
     };
     let lch = seed.lch();
     let border = Color::from_lch(
-        if dark { 0.46 } else { 0.76 },
+        if from_code {
+            lch[0] + if dark { 0.16 } else { -0.16 }
+        } else if dark {
+            0.46
+        } else {
+            0.76
+        },
         lch[1] * 0.4,
         lch[2]
             + if r.enabled {
@@ -192,19 +217,32 @@ fn resolve_mode(settings: &ThemeSettings, dark: bool) -> Shell {
                 0.
             },
     );
+    let mut warnings = Vec::new();
     for surface in Surface::ALL {
         let bg_role = Role::Surface(surface, Part::Background);
-        let bg = override_color(
-            bg_role,
-            if r.enabled {
-                generated(surface, r, dark)
-            } else {
-                built_in(surface, dark)
-            },
-        );
+        let automatic = if from_code {
+            let derived = viewer::background(surface, r, dark, code.background);
+            if derived.limited && !settings.overrides.contains_key(&bg_role) {
+                warnings.push(format!(
+                    "{bg_role} reached the available color range before its target contrast"
+                ));
+            }
+            derived.color
+        } else if r.enabled {
+            generated(surface, r, dark)
+        } else {
+            built_in(surface, dark)
+        };
+        let bg = override_color(bg_role, automatic);
         let fg = override_color(
             Role::Surface(surface, Part::Foreground),
-            bg.color.readable(),
+            if from_code {
+                code.foreground
+                    .map(|fg| viewer::foreground(fg, bg.color))
+                    .unwrap_or_else(|| bg.color.readable())
+            } else {
+                bg.color.readable()
+            },
         );
         colors.insert(
             Role::Surface(surface, Part::GroupBackground),
@@ -263,7 +301,6 @@ fn resolve_mode(settings: &ThemeSettings, dark: bool) -> Shell {
     ] {
         colors.insert(role, override_color(role, color));
     }
-    let mut warnings = Vec::new();
     for surface in Surface::ALL {
         let bg = colors[&Role::Surface(surface, Part::Background)].color;
         for part in [Part::Foreground, Part::MutedForeground] {

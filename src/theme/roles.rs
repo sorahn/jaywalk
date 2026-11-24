@@ -14,10 +14,11 @@ pub enum Surface {
     FilesFooter,
     Viewer,
     ViewerHeader,
+    ViewerToolbar,
     Floating,
 }
 impl Surface {
-    pub const ALL: [Self; 12] = [
+    pub const ALL: [Self; 13] = [
         Self::Window,
         Self::Header,
         Self::Footer,
@@ -29,6 +30,7 @@ impl Surface {
         Self::FilesFooter,
         Self::Viewer,
         Self::ViewerHeader,
+        Self::ViewerToolbar,
         Self::Floating,
     ];
     pub const fn path(self) -> &'static str {
@@ -44,6 +46,7 @@ impl Surface {
             Self::FilesFooter => "shell.sidebar.files.footer",
             Self::Viewer => "editor",
             Self::ViewerHeader => "editor.header",
+            Self::ViewerToolbar => "shell.viewer.toolbar",
             Self::Floating => "shell.floating",
         }
     }

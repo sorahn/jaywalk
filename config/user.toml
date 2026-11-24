@@ -112,11 +112,19 @@
 # overrides = {}
 
 [theme.shell_auto]
-# Derive shell surfaces from the light/dark seed colors. Exact theme overrides
-# still take precedence.
+# Custom colors uses the saved light/dark seeds and tonal-v1 recipe. From code
+# theme uses viewer-contrast-v1: keep the code background exact and match the
+# approved surface contrast steps around it. Custom seeds remain saved when this
+# source is selected. The system accent and diff colors remain independent.
+# Choices: custom, code_theme.
+# source = "custom"
+
+# Derive shell surfaces from custom colors or the viewer background. Exact theme
+# overrides still take precedence.
 # enabled = true
 
-# Versioned shell-color recipe. The current supported recipe is tonal-v1.
+# Versioned custom-seed recipe (tonal-v1). From code theme uses
+# viewer-contrast-v1 instead.
 # algorithm = "tonal-v1"
 
 # Seeds are inputs to the mode-specific recipe, not exact final backgrounds.
@@ -146,7 +154,8 @@
 # Range: -0.15 to 0.15.
 # lightness_shift = 0.0
 
-# Influence of the seed on the foundation (0–1).
+# Influence of custom seed lightness on the foundation (0–1). Used only with
+# Custom colors.
 # Range: 0 to 1.
 # seed_lightness_influence = 1.0
 

@@ -181,7 +181,7 @@ Edit individual shell surfaces, text, borders, accent fallback and other theme c
 
 Default: `"tonal-v1"`
 
-Versioned shell-color recipe. The current supported recipe is tonal-v1.
+Versioned custom-seed recipe (tonal-v1). From code theme uses viewer-contrast-v1 instead.
 
 ### `theme.shell_auto.chroma_scale`
 
@@ -209,7 +209,7 @@ Range: 0.2 to 2.5.
 
 Default: `true`
 
-Derive shell surfaces from the light/dark seed colors. Exact theme overrides still take precedence.
+Derive shell surfaces from custom colors or the viewer background. Exact theme overrides still take precedence.
 
 ### `theme.shell_auto.hue_shift`
 
@@ -263,7 +263,7 @@ Seeds are inputs to the mode-specific recipe, not exact final backgrounds.
 
 Default: `"#121212"`
 
-Main dark-mode shell color. Used when generated shell colors are enabled.
+Main dark-mode shell color. Used when shell color generation is enabled with Custom colors.
 
 ### `theme.shell_auto.seed.light`
 
@@ -271,7 +271,7 @@ Main dark-mode shell color. Used when generated shell colors are enabled.
 
 Default: `"#575757"`
 
-Main light-mode shell color. Used when generated shell colors are enabled.
+Main light-mode shell color. Used when shell color generation is enabled with Custom colors.
 
 ### `theme.shell_auto.seed_lightness_influence`
 
@@ -279,9 +279,19 @@ Main light-mode shell color. Used when generated shell colors are enabled.
 
 Default: `1.0`
 
-Influence of the seed on the foundation (0–1).
+Influence of custom seed lightness on the foundation (0–1). Used only with Custom colors.
 
 Range: 0 to 1.
+
+### `theme.shell_auto.source`
+
+**Shell color source** · Colors
+
+Default: `"custom"`
+
+Custom colors uses the saved light/dark seeds and tonal-v1 recipe. From code theme uses viewer-contrast-v1: keep the code background exact and match the approved surface contrast steps around it. Custom seeds remain saved when this source is selected. The system accent and diff colors remain independent.
+
+Choices: custom, code_theme.
 
 ### `theme.shell_auto.tint_strength`
 
