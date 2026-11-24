@@ -34,6 +34,12 @@ pub(crate) fn show(
         && handle
             .update(cx, |_, window, cx| {
                 page.update(cx, |page, cx| {
+                    page.set_repository_context(
+                        arguments
+                            .interface_repository()
+                            .map(std::path::Path::to_owned),
+                        cx,
+                    );
                     page.show_defaults(defaults, cx);
                     page.focus(window, cx);
                 });
@@ -65,6 +71,12 @@ pub(crate) fn show(
             let settings_page =
                 cx.new(|cx| SettingsPage::new(source.clone(), &settings, window, cx));
             settings_page.update(cx, |page, cx| {
+                page.set_repository_context(
+                    arguments
+                        .interface_repository()
+                        .map(std::path::Path::to_owned),
+                    cx,
+                );
                 page.show_defaults(defaults, cx);
                 page.focus(window, cx);
             });

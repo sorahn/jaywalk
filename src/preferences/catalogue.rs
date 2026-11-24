@@ -47,6 +47,7 @@ pub enum Kind {
     Font,
     Color,
     Complex,
+    Structured,
 }
 #[derive(Debug, Deserialize)]
 pub struct Setting {
@@ -59,8 +60,14 @@ pub struct Setting {
     pub section: String,
     pub section_order: usize,
     pub kind: Kind,
+    /// Discoverable through search/Changed, with Edit TOML instead of a widget.
+    #[serde(default)]
+    pub toml_only: bool,
     #[serde(default)]
     pub choices: Vec<String>,
+    /// Valid TOML literals for inherited optional values; never active defaults.
+    #[serde(default)]
+    pub examples: Vec<String>,
     #[serde(default)]
     pub advanced: bool,
     #[serde(default)]

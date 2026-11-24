@@ -180,6 +180,7 @@ pub struct ColorPickerState {
     preview: Option<Hsla>,
     open: bool,
     active_tab: usize,
+    opaque: bool,
     hex_input: Entity<InputState>,
     sliders: HslaSliders,
     /// A builder-supplied value cannot reach the sliders without a `Window`,
@@ -236,6 +237,7 @@ impl ColorPickerState {
             preview: None,
             open: false,
             active_tab: 0,
+            opaque: false,
             hex_input,
             sliders,
             needs_slider_sync: false,
@@ -243,9 +245,27 @@ impl ColorPickerState {
         }
     }
 
+    /// Restrict this picker to opaque RGB colors. Configure before setting its value.
+    pub fn opaque(mut self, opaque: bool) -> Self {
+        self.opaque = opaque;
+        self
+    }
+
+    /// Whether the presentation should offer opacity controls.
+    pub fn allows_alpha(&self) -> bool {
+        !self.opaque
+    }
+
+    fn normalize(&self, mut color: Hsla) -> Hsla {
+        if self.opaque {
+            color.a = 1.;
+        }
+        color
+    }
+
     /// Sets the initial committed and previewed color.
     pub fn default_value(mut self, value: impl Into<Hsla>) -> Self {
-        let value = value.into();
+        let value = self.normalize(value.into());
         self.value = Some(value);
         self.preview = Some(value);
         self.needs_slider_sync = true;
@@ -255,6 +275,11 @@ impl ColorPickerState {
     /// Returns the committed color.
     pub fn value(&self) -> Option<Hsla> {
         self.value
+    }
+
+    /// The committed color as rounded RGB(A) hex, independent of hover previews.
+    pub fn hex_value(&self) -> Option<String> {
+        self.value.map(hex_string)
     }
 
     /// Returns the color currently being previewed.
@@ -302,6 +327,7 @@ impl ColorPickerState {
 
     /// Updates the transient preview color and the hex field that shows it.
     pub fn preview_color(&mut self, value: Hsla, window: &mut Window, cx: &mut Context<Self>) {
+        let value = self.normalize(value);
         self.preview = Some(value);
         self.write_hex_input(Some(value), window, cx);
         cx.notify();
@@ -325,7 +351,7 @@ impl ColorPickerState {
         let Some(value) = parse_hex(value) else {
             return false;
         };
-        self.preview = Some(value);
+        self.preview = Some(self.normalize(value));
         cx.notify();
         true
     }
@@ -337,7 +363,7 @@ impl ColorPickerState {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Option<Hsla> {
-        let value = parse_hex(value)?;
+        let value = self.normalize(parse_hex(value)?);
         self.select_color(value, window, cx);
         Some(value)
     }
@@ -394,6 +420,7 @@ impl ColorPickerState {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        let value = value.map(|value| self.normalize(value));
         self.needs_slider_sync = false;
         self.value = value;
         self.preview = value;
@@ -415,6 +442,7 @@ impl ColorPickerState {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        let value = self.normalize(value);
         self.needs_slider_sync = false;
         self.value = Some(value);
         self.preview = Some(value);

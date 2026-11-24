@@ -166,3 +166,10 @@ interactivity before styling it. The component overlay hosts use the same rule.
 Their children retain source locations and normal input behavior. This prevents
 empty full-window notification/plugin layers from hiding individual controls
 from the debug inspector. The host regression requires a control-sized highlight.
+
+The color picker state (`gpui-base/src/color_picker.rs`) adds opt-in
+`ColorPickerState::opaque(true)` for RGB-only settings. It normalizes committed,
+previewed and slider/hex values to alpha 1 before emission. The component facade
+hides the alpha slider in that mode; existing alpha-aware consumers keep their
+original defaults. Jaywalk retains each picker beside its hex input and stages
+only committed selections through the shared Save/Discard draft.

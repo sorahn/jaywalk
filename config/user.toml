@@ -1,0 +1,801 @@
+# Jaywalk settings. Saved edits apply automatically.
+# Generated from config/default.toml and config/settings-ui.toml.
+# Uncomment only values you want to override; section headers stay active.
+# Omitted values inherit current defaults, including after updates.
+# Dimensions are logical pixels unless noted. Colors accept a shared "#RRGGBB"
+# or { light = "#RRGGBB", dark = "#RRGGBB" }. Keybindings have their own file.
+# This file's existence skips automatic Setup; Set up Jaywalk remains in the
+# command palette. Creating it authorizes no network requests.
+# Account metadata is managed as [[accounts]]; credentials stay in the OS store.
+
+# Connected accounts and their list/request priority. Manage connections on
+# Accounts; credentials stay in the OS credential store.
+# accounts = []
+
+[ui]
+# "light", "dark" or "system". System follows OS appearance changes; explicit
+# modes override this app’s native window appearance where supported, without
+# changing system preferences.
+# Choices: system, light, dark.
+# appearance = "system"
+
+# Application-wide accent: "system", a shared #RRGGBB string or a light/dark
+# pair (see below), case-insensitive hex. On macOS, system reads AppKit’s user
+# accent preference for the app’s selected light/dark appearance and follows
+# system-color notifications. Explicit hex/pair values override the system.
+# Updates active icons, primary controls (including checkboxes/switches), focus
+# rings, links and selection tints; filled controls choose a light/dark
+# foreground. Git statuses, diff colors and graph lanes stay semantic. Invalid
+# edits retain the last valid config.
+# accent_color = "system"
+
+# Color used by "system" when native accent lookup is unavailable, including
+# unsupported platforms. Accepts one shared hex color or a light/dark pair.
+# accent_color_fallback = { light = "#0066b8", dark = "#3794ff" }
+
+# Use the resolved accent for palette, popover, menu and tooltip edges. False
+# restores neutral theme edges. Does not change layout dimensions.
+# accent_floating_outlines = true
+
+# Delay before showing loading feedback; 0–5000. 0 shows it immediately; fast
+# operations never expose a loading label.
+# Range: 0 to 5000.
+# loading_delay_ms = 400
+
+# Shared minimum for history, tree and list rows; 12–160. Per-view overrides
+# below take precedence; fonts establish a readable minimum.
+# Range: 12 to 160.
+# row_height = 26
+
+# Minimum panel-header height; 24–120.
+# Range: 24 to 120.
+# panel_header_height = 30
+
+# Minimum review-control height within the single comparison header; 28–120. The
+# header fits the greater of this value, ui.comparison_bar_height, and its font
+# minimum. No separate application-toolbar row.
+# Range: 28 to 120.
+# toolbar_height = 28
+
+# Minimum application footer height; 20–120. Also sets the minimum History/Files
+# footer height, which grows to fit their own font and evolution control.
+# Effective height also fits its control height and at least 1.5 × footer font
+# size.
+# Range: 20 to 120.
+# footer_height = 28
+
+# Footer label font size; 8–48.
+# Range: 8 to 48.
+# footer_font_size = 12
+
+# Footer control height; 16–80.
+# Range: 16 to 80.
+# footer_control_height = 22
+
+# Reserved comparison/evolution toolbar height, including compact back/forward
+# controls; 24–120. Grows to fit the UI font.
+# Range: 24 to 120.
+# comparison_bar_height = 30
+
+# Application control font size; 8–48. Does not replace independent
+# source/sidebar sizes.
+# Range: 8 to 48.
+# font_size = 16
+
+# Enable ligatures and contextual alternates for application text.
+# ligatures = true
+
+# Installed family name; defaults to the theme/system UI font. Must be nonempty
+# when supplied.
+# Optional example; omitted by default.
+# font_family = "Helvetica Neue"
+
+[ui.spacing]
+# Logical pixels per spacing unit; 1–16. Independent of UI/source font sizes.
+# Applies to app chrome, pages, and floating controls.
+# Range: 1 to 16.
+# unit = 4
+
+# Unit multiplier for edges, section gaps, and default tree indentation; 0–8.
+# Default 8px.
+# Range: 0 to 8.
+# edge = 2
+
+# Unit multiplier for padding within hover/selection targets and tight control
+# gaps; 0–8. Default 4px.
+# Range: 0 to 8.
+# interactive = 1
+
+[theme]
+# Edit individual shell surfaces, text, borders, accent fallback and other theme
+# color overrides in TOML.
+# overrides = {}
+
+[theme.shell_auto]
+# Derive shell surfaces from the light/dark seed colors. Exact theme overrides
+# still take precedence.
+# enabled = true
+
+# Versioned shell-color recipe. The current supported recipe is tonal-v1.
+# algorithm = "tonal-v1"
+
+# Seeds are inputs to the mode-specific recipe, not exact final backgrounds.
+# seed = { light = "#575757", dark = "#121212" }
+
+# Surface separation (0–2.5).
+# Range: 0 to 2.5.
+# layer_strength = 1.4
+
+# Hue rotation in degrees (-180–180).
+# Range: -180 to 180.
+# hue_shift = 0.0
+
+# Saturation multiplier (0–3).
+# Range: 0 to 3.
+# chroma_scale = 1.0
+
+# Configure theme / shell auto / tint strength.
+# Range: 0 to 1.
+# tint_strength = 1.0
+
+# Lightness spread (0.2–2.5).
+# Range: 0.2 to 2.5.
+# contrast_spread = 1.0
+
+# Configure theme / shell auto / lightness shift.
+# Range: -0.15 to 0.15.
+# lightness_shift = 0.0
+
+# Influence of the seed on the foundation (0–1).
+# Range: 0 to 1.
+# seed_lightness_influence = 1.0
+
+[theme.shell_auto.roles]
+# Optional per-surface shell recipe overrides. Use quoted role names, such as
+# shell.sidebar.files.background, with lightness_shift, hue_shift and
+# chroma_scale adjustments. Each adjustment accepts a shared number or
+# light/dark values. Exact theme.overrides colors take precedence. See
+# docs/settings.md for role names and examples.
+[window]
+# Window width; 320–10000. A saved edit resizes open viewers.
+# Range: 320 to 10000.
+# width = 1500
+
+# Window height; 240–10000. A saved edit resizes open viewers.
+# Range: 240 to 10000.
+# height = 950
+
+[layout]
+# Restore/save interface choices per repository in the separate interface-state
+# file. Does not rewrite settings TOML.
+# remember_per_repository = true
+
+# Default visibility of the history sidebar.
+# history_visible = true
+
+# Default visibility of the changed/all-files sidebar.
+# files_visible = true
+
+# Shared bottom-dock height/reset target; must lie between min_bottom_height and
+# max_bottom_height.
+# Range: layout.min_bottom_height to layout.max_bottom_height.
+# bottom_height = 280
+
+# Minimum shared bottom-dock height; 40–2000.
+# Range: 40 to 2000.
+# min_bottom_height = 120
+
+# Maximum shared bottom-dock height; min_bottom_height–4000.
+# Range: layout.min_bottom_height to 4000.
+# max_bottom_height = 700
+
+[layout.placement]
+# "left" or "right" for the history sidebar.
+# Choices: left, right.
+# history_side = "left"
+
+# "left" or "right" for the file sidebar.
+# Choices: left, right.
+# files_side = "left"
+
+# "history_first" or "files_first"; left-to-right order when both sidebars share
+# a side.
+# Choices: history_first, files_first.
+# sidebar_order = "history_first"
+
+# "sidebar" below history, or "bottom" below the workspace.
+# Choices: sidebar, bottom.
+# change_evolution = "sidebar"
+
+# "sidebar" below files, or "bottom" below the workspace. Two bottom timelines
+# appear beside each other.
+# Choices: sidebar, bottom.
+# file_evolution = "sidebar"
+
+[panels.history]
+# Sidebar width and separator reset target; must lie between min_width and
+# max_width.
+# Range: panels.history.min_width to panels.history.max_width.
+# default_width = 280
+
+# Minimum sidebar width; 32–4000. The layout may shrink below this when the
+# window cannot fit all panels.
+# Range: 32 to 4000.
+# min_width = 180
+
+# Maximum sidebar width; min_width–8000.
+# Range: panels.history.min_width to 8000.
+# max_width = 700
+
+[panels.history.font]
+# Independent sidebar font size; 8–48. Also styles its associated evolution
+# timeline.
+# Range: 8 to 48.
+# size = 14
+
+# Enable sidebar ligatures and contextual alternates.
+# ligatures = true
+
+# Installed family name; inherits the application UI font when omitted. Must be
+# nonempty when supplied.
+# Optional example; omitted by default.
+# family = "Helvetica Neue"
+
+[panels.files]
+# Sidebar width and separator reset target; must lie between min_width and
+# max_width.
+# Range: panels.files.min_width to panels.files.max_width.
+# default_width = 260
+
+# Minimum sidebar width; 32–4000. The layout may shrink below this when the
+# window cannot fit all panels.
+# Range: 32 to 4000.
+# min_width = 200
+
+# Maximum sidebar width; min_width–8000.
+# Range: panels.files.min_width to 8000.
+# max_width = 700
+
+[panels.files.font]
+# Independent sidebar font size; 8–48. Also styles its associated evolution
+# timeline.
+# Range: 8 to 48.
+# size = 14
+
+# Enable sidebar ligatures and contextual alternates.
+# ligatures = true
+
+# Installed family name; inherits the application UI font when omitted. Must be
+# nonempty when supplied.
+# Optional example; omitted by default.
+# family = "Helvetica Neue"
+
+[panels.diff]
+# Fluid connector-gutter width; 8–240.
+# Range: 8 to 240.
+# gutter_width = 48
+
+# Fixed shared thumb height in pixels; 1–1000, clipped to the track. Spans the
+# fluid gutter width, with inset travel and faint grabber ridges.
+# Range: 1 to 1000.
+# shared_scrollbar_height = 12
+
+# Shared thumb opacity; 0–1, brighter on hover/drag. Zero hides the thumb while
+# keeping the gutter interactive.
+# Range: 0 to 1.
+# shared_scrollbar_opacity = 0.12
+
+# Track clicks: system, jump, or page. page moves one viewport toward the click;
+# jump centers the thumb at the click. system uses the desktop preference
+# captured at startup, falling back to jump if unavailable. Restart to reread OS
+# preferences. Thumb dragging always covers the full scroll range.
+# Choices: system, jump, page.
+# shared_scrollbar_click = "system"
+
+# Whole-comparison change marks in the Fluid gutter; 0–1, zero hides them. Left
+# marks show before-side changes; right marks show after-side changes. Uses the
+# adaptive diff palette, brightens slightly while dragging. Marks share the
+# thumb's scroll coordinate; they have no hover UI or separate click behavior.
+# Range: 0 to 1.
+# change_map_opacity = 0.24
+
+# Minimum width of each Fluid code pane; 32–2000. The initial before/after split
+# is even.
+# Range: 32 to 2000.
+# min_code_width = 100
+
+[editor]
+# Source viewer font size; 8–48. Zoom commands change it for the session without
+# rewriting TOML.
+# Range: 8 to 48.
+# font_size = 13
+
+# Show source line numbers in the file viewer and overview.
+# line_numbers = true
+
+# Tab-stop width in columns; integer 1–16. Re-prepares displayed source without
+# changing its text.
+# Range: 1 to 16.
+# tab_size = 4
+
+# Enable source-code ligatures and contextual alternates.
+# ligatures = true
+
+# Installed family name for source text; defaults to the theme/platform
+# monospace font. Must be nonempty when supplied.
+# Optional example; omitted by default.
+# font_family = "Menlo"
+
+[diff]
+# Viewer defaults and comparison presentation; original source bytes are
+# preserved. Line matching: "myers" or "patience".
+# Choices: myers, patience.
+# algorithm = "myers"
+
+# exact, ignore_trailing (spaces/tabs at line ends), ignore_changes (also equate
+# nonempty runs of spaces/tabs), or ignore_all (remove spaces/tabs from
+# comparison keys). Leading/interior whitespace presence remains significant in
+# ignore_changes.
+# Choices: exact, ignore_trailing, ignore_changes, ignore_all.
+# whitespace = "exact"
+
+# Compare CRLF and LF endings equally. Missing final LF remains significant;
+# bare CR inside an LF row remains source content.
+# ignore_line_endings = false
+
+# Ignore rows containing only ASCII spaces, tabs or CR/LF when aligning. Blank
+# rows remain present in the source and clipboard.
+# ignore_blank_lines = false
+
+# Emphasize changed words within changed lines. Row backgrounds/signs remain
+# independent.
+# word_highlight = true
+
+# Paint space dots and tab arrows without changing source characters or tab
+# stops.
+# show_whitespace = false
+
+# Paint LF/CRLF/EOF labels at row ends. A final bare CR is labeled CR · EOF;
+# internal bare CR remains content within the LF row.
+# show_line_endings = false
+
+# Highlight trailing ASCII spaces/tabs and spaces before tabs within leading
+# indentation. This is visual feedback, not trimming or an edit.
+# highlight_whitespace_errors = false
+
+# Maximum text bytes per before/after side in MiB (1,048,576 bytes). A positive
+# integer whose byte count plus one fits the platform address space. Applies on
+# the next comparison load or refresh.
+# Minimum: 1.
+# max_text_file_size_mb = 5
+
+# "inline", "side_by_side" or "fluid" for the file viewer. Overview always uses
+# unified/inline diff. Automatic single-column presentation for
+# unchanged/conflicted files does not replace the saved preference.
+# Choices: fluid, side_by_side, inline.
+# default_view = "fluid"
+
+# Fold unchanged ranges in single-file inline and side-by-side views. The footer
+# icon beside Word wrap or remappable toggle overrides it, remembered per
+# repository when layout persistence is enabled. Fluid always shows full files.
+# collapse_unchanged = false
+
+# Context on each side of an edit in folded standard views; integer 0–100.
+# Independent of overview context.
+# Range: 0 to 100.
+# context_lines = 3
+
+# Lines revealed by each partial range disclosure in standard views; integer
+# 1–1000.
+# Range: 1 to 1000.
+# expansion_lines = 20
+
+[diff.colors]
+# Edit detailed word highlights, modified lines, whitespace and conflict colors
+# in TOML.
+# Added line signs/bars, Fluid addition connectors and empty-side markers;
+# current-side conflict tint.
+# added = { light = "#22863a", dark = "#4ec96e" }
+
+# Removed line signs/bars, Fluid deletion connectors and empty-side markers.
+# removed = { light = "#cf222e", dark = "#f85149" }
+
+# Fluid replacement connectors/markers; incoming-side conflict tint. Inline and
+# standard split views represent replacements as removed/added lines.
+# modified = { light = "#0969da", dark = "#3794ff" }
+
+# Added-row background hue.
+# added_background = { light = "#22863a", dark = "#4ec96e" }
+
+# Removed-row background hue.
+# removed_background = { light = "#cf222e", dark = "#f85149" }
+
+# Fluid replacement-row background hue.
+# modified_background = { light = "#0969da", dark = "#3794ff" }
+
+# Added-word background hue.
+# word_added = { light = "#22863a", dark = "#4ec96e" }
+
+# Removed-word background hue.
+# word_removed = { light = "#cf222e", dark = "#f85149" }
+
+# Error-highlight hue. Accepts a shared hex string or light/dark values, like
+# all configurable colors.
+# whitespace_error = { light = "#bc4c00", dark = "#ffb454" }
+
+# Conflict ancestor/base tint in the standard diff widget.
+# conflict_base = { light = "#57606a", dark = "#a4b4c2" }
+
+[diff.before]
+# Wrap the before pane in side-by-side and Fluid views.
+# word_wrap = false
+
+[diff.after]
+# Wrap the after pane in side-by-side and Fluid views.
+# word_wrap = false
+
+[diff.inline]
+# Wrap inline/unified source, including overview and automatic single-column
+# file presentation.
+# word_wrap = false
+
+[overview]
+# Unchanged context around overview edits; integer 0–100. Range disclosures
+# reveal more; Show full files temporarily unfolds everything.
+# Range: 0 to 100.
+# context_lines = 3
+
+# Lines revealed by each directional context-expansion action; integer 1–1000.
+# Range: 1 to 1000.
+# expansion_lines = 20
+
+# Maximum height of the scrollable message area when there are no changed files;
+# 80–1200. With files, the full message scrolls with the overview and folds its
+# subject into the existing comparison bar while scrolling.
+# Range: 80 to 1200.
+# message_max_height = 220
+
+[files]
+# "list" or "tree". Both use directory-first order; list mode omits directory
+# rows.
+# Choices: list, tree.
+# default_view = "list"
+
+# "changed" or "all". Filters tree mode only. all includes unchanged files in
+# the selected comparison/revision; The file picker searches the entire captured
+# comparison regardless of this filter.
+# Choices: changed, all.
+# tree_scope = "changed"
+
+# Show vertical ancestor guides in the directory tree.
+# indent_guides = true
+
+# Guide opacity using the theme foreground; 0–1.
+# Range: 0 to 1.
+# indent_guide_opacity = 0.12
+
+# Horizontal guide offset from ancestor icon centers in pixels; −48–48. Negative
+# moves left.
+# Range: -48 to 48.
+# indent_guide_offset = -2
+
+# File-type glyphs in list/tree views; unknown types use a generic file. Folder
+# icons always indicate open/closed state.
+# file_icons = true
+
+# Condense directory components in unwrapped flat-list labels as space runs out;
+# filenames remain intact.
+# compact_paths = true
+
+# Wrap flat-list paths instead of scrolling them horizontally. Tree rows always
+# remain single-line.
+# list_word_wrap = false
+
+# Override ui.row_height for tree rows; 12–200. Font size can raise the
+# effective minimum.
+# Range: 12 to 200.
+# Optional example; omitted by default.
+# tree_row_height = 30
+
+# Override ui.row_height for flat-list rows; 12–200. Font size can raise the
+# effective minimum.
+# Range: 12 to 200.
+# Optional example; omitted by default.
+# list_row_height = 30
+
+# Directory-tree indentation follows ui.spacing.unit × ui.spacing.edge. An
+# explicit 1–128px override remains supported.
+# Range: 1 to 128.
+# Optional example; omitted by default.
+# indent_width = 8
+
+[history]
+# Target initial graph rows and rows per Load older action; 1–50000. Includes
+# Git's virtual working-copy row on the first page. Starts a fresh history
+# snapshot; already loaded pages remain visible until replacement succeeds.
+# Range: 1 to 50000.
+# page_size = 5000
+
+# First rows published when opening a local repository; 1–50000, clamped to
+# page_size. The rest of the initial page fills in the background. Changes apply
+# on the next repository open; they do not discard already loaded rows.
+# Range: 1 to 50000.
+# initial_batch_size = 100
+
+# Automatically load the next page when its footer row becomes visible.
+# Otherwise use Load older history or the graph's bottom row. Errors pause
+# automatic loading until an explicit retry.
+# page_on_scroll = false
+
+# Matches per / history-search request; 1–1000. Applies to the next query/page
+# request. Searches older commits beyond the graph's loaded pages; hosted
+# reviews search their available acquired commits.
+# Range: 1 to 1000.
+# search_page_size = 100
+
+# Alternate-row text-tint opacity; 0–0.2. 0 disables zebra stripes.
+# Range: 0 to 0.2.
+# stripe_opacity = 0.08
+
+# Distance between graph lanes; 4–48. The graph column adapts to visible lane
+# sprawl.
+# Range: 4 to 48.
+# lane_spacing = 8
+
+# Show compact bookmark/branch badges. Does not hide history from any remote.
+# show_reference_labels = true
+
+# Maximum compact reference-badge width; 40–300. Full names remain available in
+# reference details.
+# Range: 40 to 300.
+# reference_badge_width = 110
+
+# Override ui.row_height for graph rows; 12–200. Font size can raise the
+# effective minimum.
+# Range: 12 to 200.
+# Optional example; omitted by default.
+# row_height = 30
+
+[history.remotes]
+# Include history contributed by remotes without an explicit override, including
+# newly discovered remotes. Labels and history membership are independent.
+# default_visible = true
+
+# Map of remote names to boolean visibility overrides; use quoted keys for names
+# containing dots.
+# Optional example; omitted by default.
+# overrides = { origin = false }
+
+[evolution]
+# Default visibility of Change evolution.
+# visible = false
+
+# Include rebases with unchanged patches. Current and selected versions remain
+# visible even when the filter is off. Shared with File evolution.
+# show_unchanged_rebases = false
+
+# Group consecutive matching evolution entries. Shared default for both
+# timelines; runtime grouping/expansion choices are independent.
+# collapse_repeats = true
+
+# Change-evolution height/reset target; must lie between its min/max height.
+# Range: evolution.min_height to evolution.max_height.
+# default_height = 320
+
+# Minimum Change-evolution height; 100–2000.
+# Range: 100 to 2000.
+# min_height = 180
+
+# Maximum Change-evolution height; min_height–4000.
+# Range: evolution.min_height to 4000.
+# max_height = 700
+
+# Minimum space retained for history above a sidebar timeline; 80–2000.
+# Range: 80 to 2000.
+# min_history_height = 120
+
+# Timeline row height for both evolution views; 24–160.
+# Range: 24 to 160.
+# row_height = 48
+
+# Maximum loaded recorded versions; integer 1–1000. Both timelines share
+# recorded data; selected versions are retained when reducing the limit.
+# Range: 1 to 1000.
+# limit = 100
+
+[file_evolution]
+# Default visibility of File evolution; independent of Change evolution.
+# visible = true
+
+# File-evolution height/reset target; must lie between its min/max height.
+# Range: file_evolution.min_height to file_evolution.max_height.
+# default_height = 320
+
+# Minimum File-evolution height; 100–2000.
+# Range: 100 to 2000.
+# min_height = 180
+
+# Maximum File-evolution height; min_height–4000.
+# Range: file_evolution.min_height to 4000.
+# max_height = 700
+
+# Minimum space retained for the file browser above a sidebar timeline; 80–2000.
+# Range: 80 to 2000.
+# min_files_height = 120
+
+[comparison]
+# Ordering of two points selected in the history graph. Order newly selected
+# pairs; explicit CLI requests keep their direction. "ancestry" puts related
+# ancestors first; "selection" follows click order.
+# Choices: ancestry, selection.
+# pair_order = "ancestry"
+
+[navigation]
+# Maximum in-memory visited views per window, including the current view;
+# 1–1000. Retains the current location while trimming old or forward entries.
+# History is not persisted across launches. Snapshots retain recorded
+# comparisons for Back/Forward.
+# Range: 1 to 1000.
+# history_limit = 100
+
+[picker]
+# Window-local preference controlling command usage learning and ordering. With
+# an empty command query, up to two frequent/recent commands precede suggestions
+# for the current view; textual relevance takes priority for typed queries. The
+# usage snapshot stays fixed during an opening so activity in another window
+# does not reorder the selected results. A new opening reads the latest shared
+# history. false keeps deterministic context suggestions and
+# textual/alphabetical ordering and stops recording commands in that viewer;
+# existing saved history remains available if re-enabled.
+# adaptive_command_order = true
+
+[welcome]
+# Number of recent repositories shown on the welcome page; 1–50. This changes
+# only the preview count, not the saved repository history.
+# Range: 1 to 50.
+# recent_count = 10
+
+[keyboard]
+# Selected keybinding file. Accepts a nonempty relative or absolute file path
+# without NUL characters. Relative paths resolve beside the active config.
+# profile = "keybindings/default.toml"
+
+# Additional folders searched by Select keybindings profile…. Accepts an array
+# of nonempty relative or absolute directory paths without NUL characters.
+# Relative paths resolve beside the active config. Applies when the picker next
+# opens.
+# additional_directories = []
+
+[application]
+# Quit when the final actual window closes, including About. false keeps the app
+# available with no windows. This is application-wide: opening another config or
+# editing this value updates the shared policy; CLI waiters are notified before
+# shutdown.
+# quit_on_last_window = true
+
+# Normal opens from jw, Ctrl+R/recent repositories, welcome, and Open actions
+# replace the originating viewer, or the active/most recently used viewer for a
+# CLI launch, even for a different repository, range, or config. false opens a
+# new window for normal opens once a repository or PR is loaded. An empty
+# startup window is reused on Setup, Welcome or Accounts so those pages do not
+# leave an extra window behind. Explicit Open in new window and the
+# recent-picker modifier always create a new window. Applies on the next open;
+# uses the application-wide last-applied config-source policy.
+# single_window_mode = false
+
+[updates]
+# Update consent is opt-in. No automatic update traffic until checks are
+# enabled. Check the public feed automatically; manual Check for updates remains
+# available.
+# automatic_checks = false
+
+# Requires automatic_checks. Downloads alone do not authorize installation.
+# automatic_downloads = false
+
+# Requires automatic_downloads; permits installation on quit when safe.
+# automatic_installation = false
+
+# Automatic check cadence in hours (1–168).
+# Range: 1 to 168.
+# check_interval_hours = 24
+
+[hosting]
+# Maximum independent uncached PR-account discoveries across windows, integer
+# 1–8. Accounts are dispatched in configured order; workspaces and pages within
+# each account remain sequential. Lowering the limit lets in-flight jobs finish
+# and holds new starts. Affects new work.
+# Range: 1 to 8.
+# concurrent_accounts = 3
+
+# PR commit rows to acquire, 1–1000. Keeps the newest available rows; GitHub's
+# PR endpoint exposes at most the first 250 commits of larger PRs. Partial
+# history is marked and never changes the published diff. Applies to the next
+# opened/updated review.
+# Range: 1 to 1000.
+# history_limit = 200
+
+# Maximum changed files per aggregate or commit, 1–3000. Reviews beyond the cap
+# fail explicitly instead of showing a partial diff. Applies to the next
+# opened/updated review.
+# Range: 1 to 3000.
+# max_files = 3000
+
+# MiB of successfully decoded, unique file text cached per opened review, shared
+# across its clones and individual commit snapshots, 1–1024. Both sides count.
+# The existing diff.max_text_file_size_mb also applies per file side before
+# allocation. This bounds cached source text, not total process memory: editor,
+# syntax, diff and navigation state require additional memory. Applies to the
+# next opened/updated review.
+# Range: 1 to 1024.
+# max_content_mb = 128
+
+[local_review]
+# hosted uses provider-backed content. isolated tries a matching known
+# repository and acquires pinned PR objects in private Jaywalk-owned temporary
+# storage, leaving the known checkout/refs/index unchanged. checkout_if_clean
+# additionally attempts a temporary checkout in a clean plain-Git repository,
+# with guarded restoration. Branch selection follows checkout_branch. All local
+# behavior is opt-in.
+# Choices: hosted, isolated, checkout_if_clean.
+# mode = "hosted"
+
+# Temporary Git storage budget in MiB, 16–8192. Checked periodically while Git
+# runs and after acquisition; transient disk usage can exceed the budget between
+# checks. A storage-limit failure stops acquisition and retains hosted viewing.
+# This is not a hard OS disk quota or process-memory bound.
+# Range: 16 to 8192.
+# max_repository_mb = 512
+
+# Allow Git transport to fetch exact PR revisions missing from the known
+# repository. Set false to reuse locally available objects only, with hosted
+# fallback on missing/unavailable objects. Applies to the next local
+# acquisition; per-repository transport credentials remain separate from
+# provider API sign-in.
+# fetch_missing = true
+
+# In checkout_if_clean mode: detached uses the pinned commit; existing reuses
+# the PR’s named local branch only at that exact commit; create_from_remote also
+# creates that local name when a matching PR-source remote-tracking branch
+# points to the pinned commit. No origin/ prefix is added to the local name. A
+# conflicting local branch is never reset; missing or mismatched refs fall back
+# to detached checkout. Applies to the next acquisition.
+# Choices: create_from_remote, existing, detached.
+# checkout_branch = "create_from_remote"
+
+# After guarded restoration, optionally delete a branch created by that review,
+# only if its commit and creation ownership marker are unchanged and no worktree
+# uses it. Existing branches are never deleted. Creation uses an atomic
+# absent-ref check and a receipt-specific reflog marker; deletion checks the
+# expected commit atomically; skipped cleanup retains the recovery receipt for
+# retry. This choice is saved in the receipt at acquisition, so later config
+# edits do not alter an active review’s cleanup policy.
+# cleanup_created_branch = false
+
+[live]
+# Automatically follow plain Git worktree/index changes and recorded jj
+# operations. Git watchers are shared per repository and debounce saves for 250
+# ms; ignored build trees are excluded from directory registration. Working-copy
+# views update in place; commit/evolution inspection stays pinned while history
+# updates. Watcher failures/missed events fall back to read-only metadata scans.
+# Does not fetch, import into jj, or snapshot jj working files. Independent of
+# settings reload.
+# enabled = true
+
+# Git fallback metadata-scan/retry interval and jj recorded-operation polling
+# interval; integer 250–60000. Native Git events can trigger earlier refresh.
+# Range: 250 to 60000.
+# poll_interval_ms = 1500
+
+[settings]
+# Configuration-file polling interval; integer 100–60000. Two stable reads
+# settle editor saves. Independent of live.poll_interval_ms.
+# Range: 100 to 60000.
+# poll_interval_ms = 500
+
+# Application used to open configuration files, such as Zed. Leave inherited to
+# use your system text editor. Choose an application, or an executable with
+# separate literal arguments. The config path is appended; arguments are never
+# interpreted by a shell.
+# Optional example; omitted by default.
+# editor = "Zed"
+# editor = ["code", "--reuse-window"]

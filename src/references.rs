@@ -61,6 +61,15 @@ pub(crate) fn configured_remotes(root: &Path) -> Result<Vec<String>, String> {
         .collect())
 }
 
+/// Read configured names without fetching, recording a working copy or exposing URLs.
+pub fn configured_remote_names(root: &Path) -> Result<Vec<String>, String> {
+    if let Ok(names) = configured_remotes(root) {
+        return Ok(names);
+    }
+    let operation = Comparison::current_operation(root)?;
+    recorded_remotes(root, &operation)
+}
+
 fn recorded_remotes(root: &Path, operation: &str) -> Result<Vec<String>, String> {
     query(root, operation, &["git", "remote", "list"])?
         .lines()

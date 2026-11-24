@@ -1,8 +1,10 @@
 //! Retained native settings content. Controls edit the shared TOML source.
+mod colors;
 mod controls;
 mod groups;
 mod keyboard;
 mod session;
+mod structured;
 use crate::command_ui::CommandButtonExt;
 use controls::FontPicker;
 use gpui::component::{
@@ -104,6 +106,8 @@ pub(crate) struct SettingsPage {
     drafts: HashMap<usize, Draft>,
     font_names: Vec<String>,
     font_pickers: HashMap<usize, Entity<FontPicker>>,
+    color_pickers: HashMap<usize, colors::Picker>,
+    structured: structured::Editors,
     busy: Option<usize>,
     message: Option<String>,
     error: Option<String>,
@@ -164,6 +168,8 @@ impl SettingsPage {
             drafts: HashMap::new(),
             font_names,
             font_pickers: HashMap::new(),
+            color_pickers: HashMap::new(),
+            structured: Default::default(),
             busy: None,
             message: None,
             error: None,
@@ -347,6 +353,7 @@ impl SettingsPage {
         }
     }
     fn accept(&mut self, snapshot: Arc<Snapshot>, window: &mut Window, cx: &mut Context<Self>) {
+        self.structured.prompt_serial += 1;
         if self
             .persisted
             .as_ref()
@@ -514,6 +521,7 @@ impl SettingsPage {
     ) {
         let outside_input = std::iter::once(&self.query)
             .chain(self.drafts.values().map(|draft| &draft.input))
+            .chain(self.structured.inputs())
             .chain(std::iter::once(&self.keyboard.query))
             .chain(self.keyboard.inputs.values().flatten())
             .any(|input| {
@@ -601,6 +609,7 @@ impl SettingsPage {
                 .unwrap_or(false)
         });
         let kind = if setting.advanced
+            || setting.toml_only
             || (setting.kind == Kind::Number && value.as_ref().is_some_and(toml::Value::is_table))
         {
             Kind::Complex
@@ -672,7 +681,11 @@ impl SettingsPage {
                     .into_any_element()
             }
             Kind::Font => self.font_control(index, disabled, window, cx),
+            Kind::Structured => self.structured_control(index, disabled, window, cx),
             Kind::Complex => Button::new(("setting-edit", index))
+                .debug_selector(move || {
+                    format!("setting-edit-toml-{}", catalogue::SETTINGS[index].key)
+                })
                 .small()
                 .ghost()
                 .border_1()
@@ -739,19 +752,14 @@ impl SettingsPage {
                         let key = key.clone();
                         move || format!("setting-{key}")
                     })
-                    .when_some(swatch, |row, color| {
-                        row.child(
-                            div()
-                                .debug_selector(move || {
-                                    format!("setting-swatch-{}", catalogue::SETTINGS[index].key)
-                                })
-                                .size(crate::spacing::space(5., cx))
-                                .flex_shrink_0()
-                                .rounded(crate::spacing::interactive(cx))
-                                .border_1()
-                                .border_color(border)
-                                .bg(color),
-                        )
+                    .when(color_input, |row| {
+                        row.child(self.color_picker(
+                            index,
+                            swatch,
+                            disabled || self.busy.is_some(),
+                            window,
+                            cx,
+                        ))
                     })
                     .child(div().w(width).child(if kind == Kind::Number {
                         NumberInput::new(&input)
@@ -1008,6 +1016,9 @@ impl SettingsPage {
                     .child(text)
                     .child(controls),
             )
+            .when(kind == Kind::Structured, |row| {
+                row.child(self.structured_details(index, disabled, window, cx))
+            })
             .child(
                 div()
                     .absolute()

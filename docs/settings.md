@@ -4,7 +4,12 @@ Keyboard defaults include Linux-specific recent-repository and fullscreen bindin
 see the [keybindings guide](keybindings.md). Sparse profiles inherit the active
 platform's defaults before applying their explicit overrides.
 
-Jaywalk reads TOML settings. On first open, it creates an ordered copy of the documented [default configuration](../config/default.toml).
+Jaywalk reads TOML settings. On first open, it creates an ordered copy of the
+[generated user template](../config/user.toml). Its values come from the
+[default configuration](../config/default.toml); descriptions, choices, ranges and
+optional examples share the Settings UI catalogue. The
+[complete generated key reference](settings-reference.md) uses those same sources.
+This guide adds configuration behavior and longer usage examples.
 Section headers are active; default values are commented. Uncomment just the
 values you want to change; omitted values
 inherit current defaults, including defaults changed by future releases.
@@ -69,7 +74,7 @@ numeric, or color field validates it into the draft; valid typing previews immed
 field that has not blurred. Invalid drafts stay local and show a validation error.
 Update consent becomes effective only after saving it. The TOML schema remains
 authoritative for validation, including relationships between settings.
-Closed dropdowns fit their selected label and stay anchored to the right; menu labels stay left aligned. Numeric fields reserve space for their bounds and decimal step instead of filling the control column. Color inputs use a compact hex-sized field with a swatch on the left. The accent field also previews the resolved system accent when set to `system`. The sun-moon icon toggles separate light/dark colors (accent when on, neutral when off); its tooltip describes the state and action. The field shows and edits only the active appearance, preserving the other value, without a repeated appearance label. Enabling it copies the shared color into both appearances (a system accent becomes its currently resolved RGB color). Disabling it uses the displayed appearance’s color for both. Existing pairs start separated. The dedicated light/dark shell seed fields already select their appearance and do not need this toggle.
+Closed dropdowns fit their selected label and stay anchored to the right; menu labels stay left aligned. Numeric fields reserve space for their bounds and decimal step instead of filling the control column. Color inputs use a compact hex-sized field with a swatch on the left. Click the swatch to open the native toolkit color picker: choose a palette color or use hue/saturation/lightness controls and exact hex entry. Picker selections preview through the same draft; Save writes them and Discard restores the saved color. Merely opening or dismissing the picker creates no override. Colors are RGB; opacity controls are hidden. The accent field also previews the resolved system accent when set to `system`. The sun-moon icon toggles separate light/dark colors (accent when on, neutral when off); its tooltip describes the state and action. The field shows and edits only the active appearance, preserving the other value, without a repeated appearance label. Enabling it copies the shared color into both appearances (a system accent becomes its currently resolved RGB color). Disabling it uses the displayed appearance’s color for both. Existing pairs start separated. The dedicated light/dark shell seed fields already select their appearance and do not need this toggle.
 
 Font families use searchable dropdowns of installed fonts. Use default removes
 the override; an existing configured family remains selectable even if it is not
@@ -82,7 +87,38 @@ row backgrounds. Detailed diff colors are grouped under **Advanced diff colors**
 with **Edit TOML…**; fine color overrides remain supported in TOML. Editing one
 shell seed mode preserves the other, including when the previous value was shared.
 
-Advanced lists/maps remain searchable with **Edit TOML…**. **Keyboard Shortcuts**
+Advanced tuning values are omitted from ordinary category browsing. Search by
+key, label or description to find a documented **Edit TOML…** row; Changed from
+defaults also shows configured TOML-only values. They retain their existing keys,
+defaults, validation and live-file-reload behavior. Their scope includes loading
+and polling timing, initial history batching, account-request concurrency, layout
+bounds and startup dimensions, individual bar/control heights, graph lane/badge
+geometry, indent-guide offset and the overview message-height limit. Fonts,
+spacing, row height, panel placement, diff/gutter behavior, history page size,
+file/repository resource limits and theme-generation controls keep their widgets.
+
+Three everyday structured values have focused editors:
+
+- **Settings file editor:** choose System default, Application or Command. Application
+  accepts a name or a selection from the folder icon; Command has an executable and one literal
+  argument per field. Use Add new, the × buttons and drag handles to manage rows. The config path is appended as
+  one argument. These fields never execute a command while being edited.
+- **Additional profile folders:** expand the folder count, then use Add new to create a row.
+  Type a path or choose one with its folder icon; drag the handle to reorder or use ×
+  to remove a row. Relative paths
+  resolve beside the config file. The folder order and argument boundaries are preserved.
+- **Remote visibility overrides:** expand the override count for Default/Show/Hide
+  per name. Suggestions come from the repository that opened Settings, read locally
+  without fetching; saved and manually added names remain available. Rules are global
+  settings for those names. Default removes the explicit rule and follows
+  `history.remotes.default_visible`.
+
+These editors share Save/Discard, invalid-input and external-edit conflict handling.
+Only reversible remote-visibility presentation previews live; editor commands and
+profile-folder changes take effect after Save. Cancelled or stale path-chooser
+responses do not modify the draft.
+
+Other advanced lists/maps remain searchable with **Edit TOML…**. **Keyboard Shortcuts**
 and **Accounts** are separate sidebar destinations below the regular settings,
 in that order, excluded from All/Changed and settings search. Keyboard profile
 selection and application-command remapping share the settings Save/Discard draft;
@@ -188,6 +224,10 @@ history and file-browser fonts are independently configurable. Ligature settings
 control OpenType `liga`, `clig` and `calt`; the selected font must support them.
 
 ## Reference
+
+For an exhaustive list generated from the running schema's source files, see the
+[complete key reference](settings-reference.md). The tables below accompany the
+longer usage explanations.
 
 Each table uses full dotted keys. In TOML, put the short key below the matching
 section header, for example `[editor]` followed by `font_size = 14`.

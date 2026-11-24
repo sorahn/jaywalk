@@ -20,6 +20,14 @@ fmt:
 fmt-check:
     cargo fmt --all -- --check
 
+# Regenerate first-open settings and the complete key reference from shared metadata.
+settings-reference:
+    cargo run --locked --example settings-reference
+
+# Verify checked-in generated settings references without writing anything.
+settings-reference-check:
+    cargo run --locked --example settings-reference -- --check
+
 # Run background tests; optional arguments are passed to Cargo.
 test *args:
     cargo test --locked "$@"

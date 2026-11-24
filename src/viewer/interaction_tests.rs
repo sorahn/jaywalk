@@ -5918,3 +5918,467 @@ fn keyboard_header_actions_align_and_help_stays_below_in_the_content_pane(cx: &m
     draw(cx);
     check_help(cx);
 }
+
+#[gpui_test::test]
+fn settings_color_picker_previews_rgb_preserves_the_other_mode_and_discards_without_writes(
+    cx: &mut TestAppContext,
+) {
+    let fixture = Fixture::new();
+    let (viewer, cx) = setup(&fixture, cx);
+    let (page, mut popup) = open_settings_test(&viewer, cx, false);
+    let cx = &mut popup;
+    let key = "diff.colors.added_background";
+    let search = cx.debug_bounds("settings-search").unwrap();
+    cx.simulate_click(search.center(), Default::default());
+    cx.simulate_input(key);
+    draw(cx);
+    let path = fixture.0.join("settings.toml");
+    let before = std::fs::read_to_string(&path).unwrap();
+    let dark = cx.update(|_, app| gpui::component::Theme::global(app).is_dark());
+    let mode = if dark { "dark" } else { "light" };
+    let other = if dark { "light" } else { "dark" };
+    let picker = cx.update(|_, app| page.read(app).test_color_picker(key));
+    let trigger = cx
+        .debug_bounds("setting-swatch-diff.colors.added_background")
+        .unwrap();
+    cx.simulate_click(trigger.center(), Default::default());
+    draw(cx);
+    cx.update(|_, app| {
+        assert!(picker.read(app).is_open());
+        assert!(!picker.read(app).allows_alpha());
+    });
+    cx.simulate_keystrokes("escape");
+    draw(cx);
+    cx.update(|_, app| assert!(!picker.read(app).is_open()));
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), before);
+    cx.update(|window, app| {
+        picker.update(app, |state, cx| {
+            assert!(state.preview_hex("#12345680", window, cx));
+            assert_eq!(state.preview().unwrap().a, 1.);
+        });
+    });
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), before);
+    cx.update(|window, app| {
+        picker.update(app, |state, cx| {
+            state.select_color(gpui::rgb(0x123456).into(), window, cx)
+        })
+    });
+    draw(cx);
+    let settings = cx.update(|_, app| viewer.read(app).settings.clone());
+    assert_eq!(
+        settings.diff.colors.added_background.resolve(dark).value(),
+        0x123456
+    );
+    let defaults = Settings::default();
+    assert_eq!(
+        settings.diff.colors.added_background.resolve(!dark),
+        defaults.diff.colors.added_background.resolve(!dark)
+    );
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), before);
+    let discard = cx.debug_bounds("settings-discard").unwrap();
+    cx.simulate_click(discard.center(), Default::default());
+    draw(cx);
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), before);
+    cx.update(|_, app| {
+        assert_eq!(
+            viewer.read(app).settings.diff.colors.added_background,
+            defaults.diff.colors.added_background
+        )
+    });
+    // Picker hex entry with alpha is normalized to RGB before reaching settings.
+    cx.update(|window, app| {
+        picker.update(app, |state, cx| {
+            state.commit_hex("#65432180", window, cx).unwrap();
+        })
+    });
+    draw(cx);
+    save_settings(cx);
+    let saved: toml::Value = toml::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+    assert_eq!(
+        saved["diff"]["colors"]["added_background"][mode].as_str(),
+        Some("#654321")
+    );
+    let original: toml::Value = toml::from_str(jaywalk::settings::DEFAULT_CONFIG).unwrap();
+    assert_eq!(
+        saved["diff"]["colors"]["added_background"][other],
+        original["diff"]["colors"]["added_background"][other]
+    );
+}
+
+#[gpui_test::test]
+fn settings_accent_picker_keeps_system_until_a_color_is_selected(cx: &mut TestAppContext) {
+    let fixture = Fixture::new();
+    let (viewer, cx) = setup(&fixture, cx);
+    let (page, mut popup) = open_settings_test(&viewer, cx, false);
+    let cx = &mut popup;
+    let search = cx.debug_bounds("settings-search").unwrap();
+    cx.simulate_click(search.center(), Default::default());
+    cx.simulate_input("ui.accent_color");
+    draw(cx);
+    let path = fixture.0.join("settings.toml");
+    let before = std::fs::read_to_string(&path).unwrap();
+    let trigger = cx.debug_bounds("setting-swatch-ui.accent_color").unwrap();
+    cx.simulate_click(trigger.center(), Default::default());
+    draw(cx);
+    cx.simulate_keystrokes("escape");
+    draw(cx);
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), before);
+    assert!(cx.update(|_, app| matches!(
+        viewer.read(app).settings.ui.accent_color,
+        jaywalk::settings::AccentColorSetting::System(_)
+    )));
+    let picker = cx.update(|_, app| page.read(app).test_color_picker("ui.accent_color"));
+    cx.update(|window, app| {
+        picker.update(app, |state, cx| {
+            state.select_color(gpui::rgb(0x123456).into(), window, cx)
+        })
+    });
+    draw(cx);
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), before);
+    save_settings(cx);
+    let saved: toml::Value = toml::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+    assert_eq!(saved["ui"]["accent_color"].as_str(), Some("#123456"));
+}
+
+#[gpui_test::test]
+fn settings_toml_only_tuning_uses_documented_search_rows_and_remains_in_changed(
+    cx: &mut TestAppContext,
+) {
+    let fixture = Fixture::new();
+    let args =
+        Arguments::parse_from(["jaywalk", fixture.0.to_str().unwrap(), "--file", "file.txt"]);
+    let (viewer, cx) =
+        setup_arguments_with_settings(&fixture, args, "[ui]\nloading_delay_ms=450\n", cx);
+    let (page, mut popup) = open_settings_test(&viewer, cx, false);
+    let cx = &mut popup;
+    let all = cx.debug_bounds("settings-all").unwrap();
+    cx.simulate_click(all.center(), Default::default());
+    draw(cx);
+    let rows = cx.update(|_, app| page.read(app).test_row_labels());
+    assert!(!rows.iter().any(|key| key == "ui.loading_delay_ms"));
+    assert!(!rows.iter().any(|key| key == "group:reload_tuning"));
+    let search = cx.debug_bounds("settings-search").unwrap();
+    cx.simulate_click(search.center(), Default::default());
+    cx.simulate_input("ui.loading_delay_ms");
+    draw(cx);
+    assert!(
+        cx.debug_bounds("setting-ui.loading_delay_ms").is_none(),
+        "no numeric widget for TOML-only tuning"
+    );
+    assert!(
+        cx.debug_bounds("setting-edit-toml-ui.loading_delay_ms")
+            .is_some()
+    );
+    cx.simulate_click(search.center(), Default::default());
+    cx.simulate_keystrokes("secondary-a");
+    cx.simulate_keystrokes("backspace");
+    draw(cx);
+    let changed = cx.debug_bounds("settings-modified").unwrap();
+    cx.simulate_click(changed.center(), Default::default());
+    draw(cx);
+    assert!(
+        cx.debug_bounds("setting-edit-toml-ui.loading_delay_ms")
+            .is_some()
+    );
+    let path = fixture.0.join("settings.toml");
+    assert_eq!(
+        jaywalk::settings::Config::parse(&std::fs::read_to_string(&path).unwrap())
+            .unwrap()
+            .ui
+            .loading_delay_ms,
+        450
+    );
+}
+
+fn search_setting(cx: &mut VisualTestContext, key: &str) {
+    let search = cx.debug_bounds("settings-search").unwrap();
+    cx.simulate_click(search.center(), Default::default());
+    cx.simulate_keystrokes("secondary-a backspace");
+    cx.simulate_input(key);
+    draw(cx);
+}
+
+#[gpui_test::test]
+fn settings_editor_commands_preserve_literal_arguments_and_save_the_active_field(
+    cx: &mut TestAppContext,
+) {
+    let fixture = Fixture::new();
+    let (viewer, cx) = setup(&fixture, cx);
+    let (page, mut popup) = open_settings_test(&viewer, cx, false);
+    let cx = &mut popup;
+    search_setting(cx, "settings.editor");
+    let mode = cx.debug_bounds("setting-editor-mode").unwrap();
+    cx.simulate_click(mode.center(), Default::default());
+    cx.simulate_keystrokes("down down down enter");
+    draw(cx);
+    let program = cx
+        .debug_bounds("editor-program")
+        .expect("Command opens the executable input");
+    cx.simulate_click(program.center(), Default::default());
+    cx.simulate_input("editor with spaces");
+    draw(cx);
+    let add = cx
+        .debug_bounds("structured-add-settings.editor-0")
+        .expect("Command offers arguments");
+    assert!(add.size.width < px(220.), "Add argument must fit its label");
+    cx.simulate_click(add.center(), Default::default());
+    draw(cx);
+    let arg = cx
+        .debug_bounds("structured-field-settings.editor-0")
+        .unwrap();
+    cx.simulate_click(arg.center(), Default::default());
+    cx.simulate_keystrokes("secondary-a");
+    cx.simulate_input("$(literal); keep as one argument");
+    draw(cx);
+    let path = fixture.0.join("settings.toml");
+    assert!(
+        !std::fs::read_to_string(&path)
+            .unwrap()
+            .contains("editor with spaces")
+    );
+    assert!(
+        cx.update(|_, app| viewer.read(app).settings.settings.editor.is_none()),
+        "editor changes wait for Save"
+    );
+    save_settings(cx);
+    let saved = jaywalk::settings::Config::parse(&std::fs::read_to_string(&path).unwrap()).unwrap();
+    assert_eq!(
+        saved.settings.editor,
+        Some(jaywalk::settings::SettingsEditor::Command(vec![
+            "editor with spaces".into(),
+            "$(literal); keep as one argument".into()
+        ]))
+    );
+    // Removing an argument is a normal draft and Discard restores it.
+    let remove = cx
+        .debug_bounds("structured-remove-settings.editor-1")
+        .unwrap();
+    cx.simulate_click(remove.center(), Default::default());
+    draw(cx);
+    let discard = cx.debug_bounds("settings-discard").unwrap();
+    cx.simulate_click(discard.center(), Default::default());
+    draw(cx);
+    assert_eq!(
+        cx.update(|_, app| page
+            .read(app)
+            .test_structured_fields("settings.editor")
+            .len()),
+        2
+    );
+}
+
+#[gpui_test::test]
+fn settings_profile_folders_use_the_native_chooser_keep_order_and_reject_late_results(
+    cx: &mut TestAppContext,
+) {
+    let fixture = Fixture::new();
+    let (viewer, cx) = setup(&fixture, cx);
+    let (page, mut popup) = open_settings_test(&viewer, cx, false);
+    let cx = &mut popup;
+    search_setting(cx, "keyboard.additional_directories");
+    let toggle = cx
+        .debug_bounds("setting-structured-keyboard.additional_directories")
+        .unwrap();
+    cx.simulate_click(toggle.center(), Default::default());
+    draw(cx);
+    for (browse, path) in [
+        (
+            "structured-browse-keyboard.additional_directories-0",
+            "relative first",
+        ),
+        (
+            "structured-browse-keyboard.additional_directories-1",
+            "relative second",
+        ),
+    ] {
+        let add = cx
+            .debug_bounds("structured-add-keyboard.additional_directories-0")
+            .unwrap();
+        cx.simulate_click(add.center(), Default::default());
+        draw(cx);
+        let browse = cx.debug_bounds(browse).unwrap();
+        cx.simulate_click(browse.center(), Default::default());
+        draw(cx);
+        cx.cx.simulate_path_prompt_response(|options| {
+            assert!(options.directories && !options.files && !options.multiple);
+            Some(vec![path.into()])
+        });
+        draw(cx);
+    }
+    let handle = cx
+        .debug_bounds("structured-handle-keyboard.additional_directories-1")
+        .unwrap();
+    let target = cx
+        .debug_bounds("structured-row-keyboard.additional_directories-0")
+        .unwrap();
+    cx.simulate_mouse_down(handle.center(), MouseButton::Left, Default::default());
+    cx.simulate_mouse_move(
+        handle.center() + point(px(8.), px(-8.)),
+        Some(MouseButton::Left),
+        Default::default(),
+    );
+    draw(cx);
+    cx.simulate_mouse_move(target.center(), Some(MouseButton::Left), Default::default());
+    draw(cx);
+    cx.simulate_mouse_up(target.center(), MouseButton::Left, Default::default());
+    draw(cx);
+    let handle = cx
+        .debug_bounds("structured-handle-keyboard.additional_directories-0")
+        .unwrap();
+    cx.simulate_click(handle.center(), Default::default());
+    cx.simulate_keystrokes("alt-down");
+    draw(cx);
+    assert_eq!(
+        cx.update(|_, app| page
+            .read(app)
+            .test_structured_fields("keyboard.additional_directories")[0]
+            .1
+            .read(app)
+            .value()
+            .to_string()),
+        "relative first"
+    );
+    cx.simulate_keystrokes("alt-up");
+    draw(cx);
+    save_settings(cx);
+    let path = fixture.0.join("settings.toml");
+    let saved = std::fs::read_to_string(&path).unwrap();
+    assert_eq!(
+        jaywalk::settings::Config::parse(&saved)
+            .unwrap()
+            .keyboard
+            .additional_directories,
+        [
+            PathBuf::from("relative second"),
+            PathBuf::from("relative first")
+        ]
+    );
+    let field = cx
+        .debug_bounds("structured-field-keyboard.additional_directories-0")
+        .unwrap();
+    cx.simulate_click(field.center(), Default::default());
+    cx.simulate_keystrokes("secondary-a");
+    cx.simulate_input("temporary unsaved folder");
+    draw(cx);
+    let browse = cx
+        .debug_bounds("structured-browse-keyboard.additional_directories-0")
+        .unwrap();
+    cx.simulate_click(browse.center(), Default::default());
+    draw(cx);
+    let discard = cx.debug_bounds("settings-discard").unwrap();
+    cx.simulate_click(discard.center(), Default::default());
+    draw(cx);
+    cx.cx
+        .simulate_path_prompt_response(|_| Some(vec!["late folder".into()]));
+    draw(cx);
+    assert_eq!(std::fs::read_to_string(path).unwrap(), saved);
+    assert!(!cx.update(|_, app| page.read(app).has_changes()));
+}
+
+#[gpui_test::test]
+fn settings_remote_rules_include_repository_and_saved_names_and_default_removes_one_override(
+    cx: &mut TestAppContext,
+) {
+    let fixture = Fixture::new();
+    fixture.git(&[
+        "remote",
+        "add",
+        "origin",
+        "https://example.invalid/repository.git",
+    ]);
+    let git_config = std::fs::read(fixture.0.join(".git/config")).unwrap();
+    let args =
+        Arguments::parse_from(["jaywalk", fixture.0.to_str().unwrap(), "--file", "file.txt"]);
+    let (viewer, cx) = setup_arguments_with_settings(
+        &fixture,
+        args,
+        "[history.remotes.overrides]\n'backup.eu'=true # saved remote note\n",
+        cx,
+    );
+    let (_page, mut popup) = open_settings_test(&viewer, cx, false);
+    let cx = &mut popup;
+    search_setting(cx, "history.remotes.overrides");
+    let toggle = cx
+        .debug_bounds("setting-structured-history.remotes.overrides")
+        .unwrap();
+    cx.simulate_click(toggle.center(), Default::default());
+    draw(cx);
+    assert!(cx.debug_bounds("remote-rule-backup.eu").is_some());
+    let origin = cx
+        .debug_bounds("remote-rule-origin")
+        .expect("read configured remote names");
+    cx.simulate_click(origin.center(), Default::default());
+    cx.simulate_keystrokes("down down down enter");
+    draw(cx);
+    save_settings(cx);
+    let path = fixture.0.join("settings.toml");
+    let saved = std::fs::read_to_string(&path).unwrap();
+    let config = jaywalk::settings::Config::parse(&saved).unwrap();
+    assert_eq!(config.history.remotes.overrides.get("origin"), Some(&false));
+    assert!(config.history.remotes.overrides["backup.eu"]);
+    assert!(saved.contains("# saved remote note"));
+    let origin = cx.debug_bounds("remote-rule-origin").unwrap();
+    cx.simulate_click(origin.center(), Default::default());
+    cx.simulate_keystrokes("down enter");
+    draw(cx);
+    save_settings(cx);
+    let config = jaywalk::settings::Config::parse(&std::fs::read_to_string(path).unwrap()).unwrap();
+    assert!(!config.history.remotes.overrides.contains_key("origin"));
+    assert!(config.history.remotes.overrides["backup.eu"]);
+    assert_eq!(
+        std::fs::read(fixture.0.join(".git/config")).unwrap(),
+        git_config,
+        "suggestions must not mutate repository configuration"
+    );
+}
+
+#[gpui_test::test]
+fn settings_application_picker_stages_a_native_selection_and_can_restore_system_default(
+    cx: &mut TestAppContext,
+) {
+    let fixture = Fixture::new();
+    let args =
+        Arguments::parse_from(["jaywalk", fixture.0.to_str().unwrap(), "--file", "file.txt"]);
+    let (viewer, cx) =
+        setup_arguments_with_settings(&fixture, args, "[settings]\neditor='Zed'\n", cx);
+    let (_page, mut popup) = open_settings_test(&viewer, cx, false);
+    let cx = &mut popup;
+    search_setting(cx, "settings.editor");
+    assert!(
+        cx.debug_bounds("editor-program").is_some(),
+        "existing application settings expose their input immediately"
+    );
+    let path = fixture.0.join("settings.toml");
+    let before = std::fs::read_to_string(&path).unwrap();
+    let browse = cx.debug_bounds("editor-browse").unwrap();
+    cx.simulate_click(browse.center(), Default::default());
+    draw(cx);
+    cx.cx.simulate_path_prompt_response(|options| {
+        assert!(options.files && !options.directories && !options.multiple);
+        Some(vec!["/Applications/Example Editor.app".into()])
+    });
+    draw(cx);
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), before);
+    save_settings(cx);
+    assert_eq!(
+        jaywalk::settings::Config::parse(&std::fs::read_to_string(&path).unwrap())
+            .unwrap()
+            .settings
+            .editor,
+        Some(jaywalk::settings::SettingsEditor::App(
+            "/Applications/Example Editor.app".into()
+        ))
+    );
+    let mode = cx.debug_bounds("setting-editor-mode").unwrap();
+    cx.simulate_click(mode.center(), Default::default());
+    cx.simulate_keystrokes("down enter");
+    draw(cx);
+    save_settings(cx);
+    assert!(
+        jaywalk::settings::Config::parse(&std::fs::read_to_string(path).unwrap())
+            .unwrap()
+            .settings
+            .editor
+            .is_none()
+    );
+}
