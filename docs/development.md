@@ -408,6 +408,26 @@ startup still has a separate smoke check: the simulated platform did not expose
 a stale-frame dependency issue found in inactive native windows. Keep the owning
 viewer in the per-frame entity dependency set when adding geometry callbacks.
 
+## Settings references
+
+`config/default.toml` remains the source of typed built-in default values.
+`config/settings-ui.toml` owns the shared labels, descriptions, choices, numeric
+bounds and optional TOML examples. `just settings-reference` regenerates
+`config/user.toml` (the first-open reference) and `docs/settings-reference.md`
+(the complete key reference). Existing user configuration files are never
+regenerated or migrated by this command or by normal app startup.
+
+Keep optional examples in catalogue `examples` arrays, as TOML literals. They are
+commented out in the generated template and never become built-in defaults.
+Dynamic maps and complex values still use Edit TOML; the hand-written settings
+guide retains detailed scope, safety and usage explanations.
+
+`just settings-reference-check` verifies the artifacts without writing them.
+Required Rust tests also compare both generated artifacts byte for byte, check
+that the template inherits all defaults without active values, and validate each
+optional example against the typed configuration. Run the generator after changing
+defaults or catalogue metadata; review the generated changes in the same commit.
+
 ## Performance measurements
 
 `just profile --jj` builds a release-profile synthetic domain harness for the

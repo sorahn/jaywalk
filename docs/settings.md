@@ -4,7 +4,12 @@ Keyboard defaults include Linux-specific recent-repository and fullscreen bindin
 see the [keybindings guide](keybindings.md). Sparse profiles inherit the active
 platform's defaults before applying their explicit overrides.
 
-Jaywalk reads TOML settings. On first open, it creates an ordered copy of the documented [default configuration](../config/default.toml).
+Jaywalk reads TOML settings. On first open, it creates an ordered copy of the
+[generated user template](../config/user.toml). Its values come from the
+[default configuration](../config/default.toml); descriptions, choices, ranges and
+optional examples share the Settings UI catalogue. The
+[complete generated key reference](settings-reference.md) uses those same sources.
+This guide adds configuration behavior and longer usage examples.
 Section headers are active; default values are commented. Uncomment just the
 values you want to change; omitted values
 inherit current defaults, including defaults changed by future releases.
@@ -188,6 +193,10 @@ history and file-browser fonts are independently configurable. Ligature settings
 control OpenType `liga`, `clig` and `calt`; the selected font must support them.
 
 ## Reference
+
+For an exhaustive list generated from the running schema's source files, see the
+[complete key reference](settings-reference.md). The tables below accompany the
+longer usage explanations.
 
 Each table uses full dotted keys. In TOML, put the short key below the matching
 section header, for example `[editor]` followed by `font_size = 14`.

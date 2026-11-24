@@ -7,18 +7,11 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 pub const DEFAULT_BINDINGS: &str = include_str!("../config/keybindings.toml");
-/// Active section headers with commented defaults; omitted values inherit future defaults.
+/// Generated reference with active headers and commented values; existing user
+/// files are never regenerated. See `preferences::reference` for its sources.
+pub const USER_CONFIG: &str = include_str!("../config/user.toml");
 pub fn user_config() -> String {
-    crate::settings::DEFAULT_CONFIG
-        .lines()
-        .map(|line| {
-            if line.is_empty() || line.starts_with('#') || line.starts_with('[') {
-                format!("{line}\n")
-            } else {
-                format!("# {line}\n")
-            }
-        })
-        .collect()
+    USER_CONFIG.to_owned()
 }
 pub const USER_PROFILE: &str = include_str!("../config/user-keybindings.toml");
 

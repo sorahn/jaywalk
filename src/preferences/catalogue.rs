@@ -61,6 +61,9 @@ pub struct Setting {
     pub kind: Kind,
     #[serde(default)]
     pub choices: Vec<String>,
+    /// Valid TOML literals for inherited optional values; never active defaults.
+    #[serde(default)]
+    pub examples: Vec<String>,
     #[serde(default)]
     pub advanced: bool,
     #[serde(default)]

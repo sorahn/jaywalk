@@ -383,7 +383,7 @@ maximum = 1.0
 [[setting]]
 key = "theme.shell_auto.roles"
 title = "Roles"
-description = "Configure theme / shell auto / roles."
+description = "Optional per-surface shell recipe overrides. Use quoted role names, such as shell.sidebar.files.background, with lightness_shift, hue_shift and chroma_scale adjustments. Each adjustment accepts a shared number or light/dark values. Exact theme.overrides colors take precedence. See docs/settings.md for role names and examples."
 category = "appearance"
 section = "Colors"
 section_order = 0
@@ -1670,6 +1670,7 @@ maximum = 60000.0
 
 [[setting]]
 key = "ui.font_family"
+examples = ['"Helvetica Neue"']
 title = "Font family"
 description = "Installed family name; defaults to the theme/system UI font. Must be nonempty when supplied."
 category = "appearance"
@@ -1679,6 +1680,7 @@ kind = "font"
 
 [[setting]]
 key = "editor.font_family"
+examples = ['"Menlo"']
 title = "Font family"
 description = "Installed family name for source text; defaults to the theme/platform monospace font. Must be nonempty when supplied."
 category = "appearance"
@@ -1688,6 +1690,7 @@ kind = "font"
 
 [[setting]]
 key = "panels.history.font.family"
+examples = ['"Helvetica Neue"']
 title = "Family"
 description = "Installed family name; inherits the application UI font when omitted. Must be nonempty when supplied."
 category = "appearance"
@@ -1697,6 +1700,7 @@ kind = "font"
 
 [[setting]]
 key = "panels.files.font.family"
+examples = ['"Helvetica Neue"']
 title = "Family"
 description = "Installed family name; inherits the application UI font when omitted. Must be nonempty when supplied."
 category = "appearance"
@@ -1706,6 +1710,7 @@ kind = "font"
 
 [[setting]]
 key = "history.row_height"
+examples = ['30']
 title = "Row height"
 description = "Override ui.row_height for graph rows; 12–200. Font size can raise the effective minimum."
 category = "history"
@@ -1719,6 +1724,7 @@ maximum = 200.0
 
 [[setting]]
 key = "files.tree_row_height"
+examples = ['30']
 title = "Tree row height"
 description = "Override ui.row_height for tree rows; 12–200. Font size can raise the effective minimum."
 category = "history"
@@ -1732,6 +1738,7 @@ maximum = 200.0
 
 [[setting]]
 key = "files.list_row_height"
+examples = ['30']
 title = "List row height"
 description = "Override ui.row_height for flat-list rows; 12–200. Font size can raise the effective minimum."
 category = "history"
@@ -1745,6 +1752,7 @@ maximum = 200.0
 
 [[setting]]
 key = "files.indent_width"
+examples = ['8']
 title = "Indent width"
 description = "Directory-tree indentation follows ui.spacing.unit × ui.spacing.edge. An explicit 1–128px override remains supported."
 category = "history"
@@ -1758,6 +1766,7 @@ maximum = 128.0
 
 [[setting]]
 key = "settings.editor"
+examples = ['"Zed"', '["code", "--reuse-window"]']
 title = "Settings file editor"
 description = "Application used to open configuration files, such as Zed. Leave inherited to use your system text editor. For executable arguments, edit this value in TOML."
 category = "general"
@@ -1767,6 +1776,7 @@ kind = "text"
 
 [[setting]]
 key = "history.remotes.overrides"
+examples = ['{ origin = false }']
 title = "Overrides"
 description = "Map of remote names to boolean visibility overrides; use quoted keys for names containing dots."
 category = "history"
