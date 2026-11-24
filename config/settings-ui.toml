@@ -1483,14 +1483,13 @@ kind = "complex"
 
 [[setting]]
 key = "keyboard.additional_directories"
-title = "Additional directories"
-summary = "Extra folders searched for keybinding profiles. Relative paths start beside the config file."
+title = "Additional profile folders"
+summary = "Add folders to search for keybinding profiles."
 description = "Additional folders searched by Select keybindings profile…. Accepts an array of nonempty relative or absolute directory paths without NUL characters. Relative paths resolve beside the active config. Applies when the picker next opens."
 category = "keyboard"
 section = "Keyboard profiles"
 section_order = 2
-group = "profile_discovery"
-kind = "complex"
+kind = "structured"
 
 [[setting]]
 key = "application.quit_on_last_window"
@@ -1802,21 +1801,23 @@ maximum = 128.0
 key = "settings.editor"
 examples = ['"Zed"', '["code", "--reuse-window"]']
 title = "Settings file editor"
-description = "Application used to open configuration files, such as Zed. Leave inherited to use your system text editor. For executable arguments, edit this value in TOML."
+summary = "Choose your system editor, an application, or a command with arguments."
+description = "Application used to open configuration files, such as Zed. Leave inherited to use your system text editor. Choose an application, or an executable with separate literal arguments. The config path is appended; arguments are never interpreted by a shell."
 category = "general"
 section = "Settings editor and reload"
 section_order = 2
-kind = "text"
+kind = "structured"
 
 [[setting]]
 key = "history.remotes.overrides"
 examples = ['{ origin = false }']
-title = "Overrides"
+title = "Remote visibility overrides"
+summary = "Show or hide individual remotes in history."
 description = "Map of remote names to boolean visibility overrides; use quoted keys for names containing dots."
 category = "history"
 section = "History"
 section_order = 0
-kind = "complex"
+kind = "structured"
 [[setting]]
 key = "diff.colors"
 title = "Advanced diff colors"

@@ -4,6 +4,7 @@ mod controls;
 mod groups;
 mod keyboard;
 mod session;
+mod structured;
 use crate::command_ui::CommandButtonExt;
 use controls::FontPicker;
 use gpui::component::{
@@ -106,6 +107,7 @@ pub(crate) struct SettingsPage {
     font_names: Vec<String>,
     font_pickers: HashMap<usize, Entity<FontPicker>>,
     color_pickers: HashMap<usize, colors::Picker>,
+    structured: structured::Editors,
     busy: Option<usize>,
     message: Option<String>,
     error: Option<String>,
@@ -167,6 +169,7 @@ impl SettingsPage {
             font_names,
             font_pickers: HashMap::new(),
             color_pickers: HashMap::new(),
+            structured: Default::default(),
             busy: None,
             message: None,
             error: None,
@@ -350,6 +353,7 @@ impl SettingsPage {
         }
     }
     fn accept(&mut self, snapshot: Arc<Snapshot>, window: &mut Window, cx: &mut Context<Self>) {
+        self.structured.prompt_serial += 1;
         if self
             .persisted
             .as_ref()
@@ -517,6 +521,7 @@ impl SettingsPage {
     ) {
         let outside_input = std::iter::once(&self.query)
             .chain(self.drafts.values().map(|draft| &draft.input))
+            .chain(self.structured.inputs())
             .chain(std::iter::once(&self.keyboard.query))
             .chain(self.keyboard.inputs.values().flatten())
             .any(|input| {
@@ -676,6 +681,7 @@ impl SettingsPage {
                     .into_any_element()
             }
             Kind::Font => self.font_control(index, disabled, window, cx),
+            Kind::Structured => self.structured_control(index, disabled, window, cx),
             Kind::Complex => Button::new(("setting-edit", index))
                 .debug_selector(move || {
                     format!("setting-edit-toml-{}", catalogue::SETTINGS[index].key)
@@ -1010,6 +1016,9 @@ impl SettingsPage {
                     .child(text)
                     .child(controls),
             )
+            .when(kind == Kind::Structured, |row| {
+                row.child(self.structured_details(index, disabled, window, cx))
+            })
             .child(
                 div()
                     .absolute()

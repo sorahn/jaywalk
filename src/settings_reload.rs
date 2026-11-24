@@ -50,6 +50,7 @@ pub(crate) fn standard_table<'a>(
 /// retaining the documented order rather than appending a duplicate section.
 pub(crate) fn activate_reference(original: &str, section: &str, keys: &[&str]) -> String {
     let mut inside = false;
+    let mut activated = std::collections::HashSet::new();
     let mut output = String::with_capacity(original.len());
     for line in original.lines() {
         if line == format!("# [{section}]") || line == format!("[{section}]") {
@@ -59,10 +60,11 @@ pub(crate) fn activate_reference(original: &str, section: &str, keys: &[&str]) -
             inside = false;
             output.push_str(line);
         } else if inside
-            && keys
+            && let Some(key) = keys
                 .iter()
-                .any(|key| line.starts_with(&format!("# {key} =")))
+                .find(|key| !activated.contains(**key) && line.starts_with(&format!("# {key} =")))
         {
+            activated.insert((*key).to_owned());
             output.push_str(line.strip_prefix("# ").expect("matched commented value"));
         } else {
             output.push_str(line);

@@ -97,7 +97,28 @@ geometry, indent-guide offset and the overview message-height limit. Fonts,
 spacing, row height, panel placement, diff/gutter behavior, history page size,
 file/repository resource limits and theme-generation controls keep their widgets.
 
-Advanced lists/maps remain searchable with **Edit TOML…**. **Keyboard Shortcuts**
+Three everyday structured values have focused editors:
+
+- **Settings file editor:** choose System default, Application or Command. Application
+  accepts a name or a selection from the folder icon; Command has an executable and one literal
+  argument per field. Use Add new, the × buttons and drag handles to manage rows. The config path is appended as
+  one argument. These fields never execute a command while being edited.
+- **Additional profile folders:** expand the folder count, then use Add new to create a row.
+  Type a path or choose one with its folder icon; drag the handle to reorder or use ×
+  to remove a row. Relative paths
+  resolve beside the config file. The folder order and argument boundaries are preserved.
+- **Remote visibility overrides:** expand the override count for Default/Show/Hide
+  per name. Suggestions come from the repository that opened Settings, read locally
+  without fetching; saved and manually added names remain available. Rules are global
+  settings for those names. Default removes the explicit rule and follows
+  `history.remotes.default_visible`.
+
+These editors share Save/Discard, invalid-input and external-edit conflict handling.
+Only reversible remote-visibility presentation previews live; editor commands and
+profile-folder changes take effect after Save. Cancelled or stale path-chooser
+responses do not modify the draft.
+
+Other advanced lists/maps remain searchable with **Edit TOML…**. **Keyboard Shortcuts**
 and **Accounts** are separate sidebar destinations below the regular settings,
 in that order, excluded from All/Changed and settings search. Keyboard profile
 selection and application-command remapping share the settings Save/Discard draft;

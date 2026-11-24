@@ -47,6 +47,7 @@ pub enum Kind {
     Font,
     Color,
     Complex,
+    Structured,
 }
 #[derive(Debug, Deserialize)]
 pub struct Setting {

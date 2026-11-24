@@ -216,6 +216,7 @@ impl SettingsPage {
     }
 
     pub(super) fn discard(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.structured.prompt_serial += 1;
         if self.busy.is_some() {
             return;
         }
@@ -245,6 +246,7 @@ impl SettingsPage {
         if self.busy.is_some() || self.error.is_some() {
             return;
         }
+        self.structured.prompt_serial += 1;
         // Save includes the active text field even if it has not blurred yet.
         let defaults = self.defaults;
         self.defaults = false;

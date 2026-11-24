@@ -560,3 +560,102 @@ fn toml_only_tuning_stays_searchable_and_modified_without_cluttering_browsing() 
         "[ui]\nloading_delay_ms=450\n[window]\nwidth=1600\n"
     );
 }
+
+#[test]
+fn focused_editors_preserve_literal_arguments_order_dotted_remote_names_and_comments() {
+    let (_root, source) = fixture(
+        "# config note\n[keyboard]\nadditional_directories = [\n  'first folder', # first note\n  'second folder', # second note\n]\n[settings]\neditor = ['code', '--wait'] # editor note\n[history.remotes.overrides]\n'backup.eu' = true # remote note\norigin = false\n",
+    );
+    let folders = toml::Value::Array(vec!["second folder".into(), "first folder".into()]);
+    let editor = toml::Value::Array(vec![
+        "editor with spaces".into(),
+        "--reuse-window".into(),
+        "$(literal); no shell".into(),
+        "".into(),
+    ]);
+    let remotes = toml::Value::Table(toml::Table::from_iter([
+        ("backup.eu".into(), true.into()),
+        ("origin".into(), true.into()),
+    ]));
+    let saved = save(
+        &source,
+        &[
+            Patch::set("keyboard.additional_directories", folders),
+            Patch::set("settings.editor", editor),
+            Patch::set("history.remotes.overrides", remotes),
+        ],
+        &[],
+    )
+    .unwrap();
+    for note in [
+        "# config note",
+        "# first note",
+        "# second note",
+        "# editor note",
+        "# remote note",
+    ] {
+        assert!(saved.text.contains(note), "lost {note}");
+    }
+    assert_eq!(
+        saved.settings.keyboard.additional_directories,
+        [
+            std::path::PathBuf::from("second folder"),
+            std::path::PathBuf::from("first folder")
+        ]
+    );
+    assert_eq!(
+        saved.settings.settings.editor,
+        Some(crate::settings::SettingsEditor::Command(vec![
+            "editor with spaces".into(),
+            "--reuse-window".into(),
+            "$(literal); no shell".into(),
+            "".into()
+        ]))
+    );
+    assert!(saved.settings.history.remotes.overrides["backup.eu"]);
+    assert!(saved.settings.history.remotes.overrides["origin"]);
+    let latest = source.read_snapshot().unwrap();
+    std::fs::write(
+        source.path(),
+        saved.text.replace("origin = true", "origin = false"),
+    )
+    .unwrap();
+    let stale = Patch {
+        key: "history.remotes.overrides".into(),
+        value: Some(toml::Value::Table(toml::Table::new())),
+        expected: Expect::Explicit(latest.explicit("history.remotes.overrides").cloned()),
+    };
+    assert!(
+        save(&source, &[stale], &[]).is_err(),
+        "a stale map must never overwrite newer rules"
+    );
+}
+
+#[test]
+fn selecting_editor_in_first_open_template_activates_only_one_alternative_example() {
+    let (_root, source) = fixture(&crate::keybinding_profiles::user_config());
+    let selected = patch(
+        &source,
+        Patch::set(
+            "settings.editor",
+            toml::Value::Array(vec!["code".into(), "--reuse-window".into()]),
+        ),
+    )
+    .unwrap();
+    assert_eq!(
+        selected.settings.settings.editor,
+        Some(crate::settings::SettingsEditor::Command(vec![
+            "code".into(),
+            "--reuse-window".into()
+        ]))
+    );
+    assert_eq!(
+        selected
+            .text
+            .lines()
+            .filter(|line| line.starts_with("editor ="))
+            .count(),
+        1
+    );
+    assert!(!selected.settings.updates.automatic_checks);
+}

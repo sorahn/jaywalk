@@ -793,8 +793,9 @@
 # poll_interval_ms = 500
 
 # Application used to open configuration files, such as Zed. Leave inherited to
-# use your system text editor. For executable arguments, edit this value in
-# TOML.
+# use your system text editor. Choose an application, or an executable with
+# separate literal arguments. The config path is appended; arguments are never
+# interpreted by a shell.
 # Optional example; omitted by default.
 # editor = "Zed"
 # editor = ["code", "--reuse-window"]

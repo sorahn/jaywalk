@@ -55,7 +55,7 @@ Range: 1 to 50.
 
 Default: Automatic / inherited (unset)
 
-Application used to open configuration files, such as Zed. Leave inherited to use your system text editor. For executable arguments, edit this value in TOML.
+Application used to open configuration files, such as Zed. Leave inherited to use your system text editor. Choose an application, or an executable with separate literal arguments. The config path is appended; arguments are never interpreted by a shell.
 
 Optional examples (choose one):
 
@@ -1097,7 +1097,7 @@ Include history contributed by remotes without an explicit override, including n
 
 ### `history.remotes.overrides`
 
-**Overrides** · History
+**Remote visibility overrides** · History
 
 Default: Automatic / inherited (unset)
 
@@ -1578,7 +1578,7 @@ Window-local preference controlling command usage learning and ordering. With an
 
 ### `keyboard.additional_directories`
 
-**Additional directories** · Keyboard profiles
+**Additional profile folders** · Keyboard profiles
 
 Default: `[]`
 

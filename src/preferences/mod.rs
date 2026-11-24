@@ -214,12 +214,66 @@ fn expand_shared_seed(doc: &mut toml_edit::DocumentMut, key: &str) {
 }
 fn set(doc: &mut toml_edit::DocumentMut, key: &str, value: &toml::Value) -> Result<(), String> {
     expand_shared_seed(doc, key);
+    if key == "history.remotes.overrides" {
+        let rules = value.as_table().ok_or("Remote rules must be a table")?;
+        let remotes = table_at(doc, &["history", "remotes"]);
+        let table = settings_reload::standard_table(remotes, "overrides");
+        let removed: Vec<_> = table
+            .iter()
+            .map(|(name, _)| name.to_owned())
+            .filter(|name| !rules.contains_key(name))
+            .collect();
+        for name in removed {
+            table.remove(&name);
+        }
+        for (name, value) in rules {
+            let value = value.as_bool().ok_or("Remote visibility must be boolean")?;
+            if table.get(name).and_then(toml_edit::Item::as_bool) != Some(value) {
+                let mut next = toml_edit::Value::from(value);
+                if let Some(old) = table.get(name).and_then(toml_edit::Item::as_value) {
+                    *next.decor_mut() = old.decor().clone();
+                }
+                table[name] = toml_edit::Item::Value(next);
+            }
+        }
+        return Ok(());
+    }
     let mut parts: Vec<_> = key.split('.').collect();
     let leaf = parts.pop().ok_or("Empty setting key")?;
     let table = table_at(doc, &parts);
     let mut value = literal(value)
         .parse::<toml_edit::Value>()
         .map_err(|e| format!("Invalid setting value: {e}"))?;
+    if matches!(key, "keyboard.additional_directories" | "settings.editor")
+        && let (Some(previous), Some(next)) = (
+            table.get(leaf).and_then(toml_edit::Item::as_array),
+            value.as_array(),
+        )
+    {
+        let mut updated = previous.clone();
+        updated.clear();
+        let mut used = std::collections::HashSet::new();
+        for (index, item) in next.iter().enumerate() {
+            let matched = previous.iter().enumerate().find(|(i, old)| {
+                !used.contains(i) && item.as_str().is_some() && item.as_str() == old.as_str()
+            });
+            let entry = if let Some((index, old)) = matched {
+                used.insert(index);
+                old.clone()
+            } else {
+                let mut entry = item.clone();
+                if !used.contains(&index)
+                    && let Some(old) = previous.get(index)
+                {
+                    *entry.decor_mut() = old.decor().clone();
+                    used.insert(index);
+                }
+                entry
+            };
+            updated.push_formatted(entry);
+        }
+        value = toml_edit::Value::Array(updated);
+    }
     if let Some(previous) = table.get(leaf).and_then(toml_edit::Item::as_value) {
         *value.decor_mut() = previous.decor().clone();
     }
