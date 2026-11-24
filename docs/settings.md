@@ -35,14 +35,16 @@ details. Right-click a title to copy its settings key or remove an explicit
 override, including one equal to the default. Runtime toolbar/layout memory is separate.
 
 Settings controls edit a window-local draft. **Save** (Cmd/Ctrl+S) validates and
-writes all changes in one atomic operation, then applies them across the app.
+writes validated changes, with atomic replacement of each affected file.
 **Discard** restores the latest saved values. Closing Settings or choosing Quit
 with unsaved changes offers **Save / Discard / Cancel**; a failed or invalid save
-keeps the window and draft open. There are no temporary live previews yet.
-Switches, dropdowns, resets, numeric steps, and color-mode toggles all remain local
-until Save. Numeric fields have −/+ buttons with setting-specific step sizes and
+keeps the window and draft open. Valid presentation changes preview across viewers
+using this settings file, without writing settings or session layout. Discard or
+closing with Discard restores the latest saved configuration. Update consent,
+repository action policies, persistence policy and other nonpresentation settings
+take effect only after Save; these controls are marked accordingly. Numeric fields have −/+ buttons with setting-specific step sizes and
 bounds, including limits derived from other settings. Enter or leaving a text,
-numeric, or color field validates it into the draft; Save also includes an active
+numeric, or color field validates it into the draft; valid typing previews immediately and incomplete values retain the last valid preview. Save also includes an active
 field that has not blurred. Invalid drafts stay local and show a validation error.
 Update consent becomes effective only after saving it. The TOML schema remains
 authoritative for validation, including relationships between settings.
@@ -59,10 +61,12 @@ row backgrounds. Detailed diff colors are grouped under **Advanced diff colors**
 with **Edit TOML…**; fine color overrides remain supported in TOML. Editing one
 shell seed mode preserves the other, including when the previous value was shared.
 
-Advanced lists/maps remain searchable with **Edit TOML…**; account connections
-and keyboard profiles keep their existing dedicated flows. **Show default
-settings** presents a read-only reference in the same window. Temporary visual
-previews and project settings are deferred.
+Advanced lists/maps remain searchable with **Edit TOML…**. **Keyboard Shortcuts**
+and **Accounts** are separate sidebar destinations below the regular settings,
+in that order, excluded from All/Changed and settings search. Keyboard profile
+selection and application-command remapping share the settings Save/Discard draft;
+account actions remain immediate. **Show default settings** presents a read-only
+reference. Project settings remain deferred.
 
 Save patches only the edited keys in the latest validated file, preserves
 comments/permissions and symlinks, and rejects the entire batch on stale same-field
@@ -584,7 +588,7 @@ editor appear in the viewer. Removing `editor` restores the platform default.
 | Setting | Default | Meaning and allowed values |
 | --- | --- | --- |
 | `keyboard.profile` | `"keybindings/default.toml"` | Selected keybinding file. Accepts a nonempty relative or absolute file path without NUL characters. Relative paths resolve beside the active config. Applies live. |
-| `keyboard.additional_directories` | `[]` | Additional folders searched by **Select keybindings profile…**. Accepts an array of nonempty relative or absolute directory paths without NUL characters. Relative paths resolve beside the active config. Applies when the picker next opens. |
+| `keyboard.additional_directories` | `[]` | Additional folders searched by **Select keybindings profile…**. Accepts an array of nonempty relative or absolute directory paths without NUL characters. Relative paths resolve beside the active config. Applies when Keyboard Shortcuts next loads profiles. |
 
 The `keybindings/` folder beside the config is recommended and searched by default,
 but profiles can live anywhere. Extra directories supplement that folder. Discovery

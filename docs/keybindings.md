@@ -40,6 +40,12 @@ The existing shortcuts open one picker with editable prefixes. Changing or remov
 | `@` | Symbols on the focused file side | Secondary+Shift+O |
 | `#` | Symbols across snapshot files | Secondary+T |
 
+Welcome puts **Command palette** first under Getting started and links directly to
+**Settings**, recent repositories and picker help. All assigned shortcut hints use
+the current keymap. On macOS the defaults include Cmd+P (commands), Cmd+, (Settings),
+Cmd+O (open repository), Ctrl+R (recent repositories), and Cmd+Shift+P (files after
+opening a repository). Settings opens its retained window and leaves Welcome open.
+
 For example: `src/main.rs`, `>refresh`, `:120`, `~jaywalk`, `!fix scrolling`, `/fix crash author:alex after:2026-11-01`. Start a literal filename with `./` if it begins with a mode character, such as `./!important.rs`. File/line modes explain when a comparison/file is unavailable on Welcome. Escape dismisses the root picker and restores its originating focus. Nested PR filters retain parent queries, selection and scrolling; Escape returns one step. The full PR browsing page remains reachable through **Browse pull requests**.
 
 The PR picker starts on **For me**: GitHub assignments and review requests appear before authored PRs, without duplicates. Text matching takes precedence over that default grouping. Tab → Scope offers separate Assigned to me, Review requested and Authored by me filters. Bitbucket review requests also appear before authored PRs, using its internal workspace aggregation endpoint with the existing OAuth connection. Assigned to me remains GitHub-only. Bitbucket discovery covers up to ten workspaces (preferred workspace first), three pages per workspace and ten pages per category; limits are labeled as partial results. The internal endpoint is undocumented: failures are shown and keep previously loaded results; Authored by me remains available separately. Results retain the same refresh, cache and restart-snapshot behavior. Independent accounts fetch concurrently (default three), with list and dispatch priority from the config’s `[[accounts]]` order; fast results appear without waiting for slower accounts. Account names and preferred workspaces also live in those config entries; credentials stay in the OS store.
@@ -86,15 +92,41 @@ Put the `[keybindings]` and `[[keymap]]` examples below in that selected file, n
 in `config.toml`. Unspecified shortcuts inherit [shipped defaults](../config/keybindings.toml).
 
 Cmd+, edits the main config. **Open keybindings** edits the active profile through
-`settings.editor`. **Select keybindings profile…** lists `.toml` files in the
-recommended folder and additional discovery folders, plus the current profile if
-it lives elsewhere. It marks the active entry; typing filters paths, Enter selects,
-and Escape cancels. Create another TOML file in one of these folders to add a profile.
-Invalid profiles remain listed, but cannot replace the working keymap. Switching
-saves `keyboard.profile`, preserving config comments; edits to the selected file
-apply live. Missing or malformed files preserve the last valid bindings and report
-an error. Both new commands start unbound and can be assigned shortcuts in a profile.
-For example, `open_keybindings = ["secondary-k secondary-s"]` inside `[keybindings]`.
+`settings.editor`. **Select keybindings profile…** (`select_keybindings`) opens **Keyboard Shortcuts**
+in the retained Settings window, above Accounts. Its compact header keeps the profile selector and TOML action above the search field; shortcut notation and saving help is available from the ? tooltip. The command list scrolls below this fixed header. The profile dropdown lists the
+recommended folder, additional discovery folders and the current profile. Create
+another TOML file in those folders to add a profile. Invalid profiles remain
+listed but cannot replace working bindings. **Open keybindings file…**
+(`open_keybindings`) still opens the active saved profile in your editor.
+
+Search application commands by label, key or current shortcut, including modifier
+aliases: Cmd/Command/Super/Meta/Win, Alt/Option/Opt, Ctrl/Control/Ctl, Shift,
+Fn/Function, and the platform-resolved Secondary modifier. Native symbols and named
+key aliases (Return/Enter, Esc/Escape, arrows, Spacebar, Page Up/Down) also match.
+Shortcut terms must match one binding, rather than combining different alternatives.
+
+Idle shortcut fields show native keycaps (for example ⌃ ⌥ ⇧ ⌘ on macOS), with a
+gap between chord steps. Clicking or tabbing into a field exposes its existing
+GPUI notation for editing; spaces still form chords. Layout and field height stay
+the same. Each command has compact side-by-side Primary and Alternate slots, labeled once above the list. Command keys appear in label tooltips instead of a second text line.
+Clear removes just that slot's binding without moving the other field. Leaving an
+alternate empty creates no override; clearing both slots unbinds the command.
+Profiles with additional alternatives keep them in extra rows, and TOML remains
+available for adding more than two. Reset restores that command's shipped
+bindings, removing common and current-platform overrides while preserving other
+platforms. Toolkit `[[keymap]]` action/context rules remain in TOML.
+
+Profile selection and valid remaps preview immediately after Enter or leaving a
+field. Save also validates the active field. **Save** persists profile and settings
+drafts together; **Discard** restores saved bindings without writing files.
+Unsaved edits to multiple profiles are retained while switching between them.
+Collision/parse failures leave the working keymap intact. A changed profile file
+or changed config key rejects the save before any document is replaced. All files
+are validated/staged first and failures during replacement attempt rollback;
+concurrent external edits are preserved. Each file replacement is atomic, rather
+than claiming a filesystem-wide atomic transaction. Manual edits continue to reload
+live. Both commands start unbound and can be assigned shortcuts in a profile.
+For example, `open_keybindings = ["secondary-k secondary-s"]` in `[keybindings]`.
 
 ## Default review navigation
 
@@ -174,7 +206,7 @@ Use GPUI notation in strings:
 - Spaces separate chord strokes: `"secondary-k 1"` is Cmd+K followed by 1,
   without holding Cmd for the second stroke.
 - Multiple strings give alternatives, not a chord:
-  `["secondary-down", "f7"]` binds either shortcut to the same command.
+  `["secondary-down", "alt-f5"]` binds either shortcut to the same command.
 - A chord prefix can delay a matching single-stroke shortcut; avoid assigning
   an immediate command to the prefix of another chord unless that is intended.
 
@@ -258,8 +290,8 @@ layout/reset/remote-management command merely to fill the table.
 | `keybindings.view_fluid` | `["secondary-k 3"]` | View: Fluid |
 | `keybindings.go_back` | `["secondary-alt-left"]` | Back through visited views |
 | `keybindings.go_forward` | `["secondary-alt-right"]` | Forward through visited views |
-| `keybindings.next_change` | `["secondary-down", "alt-f5", "f7"]` | Next change |
-| `keybindings.previous_change` | `["secondary-up", "alt-shift-f5", "shift-f7"]` | Previous change |
+| `keybindings.next_change` | `["secondary-down", "alt-f5"]` | Next change |
+| `keybindings.previous_change` | `["secondary-up", "alt-shift-f5"]` | Previous change |
 | `keybindings.next_file` | `["secondary-]", "alt-down"]` | Next file |
 | `keybindings.previous_file` | `["secondary-[", "alt-up"]` | Previous file |
 | `keybindings.next_revision` | `["secondary-}", "secondary-alt-down"]` | Next revision |
@@ -425,7 +457,7 @@ This compares shipped defaults, not personal overrides or every dynamic menu.
   (no prefix). Both actions can be remapped in keybindings.
 - Kaleidoscope documents Cmd+Down/Up for change navigation. VS Code uses
   Option+F5 / Option+Shift+F5, with F7-family accessible diff navigation. Jaywalk
-  uses Cmd+arrows as primary and retains the existing F5/F7 alternatives.
+  uses Cmd+arrows as primary and Option+F5 / Option+Shift+F5 as alternate bindings.
 - File/history navigation varies. Kaleidoscope's installed menu assigns
   Ctrl+Cmd+Up/Down to files; Sublime Merge assigns Cmd+Shift+brackets to file
   tabs and Option+Up/Down to commit ancestry. Jaywalk follows its explicit

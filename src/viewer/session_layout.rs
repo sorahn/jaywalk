@@ -133,7 +133,7 @@ impl Viewer {
         }
     }
     pub(super) fn save_layout(&mut self, cx: &mut Context<Self>) {
-        if self.is_welcome() {
+        if self.config.previewing || self.config.applying_preview || self.is_welcome() {
             return;
         }
         if !self.settings.layout.remember_per_repository {

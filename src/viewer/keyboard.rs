@@ -43,85 +43,15 @@ impl Viewer {
 
     pub(super) fn choose_keybindings_profile(
         &mut self,
-        window: &mut Window,
+        _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let source = SettingsSource::resolve(self.arguments.config.as_deref());
-        let active = self.settings.keyboard.profile.clone();
-        let additional = self.settings.keyboard.additional_directories.clone();
-        self.config.profile_task = Some(cx.spawn_in(window, async move |this, cx| {
-            let result = cx
-                .background_spawn(async move {
-                    let source = source?;
-                    source.initialize()?;
-                    profiles::list(source.path(), &active, &additional)
-                })
-                .await;
-            let _ = this.update_in(cx, |viewer, window, cx| match result {
-                Ok(profiles) => {
-                    viewer.palette.profiles = profiles;
-                    viewer.open_palette(palette::PaletteKind::Profiles, window, cx);
-                }
-                Err(error) => {
-                    viewer.config.error = Some(error);
-                    cx.notify();
-                }
-            });
-        }));
-    }
-
-    pub(super) fn select_keybindings_profile(
-        &mut self,
-        name: String,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        let source = SettingsSource::resolve(self.arguments.config.as_deref());
-        self.config.profile_task = Some(cx.spawn_in(window, async move |this, cx| {
-            let publish_source = source.clone();
-            let result = cx
-                .background_spawn(async move {
-                    let source = source?;
-                    profiles::Selection::prepare(source.path(), &name)
-                })
-                .await;
-            let result = match result {
-                Ok(selection) => {
-                    let valid = this.update(cx, |_, cx| {
-                        commands::validate_bindings(&selection.settings, cx)
-                    });
-                    match valid {
-                        Ok(Ok(())) => {
-                            let source = publish_source.clone();
-                            cx.background_spawn(async move {
-                                selection.save()?;
-                                source?.read_snapshot()
-                            })
-                            .await
-                        }
-                        Ok(Err(error)) => Err(error),
-                        Err(_) => return,
-                    }
-                }
-                Err(error) => Err(error),
-            };
-            let _ = this.update_in(cx, |viewer, _window, cx| {
-                match result {
-                    Ok(snapshot) => {
-                        let result = publish_source.and_then(|source| {
-                            crate::settings_service::publish_snapshot(source, snapshot, cx)
-                        });
-                        if let Err(error) = result {
-                            viewer.config.error = Some(error);
-                        }
-                    }
-                    Err(error) => {
-                        viewer.config.error =
-                            Some(format!("Keybindings profile not changed. {error}"))
-                    }
-                }
-                cx.notify();
-            });
-        }));
+        let arguments = self.arguments.clone();
+        let settings = self.settings.clone();
+        cx.defer(move |cx| {
+            if let Err(error) = crate::preferences_window::show_keyboard(arguments, settings, cx) {
+                eprintln!("Could not open Keyboard Shortcuts: {error}");
+            }
+        });
     }
 }

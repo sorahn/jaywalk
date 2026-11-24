@@ -32,7 +32,7 @@ impl Category {
             Self::Diff => "Diff and overview",
             Self::History => "History and files",
             Self::Repositories => "Repositories",
-            Self::Keyboard => "Keyboard and navigation",
+            Self::Keyboard => "Navigation",
             Self::Updates => "Updates",
         }
     }

@@ -1,5 +1,6 @@
 //! Retained native settings content. Controls edit the shared TOML source.
 mod controls;
+mod keyboard;
 mod session;
 use crate::command_ui::CommandButtonExt;
 use controls::FontPicker;
@@ -57,6 +58,7 @@ impl EventEmitter<Event> for SettingsPage {}
 enum Destination {
     Settings,
     Accounts,
+    Keyboard,
 }
 
 struct Draft {
@@ -70,11 +72,13 @@ pub(crate) struct SettingsPage {
     source: SettingsSource,
     destination: Destination,
     accounts: Option<Entity<crate::account_ui::AccountPanel>>,
+    keyboard: keyboard::Keyboard,
     query: Entity<InputState>,
     surface_focus: FocusHandle,
     snapshot: Option<Arc<Snapshot>>,
     persisted: Option<Arc<Snapshot>>,
     pending: BTreeMap<usize, Patch>,
+    raw_preview: BTreeMap<usize, Patch>,
     close_after_save: Option<bool>,
     close_prompt: bool,
     category: Option<Category>,
@@ -99,6 +103,11 @@ impl SettingsPage {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
+        let owner = cx.entity_id();
+        cx.on_release(move |page, cx| {
+            let _ = crate::settings_service::clear_preview(&page.source, owner, cx);
+        })
+        .detach();
         let query =
             cx.new(|cx| InputState::new(window, cx).placeholder("Search keys and descriptions…"));
         let subscription = cx.subscribe_in(&query, window, |page, _, event, _, cx| {
@@ -114,11 +123,13 @@ impl SettingsPage {
             source: source.clone(),
             destination: Destination::Settings,
             accounts: None,
+            keyboard: keyboard::Keyboard::new(window, cx),
             query,
             surface_focus: cx.focus_handle(),
             snapshot: None,
             persisted: None,
             pending: BTreeMap::new(),
+            raw_preview: BTreeMap::new(),
             close_after_save: None,
             close_prompt: false,
             category: Some(Category::General),
@@ -196,6 +207,8 @@ impl SettingsPage {
             && let Some(accounts) = &self.accounts
         {
             accounts.update(cx, |accounts, cx| accounts.focus(window, cx));
+        } else if self.destination == Destination::Keyboard {
+            window.focus(&self.keyboard.query.focus_handle(cx), cx);
         } else {
             window.focus(&self.query.focus_handle(cx), cx);
         }
@@ -342,6 +355,7 @@ impl SettingsPage {
             }
         }
         self.snapshot = Some(snapshot);
+        self.reload_keyboard_if_clean(window, cx);
         self.rows = self.snapshot.as_ref().expect("just assigned").matching(
             self.query.read(cx).value().as_ref(),
             self.category,
@@ -408,6 +422,7 @@ impl SettingsPage {
                             draft.error = None;
                         }
                     }
+                    page.preview_input(index, cx);
                     cx.notify();
                 }
                 InputEvent::PressEnter { .. } | InputEvent::Blur => {
@@ -457,6 +472,8 @@ impl SettingsPage {
     ) {
         let outside_input = std::iter::once(&self.query)
             .chain(self.drafts.values().map(|draft| &draft.input))
+            .chain(std::iter::once(&self.keyboard.query))
+            .chain(self.keyboard.inputs.values().flatten())
             .any(|input| {
                 input.focus_handle(cx).is_focused(window)
                     && !input.read(cx).input_bounds().contains(&position)
@@ -491,6 +508,8 @@ impl SettingsPage {
             draft
                 .input
                 .update(cx, |input, cx| input.set_value(text, window, cx));
+            self.raw_preview.remove(&index);
+            self.refresh_preview(cx);
             cx.notify();
         } else if !self.query.read(cx).value().is_empty() {
             self.query
@@ -791,9 +810,15 @@ impl SettingsPage {
             setting.category.label(),
             setting.key
         );
-        let notice = draft_error.or_else(|| {
-            (!prerequisite).then(|| format!("Requires {}", dependent.unwrap_or_default()))
-        });
+        let notice_is_error = draft_error.is_some();
+        let notice = draft_error
+            .or_else(|| {
+                (!prerequisite).then(|| format!("Requires {}", dependent.unwrap_or_default()))
+            })
+            .or_else(|| {
+                (!crate::settings_service::previewable(&setting.key) && kind != Kind::Complex)
+                    .then(|| "Takes effect after Save.".to_owned())
+            });
         let owner = cx.entity().downgrade();
         let copy_key = setting.key.clone();
         let reset_label = format!("Reset to default: {default}");
@@ -888,7 +913,7 @@ impl SettingsPage {
                 row.child(
                     div()
                         .text_xs()
-                        .text_color(if !prerequisite { muted } else { danger })
+                        .text_color(if notice_is_error { danger } else { muted })
                         .truncate()
                         .child(notice),
                 )
@@ -967,6 +992,8 @@ impl Focusable for SettingsPage {
 impl Render for SettingsPage {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let accounts_active = self.destination == Destination::Accounts;
+        let keyboard_active = self.destination == Destination::Keyboard;
+        let settings_active = self.destination == Destination::Settings;
         let narrow = f32::from(window.viewport_size().width) < 900.;
         let compact = f32::from(window.viewport_size().width) < 650.;
         let theme = gpui::component::Theme::global(cx);
@@ -977,7 +1004,11 @@ impl Render for SettingsPage {
         let modified = self.snapshot.as_ref().map_or(0, |snapshot| {
             catalogue::SETTINGS
                 .iter()
-                .filter(|setting| !setting.advanced && snapshot.modified(setting))
+                .filter(|setting| {
+                    !setting.advanced
+                        && setting.key != "keyboard.profile"
+                        && snapshot.modified(setting)
+                })
                 .count()
         });
         let mut nav = div()
@@ -1009,7 +1040,7 @@ impl Render for SettingsPage {
                     .child(div().w_full().text_left().child("All settings"))
                     .ghost()
                     .px(crate::spacing::space(2., cx))
-                    .selected(!accounts_active && self.category.is_none() && !self.changed)
+                    .selected(settings_active && self.category.is_none() && !self.changed)
                     .justify_start()
                     .on_click(cx.listener(|page, _, _, cx| {
                         page.select_category(None, cx);
@@ -1027,7 +1058,7 @@ impl Render for SettingsPage {
                     )
                     .ghost()
                     .px(crate::spacing::space(2., cx))
-                    .selected(!accounts_active && self.changed)
+                    .selected(settings_active && self.changed)
                     .justify_start()
                     .disabled(self.defaults)
                     .on_click(cx.listener(|page, _, _, cx| {
@@ -1042,7 +1073,7 @@ impl Render for SettingsPage {
                     .child(div().w_full().text_left().child(category.label()))
                     .ghost()
                     .px(crate::spacing::space(2., cx))
-                    .selected(!accounts_active && self.category == Some(category))
+                    .selected(settings_active && self.category == Some(category))
                     .justify_start()
                     .on_click(cx.listener(move |page, _, _, cx| {
                         page.select_category(Some(category), cx);
@@ -1051,6 +1082,17 @@ impl Render for SettingsPage {
         }
         nav = nav
             .child(div().h(px(1.)).my(crate::spacing::edge(cx)).bg(border))
+            .child(
+                Button::new("settings-keyboard")
+                    .debug_selector(|| "settings-keyboard".into())
+                    .child(div().w_full().text_left().child("Keyboard Shortcuts"))
+                    .command_hint(CommandId::SelectKeybindings)
+                    .ghost()
+                    .px(crate::spacing::space(2., cx))
+                    .justify_start()
+                    .selected(keyboard_active)
+                    .on_click(cx.listener(|page, _, window, cx| page.show_keyboard(window, cx))),
+            )
             .child(
                 Button::new("settings-accounts")
                     .debug_selector(|| "settings-accounts".into())
@@ -1123,7 +1165,15 @@ impl Render for SettingsPage {
                                         );
                                     }
                                     let owner = owner.clone();
+                                    let keyboard_owner = owner.clone();
                                     menu.separator()
+                                        .item(PopupMenuItem::new("Keyboard Shortcuts").on_click(
+                                            move |_, window, cx| {
+                                                let _ = keyboard_owner.update(cx, |page, cx| {
+                                                    page.show_keyboard(window, cx)
+                                                });
+                                            },
+                                        ))
                                         .item(PopupMenuItem::new("Accounts").on_click(
                                             move |_, window, cx| {
                                                 let _ = owner.update(cx, |page, cx| {
@@ -1143,7 +1193,7 @@ impl Render for SettingsPage {
                                 .small()
                                 .ghost()
                                 .label(format!("Changed {modified}"))
-                                .selected(!accounts_active && self.changed)
+                                .selected(settings_active && self.changed)
                                 .disabled(self.defaults)
                                 .on_click(cx.listener(|page, _, _, cx| {
                                     page.select_changed(cx);
@@ -1161,7 +1211,9 @@ impl Render for SettingsPage {
         } else {
             self.source.path().display().to_string()
         };
-        let title = if accounts_active {
+        let title = if keyboard_active {
+            "Keyboard Shortcuts".into()
+        } else if accounts_active {
             "Accounts".into()
         } else if searching {
             format!(
@@ -1208,7 +1260,7 @@ impl Render for SettingsPage {
                         div()
                             .h_flex()
                             .gap(crate::spacing::space(2., cx))
-                            .when(accounts_active, |row| row.hidden())
+                            .when(!settings_active, |row| row.hidden())
                             .child(
                                 Button::new("settings-defaults")
                                     .small()
@@ -1274,9 +1326,14 @@ impl Render for SettingsPage {
                     .child(if accounts_active {
                         "Account actions take effect immediately."
                     } else {
-                        "Changes apply after Save. Unsaved changes stay in this window."
+                        "Changes preview live. Save writes them; Discard restores saved settings."
                     }),
             );
+        let header = if keyboard_active {
+            self.render_keyboard_header(window, cx)
+        } else {
+            header.into_any_element()
+        };
         let owner = cx.entity().downgrade();
         let count = self.rows.len();
         let list = uniform_list("settings-rows", count, move |range, window, cx| {
@@ -1319,6 +1376,8 @@ impl Render for SettingsPage {
                 .expect("Accounts is constructed before display")
                 .clone()
                 .into_any_element()
+        } else if keyboard_active {
+            self.render_keyboard(window, cx)
         } else {
             body.into_any_element()
         };

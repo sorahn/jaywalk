@@ -163,9 +163,6 @@ impl Viewer {
             }),
             PaletteKind::References => "Enter opens history target · Review selected branch changes uses Shift+Enter by default · Escape closes".into(),
             PaletteKind::Remotes => "Enter toggles a remote · Search and selection stay in place · Escape closes".into(),
-            PaletteKind::Profiles => {
-                "Choose a keybinding profile · Escape closes · ? lists picker modes".into()
-            }
             PaletteKind::Line => format!(
                 "Source line on the {} side · Enter a positive line number · ? lists modes",
                 if self.palette.line_before {

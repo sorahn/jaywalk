@@ -103,6 +103,11 @@ impl Viewer {
             .child(div().text_lg().font_medium().child("Getting started"));
         for (id, command, description) in [
             (
+                "welcome-commands",
+                CommandId::ShowCommands,
+                "Search actions, files, repositories and pull requests from one place.",
+            ),
+            (
                 "welcome-open",
                 CommandId::OpenRepository,
                 "Browse a local repository’s history and working changes.",
@@ -134,6 +139,7 @@ impl Viewer {
                             .gap(crate::spacing::edge(cx))
                             .child(
                                 Button::new(id)
+                                    .debug_selector(move || id.into())
                                     .ghost()
                                     .label(command.label())
                                     .tooltip_with_action(
@@ -171,17 +177,25 @@ impl Viewer {
                         .child("From your terminal, run jw . to open the current repository."),
                 ),
         );
+        let mut shortcuts = div()
+            .h_flex()
+            .flex_wrap()
+            .items_center()
+            .gap(crate::spacing::edge(cx));
         for (label, command) in [
-            ("Find a command", CommandId::ShowCommands),
-            ("Explore picker modes (?)", CommandId::PickerHelp),
+            ("Settings", CommandId::ShowSettings),
+            ("Recent repositories", CommandId::OpenRecent),
+            ("Picker modes (?)", CommandId::PickerHelp),
         ] {
-            start = start.child(
+            shortcuts = shortcuts.child(
                 div()
                     .h_flex()
                     .items_center()
                     .gap(crate::spacing::edge(cx))
                     .child(
                         Button::new(format!("welcome-picker-{}", command.key()))
+                            .debug_selector(move || format!("welcome-picker-{}", command.key()))
+                            .compact()
                             .ghost()
                             .label(label)
                             .on_click(cx.listener(move |viewer, _, window, cx| {
@@ -191,7 +205,7 @@ impl Viewer {
                     .child(super::palette::ShortcutHint(command)),
             );
         }
-        start = start.child(
+        start = start.child(shortcuts).child(
             div()
                 .id("welcome-file-shortcut")
                 .debug_selector(|| "welcome-file-shortcut".into())
@@ -386,6 +400,7 @@ impl Viewer {
                         (CommandId::ComparePaths, false),
                         (CommandId::ShowSetup, false),
                         (CommandId::InstallCli, false),
+                        (CommandId::ShowSettings, false),
                         (CommandId::OpenSettings, false),
                         (CommandId::OpenKeybindings, false),
                     ],

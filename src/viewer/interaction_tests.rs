@@ -698,14 +698,14 @@ fn standard_folding_disclosures_and_navigation_match_both_modes(cx: &mut TestApp
         });
         assert_eq!(cx.update(|_, app| state.read(app).context_lines()), None);
         // The standard widget's selected group drives the same fixed-width counter.
-        cx.simulate_keystrokes("f7");
+        cx.simulate_keystrokes("alt-f5");
         draw(cx);
         let first = cx.update(|_, app| state.read(app).change_navigation_position());
         assert_eq!(first.1, 2);
         assert!(first.0.is_some());
         assert!(cx.debug_bounds("change-counter").is_some());
         let width = cx.debug_bounds("change-counter").unwrap().size.width;
-        cx.simulate_keystrokes("f7");
+        cx.simulate_keystrokes("alt-f5");
         draw(cx);
         assert_ne!(
             cx.update(|_, app| state.read(app).change_navigation_position().0),
@@ -738,7 +738,7 @@ fn standard_folding_disclosures_and_navigation_match_both_modes(cx: &mut TestApp
         // Disabled buttons and remappable shortcuts must both leave context alone.
         let button = cx.debug_bounds("next-change").unwrap().center();
         cx.simulate_click(button, Default::default());
-        cx.simulate_keystrokes("f7 shift-f7");
+        cx.simulate_keystrokes("alt-f5 alt-shift-f5");
         draw(cx);
         let actual = cx.update(|_, app| state.read(app).viewport_offset());
         assert_eq!(actual.item_ix, offset.item_ix);
@@ -4351,7 +4351,7 @@ fn settings_search_edit_reset_and_close_preserve_the_review(cx: &mut TestAppCont
             .word_highlight,
         "a toggle must not write until Save"
     );
-    main_cx.update(|_, app| assert!(viewer.read(app).settings.diff.word_highlight));
+    main_cx.update(|_, app| assert!(!viewer.read(app).settings.diff.word_highlight));
     save_settings(cx);
     let saved = Settings::parse(&std::fs::read_to_string(&path).unwrap()).unwrap();
     assert!(!saved.diff.word_highlight);
@@ -5182,5 +5182,461 @@ fn settings_accounts_sidebar_preserves_query_draft_and_account_form(cx: &mut Tes
             .unwrap()
             .diff
             .word_highlight
+    );
+}
+
+#[gpui_test::test]
+fn settings_live_typing_and_discard_restore_saved_values_without_writing(cx: &mut TestAppContext) {
+    let fixture = Fixture::new();
+    let (viewer, cx) = setup(&fixture, cx);
+    let (_page, mut popup) = open_settings_test(&viewer, cx, false);
+    let main = cx;
+    let cx = &mut popup;
+    let path = fixture.0.join("settings.toml");
+    let bytes = std::fs::read(&path).unwrap();
+    let search = cx.debug_bounds("settings-search").unwrap();
+    cx.simulate_click(search.center(), Default::default());
+    cx.simulate_input("ui.font_size");
+    draw(cx);
+    let original = main.update(|_, app| viewer.read(app).settings.ui.font_size);
+    let field = cx.debug_bounds("setting-ui.font_size").unwrap();
+    cx.simulate_click(field.center(), Default::default());
+    cx.simulate_keystrokes("secondary-a");
+    cx.simulate_input("19");
+    draw(cx);
+    assert_eq!(
+        main.update(|_, app| viewer.read(app).settings.ui.font_size),
+        19.
+    );
+    assert_eq!(std::fs::read(&path).unwrap(), bytes);
+    cx.simulate_keystrokes("secondary-a");
+    cx.simulate_input("-1");
+    draw(cx);
+    assert_eq!(
+        main.update(|_, app| viewer.read(app).settings.ui.font_size),
+        19.,
+        "invalid drafts retain last valid preview"
+    );
+    let discard = cx.debug_bounds("settings-discard").unwrap();
+    cx.simulate_click(discard.center(), Default::default());
+    draw(cx);
+    draw(main);
+    assert_eq!(
+        main.update(|_, app| viewer.read(app).settings.ui.font_size),
+        original
+    );
+    assert_eq!(std::fs::read(&path).unwrap(), bytes);
+}
+
+#[gpui_test::test]
+fn settings_keyboard_remaps_preview_discard_validate_and_save(cx: &mut TestAppContext) {
+    let fixture = Fixture::new();
+    let (viewer, cx) = setup(&fixture, cx);
+    let (_page, mut popup) = open_settings_test(&viewer, cx, false);
+    let main = cx;
+    let cx = &mut popup;
+    let path = fixture.0.join("settings.toml");
+    let source = jaywalk::settings_reload::SettingsSource::resolve(Some(&path)).unwrap();
+    let before = source.read_snapshot().unwrap();
+    let profile =
+        jaywalk::keybinding_profiles::Draft::load(&path, &before.settings.keyboard.profile)
+            .unwrap();
+    let sidebar = cx.debug_bounds("settings-keyboard").unwrap();
+    cx.simulate_click(sidebar.center(), Default::default());
+    draw(cx);
+    let query = cx.debug_bounds("keyboard-search").unwrap();
+    cx.simulate_click(query.center(), Default::default());
+    cx.simulate_input("find_file");
+    draw(cx);
+    let field = cx.debug_bounds("keyboard-find_file-0").unwrap();
+    cx.simulate_click(field.center(), Default::default());
+    cx.simulate_keystrokes("secondary-a");
+    cx.simulate_input("alt-shift-j");
+    cx.simulate_keystrokes("enter");
+    draw(cx);
+    assert_eq!(
+        main.update(|_, app| viewer.read(app).settings.keybindings
+            [&jaywalk::commands::CommandId::FindFile]
+            .clone()),
+        ["alt-shift-j"]
+    );
+    assert_eq!(
+        std::fs::read_to_string(&profile.path).unwrap(),
+        profile.original
+    );
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), before.text);
+    let discard = cx.debug_bounds("settings-discard").unwrap();
+    cx.simulate_click(discard.center(), Default::default());
+    draw(cx);
+    draw(main);
+    assert_eq!(
+        main.update(|_, app| viewer.read(app).settings.keybindings
+            [&jaywalk::commands::CommandId::FindFile]
+            .clone()),
+        before.settings.keybindings[&jaywalk::commands::CommandId::FindFile]
+    );
+    let field = cx.debug_bounds("keyboard-find_file-0").unwrap();
+    cx.simulate_click(field.center(), Default::default());
+    cx.simulate_keystrokes("secondary-a");
+    cx.simulate_input("secondary-b");
+    cx.simulate_keystrokes("enter");
+    draw(cx);
+    save_settings(cx);
+    assert_eq!(
+        std::fs::read_to_string(&profile.path).unwrap(),
+        profile.original,
+        "conflicting shortcut must not save"
+    );
+    let field = cx.debug_bounds("keyboard-find_file-0").unwrap();
+    cx.simulate_click(field.center(), Default::default());
+    cx.simulate_keystrokes("secondary-a");
+    cx.simulate_input("alt-shift-j");
+    save_settings(cx);
+    draw(main);
+    assert_eq!(
+        source.read_snapshot().unwrap().settings.keybindings
+            [&jaywalk::commands::CommandId::FindFile],
+        ["alt-shift-j"]
+    );
+}
+
+#[gpui_test::test]
+fn settings_profile_selection_is_a_draft_and_survives_navigation(cx: &mut TestAppContext) {
+    let fixture = Fixture::new();
+    let (viewer, cx) = setup(&fixture, cx);
+    let (page, mut popup) = open_settings_test(&viewer, cx, false);
+    let main = cx;
+    let cx = &mut popup;
+    let path = fixture.0.join("settings.toml");
+    let source = jaywalk::settings_reload::SettingsSource::resolve(Some(&path)).unwrap();
+    let before = source.read_snapshot().unwrap();
+    let alternate = fixture.0.join("keybindings/alternate.toml");
+    std::fs::write(
+        &alternate,
+        "# second profile\n[keybindings]\nfind_file=['alt-shift-j']\n",
+    )
+    .unwrap();
+    cx.update(|window, app| {
+        page.update(app, |page, cx| {
+            page.show_keyboard(window, cx);
+            page.load_keyboard_profile("keybindings/alternate.toml".into(), window, cx);
+        })
+    });
+    draw(cx);
+    draw(main);
+    assert_eq!(
+        main.update(|_, app| viewer.read(app).settings.keybindings
+            [&jaywalk::commands::CommandId::FindFile]
+            .clone()),
+        ["alt-shift-j"]
+    );
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), before.text);
+    let all = cx.debug_bounds("settings-all").unwrap();
+    cx.simulate_click(all.center(), Default::default());
+    draw(cx);
+    let keyboard = cx.debug_bounds("settings-keyboard").unwrap();
+    cx.simulate_click(keyboard.center(), Default::default());
+    draw(cx);
+    save_settings(cx);
+    assert_eq!(
+        source.read_snapshot().unwrap().settings.keyboard.profile,
+        "keybindings/alternate.toml"
+    );
+    assert_eq!(
+        std::fs::read_to_string(&alternate).unwrap(),
+        "# second profile\n[keybindings]\nfind_file=['alt-shift-j']\n",
+        "selection must not rewrite the profile"
+    );
+}
+
+#[gpui_test::test]
+fn settings_keyboard_primary_alternate_fields_preserve_drafts(cx: &mut TestAppContext) {
+    use jaywalk::commands::CommandId;
+    let fixture = Fixture::new();
+    let (viewer, cx) = setup(&fixture, cx);
+    let (_page, mut popup) = open_settings_test(&viewer, cx, false);
+    let main = cx;
+    let cx = &mut popup;
+    let path = fixture.0.join("settings.toml");
+    let source = jaywalk::settings_reload::SettingsSource::resolve(Some(&path)).unwrap();
+    let before = source.read_snapshot().unwrap();
+    let profile =
+        jaywalk::keybinding_profiles::Draft::load(&path, &before.settings.keyboard.profile)
+            .unwrap();
+    let sidebar = cx.debug_bounds("settings-keyboard").unwrap();
+    cx.simulate_click(sidebar.center(), Default::default());
+    draw(cx);
+    let query = cx.debug_bounds("keyboard-search").unwrap();
+    cx.simulate_click(query.center(), Default::default());
+    cx.simulate_input("find_file");
+    draw(cx);
+    assert!(cx.debug_bounds("kbd:shift").is_some());
+    assert!(cx.debug_bounds("kbd:p").is_some());
+    let field = cx.debug_bounds("keyboard-find_file-0").unwrap();
+    cx.simulate_click(field.center(), Default::default());
+    draw(cx);
+    assert!(
+        cx.debug_bounds("kbd:p").is_none(),
+        "editing shows the original notation instead of keycaps"
+    );
+    let first = cx.debug_bounds("keyboard-find_file-0").unwrap();
+    let second = cx.debug_bounds("keyboard-find_file-1").unwrap();
+    assert_eq!(first.origin.y, second.origin.y, "slots share a row");
+    assert_eq!(
+        first.size.width, second.size.width,
+        "empty slots keep the same width"
+    );
+    assert!(first.size.width <= px(150.), "shortcut inputs stay compact");
+    let heading = cx.debug_bounds("keyboard-primary-heading").unwrap();
+    assert_eq!(
+        heading.origin.x, first.origin.x,
+        "single column headings align with inputs"
+    );
+    assert!(second.origin.x > first.right());
+    assert!(cx.debug_bounds("shortcut-add-find_file").is_none());
+    save_settings(cx);
+    assert_eq!(
+        std::fs::read_to_string(&profile.path).unwrap(),
+        profile.original,
+        "untouched alternate slots create no override"
+    );
+    cx.simulate_click(second.center(), Default::default());
+    cx.simulate_input("alt-shift-j");
+    cx.simulate_keystrokes("enter");
+    draw(cx);
+    draw(main);
+    assert_eq!(
+        main.update(|_, app| viewer.read(app).settings.keybindings[&CommandId::FindFile].len()),
+        2
+    );
+    let remove = cx.debug_bounds("shortcut-remove-find_file-1").unwrap();
+    cx.simulate_click(remove.center(), Default::default());
+    draw(cx);
+    let cleared = cx.debug_bounds("keyboard-find_file-1").unwrap();
+    assert_eq!(cleared, second, "clearing preserves slot geometry");
+    let query = cx.debug_bounds("keyboard-search").unwrap();
+    cx.simulate_click(query.center(), Default::default());
+    cx.simulate_keystrokes("secondary-a");
+    cx.simulate_input("show_commands");
+    draw(cx);
+    let remove = cx.debug_bounds("shortcut-remove-show_commands-1").unwrap();
+    cx.simulate_click(remove.center(), Default::default());
+    draw(cx);
+    draw(main);
+    assert_eq!(
+        main.update(|_, app| viewer.read(app).settings.keybindings[&CommandId::ShowCommands].len()),
+        1
+    );
+    let remove = cx.debug_bounds("shortcut-remove-show_commands-0").unwrap();
+    cx.simulate_click(remove.center(), Default::default());
+    draw(cx);
+    draw(main);
+    assert!(main.update(|_, app| {
+        viewer.read(app).settings.keybindings[&CommandId::ShowCommands].is_empty()
+    }));
+    assert_eq!(
+        std::fs::read_to_string(&profile.path).unwrap(),
+        profile.original,
+        "removing shortcuts is still a draft"
+    );
+    save_settings(cx);
+    assert!(
+        source.read_snapshot().unwrap().settings.keybindings[&CommandId::ShowCommands].is_empty()
+    );
+}
+
+#[gpui_test::test]
+fn settings_keyboard_preserves_existing_extra_alternatives(cx: &mut TestAppContext) {
+    use jaywalk::commands::CommandId;
+    let fixture = Fixture::new();
+    let bindings = ["alt-shift-j", "alt-shift-k", "alt-shift-l"].map(String::from);
+    std::fs::create_dir_all(fixture.0.join("keybindings")).unwrap();
+    std::fs::write(
+        fixture.0.join("keybindings/default.toml"),
+        "[keybindings]\nfind_file=['alt-shift-j','alt-shift-k','alt-shift-l']\n",
+    )
+    .unwrap();
+    let (viewer, cx) = setup(&fixture, cx);
+    let (_page, mut popup) = open_settings_test(&viewer, cx, false);
+    let cx = &mut popup;
+    let path = fixture.0.join("settings.toml");
+    let source = jaywalk::settings_reload::SettingsSource::resolve(Some(&path)).unwrap();
+    let saved = source.read_snapshot().unwrap();
+    let sidebar = cx.debug_bounds("settings-keyboard").unwrap();
+    cx.simulate_click(sidebar.center(), Default::default());
+    draw(cx);
+    let query = cx.debug_bounds("keyboard-search").unwrap();
+    cx.simulate_click(query.center(), Default::default());
+    cx.simulate_input("find_file");
+    draw(cx);
+    let first = cx.debug_bounds("keyboard-find_file-0").unwrap();
+    let extra = cx.debug_bounds("keyboard-find_file-2").unwrap();
+    assert!(extra.origin.y > first.bottom());
+    let remove = cx.debug_bounds("shortcut-remove-find_file-0").unwrap();
+    cx.simulate_click(remove.center(), Default::default());
+    draw(cx);
+    save_settings(cx);
+    let saved =
+        jaywalk::keybinding_profiles::Draft::load(&path, &saved.settings.keyboard.profile).unwrap();
+    assert_eq!(
+        saved.profile.keybindings[&CommandId::FindFile],
+        bindings[1..]
+    );
+}
+
+#[gpui_test::test]
+fn welcome_settings_and_palette_links_follow_the_current_keymap(cx: &mut TestAppContext) {
+    let fixture = Fixture::new();
+    let (viewer, cx) = setup_arguments(&fixture, Arguments::parse_from(["jaywalk"]), cx);
+    assert!(cx.debug_bounds("shortcut-show_commands").is_some());
+    assert!(cx.debug_bounds("shortcut-show_settings").is_some());
+    assert!(cx.debug_bounds("shortcut-open_recent").is_some());
+    cx.simulate_keystrokes("secondary-p");
+    draw(cx);
+    assert!(
+        cx.debug_bounds("palette-overlay").is_some(),
+        "the advertised command-palette shortcut works from Welcome"
+    );
+    cx.simulate_keystrokes("escape");
+    draw(cx);
+    let palette = cx.debug_bounds("welcome-commands").unwrap();
+    cx.simulate_click(palette.center(), Default::default());
+    draw(cx);
+    assert!(cx.debug_bounds("palette-overlay").is_some());
+    assert!(cx.debug_bounds("welcome-page").is_some());
+    cx.simulate_keystrokes("escape");
+    draw(cx);
+    let settings = cx.update(|_, app| viewer.read(app).settings.clone());
+    let profile = jaywalk::keybinding_profiles::Profile::parse(
+        "[keybindings]\nshow_commands=['alt-shift-j']\nshow_settings=['alt-shift-,']\n",
+    )
+    .unwrap();
+    let remapped = settings.with_keybindings(profile).unwrap();
+    cx.update(|window, app| {
+        super::commands::install_bindings(&remapped, app).unwrap();
+        viewer.update(app, |viewer, cx| {
+            viewer.receive_settings(remapped, None, window, cx)
+        });
+    });
+    draw(cx);
+    assert!(cx.debug_bounds("kbd:alt-shift-j").is_some());
+    assert!(cx.debug_bounds("kbd:alt-shift-,").is_some());
+    let settings = cx.debug_bounds("welcome-picker-show_settings").unwrap();
+    cx.simulate_click(settings.center(), Default::default());
+    draw(cx);
+    assert_eq!(cx.update(|_, app| app.windows().len()), 2);
+    assert!(
+        cx.debug_bounds("welcome-page").is_some(),
+        "opening Settings preserves Welcome"
+    );
+    let (_, mut popup) = open_settings_test(&viewer, cx, false);
+    assert!(popup.debug_bounds("settings-page").is_some());
+    assert_eq!(
+        cx.update(|_, app| app.windows().len()),
+        2,
+        "the link opens the retained Settings window"
+    );
+    assert!(cx.update(|_, app| viewer.read(app).is_welcome()));
+}
+
+#[gpui_test::test]
+#[ignore = "manual keybindings scroll profiling"]
+fn settings_keyboard_scroll_profile(cx: &mut TestAppContext) {
+    let fixture = Fixture::new();
+    let (viewer, cx) = setup(&fixture, cx);
+    let (page, mut popup) = open_settings_test(&viewer, cx, false);
+    let cx = &mut popup;
+    let sidebar = cx.debug_bounds("settings-keyboard").unwrap();
+    let started = std::time::Instant::now();
+    cx.simulate_click(sidebar.center(), Default::default());
+    draw(cx);
+    let opening = started.elapsed();
+    let mounted = cx.update(|_, app| page.read(app).keyboard_input_count());
+    let position = cx.debug_bounds("keyboard-content").unwrap().center();
+    let mut frames = Vec::new();
+    for index in 0..60 {
+        let started = std::time::Instant::now();
+        cx.simulate_event(gpui_test::ScrollEvent {
+            position,
+            delta: gpui_test::ScrollDelta::Pixels(point(
+                px(0.),
+                px(if index < 30 { -60. } else { 60. }),
+            )),
+            ..Default::default()
+        });
+        draw(cx);
+        frames.push(started.elapsed().as_secs_f64() * 1000.);
+    }
+    frames.sort_by(f64::total_cmp);
+    eprintln!(
+        "keyboard profile: open={:.1}ms mounted={mounted}/{} scroll+3frames median={:.2}ms p95={:.2}ms",
+        opening.as_secs_f64() * 1000.,
+        jaywalk::commands::CommandId::ALL.len(),
+        frames[30],
+        frames[57]
+    );
+}
+
+#[gpui_test::test]
+fn settings_keyboard_virtual_scroll_preserves_pending_edits(cx: &mut TestAppContext) {
+    use jaywalk::commands::CommandId;
+    let fixture = Fixture::new();
+    let (viewer, cx) = setup(&fixture, cx);
+    let (page, mut popup) = open_settings_test(&viewer, cx, false);
+    let cx = &mut popup;
+    let sidebar = cx.debug_bounds("settings-keyboard").unwrap();
+    cx.simulate_click(sidebar.center(), Default::default());
+    draw(cx);
+    let initialized = cx.update(|_, app| page.read(app).keyboard_input_count());
+    assert!(
+        initialized < CommandId::ALL.len() / 3,
+        "opening creates only viewport inputs: {initialized}"
+    );
+    assert!(cx.debug_bounds("keyboard-about-0").is_some());
+    assert!(
+        cx.debug_bounds("keyboard-word_wrap-0").is_none(),
+        "offscreen rows are not constructed"
+    );
+    let first = cx.debug_bounds("keyboard-about-0").unwrap();
+    let other = cx.debug_bounds("keyboard-go_back-0").unwrap();
+    assert_eq!(
+        first.origin.x, other.origin.x,
+        "virtual rows use the viewport width to align their controls"
+    );
+    let field = cx.debug_bounds("keyboard-about-0").unwrap();
+    cx.simulate_click(field.center(), Default::default());
+    cx.simulate_input("alt-shift-j");
+    let position = cx.debug_bounds("keyboard-content").unwrap().center();
+    cx.simulate_event(gpui_test::ScrollEvent {
+        position,
+        delta: gpui_test::ScrollDelta::Pixels(point(px(0.), px(-5000.))),
+        ..Default::default()
+    });
+    draw(cx);
+    assert!(
+        cx.debug_bounds("keyboard-about-0").is_some(),
+        "the focused editor stays mounted outside the viewport"
+    );
+    cx.simulate_keystrokes("enter");
+    draw(cx);
+    save_settings(cx);
+    let path = fixture.0.join("settings.toml");
+    let saved = jaywalk::settings_reload::SettingsSource::resolve(Some(&path))
+        .unwrap()
+        .read_snapshot()
+        .unwrap();
+    assert_eq!(
+        saved.settings.keybindings[&CommandId::About],
+        ["alt-shift-j"]
+    );
+    cx.simulate_event(gpui_test::ScrollEvent {
+        position,
+        delta: gpui_test::ScrollDelta::Pixels(point(px(0.), px(5000.))),
+        ..Default::default()
+    });
+    draw(cx);
+    assert!(
+        cx.debug_bounds("keyboard-about-0").is_some(),
+        "the edited row can be revisited"
     );
 }

@@ -1,5 +1,7 @@
 //! Sparse keyboard profiles; shipped defaults remain separate from user files.
+mod draft;
 use crate::commands::CommandId;
+pub use draft::Draft;
 use serde::Deserialize;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
