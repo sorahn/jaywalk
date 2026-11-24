@@ -915,6 +915,9 @@ installation is available from **Choose GitHub repositories…** on Accounts.
 
 ## Shell themes
 
+On macOS, window content has an explicit 1px divider below the native title bar,
+using the Header border color. It applies to main, Settings and About windows.
+
 The shell palette resolves once when settings load, for both light and dark
 appearance. Changing colors live preserves the open comparison. Appearance
 still uses `ui.appearance = "system"`, `"light"`, or `"dark"`; the system accent
