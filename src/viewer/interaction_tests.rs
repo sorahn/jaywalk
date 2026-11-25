@@ -6448,3 +6448,63 @@ seed={light="#575757",dark="#153049"}
         identity
     );
 }
+
+#[gpui_test::test]
+fn imported_code_theme_selection_previews_discards_and_saves(cx: &mut TestAppContext) {
+    let fixture = Fixture::new();
+    let theme_path = fixture.0.join("theme.json");
+    std::fs::write(&theme_path,r##"{"name":"Local dark","type":"dark","colors":{"editor.background":"#183042","editor.foreground":"#ddeeff"},"tokenColors":[{"scope":"string","settings":{"foreground":"#22dd88"}}]}"##).unwrap();
+    let path = fixture.0.join("settings.toml");
+    let entry = jaywalk::theme::assets::import(&path, &theme_path).unwrap();
+    let args =
+        Arguments::parse_from(["jaywalk", fixture.0.to_str().unwrap(), "--file", "file.txt"]);
+    let (viewer, main) = setup_arguments_with_settings(
+        &fixture,
+        args,
+        "[ui]\nappearance='dark'\n[theme.shell_auto]\nsource='code_theme'",
+        cx,
+    );
+    let original = main.update(|_, app| {
+        gpui::component::Theme::global(app)
+            .editor_colors()
+            .background
+    });
+    let identity = main.update(|_, app| viewer.read(app).code().unwrap().before.entity_id());
+    let saved = std::fs::read_to_string(&path).unwrap();
+    let (page, mut popup) = open_settings_test(&viewer, main, false);
+    let cx = &mut popup;
+    search_setting(cx, "theme.code.dark");
+    let select = |cx: &mut VisualTestContext| {
+        let field = cx.debug_bounds("setting-theme.code.dark").unwrap();
+        cx.simulate_click(field.center(), Default::default());
+        cx.simulate_keystrokes("down down enter");
+        draw(cx);
+    };
+    select(cx);
+    assert!(cx.update(|_, app| page.read(app).has_changes()));
+    assert_eq!(
+        cx.update(|_, app| gpui::component::Theme::global(app)
+            .editor_colors()
+            .background),
+        gpui::Hsla::from(gpui::rgb(0x183042))
+    );
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), saved);
+    let discard = cx.debug_bounds("settings-discard").unwrap();
+    cx.simulate_click(discard.center(), Default::default());
+    draw(cx);
+    assert_eq!(
+        cx.update(|_, app| gpui::component::Theme::global(app)
+            .editor_colors()
+            .background),
+        original
+    );
+    select(cx);
+    save_settings(cx);
+    let settings = Settings::parse(&std::fs::read_to_string(&path).unwrap()).unwrap();
+    assert_eq!(settings.theme.code.dark, entry.id);
+    assert_eq!(
+        cx.update(|_, app| viewer.read(app).code().unwrap().before.entity_id()),
+        identity
+    );
+    assert!(!settings.updates.automatic_checks);
+}

@@ -157,3 +157,100 @@ mod tests {
         });
     }
 }
+
+/// Compile the normalized format on the asset worker, never during paint.
+pub(crate) fn code_asset(asset: &jaywalk::theme::assets::Asset, dark: bool) -> Arc<HighlightTheme> {
+    let mut syntax = serde_json::Map::new();
+    for (capture, style) in &asset.syntax {
+        syntax.insert(
+            capture.clone(),
+            serde_json::json!({
+                "color": style.color.map(|color| format!("#{color:08x}")),
+                "font_style": if style.italic { "italic" } else { "normal" },
+                "font_weight": if style.bold { 700 } else { 400 },
+            }),
+        );
+    }
+    let mut style = serde_json::Map::new();
+    for (key, color) in &asset.editor {
+        style.insert(key.clone(), serde_json::json!(format!("#{color:08x}")));
+    }
+    style.insert("syntax".into(), serde_json::Value::Object(syntax));
+    Arc::new(
+        serde_json::from_value(serde_json::json!({
+            "name": asset.name,
+            "appearance": if dark { "dark" } else { "light" },
+            "style": style,
+        }))
+        .expect("normalized asset uses the toolkit's declared theme schema"),
+    )
+}
+
+#[cfg(test)]
+mod import_tests {
+    use super::*;
+    use gpui::component::highlighter::PreparedInputHighlighter;
+    #[test]
+    fn imported_theme_styles_real_bundled_language_captures_and_normal_fallback() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("theme.json");
+        std::fs::write(&path,r##"{"type":"dark","colors":{"editor.background":"#123456","editor.foreground":"#aabbcc"},"tokenColors":[
+            {"scope":"string","settings":{"foreground":"#ff3344","fontStyle":"bold italic"}},
+            {"scope":"markup.heading","settings":{"foreground":"#33ccff"}}
+        ]}"##).unwrap();
+        let asset = jaywalk::theme::assets::load(&path).unwrap();
+        let theme = code_asset(&asset, true);
+        for (language, text, needle, color) in [
+            (
+                "rust",
+                "fn main() { let text = \"hello\"; }",
+                "hello",
+                0xff3344,
+            ),
+            ("javascript", "const text = \"hello\";", "hello", 0xff3344),
+            (
+                "typescript",
+                "const text: string = \"hello\";",
+                "hello",
+                0xff3344,
+            ),
+            ("python", "text = \"hello\"\n", "hello", 0xff3344),
+            ("json", "{\"text\": \"hello\"}", "hello", 0xff3344),
+            ("markdown", "# hello\n", "hello", 0x33ccff),
+        ] {
+            let factory = PreparedInputHighlighter::new(language, text).into_factory();
+            let highlighter = factory(language).unwrap();
+            let start = text.find(needle).unwrap();
+            let styles = highlighter.styles(&(0..text.len()), theme.as_ref());
+            let expected = Some(Hsla::from(rgb(color)));
+            assert!(
+                styles
+                    .iter()
+                    .any(|(range, style)| range.contains(&start) && style.color == expected),
+                "{language}: {styles:?}"
+            );
+            if language != "markdown" {
+                let style = styles
+                    .iter()
+                    .find(|(range, style)| range.contains(&start) && style.color == expected)
+                    .unwrap()
+                    .1;
+                assert_eq!(style.font_style, Some(gpui::FontStyle::Italic));
+                assert_eq!(style.font_weight, Some(gpui::FontWeight::BOLD));
+            }
+        }
+        assert_eq!(
+            theme
+                .style
+                .syntax
+                .style("variable.parameter")
+                .unwrap()
+                .color,
+            Some(Hsla::from(rgb(0xaabbcc)))
+        );
+        assert_eq!(
+            theme.style.editor_background,
+            Some(Hsla::from(rgb(0x123456)))
+        );
+    }
+}

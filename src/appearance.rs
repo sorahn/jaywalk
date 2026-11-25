@@ -1,5 +1,6 @@
 //! Live application appearance and diff palettes, using the toolkit’s theme roles.
 mod code;
+pub(crate) use code::code_asset;
 use code::{project_code, syntax_theme};
 use gpui::component::highlighter::HighlightTheme;
 use gpui::component::{Icon, Theme, ThemeMode};
@@ -37,7 +38,36 @@ pub(crate) fn init(settings: &Settings, cx: &mut App) {
 
 pub(crate) fn apply(settings: &Settings, cx: &mut App) {
     let state = cx.global_mut::<AppAppearance>();
-    state.themes = settings.resolved_theme().clone();
+    let input = |dark: bool| {
+        let defaults = jaywalk::theme::CodeThemes::default();
+        let fallback = if dark { defaults.dark } else { defaults.light };
+        let style = &state.code[usize::from(dark)].style;
+        let color = |value: Hsla| {
+            let rgba = value.to_rgb();
+            let byte = |v: f32| (v * 255.).round() as u32;
+            jaywalk::theme::Color(
+                (byte(rgba.r) << 24) | (byte(rgba.g) << 16) | (byte(rgba.b) << 8) | byte(rgba.a),
+            )
+        };
+        let background = style
+            .editor_background
+            .map(color)
+            .unwrap_or(fallback.background);
+        jaywalk::theme::CodeColors {
+            background,
+            foreground: style
+                .editor_foreground
+                .map(color)
+                .map(|fg| background.blend(fg, f64::from((fg.0 & 255) as u8) / 255.)),
+        }
+    };
+    state.themes = Arc::new(jaywalk::theme::resolve_with_code(
+        &settings.theme,
+        jaywalk::theme::CodeThemes {
+            light: input(false),
+            dark: input(true),
+        },
+    ));
     state.ui = settings.ui.clone();
     state.editor = settings.editor.clone();
     state.diff = settings.diff.colors;
@@ -46,6 +76,25 @@ pub(crate) fn apply(settings: &Settings, cx: &mut App) {
         Appearance::Dark => Some(WindowAppearance::Dark),
         Appearance::System => None,
     });
+    refresh(None, true, cx);
+}
+
+/// Atomically replace only color inputs. Current fonts, mode and other settings
+/// remain owned by the settings service, including while a worker was loading.
+pub(crate) fn publish_code(
+    code: [Option<Arc<HighlightTheme>>; 2],
+    themes: Arc<ResolvedThemes>,
+    cx: &mut App,
+) {
+    if cx.try_global::<AppAppearance>().is_none() {
+        return;
+    }
+    let state = cx.global_mut::<AppAppearance>();
+    state.code = [
+        code[0].clone().unwrap_or_else(|| syntax_theme(false)),
+        code[1].clone().unwrap_or_else(|| syntax_theme(true)),
+    ];
+    state.themes = themes;
     refresh(None, true, cx);
 }
 

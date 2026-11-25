@@ -43,6 +43,7 @@ pub enum Kind {
     Boolean,
     Number,
     Choice,
+    CodeTheme,
     Text,
     Font,
     Color,
@@ -237,7 +238,7 @@ impl Setting {
     }
     pub fn parse_input(&self, text: &str) -> Result<toml::Value, String> {
         match self.kind {
-            Kind::Text | Kind::Font => Ok(toml::Value::String(text.into())),
+            Kind::Text | Kind::Font | Kind::CodeTheme => Ok(toml::Value::String(text.into())),
             Kind::Color if !text.trim().starts_with('{') => {
                 Ok(toml::Value::String(text.trim().into()))
             }

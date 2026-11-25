@@ -21,6 +21,7 @@ mod preferences_ui;
 mod preferences_window;
 mod recents;
 mod settings_service;
+mod theme_service;
 mod windows;
 use cli::Arguments;
 mod launcher;

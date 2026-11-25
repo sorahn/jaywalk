@@ -38,8 +38,20 @@ pub enum Source {
 #[derive(Clone, Debug, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct ThemeSettings {
+    pub code: CodeSelection,
     pub shell_auto: ShellAuto,
     pub overrides: BTreeMap<Role, ColorSetting>,
+}
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct CodeSelection {
+    pub light: String,
+    pub dark: String,
+}
+impl CodeSelection {
+    pub fn get(&self, dark: bool) -> &str {
+        if dark { &self.dark } else { &self.light }
+    }
 }
 #[derive(Clone, Debug, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
@@ -85,6 +97,21 @@ fn bounded(name: &str, value: Number, min: f64, max: f64) -> Result<(), String> 
 }
 impl ThemeSettings {
     pub fn validate(&self) -> Result<(), String> {
+        for dark in [false, true] {
+            let id = self.code.get(dark);
+            if id
+                != if dark {
+                    "builtin:dark"
+                } else {
+                    "builtin:light"
+                }
+                && !super::assets::valid_id(id)
+            {
+                return Err(format!(
+                    "Invalid code theme ID {id:?}; select an imported theme in Settings"
+                ));
+            }
+        }
         let r = &self.shell_auto;
         for (name, n, min, max) in [
             ("layer_strength", r.layer_strength, 0., 2.5),

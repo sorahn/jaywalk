@@ -953,6 +953,15 @@ its own client ID after restart; explicit development registrations keep
 working. Publisher build credentials do not go in user settings. Repository
 installation is available from **Choose GitHub repositories…** on Accounts.
 
+## Code themes
+
+`theme.code.light` and `theme.code.dark` default to `"builtin:light"` and
+`"builtin:dark"`. Select or import a local VS Code JSON/JSONC theme in Settings →
+Appearance. Imported IDs use `vscode:<32 hex digits>`. Selection previews live;
+Save persists it and Discard restores the saved theme. File loading is asynchronous
+and retains last-good colors on failure. See [local theme import](themes.md) for
+catalog storage, limits, supported captures and coverage diagnostics.
+
 ## Shell themes
 
 On macOS, window content has an explicit 1px divider below the native title bar,
@@ -1006,8 +1015,8 @@ overrides for intentional changes to the viewer anchor. At separation zero the
 unadjusted surfaces are flat. Unattainable contrast targets retain valid colors
 and produce diagnostics, rather than shifting the viewer to make room.
 
-Ungenerated code colors must resolve before this recipe. Until local code-theme
-imports land, that means the built-in `#f7f7f7` / `#121212` backgrounds, or explicit
+Ungenerated code colors resolve before this recipe: selected local code themes,
+the built-in `#f7f7f7` / `#121212` backgrounds, and final explicit
 `editor.background` and `editor.foreground` overrides. Missing code colors use
 these fixed built-in fallbacks, never a generated shell color, so there is no
 circular dependency. With a `#1d2021` viewer and default controls, Files is

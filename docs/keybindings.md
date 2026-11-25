@@ -609,3 +609,8 @@ its active shortcut. Escape reverts an unfinished field, clears search, or asks
 to close; unsaved changes prompt Save / Discard / Cancel. Close-window and Quit
 commands use the same guard. Edits in the settings UI apply only after Save;
 external TOML edits retain their normal live reload behavior.
+
+Code themes: `select_code_theme`, `import_code_theme` and `inspect_code_theme`
+start unbound and can be remapped normally. They open the shared Settings theme
+controls, explicit local file chooser and coverage inspection respectively,
+without requiring an open repository. Selection follows Settings Save/Discard.

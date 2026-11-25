@@ -21,6 +21,26 @@ kind = "choice"
 choices = ["system", "light", "dark"]
 
 [[setting]]
+key = "theme.code.light"
+title = "Light code theme"
+summary = "Select a local VS Code theme for light appearance."
+description = "Imports link an explicitly selected JSON/JSONC file read-only. Changes reload locally; invalid reloads retain the last valid theme. Selection previews live; Save persists the selection and Discard restores it. Shell colors follow only when Shell color source is From code theme."
+category = "appearance"
+section = "Colors"
+section_order = 0
+kind = "code_theme"
+
+[[setting]]
+key = "theme.code.dark"
+title = "Dark code theme"
+summary = "Select a local VS Code theme for dark appearance."
+description = "Imports link an explicitly selected JSON/JSONC file read-only. Changes reload locally; invalid reloads retain the last valid theme. Selection previews live; Save persists the selection and Discard restores it. Shell colors follow only when Shell color source is From code theme."
+category = "appearance"
+section = "Colors"
+section_order = 0
+kind = "code_theme"
+
+[[setting]]
 key = "theme.shell_auto.source"
 title = "Shell color source"
 summary = "Use custom seeds, or derive the shell from the viewer background."
